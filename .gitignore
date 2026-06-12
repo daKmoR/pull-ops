@@ -1,0 +1,23 @@
+node_modules
+dist
+dist-types
+dev.env
+prod.env
+.env.prod
+.env.dev
+.env
+.DS_Store
+temp
+.scratch
+
+# Local Netlify folder
+.netlify
+.wireit
+
+_examples/**/*
+
+# Playwright MCP runtime data
+.playwright-mcp/
+
+# generated
+**/generated.*

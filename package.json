@@ -1,0 +1,116 @@
+{
+  "name": "@pull-ops/cli",
+  "version": "0.1.0",
+  "description": "",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./types.js": {
+      "types": "./dist-types/exports/types.d.ts"
+    },
+    "./*": {
+      "types": "./dist-types/exports/*",
+      "default": "./exports/*"
+    },
+    "./docs/assets/*": "./docs/assets/*"
+  },
+  "files": [
+    "exports/",
+    "src/**/*.js",
+    "src/**/*.css",
+    "src/**/*.svg",
+    "src/**/*.txt",
+    "dist-types/**/*.d.ts",
+    "dist-types/**/*.d.ts.map",
+    "docs/assets/",
+    "!src/**/*.test.js",
+    "!dist-types/docs/**",
+    "!dist-types/**/*.test.d.ts",
+    "!dist-types/**/*.test.d.ts.map"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daKmoR/pull-ops.git"
+  },
+  "homepage": "https://rocket.modern-web.dev",
+  "bugs": {
+    "url": "https://github.com/daKmoR/pull-ops/issues"
+  },
+  "funding": {
+    "url": "https://opencollective.com/modern-web"
+  },
+  "scripts": {
+    "lint": "eslint . --ignore-pattern .gitignore && prettier \"**/*.{ts,js,json,md}\" --check --ignore-path .gitignore --ignore-path .prettierignore",
+    "format": "eslint . --ignore-pattern .gitignore --fix && prettier \"**/*.{ts,js,json,md}\" --write --ignore-path .gitignore --ignore-path .prettierignore",
+    "types": "wireit",
+    "test": "wireit",
+    "changeset": "changeset",
+    "prepack": "npm run types",
+    "release": "changeset publish"
+  },
+  "eslintConfig": {
+    "overrides": [
+      {
+        "files": [
+          "*.demo.js"
+        ],
+        "rules": {
+          "no-console": "off"
+        }
+      }
+    ]
+  },
+  "bin": {
+    "pullops": "src/cli/cli.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0",
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.4",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "dotenv": "^17.4.2",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-no-only-tests": "^3.4.0",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
+    "prettier-plugin-packagejson": "^3.0.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.59.4",
+    "wireit": "^0.14.12"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "prettier": {
+    "arrowParens": "avoid",
+    "printWidth": 100,
+    "singleQuote": true,
+    "trailingComma": "all"
+  },
+  "wireit": {
+    "types": {
+      "command": "tsc --build --pretty",
+      "files": [
+        "exports/**/*",
+        "src/**/*",
+        "tsconfig.json"
+      ],
+      "output": [
+        "dist-types/**"
+      ]
+    },
+    "test": {
+      "command": "node --test",
+      "files": [
+        "exports/**/*",
+        "src/**/*",
+        "!src/**/*.test-browser.js"
+      ],
+      "output": []
+    }
+  }
+}
