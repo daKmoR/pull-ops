@@ -77,6 +77,25 @@ The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
 workflows after dispatch for repository checkout, pushes, labels, and pull
 request updates.
 
+## OpenAI Codex Setup
+
+PullOps uses `openai/codex-action@v1` for Codex-backed operation steps. Add a
+repository Actions secret named `OPENAI_API_KEY`; the workflows pass it only to
+the Codex Action step as `openai-api-key`.
+
+```sh
+gh secret set OPENAI_API_KEY --repo OWNER/REPO
+```
+
+The implement and review workflows run in three phases:
+
+1. PullOps prepares the branch or PR context and writes
+   `$RUNNER_TEMP/pullops-output/codex_prompt.md`.
+2. `openai/codex-action@v1` runs Codex with that prompt and writes
+   `$RUNNER_TEMP/pullops-output/codex_output.json`.
+3. PullOps validates the JSON output, commits or publishes review feedback, and
+   updates labels.
+
 See GitHub's docs for current UI details:
 
 - [Managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)

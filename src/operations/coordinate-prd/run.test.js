@@ -46,6 +46,7 @@ describe('runCoordinatePrd', () => {
 function createContext(overrides = {}) {
   return {
     operation: 'coordinate-prd',
+    phase: 'run',
     target: {
       type: 'issue',
       number: 12,
@@ -53,7 +54,7 @@ function createContext(overrides = {}) {
     cwd: '/workspace',
     config: DEFAULT_PULL_OPS_CONFIG,
     modelTier: 'low',
-    model: 'codex-low',
+    model: 'gpt-5.4-mini',
     githubClient: createFakeGitHub({ issue: createIssue({ number: 12 }) }).client,
     gitClient: {
       async createBranch() {

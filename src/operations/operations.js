@@ -1,7 +1,15 @@
 import { runCoordinatePrd } from './coordinate-prd/run.js';
-import { runImplementIssue } from './implement-issue/run.js';
+import {
+  runImplementIssue,
+  runImplementIssueCodexActionFinalize,
+  runImplementIssueCodexActionPrepare,
+} from './implement-issue/run.js';
 import { runPreparePrd } from './prepare-prd/run.js';
-import { runReviewPr } from './review-pr/run.js';
+import {
+  runReviewPr,
+  runReviewPrCodexActionFinalize,
+  runReviewPrCodexActionPrepare,
+} from './review-pr/run.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -90,6 +98,14 @@ export async function runWorkflowOperation(context) {
   }
 
   if (context.operation === 'implement-issue') {
+    if (context.phase === 'prepare-codex') {
+      return await runImplementIssueCodexActionPrepare(context);
+    }
+
+    if (context.phase === 'finalize-codex') {
+      return await runImplementIssueCodexActionFinalize(context);
+    }
+
     return await runImplementIssue(context);
   }
 
@@ -98,6 +114,14 @@ export async function runWorkflowOperation(context) {
   }
 
   if (context.operation === 'review-pr') {
+    if (context.phase === 'prepare-codex') {
+      return await runReviewPrCodexActionPrepare(context);
+    }
+
+    if (context.phase === 'finalize-codex') {
+      return await runReviewPrCodexActionFinalize(context);
+    }
+
     return await runReviewPr(context);
   }
 

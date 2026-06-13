@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createImplementIssueBranchName } from './branch.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR, runImplementIssue } from './run.js';
+import {
+  GITHUB_ACTIONS_BOT_AUTHOR,
+  runImplementIssue,
+  runImplementIssueCodexActionFinalize,
+  runImplementIssueCodexActionPrepare,
+} from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -54,7 +59,7 @@ describe('runImplementIssue', () => {
     ]);
     assert.equal(codex.calls.length, 1);
     assert.equal(codex.calls[0].command, 'codex exec');
-    assert.equal(codex.calls[0].model, 'codex-high');
+    assert.equal(codex.calls[0].model, 'gpt-5.5');
     assert.match(codex.calls[0].prompt, /Use the pullops-implement-issue skill/);
     assert.deepEqual(git.commits, [
       {
@@ -78,7 +83,7 @@ describe('runImplementIssue', () => {
     assert.match(github.createdPullRequests[0].body, /Review cycles: 0 \/ 3/);
     assert.match(github.createdPullRequests[0].body, /Triggered by: @octocat/);
     assert.match(github.createdPullRequests[0].body, /Model tier: high/);
-    assert.match(github.createdPullRequests[0].body, /Model: codex-high/);
+    assert.match(github.createdPullRequests[0].body, /Model: gpt-5\.5/);
     assert.deepEqual(github.pullRequestLabels, [
       {
         number: 100,
@@ -97,7 +102,90 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('02: implements a manually selected child issue against the parent branch', async () => {
+  it('02: prepares a Codex Action prompt without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+    const issue = createIssue({ number: 42, title: 'Add the first operation' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssueCodexActionPrepare(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.branches, [
+      {
+        branchName: 'pullops/issue-42',
+        baseBranch: 'main',
+      },
+    ]);
+
+    const prompt = await readFile(join(outputDirectory, 'codex_prompt.md'), 'utf8');
+    assert.match(prompt, /Use the pullops-implement-issue skill/);
+    assert.match(prompt, /Implement GitHub Issue #42: Add the first operation/);
+    assert.deepEqual(result.codexAction, {
+      promptFile: join(outputDirectory, 'codex_prompt.md'),
+      outputFile: join(outputDirectory, 'codex_output.json'),
+      model: 'gpt-5.5',
+      branch: 'pullops/issue-42',
+    });
+  });
+
+  it('03: finalizes a Codex Action output without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+    await writeFile(
+      join(outputDirectory, 'codex_output.json'),
+      JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented the first operation.',
+        changes: ['Added operation orchestration.'],
+        testPlan: ['npm test -- src/operations/implement-issue/run.test.js'],
+      }),
+    );
+
+    const issue = createIssue({ number: 42, title: 'Add the first operation' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssueCodexActionFinalize(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+        codexActionOutcome: 'success',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.branches, []);
+    assert.deepEqual(git.commits, [
+      {
+        message: [
+          'feat(issue): implement #42',
+          '',
+          'Implement Add the first operation.',
+          '',
+          'Refs: #42',
+        ].join('\n'),
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      },
+    ]);
+    assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/issue-42');
+  });
+
+  it('04: implements a manually selected child issue against the parent branch', async () => {
     const issue = createIssue({
       number: 42,
       title: 'Do one child task',
@@ -156,7 +244,7 @@ describe('runImplementIssue', () => {
     assert.match(github.createdPullRequests[0].body, /PRD: #1/);
   });
 
-  it('03: blocks a PRD-looking issue without native GitHub child issues', async () => {
+  it('05: blocks a PRD-looking issue without native GitHub child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
@@ -193,7 +281,7 @@ describe('runImplementIssue', () => {
     assert.match(github.comments[0].body, /Use pullops:prd:prepare/);
   });
 
-  it('04: blocks a parent issue with children without implementing child issues', async () => {
+  it('06: blocks a parent issue with children without implementing child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
@@ -228,7 +316,7 @@ describe('runImplementIssue', () => {
     assert.equal(git.branches.length, 0);
   });
 
-  it('05: refuses closed issues before creating a branch', async () => {
+  it('07: refuses closed issues before creating a branch', async () => {
     const issue = createIssue({
       number: 42,
       state: 'CLOSED',
@@ -251,7 +339,7 @@ describe('runImplementIssue', () => {
     assert.equal(git.branches.length, 0);
   });
 
-  it('06: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
+  it('08: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
     const github = createFakeGitHub({
       issue: createIssue({ number: 42 }),
       existingPullRequest: {
@@ -293,7 +381,7 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('07: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
+  it('09: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
@@ -337,7 +425,7 @@ describe('runImplementIssue', () => {
     );
   });
 
-  it('08: records unexpected git or GitHub failures after valid runner output', async () => {
+  it('10: records unexpected git or GitHub failures after valid runner output', async () => {
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit({
       failOn: action => action === 'pushBranch',
@@ -370,7 +458,7 @@ describe('runImplementIssue', () => {
     });
   });
 
-  it('09: blocks an issue when a dependency is not done', async () => {
+  it('11: blocks an issue when a dependency is not done', async () => {
     const issue = createIssue({
       number: 42,
       body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
@@ -410,7 +498,7 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('10: uses the configured Branch Prefix for deterministic branch names', () => {
+  it('12: uses the configured Branch Prefix for deterministic branch names', () => {
     assert.equal(
       createImplementIssueBranchName({
         branchPrefix: 'automation/pullops/',
@@ -436,6 +524,7 @@ describe('runImplementIssue', () => {
 function createContext(overrides = {}) {
   return {
     operation: 'implement-issue',
+    phase: 'run',
     target: {
       type: 'issue',
       number: 42,
@@ -443,7 +532,7 @@ function createContext(overrides = {}) {
     cwd: '/workspace',
     config: DEFAULT_PULL_OPS_CONFIG,
     modelTier: 'high',
-    model: 'codex-high',
+    model: 'gpt-5.5',
     githubClient: createFakeGitHub({ issue: createIssue({ number: 42 }) }).client,
     gitClient: createFakeGit().client,
     codexRunner: createFakeCodexRunner({ output: '{}' }).runner,

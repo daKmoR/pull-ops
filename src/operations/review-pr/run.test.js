@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR, runReviewPr } from './run.js';
+import {
+  GITHUB_ACTIONS_BOT_AUTHOR,
+  runReviewPr,
+  runReviewPrCodexActionFinalize,
+  runReviewPrCodexActionPrepare,
+} from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -188,7 +193,76 @@ describe('runReviewPr', () => {
     assert.equal(review.directChangesCommitted, true);
   });
 
-  it('03: records a blocked Review Result without publishing a GitHub review', async () => {
+  it('03: prepares a Codex Action prompt without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runReviewPrCodexActionPrepare(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+
+    const prompt = await readFile(join(outputDirectory, 'codex_prompt.md'), 'utf8');
+    assert.match(prompt, /Use the pullops-review-pr skill/);
+    assert.match(prompt, /Review PullOps-managed PR #100/);
+    assert.deepEqual(result.codexAction, {
+      promptFile: join(outputDirectory, 'codex_prompt.md'),
+      outputFile: join(outputDirectory, 'codex_output.json'),
+      model: 'gpt-5.5',
+      branch: 'pullops/issue-42',
+    });
+  });
+
+  it('04: finalizes a Codex Action output without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+    await writeFile(
+      join(outputDirectory, 'codex_output.json'),
+      JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the issue and coding standards.',
+        comments: [],
+        replies: [],
+      }),
+    );
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runReviewPrCodexActionFinalize(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+        codexActionOutcome: 'success',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewResult, 'approved');
+    assert.equal(codex.calls.length, 0);
+    assert.equal(github.publishedReviews.length, 1);
+    assert.equal(github.publishedReviews[0].event, 'APPROVE');
+    assert.match(github.updatedBodies[0].body, /Status: Review approved/);
+  });
+
+  it('05: records a blocked Review Result without publishing a GitHub review', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -222,7 +296,7 @@ describe('runReviewPr', () => {
     assert.match(github.comments[0].body, /The diff context was incomplete/);
   });
 
-  it('04: records invalid Review Result before publishing reviews, replies, commits, or pushes', async () => {
+  it('06: records invalid Review Result before publishing reviews, replies, commits, or pushes', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-review-failure-'));
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
@@ -267,7 +341,7 @@ describe('runReviewPr', () => {
     );
   });
 
-  it('05: refuses forked PRs without running Codex', async () => {
+  it('07: refuses forked PRs without running Codex', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({ isCrossRepository: true }),
       reviewContext: createReviewContext(),
@@ -301,6 +375,7 @@ describe('runReviewPr', () => {
 function createContext(overrides = {}) {
   return {
     operation: 'review-pr',
+    phase: 'run',
     target: {
       type: 'pr',
       number: 100,
@@ -308,7 +383,7 @@ function createContext(overrides = {}) {
     cwd: '/workspace',
     config: DEFAULT_PULL_OPS_CONFIG,
     modelTier: 'high',
-    model: 'codex-high',
+    model: 'gpt-5.5',
     githubClient: createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),

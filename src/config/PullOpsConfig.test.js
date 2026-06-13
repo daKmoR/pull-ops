@@ -16,9 +16,9 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
   assert.equal(config.runner.provider, 'codex');
   assert.equal(config.runner.command, 'codex exec');
   assert.deepEqual(config.runner.models, {
-    high: 'codex-high',
-    mid: 'codex-mid',
-    low: 'codex-low',
+    high: 'gpt-5.5',
+    mid: 'gpt-5.4-mini',
+    low: 'gpt-5.4-mini',
   });
   assert.equal(config.operations.preparePrd.modelTier, 'low');
   assert.equal(config.operations.implementIssue.modelTier, 'high');

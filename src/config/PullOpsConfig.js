@@ -22,9 +22,9 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     provider: 'codex',
     command: 'codex exec',
     models: {
-      high: 'codex-high',
-      mid: 'codex-mid',
-      low: 'codex-low',
+      high: 'gpt-5.5',
+      mid: 'gpt-5.4-mini',
+      low: 'gpt-5.4-mini',
     },
   },
   operations: {

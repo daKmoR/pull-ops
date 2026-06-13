@@ -12,6 +12,7 @@ import { createCodexRunner } from '../runner/CodexRunner.js';
 /**
  * @typedef {import('./types.js').WritableLike} WritableLike
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('./types.js').OperationPhase} OperationPhase
  * @typedef {import('./types.js').OperationRunner} OperationRunner
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
@@ -131,12 +132,14 @@ export class PullOpsCli {
     }
 
     const targetNumber = parseRequiredNumberOption(operationArgs, operation.option, operation.name);
+    const phase = parseOperationPhase(operationArgs);
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
 
     const output = await this.operationRunner({
       operation: operation.name,
+      phase,
       target: {
         type: operation.target,
         number: targetNumber,
@@ -150,6 +153,7 @@ export class PullOpsCli {
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
       outputDirectory: this.env.OUTPUT_DIR,
+      codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
     });
 
     this.writeValidatedJson(output);
@@ -223,6 +227,11 @@ function parseRequiredNumberOption(args, option, operationName) {
   }
 
   const consumed = new Set([index, index + 1]);
+  const phaseIndex = args.indexOf('--phase');
+  if (phaseIndex !== -1) {
+    consumed.add(phaseIndex);
+    consumed.add(phaseIndex + 1);
+  }
   const unknown = args.filter((unused, argIndex) => {
     void unused;
     return !consumed.has(argIndex);
@@ -240,13 +249,37 @@ function parseRequiredNumberOption(args, option, operationName) {
 }
 
 /**
+ * @param {string[]} args
+ * @returns {OperationPhase}
+ */
+function parseOperationPhase(args) {
+  const index = args.indexOf('--phase');
+  if (index === -1) {
+    return 'run';
+  }
+
+  const rawPhase = args[index + 1];
+  if (rawPhase === undefined) {
+    throw new CliUsageError('Missing value for "--phase".');
+  }
+
+  if (rawPhase === 'run' || rawPhase === 'prepare-codex' || rawPhase === 'finalize-codex') {
+    return rawPhase;
+  }
+
+  throw new CliUsageError(
+    `Unknown phase "${rawPhase}". Expected one of: run, prepare-codex, finalize-codex.`,
+  );
+}
+
+/**
  * @returns {string}
  */
 function usage() {
   return [
     'Usage:',
-    '  pullops run <operation> --issue <number>',
-    '  pullops run <operation> --pr <number>',
+    '  pullops run <operation> [--phase <phase>] --issue <number>',
+    '  pullops run <operation> [--phase <phase>] --pr <number>',
     '  pullops labels ensure',
   ].join('\n');
 }

@@ -14,6 +14,7 @@ export interface OperationTarget {
 
 export interface OperationRunnerContext {
   operation: string;
+  phase: OperationPhase;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;
@@ -24,7 +25,10 @@ export interface OperationRunnerContext {
   codexRunner: CodexRunner;
   triggerActor?: string;
   outputDirectory?: string;
+  codexActionOutcome?: string;
 }
+
+export type OperationPhase = 'run' | 'prepare-codex' | 'finalize-codex';
 
 export type OperationRunner = (
   context: OperationRunnerContext,

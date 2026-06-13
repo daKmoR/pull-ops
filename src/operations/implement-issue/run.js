@@ -2,6 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
+import {
+  getCodexActionFiles,
+  readCodexActionOutput,
+  writeCodexActionPrompt,
+} from '../codexAction.js';
 import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { getParentIssueNumber, isIssueDone, parseIssueDependencies } from '../issueDependencies.js';
 import { validateImplementIssueOutput } from './output.js';
@@ -12,6 +17,13 @@ import { createImplementIssuePullRequestBody } from './prBody.js';
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./output.js').ImplementedIssueOutput} ImplementedIssueOutput
+ * @typedef {{ ready: false, output: Record<string, unknown> } | {
+ *   ready: true;
+ *   issue: GitHubIssue;
+ *   parentIssueNumber?: number;
+ *   branchName: string;
+ *   baseBranch: string;
+ * }} ImplementIssuePreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {
@@ -24,52 +36,202 @@ export const GITHUB_ACTIONS_BOT_AUTHOR = {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runImplementIssue(context) {
+  const preparation = await prepareImplementIssue(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await context.codexRunner.run({
+      cwd: context.cwd,
+      command: context.config.runner.command,
+      model: context.model,
+      prompt: buildImplementIssuePrompt({
+        issue: preparation.issue,
+        parentIssueNumber: preparation.parentIssueNumber,
+      }),
+    });
+  } catch (error) {
+    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
+    throw error;
+  }
+
+  return await finalizePreparedImplementIssue(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runImplementIssueCodexActionPrepare(context) {
+  const preparation = await prepareImplementIssue(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  try {
+    await writeCodexActionPrompt(
+      context,
+      buildImplementIssuePrompt({
+        issue: preparation.issue,
+        parentIssueNumber: preparation.parentIssueNumber,
+      }),
+    );
+  } catch (error) {
+    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
+    throw error;
+  }
+
+  const files = getCodexActionFiles(context);
+  return {
+    status: 'accepted',
+    summary: `Prepared Codex Action implement run for issue #${preparation.issue.number}.`,
+    issue: {
+      number: preparation.issue.number,
+      url: preparation.issue.url,
+    },
+    codexAction: {
+      promptFile: files.promptFile,
+      outputFile: files.outputFile,
+      model: context.model,
+      branch: preparation.branchName,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runImplementIssueCodexActionFinalize(context) {
+  const preparation = await readPreparedImplementIssue(context);
+  let rawOutput;
+
+  try {
+    rawOutput = await readCodexActionOutput(context);
+  } catch (error) {
+    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
+    throw error;
+  }
+
+  return await finalizePreparedImplementIssue(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<ImplementIssuePreparation>}
+ */
+async function prepareImplementIssue(context) {
   assertIssueTarget(context);
 
   const issue = await context.githubClient.getIssue(context.target.number);
-  const parentIssueNumber = getParentIssueNumber(issue);
 
   if (issue.state !== 'OPEN') {
-    return await blockIssue(context, issue, {
-      reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only implement open issues.`,
-    });
+    return {
+      ready: false,
+      output: await blockIssue(context, issue, {
+        reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only implement open issues.`,
+      }),
+    };
   }
 
   if (issue.subIssues.length > 0) {
-    return await blockIssue(context, issue, {
-      reason: [
-        `Issue #${issue.number} is a Parent Issue with child issues.`,
-        [
-          `Use ${PULL_OPS_OPERATION_LABELS.preparePrd} on the parent issue`,
-          'to create or update its umbrella branch and draft PR.',
+    return {
+      ready: false,
+      output: await blockIssue(context, issue, {
+        reason: [
+          `Issue #${issue.number} is a Parent Issue with child issues.`,
+          [
+            `Use ${PULL_OPS_OPERATION_LABELS.preparePrd} on the parent issue`,
+            'to create or update its umbrella branch and draft PR.',
+          ].join(' '),
+          `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.implementIssue}.`,
         ].join(' '),
-        `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.implementIssue}.`,
-      ].join(' '),
-    });
+      }),
+    };
   }
 
   if (looksLikePrdIssue(issue)) {
-    return await blockIssue(context, issue, {
-      reason: [
-        `Issue #${issue.number} looks like a Parent Issue or PRD.`,
-        [
-          `Use ${PULL_OPS_OPERATION_LABELS.preparePrd} for parent setup,`,
-          `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.implementIssue}.`,
+    return {
+      ready: false,
+      output: await blockIssue(context, issue, {
+        reason: [
+          `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+          [
+            `Use ${PULL_OPS_OPERATION_LABELS.preparePrd} for parent setup,`,
+            `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.implementIssue}.`,
+          ].join(' '),
         ].join(' '),
-      ].join(' '),
-    });
+      }),
+    };
   }
 
   const blockingDependencies = await findBlockingDependencies(context, issue);
   if (blockingDependencies.length > 0) {
-    return await blockIssue(context, issue, {
-      reason: [
-        `Issue #${issue.number} is blocked by unfinished dependencies:`,
-        blockingDependencies.map(dependency => `#${dependency.number}`).join(', '),
-      ].join(' '),
-    });
+    return {
+      ready: false,
+      output: await blockIssue(context, issue, {
+        reason: [
+          `Issue #${issue.number} is blocked by unfinished dependencies:`,
+          blockingDependencies.map(dependency => `#${dependency.number}`).join(', '),
+        ].join(' '),
+      }),
+    };
   }
 
+  const prepared = buildPreparedImplementIssue(context, issue);
+
+  const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(
+    prepared.branchName,
+  );
+  if (existingPullRequest !== undefined) {
+    await clearIssueTaskLabels(context, issue);
+    return {
+      ready: false,
+      output: {
+        status: 'accepted',
+        summary: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
+        issue: issue.number,
+        reason: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
+        existingPullRequest,
+      },
+    };
+  }
+
+  try {
+    await markIssueInProgress(context, issue);
+
+    await context.gitClient.createBranch({
+      branchName: prepared.branchName,
+      baseBranch: prepared.baseBranch,
+    });
+
+    return prepared;
+  } catch (error) {
+    await recordIssueFailure(context, issue, getErrorMessage(error));
+    throw error;
+  }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<ImplementIssuePreparation & { ready: true }>}
+ */
+async function readPreparedImplementIssue(context) {
+  assertIssueTarget(context);
+  const issue = await context.githubClient.getIssue(context.target.number);
+  return buildPreparedImplementIssue(context, issue);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {ImplementIssuePreparation & { ready: true }}
+ */
+function buildPreparedImplementIssue(context, issue) {
+  const parentIssueNumber = getParentIssueNumber(issue);
   const branchName = createIssueBranchName({
     branchPrefix: context.config.branchPrefix,
     issueNumber: issue.number,
@@ -83,34 +245,26 @@ export async function runImplementIssue(context) {
           parentNumber: parentIssueNumber,
         });
 
-  const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
-  if (existingPullRequest !== undefined) {
-    await clearIssueTaskLabels(context, issue);
-    return {
-      status: 'accepted',
-      summary: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
-      issue: issue.number,
-      reason: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
-      existingPullRequest,
-    };
-  }
+  return {
+    ready: true,
+    issue,
+    parentIssueNumber,
+    branchName,
+    baseBranch,
+  };
+}
 
+/**
+ * @param {OperationRunnerContext} context
+ * @param {ImplementIssuePreparation & { ready: true }} preparation
+ * @param {unknown} rawOutput
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function finalizePreparedImplementIssue(context, preparation, rawOutput) {
+  const { issue, parentIssueNumber, branchName, baseBranch } = preparation;
   let failureRecorded = false;
 
   try {
-    await markIssueInProgress(context, issue);
-
-    await context.gitClient.createBranch({
-      branchName,
-      baseBranch,
-    });
-
-    const rawOutput = await context.codexRunner.run({
-      cwd: context.cwd,
-      command: context.config.runner.command,
-      model: context.model,
-      prompt: buildImplementIssuePrompt({ issue, parentIssueNumber }),
-    });
     const validatedOutput = validateImplementIssueOutput(rawOutput);
 
     if (!validatedOutput.valid) {

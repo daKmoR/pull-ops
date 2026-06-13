@@ -41,14 +41,54 @@ test('run operation accepts explicit workflow command shapes', async () => {
   assert.deepEqual(calls[0].target, { type: 'issue', number: 42 });
   assert.equal(calls[0].config.baseBranch, 'main');
   assert.equal(calls[0].modelTier, 'high');
-  assert.equal(calls[0].model, 'codex-high');
+  assert.equal(calls[0].phase, 'run');
+  assert.equal(calls[0].model, 'gpt-5.5');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'operation accepted',
     operation: 'implement-issue',
     target: { type: 'issue', number: 42 },
     modelTier: 'high',
-    model: 'codex-high',
+    model: 'gpt-5.5',
+  });
+});
+
+test('run operation accepts Codex Action phases', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    env: {
+      OUTPUT_DIR: '/tmp/pullops-output',
+      PULLOPS_CODEX_ACTION_OUTCOME: 'success',
+    },
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'implement-issue',
+    '--phase',
+    'prepare-codex',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].phase, 'prepare-codex');
+  assert.equal(calls[0].outputDirectory, '/tmp/pullops-output');
+  assert.equal(calls[0].codexActionOutcome, 'success');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'operation accepted',
   });
 });
 
@@ -77,6 +117,7 @@ test('run operation accepts every workflow-facing operation shape', async () => 
     assert.equal(exitCode, 0);
     assert.equal(calls.length, 1);
     assert.equal(calls[0].operation, operation.name);
+    assert.equal(calls[0].phase, 'run');
     assert.equal(calls[0].target.type, operation.target);
   }
 });

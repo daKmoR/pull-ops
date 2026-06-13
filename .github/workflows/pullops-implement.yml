@@ -41,8 +41,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run PullOps implement issue
-        run: npm run pullops:implement-issue -- --issue ${{ inputs.issue }}
+      - name: Prepare PullOps implement issue
+        id: prepare
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          npm run pullops:implement-issue:prepare-codex -- --issue ${{ inputs.issue }}
+
+          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+            echo "run_codex=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_codex=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
@@ -51,3 +60,35 @@ jobs:
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+
+      - name: Remove GitHub credentials before Codex
+        if: steps.prepare.outputs.run_codex == 'true'
+        run: git config --local --unset-all http.https://github.com/.extraheader || true
+
+      - name: Run Codex
+        if: steps.prepare.outputs.run_codex == 'true'
+        id: codex
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          model: gpt-5.5
+          sandbox: workspace-write
+          codex-args: '["--ask-for-approval","never","--ephemeral"]'
+
+      - name: Finalize PullOps implement issue
+        if: always() && steps.prepare.outputs.run_codex == 'true'
+        run: |
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          npm run pullops:implement-issue:finalize-codex -- --issue ${{ inputs.issue }}
+        env:
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
+          # token under the standard names expected by gh and GitHub-aware tools.
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex.outcome }}

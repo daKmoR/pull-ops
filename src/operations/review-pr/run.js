@@ -6,6 +6,11 @@ import {
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
+import {
+  getCodexActionFiles,
+  readCodexActionOutput,
+  writeCodexActionPrompt,
+} from '../codexAction.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validateReviewPrOutput } from './output.js';
 import { buildReviewPrPrompt } from './prompt.js';
@@ -18,6 +23,15 @@ import { readPullOpsPullRequestState, updatePullRequestBodyForReview } from './p
  * @typedef {import('./output.js').CompletedReviewPrOutput} CompletedReviewPrOutput
  * @typedef {import('./output.js').ReviewReply} ReviewReply
  * @typedef {import('./output.js').ReviewResultStatus} ReviewResultStatus
+ * @typedef {{ ready: false, output: Record<string, unknown> } | {
+ *   ready: true;
+ *   pullRequest: GitHubPullRequest;
+ *   issue: import('../../github/types.js').GitHubIssue;
+ *   reviewContext: GitHubPullRequestReviewContext;
+ *   diff: import('../../github/types.js').GitHubPullRequestDiff;
+ *   nextReviewCycle: number;
+ *   maxReviewCycles: number;
+ * }} ReviewPrPreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {
@@ -30,66 +44,193 @@ export const GITHUB_ACTIONS_BOT_AUTHOR = {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runReviewPr(context) {
+  const preparation = await prepareReviewPr(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await context.codexRunner.run({
+      cwd: context.cwd,
+      command: context.config.runner.command,
+      model: context.model,
+      prompt: buildReviewPrPrompt({
+        pullRequest: preparation.pullRequest,
+        issue: preparation.issue,
+        reviewContext: preparation.reviewContext,
+        diff: preparation.diff,
+      }),
+    });
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: true,
+      reviewCycle: preparation.nextReviewCycle,
+      maxReviewCycles: preparation.maxReviewCycles,
+    });
+    throw error;
+  }
+
+  return await finalizePreparedReviewPr(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runReviewPrCodexActionPrepare(context) {
+  const preparation = await prepareReviewPr(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  try {
+    await writeCodexActionPrompt(
+      context,
+      buildReviewPrPrompt({
+        pullRequest: preparation.pullRequest,
+        issue: preparation.issue,
+        reviewContext: preparation.reviewContext,
+        diff: preparation.diff,
+      }),
+    );
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: true,
+      reviewCycle: preparation.nextReviewCycle,
+      maxReviewCycles: preparation.maxReviewCycles,
+    });
+    throw error;
+  }
+
+  const files = getCodexActionFiles(context);
+  return {
+    status: 'accepted',
+    summary: `Prepared Codex Action review run for PR #${preparation.pullRequest.number}.`,
+    pullRequest: {
+      number: preparation.pullRequest.number,
+      url: preparation.pullRequest.url,
+    },
+    codexAction: {
+      promptFile: files.promptFile,
+      outputFile: files.outputFile,
+      model: context.model,
+      branch: preparation.pullRequest.headRefName,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runReviewPrCodexActionFinalize(context) {
+  const preparation = await prepareReviewPr(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await readCodexActionOutput(context);
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: true,
+      reviewCycle: preparation.nextReviewCycle,
+      maxReviewCycles: preparation.maxReviewCycles,
+    });
+    throw error;
+  }
+
+  return await finalizePreparedReviewPr(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<ReviewPrPreparation>}
+ */
+async function prepareReviewPr(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
   const state = readPullOpsPullRequestState(pullRequest.body);
 
   if (pullRequest.isCrossRepository === true) {
-    return await refusePullRequest(context, pullRequest, {
-      reason: `PullOps v1 only reviews same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
-      updateBody: state.managed,
-      reviewCycle: state.reviewCycles.current,
-      maxReviewCycles: state.reviewCycles.max,
-    });
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PullOps v1 only reviews same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
+        updateBody: state.managed,
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
   }
 
   if (!state.managed) {
-    return await refusePullRequest(context, pullRequest, {
-      reason: `PR #${pullRequest.number} is not a PullOps-managed PR.`,
-      updateBody: false,
-      reviewCycle: state.reviewCycles.current,
-      maxReviewCycles: state.reviewCycles.max,
-    });
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PR #${pullRequest.number} is not a PullOps-managed PR.`,
+        updateBody: false,
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
   }
 
   if (!hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)) {
-    return await refusePullRequest(context, pullRequest, {
-      reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
-      updateBody: true,
-      reviewCycle: state.reviewCycles.current,
-      maxReviewCycles: state.reviewCycles.max,
-    });
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
+        updateBody: true,
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
   }
 
   if (state.sourceIssueNumber === undefined) {
-    return await refusePullRequest(context, pullRequest, {
-      reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
-      updateBody: true,
-      reviewCycle: state.reviewCycles.current,
-      maxReviewCycles: state.reviewCycles.max,
-    });
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
+        updateBody: true,
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
   }
 
   const issue = await context.githubClient.getIssue(state.sourceIssueNumber);
   const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
   const diff = await context.githubClient.getPullRequestDiff(pullRequest.number);
-  const nextReviewCycle = state.reviewCycles.current + 1;
 
+  return {
+    ready: true,
+    pullRequest,
+    issue,
+    reviewContext,
+    diff,
+    nextReviewCycle: state.reviewCycles.current + 1,
+    maxReviewCycles: state.reviewCycles.max,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {ReviewPrPreparation & { ready: true }} preparation
+ * @param {unknown} rawOutput
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function finalizePreparedReviewPr(context, preparation, rawOutput) {
+  const { pullRequest, reviewContext, diff, nextReviewCycle, maxReviewCycles } = preparation;
   let failureRecorded = false;
 
   try {
-    const rawOutput = await context.codexRunner.run({
-      cwd: context.cwd,
-      command: context.config.runner.command,
-      model: context.model,
-      prompt: buildReviewPrPrompt({
-        pullRequest,
-        issue,
-        reviewContext,
-        diff,
-      }),
-    });
     const validatedOutput = validateReviewPrOutput(rawOutput);
 
     if (!validatedOutput.valid) {
@@ -98,7 +239,7 @@ export async function runReviewPr(context) {
       await recordPullRequestFailure(context, pullRequest, reason, {
         updateBody: true,
         reviewCycle: nextReviewCycle,
-        maxReviewCycles: state.reviewCycles.max,
+        maxReviewCycles,
       });
       throw new Error(reason);
     }
@@ -108,7 +249,7 @@ export async function runReviewPr(context) {
       await recordPullRequestFailure(context, pullRequest, validatedOutput.value.failureReason, {
         updateBody: true,
         reviewCycle: nextReviewCycle,
-        maxReviewCycles: state.reviewCycles.max,
+        maxReviewCycles,
       });
       return {
         status: 'blocked',
@@ -155,7 +296,7 @@ export async function runReviewPr(context) {
         body: pullRequest.body,
         reviewStatus: reviewResult.status,
         reviewCycle: nextReviewCycle,
-        maxReviewCycles: state.reviewCycles.max,
+        maxReviewCycles,
       }),
     });
     await transitionPullRequestLabels(context, pullRequest, reviewResult.status);
@@ -185,7 +326,7 @@ export async function runReviewPr(context) {
       await recordPullRequestFailure(context, pullRequest, getErrorMessage(error), {
         updateBody: true,
         reviewCycle: nextReviewCycle,
-        maxReviewCycles: state.reviewCycles.max,
+        maxReviewCycles,
       });
     }
 
