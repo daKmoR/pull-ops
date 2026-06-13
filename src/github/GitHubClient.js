@@ -227,11 +227,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
         '-f',
         `query=${ISSUE_RELATIONSHIPS_QUERY}`,
       ]);
-      const issue = parseGraphqlIssue(getStdout(result));
-      const needsFallback = issue.parent === null || issue.subIssues.length === 0;
-      const fallbackIssues = needsFallback ? await listIssuesForRelationshipFallback(execFile) : [];
-
-      return applyIssueRelationshipFallback(issue, fallbackIssues);
+      return parseGraphqlIssue(getStdout(result));
     },
 
     /**
@@ -548,33 +544,6 @@ async function getCurrentRepository(execFile) {
 
 /**
  * @param {ExecFile} execFile
- * @returns {Promise<Array<GitHubIssueReference & { body: string }>>}
- */
-async function listIssuesForRelationshipFallback(execFile) {
-  try {
-    const result = await execFile('gh', [
-      'issue',
-      'list',
-      '--state',
-      'all',
-      '--limit',
-      '1000',
-      '--json',
-      'number,title,body,state,url',
-    ]);
-    return parseIssueReferences(getStdout(result));
-  } catch (error) {
-    throw new Error(
-      `Failed to list issues for relationship fallback: ${getGitHubErrorMessage(error)}`,
-      {
-        cause: error,
-      },
-    );
-  }
-}
-
-/**
- * @param {ExecFile} execFile
  * @param {number} number
  * @param {'--add-label' | '--remove-label'} action
  * @param {string[]} labels
@@ -610,52 +579,6 @@ function parseGraphqlIssue(stdout) {
     labels: parseLabelNames(issue.labels),
     parent: parseIssueReference(issue.parent, 'native'),
     subIssues: parseSubIssues(issue.subIssues),
-  };
-}
-
-/**
- * @param {GitHubIssue} issue
- * @param {Array<GitHubIssueReference & { body: string }>} fallbackIssues
- * @returns {GitHubIssue}
- */
-function applyIssueRelationshipFallback(issue, fallbackIssues) {
-  const parentNumber = parseParentIssueNumber(issue.body);
-  const fallbackParentCandidate = fallbackIssues.find(
-    candidate => candidate.number === parentNumber,
-  );
-  const fallbackParent =
-    parentNumber === undefined
-      ? null
-      : toBodyIssueReference({
-          number: parentNumber,
-          title: fallbackParentCandidate?.title,
-          url: fallbackParentCandidate?.url,
-          state: fallbackParentCandidate?.state,
-        });
-  const fallbackSubIssues = fallbackIssues.filter(
-    candidate =>
-      candidate.number !== issue.number && parseParentIssueNumber(candidate.body) === issue.number,
-  );
-
-  return {
-    ...issue,
-    parent: issue.parent ?? fallbackParent,
-    subIssues:
-      issue.subIssues.length > 0 ? issue.subIssues : fallbackSubIssues.map(toBodyIssueReference),
-  };
-}
-
-/**
- * @param {{ number: number, title?: string, url?: string, state?: string }} issue
- * @returns {GitHubIssueReference}
- */
-function toBodyIssueReference(issue) {
-  return {
-    number: issue.number,
-    title: issue.title,
-    url: issue.url,
-    state: issue.state,
-    relationshipSource: 'body',
   };
 }
 
@@ -720,46 +643,6 @@ function parseIssueReference(value, source) {
     state: typeof value.state === 'string' ? value.state : undefined,
     relationshipSource: source,
   };
-}
-
-/**
- * @param {string} stdout
- * @returns {Array<GitHubIssueReference & { body: string }>}
- */
-function parseIssueReferences(stdout) {
-  const parsed = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected gh issue list to return an array.');
-  }
-
-  return parsed.map((issue, index) => {
-    if (!isPlainObject(issue)) {
-      throw new Error(`Expected GitHub issue at index ${index} to be an object.`);
-    }
-
-    return {
-      number: requireNumber(issue.number, `issue at index ${index}.number`),
-      title: typeof issue.title === 'string' ? issue.title : undefined,
-      url: typeof issue.url === 'string' ? issue.url : undefined,
-      state: typeof issue.state === 'string' ? issue.state : undefined,
-      body: typeof issue.body === 'string' ? issue.body : '',
-      relationshipSource: 'body',
-    };
-  });
-}
-
-/**
- * @param {string} body
- * @returns {number | undefined}
- */
-function parseParentIssueNumber(body) {
-  const parentSection = body.match(/^##\s+Parent\s*\n+([\s\S]*?)(?=^##\s+|\s*$)/m);
-  const parentReference = parentSection?.[1]?.match(/#(\d+)/);
-  if (parentReference?.[1] === undefined) {
-    return undefined;
-  }
-
-  return Number(parentReference[1]);
 }
 
 /**

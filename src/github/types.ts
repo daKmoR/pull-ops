@@ -23,7 +23,7 @@ export interface ExecFileResult {
 
 export type ExecFile = (file: string, args: string[]) => Promise<ExecFileResult>;
 
-export type IssueRelationshipSource = 'native' | 'body';
+export type IssueRelationshipSource = 'native';
 
 export interface GitHubIssueReference {
   number: number;

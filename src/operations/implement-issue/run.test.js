@@ -85,14 +85,14 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('02: refuses a direct sub-issue detected from native or fallback relationships', async () => {
+  it('02: refuses a direct native sub-issue', async () => {
     const issue = createIssue({
       number: 42,
       title: 'Do one child task',
       parent: {
         number: 1,
         title: 'PRD',
-        relationshipSource: 'body',
+        relationshipSource: 'native',
       },
     });
     const github = createFakeGitHub({ issue });
@@ -120,7 +120,94 @@ describe('runImplementIssue', () => {
     assert.match(github.comments[0].body, /Label the parent PRD Issue/);
   });
 
-  it('03: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
+  it('03: refuses a PRD-looking issue without native GitHub sub-issues', async () => {
+    const issue = createIssue({
+      number: 1,
+      title: 'PRD: Dogfood PullOps workflow kit',
+      body: [
+        '## Problem Statement',
+        '',
+        'Build the thing.',
+        '',
+        '## Solution',
+        '',
+        'Ship it.',
+      ].join('\n'),
+    });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssue(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'refused');
+    assert.match(String(result.summary), /no native GitHub sub-issues/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.branches.length, 0);
+    assert.match(github.comments[0].body, /Add native GitHub sub-issues/);
+  });
+
+  it('04: refuses a native PRD Issue while PRD implementation is not wired', async () => {
+    const issue = createIssue({
+      number: 1,
+      title: 'PRD: Dogfood PullOps workflow kit',
+      subIssues: [
+        {
+          number: 4,
+          title: 'Implement a Leaf Issue',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssue(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'refused');
+    assert.match(String(result.summary), /native GitHub sub-issues/);
+    assert.match(String(result.summary), /will not treat it as a Leaf Issue/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.branches.length, 0);
+  });
+
+  it('05: refuses closed issues before creating a branch', async () => {
+    const issue = createIssue({
+      number: 42,
+      state: 'CLOSED',
+    });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssue(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'refused');
+    assert.match(String(result.summary), /closed/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.branches.length, 0);
+  });
+
+  it('06: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
     const github = createFakeGitHub({
       issue: createIssue({ number: 42 }),
       existingPullRequest: {
@@ -150,7 +237,7 @@ describe('runImplementIssue', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('04: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
+  it('07: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
@@ -190,7 +277,7 @@ describe('runImplementIssue', () => {
     );
   });
 
-  it('05: records unexpected git or GitHub failures after valid runner output', async () => {
+  it('08: records unexpected git or GitHub failures after valid runner output', async () => {
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit({
       failOn: action => action === 'pushBranch',
@@ -223,7 +310,7 @@ describe('runImplementIssue', () => {
     });
   });
 
-  it('06: uses the configured Branch Prefix for deterministic branch names', () => {
+  it('09: uses the configured Branch Prefix for deterministic branch names', () => {
     assert.equal(
       createImplementIssueBranchName({
         branchPrefix: 'automation/pullops/',
@@ -260,20 +347,30 @@ function createContext(overrides = {}) {
  * @param {object} [options]
  * @param {number} [options.number]
  * @param {string} [options.title]
+ * @param {string} [options.body]
+ * @param {string} [options.state]
  * @param {import('../../github/types.js').GitHubIssueReference | null} [options.parent]
+ * @param {import('../../github/types.js').GitHubIssueReference[]} [options.subIssues]
  * @returns {GitHubIssue}
  */
-function createIssue({ number = 42, title = 'Implement the issue', parent = null } = {}) {
+function createIssue({
+  number = 42,
+  title = 'Implement the issue',
+  body = '## What to build\n\nDo the thing.',
+  state = 'OPEN',
+  parent = null,
+  subIssues = [],
+} = {}) {
   return {
     number,
     title,
-    body: '## What to build\n\nDo the thing.',
-    state: 'OPEN',
+    body,
+    state,
     url: `https://github.com/acme/widgets/issues/${number}`,
     authorLogin: 'maintainer',
     labels: ['pullops:implement'],
     parent,
-    subIssues: [],
+    subIssues,
   };
 }
 

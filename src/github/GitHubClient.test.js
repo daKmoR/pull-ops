@@ -144,8 +144,8 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('05: infers malformed PRD relationships from issue body Parent sections', async () => {
-    const { execFile } = createFakeIssueExecFile({
+  it('05: reads native issue parent and sub-issue relationships', async () => {
+    const { calls, execFile } = createFakeIssueExecFile({
       issue: {
         number: 1,
         title: 'PRD',
@@ -160,19 +160,18 @@ describe('createGitHubClient', () => {
         },
         parent: null,
         subIssues: {
-          totalCount: 0,
-          nodes: [],
+          totalCount: 1,
+          nodes: [
+            {
+              number: 4,
+              title: 'Implement a leaf issue',
+              body: '## What to build\n\nDo the work.',
+              state: 'OPEN',
+              url: 'https://github.com/acme/widgets/issues/4',
+            },
+          ],
         },
       },
-      issues: [
-        {
-          number: 4,
-          title: 'Implement a leaf issue',
-          body: '## Parent\n\n#1\n\n## What to build\n\nDo the work.',
-          state: 'OPEN',
-          url: 'https://github.com/acme/widgets/issues/4',
-        },
-      ],
     });
     const client = createGitHubClient({ execFile });
 
@@ -184,13 +183,17 @@ describe('createGitHubClient', () => {
         title: 'Implement a leaf issue',
         state: 'OPEN',
         url: 'https://github.com/acme/widgets/issues/4',
-        relationshipSource: 'body',
+        relationshipSource: 'native',
       },
     ]);
+    assert.equal(
+      calls.some(call => call.args[0] === 'issue' && call.args[1] === 'list'),
+      false,
+    );
   });
 
-  it('06: infers a malformed sub-issue parent from its own Parent section', async () => {
-    const { execFile } = createFakeIssueExecFile({
+  it('06: ignores legacy Parent body sections when native relationships are absent', async () => {
+    const { calls, execFile } = createFakeIssueExecFile({
       issue: {
         number: 4,
         title: 'Implement a leaf issue',
@@ -209,27 +212,17 @@ describe('createGitHubClient', () => {
           nodes: [],
         },
       },
-      issues: [
-        {
-          number: 1,
-          title: 'PRD',
-          body: '## What to build\n\nShip the workflow kit.',
-          state: 'OPEN',
-          url: 'https://github.com/acme/widgets/issues/1',
-        },
-      ],
     });
     const client = createGitHubClient({ execFile });
 
     const issue = await client.getIssue(4);
 
-    assert.deepEqual(issue.parent, {
-      number: 1,
-      title: 'PRD',
-      state: 'OPEN',
-      url: 'https://github.com/acme/widgets/issues/1',
-      relationshipSource: 'body',
-    });
+    assert.equal(issue.parent, null);
+    assert.deepEqual(issue.subIssues, []);
+    assert.equal(
+      calls.some(call => call.args[0] === 'issue' && call.args[1] === 'list'),
+      false,
+    );
   });
 
   it('07: loads pull request review context and diff context', async () => {
@@ -378,10 +371,9 @@ function createFakeExecFile({ labels, failOn = () => false }) {
 /**
  * @param {object} options
  * @param {Record<string, unknown>} options.issue
- * @param {Record<string, unknown>[]} options.issues
  * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
  */
-function createFakeIssueExecFile({ issue, issues }) {
+function createFakeIssueExecFile({ issue }) {
   /** @type {ExecFileCall[]} */
   const calls = [];
 
@@ -407,12 +399,6 @@ function createFakeIssueExecFile({ issue, issues }) {
               },
             },
           }),
-        };
-      }
-
-      if (args[0] === 'issue' && args[1] === 'list') {
-        return {
-          stdout: JSON.stringify(issues),
         };
       }
 

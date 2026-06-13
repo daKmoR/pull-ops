@@ -26,10 +26,12 @@ export async function runImplementIssue(context) {
   assertIssueTarget(context);
 
   const issue = await context.githubClient.getIssue(context.target.number);
-  const branchName = createImplementIssueBranchName({
-    branchPrefix: context.config.branchPrefix,
-    issueNumber: issue.number,
-  });
+
+  if (issue.state !== 'OPEN') {
+    return await refuseIssue(context, issue, {
+      reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only implement open issues.`,
+    });
+  }
 
   if (issue.parent !== null) {
     return await refuseIssue(context, issue, {
@@ -39,6 +41,29 @@ export async function runImplementIssue(context) {
       ].join(' '),
     });
   }
+
+  if (issue.subIssues.length > 0) {
+    return await refuseIssue(context, issue, {
+      reason: [
+        `Issue #${issue.number} is a PRD Issue with native GitHub sub-issues.`,
+        'Native PRD implementation is not wired yet, so PullOps will not treat it as a Leaf Issue.',
+      ].join(' '),
+    });
+  }
+
+  if (looksLikePrdIssue(issue)) {
+    return await refuseIssue(context, issue, {
+      reason: [
+        `Issue #${issue.number} looks like a PRD Issue but has no native GitHub sub-issues.`,
+        'Add native GitHub sub-issues before labeling the PRD with pullops:implement, or label an open Leaf Issue directly.',
+      ].join(' '),
+    });
+  }
+
+  const branchName = createImplementIssueBranchName({
+    branchPrefix: context.config.branchPrefix,
+    issueNumber: issue.number,
+  });
 
   const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
   if (existingPullRequest !== undefined) {
@@ -165,6 +190,17 @@ function assertIssueTarget(context) {
   if (context.target.type !== 'issue') {
     throw new Error('implement-issue requires an issue target.');
   }
+}
+
+/**
+ * @param {GitHubIssue} issue
+ * @returns {boolean}
+ */
+function looksLikePrdIssue(issue) {
+  return (
+    issue.title.trim().toLowerCase().startsWith('prd:') ||
+    (/^##\s+Problem Statement\s*$/im.test(issue.body) && /^##\s+Solution\s*$/im.test(issue.body))
+  );
 }
 
 /**
