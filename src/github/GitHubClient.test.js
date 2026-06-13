@@ -231,6 +231,117 @@ describe('createGitHubClient', () => {
       relationshipSource: 'body',
     });
   });
+
+  it('07: loads pull request review context and diff context', async () => {
+    const { calls, execFile } = createFakePullRequestExecFile();
+    const client = createGitHubClient({ execFile });
+
+    const pullRequest = await client.getPullRequest(100);
+    const reviewContext = await client.getPullRequestReviewContext(100);
+    const diff = await client.getPullRequestDiff(100);
+
+    assert.equal(pullRequest.number, 100);
+    assert.equal(pullRequest.isCrossRepository, false);
+    assert.deepEqual(reviewContext.files, [
+      {
+        path: 'src/example.js',
+        additions: 1,
+        deletions: 0,
+      },
+    ]);
+    assert.deepEqual(reviewContext.unresolvedThreads[0].comments[0].databaseId, 9001);
+    assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
+    assert.deepEqual(
+      calls.map(call => call.args.slice(0, 3)),
+      [
+        ['pr', 'view', '100'],
+        ['repo', 'view', '--json'],
+        ['api', 'graphql', '-f'],
+        ['pr', 'diff', '100'],
+      ],
+    );
+  });
+
+  it('08: publishes review decisions, replies, PR body updates, PR labels, and PR comments through gh', async () => {
+    const { calls, execFile } = createFakePullRequestExecFile();
+    const client = createGitHubClient({ execFile });
+
+    await client.publishPullRequestReview({
+      number: 100,
+      event: 'REQUEST_CHANGES',
+      body: 'Needs changes.',
+      comments: [
+        {
+          path: 'src/example.js',
+          line: 2,
+          body: 'Inline feedback.',
+        },
+      ],
+    });
+    await client.replyToPullRequestReviewComment({
+      commentId: 9001,
+      body: 'Reply body.',
+    });
+    await client.updatePullRequestBody({
+      number: 100,
+      body: 'Updated body.',
+    });
+    await client.removeLabelsFromPullRequest({
+      number: 100,
+      labels: ['pullops:review'],
+    });
+    await client.commentOnPullRequest({
+      number: 100,
+      body: 'Failure reason.',
+    });
+
+    assert.deepEqual(calls[1], {
+      file: 'gh',
+      args: [
+        'api',
+        '--method',
+        'POST',
+        'repos/acme/widgets/pulls/100/reviews',
+        '-f',
+        'event=REQUEST_CHANGES',
+        '-f',
+        'body=Needs changes.',
+        '-f',
+        'comments[0][path]=src/example.js',
+        '-F',
+        'comments[0][line]=2',
+        '-f',
+        'comments[0][side]=RIGHT',
+        '-f',
+        'comments[0][body]=Inline feedback.',
+      ],
+    });
+    assert.deepEqual(calls[3], {
+      file: 'gh',
+      args: [
+        'api',
+        '--method',
+        'POST',
+        'repos/acme/widgets/pulls/comments/9001/replies',
+        '-f',
+        'body=Reply body.',
+      ],
+    });
+    assert.deepEqual(calls.slice(4), [
+      {
+        file: 'gh',
+        args: ['pr', 'edit', '100', '--body', 'Updated body.'],
+      },
+      {
+        file: 'gh',
+        args: ['pr', 'edit', '100', '--remove-label', 'pullops:review'],
+      },
+      {
+        file: 'gh',
+        args: ['pr', 'comment', '100', '--body', 'Failure reason.'],
+      },
+    ]);
+  });
 });
 
 /**
@@ -306,6 +417,121 @@ function createFakeIssueExecFile({ issue, issues }) {
       }
 
       throw new Error(`Unexpected command: ${file} ${args.join(' ')}`);
+    },
+  };
+}
+
+/**
+ * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ */
+function createFakePullRequestExecFile() {
+  /** @type {ExecFileCall[]} */
+  const calls = [];
+
+  return {
+    calls,
+    async execFile(file, args) {
+      calls.push({ file, args });
+
+      if (args[0] === 'repo' && args[1] === 'view') {
+        return {
+          stdout: JSON.stringify({
+            nameWithOwner: 'acme/widgets',
+          }),
+        };
+      }
+
+      if (args[0] === 'pr' && args[1] === 'view') {
+        return {
+          stdout: JSON.stringify({
+            number: 100,
+            title: 'Implement #42',
+            url: 'https://github.com/acme/widgets/pull/100',
+            headRefName: 'pullops/issue-42',
+            baseRefName: 'main',
+            body: 'Managed PR: yes',
+            isDraft: true,
+            isCrossRepository: false,
+          }),
+        };
+      }
+
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        return {
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                pullRequest: {
+                  comments: {
+                    nodes: [
+                      {
+                        body: 'PR comment.',
+                        url: 'https://github.com/acme/widgets/pull/100#issuecomment-1',
+                        author: {
+                          login: 'maintainer',
+                        },
+                      },
+                    ],
+                  },
+                  reviews: {
+                    nodes: [
+                      {
+                        id: 'R_1',
+                        state: 'COMMENTED',
+                        body: 'Review summary.',
+                        url: 'https://github.com/acme/widgets/pull/100#pullrequestreview-1',
+                        author: {
+                          login: 'reviewer',
+                        },
+                      },
+                    ],
+                  },
+                  reviewThreads: {
+                    nodes: [
+                      {
+                        isResolved: false,
+                        comments: {
+                          nodes: [
+                            {
+                              id: 'PRRC_1',
+                              databaseId: 9001,
+                              body: 'Unresolved feedback.',
+                              path: 'src/example.js',
+                              line: 2,
+                              diffHunk: '@@ -1 +1 @@',
+                              url: 'https://github.com/acme/widgets/pull/100#discussion_r9001',
+                              author: {
+                                login: 'reviewer',
+                              },
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                  files: {
+                    nodes: [
+                      {
+                        path: 'src/example.js',
+                        additions: 1,
+                        deletions: 0,
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+        };
+      }
+
+      if (args[0] === 'pr' && args[1] === 'diff') {
+        return {
+          stdout: 'diff --git a/src/example.js b/src/example.js\n',
+        };
+      }
+
+      return { stdout: '' };
     },
   };
 }

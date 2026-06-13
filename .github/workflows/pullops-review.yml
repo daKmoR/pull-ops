@@ -1,0 +1,47 @@
+name: PullOps Review
+
+on:
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pullops-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: >-
+      github.event.label.name == 'pullops:review' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run PullOps review PR
+        run: npx pullops run review-pr --pr ${{ github.event.pull_request.number }}
+        env:
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output

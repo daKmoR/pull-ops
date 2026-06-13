@@ -13,9 +13,18 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('./types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('./types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
+ * @typedef {import('./types.js').GitHubPullRequestComment} GitHubPullRequestComment
+ * @typedef {import('./types.js').GitHubPullRequestReviewSummary} GitHubPullRequestReviewSummary
+ * @typedef {import('./types.js').GitHubPullRequestReviewThread} GitHubPullRequestReviewThread
+ * @typedef {import('./types.js').GitHubPullRequestFile} GitHubPullRequestFile
  * @typedef {import('./types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
  * @typedef {import('./types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
+ * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
+ * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
+ * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
+ * @typedef {import('./types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
  */
 
 const ISSUE_RELATIONSHIPS_QUERY = `
@@ -48,6 +57,61 @@ query($owner: String!, $repo: String!, $number: Int!) {
           title
           state
           url
+        }
+      }
+    }
+  }
+}
+`;
+
+const PULL_REQUEST_REVIEW_CONTEXT_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      comments(first: 100) {
+        nodes {
+          body
+          url
+          author {
+            login
+          }
+        }
+      }
+      reviews(first: 100) {
+        nodes {
+          id
+          state
+          body
+          url
+          author {
+            login
+          }
+        }
+      }
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          comments(first: 100) {
+            nodes {
+              id
+              databaseId
+              body
+              path
+              line
+              diffHunk
+              url
+              author {
+                login
+              }
+            }
+          }
+        }
+      }
+      files(first: 100) {
+        nodes {
+          path
+          additions
+          deletions
         }
       }
     }
@@ -171,6 +235,53 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
     },
 
     /**
+     * @param {number} number
+     * @returns {Promise<GitHubPullRequest>}
+     */
+    async getPullRequest(number) {
+      const result = await execFile('gh', [
+        'pr',
+        'view',
+        String(number),
+        '--json',
+        'number,title,url,headRefName,baseRefName,body,isDraft,isCrossRepository',
+      ]);
+      return parsePullRequestObject(getStdout(result));
+    },
+
+    /**
+     * @param {number} number
+     * @returns {Promise<GitHubPullRequestReviewContext>}
+     */
+    async getPullRequestReviewContext(number) {
+      const repository = await getCurrentRepository(execFile);
+      const result = await execFile('gh', [
+        'api',
+        'graphql',
+        '-f',
+        `owner=${repository.owner}`,
+        '-f',
+        `repo=${repository.name}`,
+        '-F',
+        `number=${number}`,
+        '-f',
+        `query=${PULL_REQUEST_REVIEW_CONTEXT_QUERY}`,
+      ]);
+      return parsePullRequestReviewContext(getStdout(result));
+    },
+
+    /**
+     * @param {number} number
+     * @returns {Promise<import('./types.js').GitHubPullRequestDiff>}
+     */
+    async getPullRequestDiff(number) {
+      const result = await execFile('gh', ['pr', 'diff', String(number), '--patch']);
+      return {
+        patch: getStdout(result),
+      };
+    },
+
+    /**
      * @param {string} headBranch
      * @returns {Promise<GitHubPullRequest | undefined>}
      */
@@ -251,11 +362,88 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
     },
 
     /**
+     * @param {EditLabelsOptions} options
+     * @returns {Promise<void>}
+     */
+    async removeLabelsFromPullRequest({ number, labels }) {
+      if (labels.length === 0) {
+        return;
+      }
+
+      await execFile('gh', ['pr', 'edit', String(number), '--remove-label', labels.join(',')]);
+    },
+
+    /**
      * @param {CommentOnIssueOptions} options
      * @returns {Promise<void>}
      */
     async commentOnIssue({ number, body }) {
       await execFile('gh', ['issue', 'comment', String(number), '--body', body]);
+    },
+
+    /**
+     * @param {CommentOnPullRequestOptions} options
+     * @returns {Promise<void>}
+     */
+    async commentOnPullRequest({ number, body }) {
+      await execFile('gh', ['pr', 'comment', String(number), '--body', body]);
+    },
+
+    /**
+     * @param {UpdatePullRequestBodyOptions} options
+     * @returns {Promise<void>}
+     */
+    async updatePullRequestBody({ number, body }) {
+      await execFile('gh', ['pr', 'edit', String(number), '--body', body]);
+    },
+
+    /**
+     * @param {PublishPullRequestReviewOptions} options
+     * @returns {Promise<void>}
+     */
+    async publishPullRequestReview(options) {
+      const repository = await getCurrentRepository(execFile);
+      const args = [
+        'api',
+        '--method',
+        'POST',
+        `repos/${repository.owner}/${repository.name}/pulls/${options.number}/reviews`,
+        '-f',
+        `event=${options.event}`,
+        '-f',
+        `body=${options.body}`,
+      ];
+
+      for (const [index, comment] of options.comments.entries()) {
+        args.push(
+          '-f',
+          `comments[${index}][path]=${comment.path}`,
+          '-F',
+          `comments[${index}][line]=${comment.line}`,
+          '-f',
+          `comments[${index}][side]=RIGHT`,
+          '-f',
+          `comments[${index}][body]=${comment.body}`,
+        );
+      }
+
+      await execFile('gh', args);
+    },
+
+    /**
+     * @param {ReplyToPullRequestReviewCommentOptions} options
+     * @returns {Promise<void>}
+     */
+    async replyToPullRequestReviewComment({ commentId, body }) {
+      const repository = await getCurrentRepository(execFile);
+      await execFile('gh', [
+        'api',
+        '--method',
+        'POST',
+        `repos/${repository.owner}/${repository.name}/pulls/comments/${commentId}/replies`,
+        '-f',
+        `body=${body}`,
+      ]);
     },
   };
 }
@@ -584,23 +772,168 @@ function parsePullRequests(stdout) {
     throw new Error('Expected gh pr list to return an array.');
   }
 
-  return parsed.map((pullRequest, index) => {
-    if (!isPlainObject(pullRequest)) {
-      throw new Error(`Expected pull request at index ${index} to be an object.`);
+  return parsed.map((pullRequest, index) =>
+    parsePullRequest(pullRequest, `pull request at index ${index}`),
+  );
+}
+
+/**
+ * @param {string} stdout
+ * @returns {GitHubPullRequest}
+ */
+function parsePullRequestObject(stdout) {
+  const parsed = JSON.parse(stdout);
+  return parsePullRequest(parsed, 'pull request');
+}
+
+/**
+ * @param {unknown} pullRequest
+ * @param {string} path
+ * @returns {GitHubPullRequest}
+ */
+function parsePullRequest(pullRequest, path) {
+  if (!isPlainObject(pullRequest)) {
+    throw new Error(`Expected ${path} to be an object.`);
+  }
+
+  return {
+    number: requireNumber(pullRequest.number, `${path}.number`),
+    title: requireString(pullRequest.title, `${path}.title`),
+    url: requireString(pullRequest.url, `${path}.url`),
+    headRefName: requireString(pullRequest.headRefName, `${path}.headRefName`),
+    baseRefName: typeof pullRequest.baseRefName === 'string' ? pullRequest.baseRefName : undefined,
+    body: typeof pullRequest.body === 'string' ? pullRequest.body : '',
+    isDraft: Boolean(pullRequest.isDraft),
+    isCrossRepository:
+      typeof pullRequest.isCrossRepository === 'boolean'
+        ? pullRequest.isCrossRepository
+        : undefined,
+  };
+}
+
+/**
+ * @param {string} stdout
+ * @returns {GitHubPullRequestReviewContext}
+ */
+function parsePullRequestReviewContext(stdout) {
+  const parsed = JSON.parse(stdout);
+  const pullRequest = parsed?.data?.repository?.pullRequest;
+
+  if (!isPlainObject(pullRequest)) {
+    throw new Error('Expected GitHub GraphQL pull request response to include a pull request.');
+  }
+
+  const reviewThreads = parseReviewThreads(pullRequest.reviewThreads);
+
+  return {
+    comments: parsePullRequestComments(pullRequest.comments),
+    reviews: parseReviewSummaries(pullRequest.reviews),
+    unresolvedThreads: reviewThreads.filter(thread => !thread.isResolved),
+    files: parsePullRequestFiles(pullRequest.files),
+  };
+}
+
+/**
+ * @param {unknown} comments
+ * @returns {GitHubPullRequestComment[]}
+ */
+function parsePullRequestComments(comments) {
+  if (!isPlainObject(comments) || !Array.isArray(comments.nodes)) {
+    return [];
+  }
+
+  return comments.nodes.map((comment, index) =>
+    parsePullRequestComment(comment, `pull request comment at index ${index}`),
+  );
+}
+
+/**
+ * @param {unknown} reviews
+ * @returns {GitHubPullRequestReviewSummary[]}
+ */
+function parseReviewSummaries(reviews) {
+  if (!isPlainObject(reviews) || !Array.isArray(reviews.nodes)) {
+    return [];
+  }
+
+  return reviews.nodes.map((review, index) => {
+    if (!isPlainObject(review)) {
+      throw new Error(`Expected pull request review at index ${index} to be an object.`);
     }
 
     return {
-      number: requireNumber(pullRequest.number, `pull request at index ${index}.number`),
-      title: requireString(pullRequest.title, `pull request at index ${index}.title`),
-      url: requireString(pullRequest.url, `pull request at index ${index}.url`),
-      headRefName: requireString(
-        pullRequest.headRefName,
-        `pull request at index ${index}.headRefName`,
-      ),
-      body: typeof pullRequest.body === 'string' ? pullRequest.body : '',
-      isDraft: Boolean(pullRequest.isDraft),
+      id: typeof review.id === 'string' ? review.id : undefined,
+      state: requireString(review.state, `pull request review at index ${index}.state`),
+      body: typeof review.body === 'string' ? review.body : '',
+      authorLogin: parseAuthorLogin(review.author),
+      url: typeof review.url === 'string' ? review.url : undefined,
     };
   });
+}
+
+/**
+ * @param {unknown} threads
+ * @returns {GitHubPullRequestReviewThread[]}
+ */
+function parseReviewThreads(threads) {
+  if (!isPlainObject(threads) || !Array.isArray(threads.nodes)) {
+    return [];
+  }
+
+  return threads.nodes.map((thread, index) => {
+    if (!isPlainObject(thread)) {
+      throw new Error(`Expected pull request review thread at index ${index} to be an object.`);
+    }
+
+    return {
+      isResolved: Boolean(thread.isResolved),
+      comments: parsePullRequestComments(thread.comments),
+    };
+  });
+}
+
+/**
+ * @param {unknown} files
+ * @returns {GitHubPullRequestFile[]}
+ */
+function parsePullRequestFiles(files) {
+  if (!isPlainObject(files) || !Array.isArray(files.nodes)) {
+    return [];
+  }
+
+  return files.nodes.map((file, index) => {
+    if (!isPlainObject(file)) {
+      throw new Error(`Expected pull request file at index ${index} to be an object.`);
+    }
+
+    return {
+      path: requireString(file.path, `pull request file at index ${index}.path`),
+      additions: requireNumber(file.additions, `pull request file at index ${index}.additions`),
+      deletions: requireNumber(file.deletions, `pull request file at index ${index}.deletions`),
+    };
+  });
+}
+
+/**
+ * @param {unknown} comment
+ * @param {string} path
+ * @returns {GitHubPullRequestComment}
+ */
+function parsePullRequestComment(comment, path) {
+  if (!isPlainObject(comment)) {
+    throw new Error(`Expected ${path} to be an object.`);
+  }
+
+  return {
+    id: typeof comment.id === 'string' ? comment.id : undefined,
+    databaseId: typeof comment.databaseId === 'number' ? comment.databaseId : undefined,
+    body: typeof comment.body === 'string' ? comment.body : '',
+    authorLogin: parseAuthorLogin(comment.author),
+    url: typeof comment.url === 'string' ? comment.url : undefined,
+    path: typeof comment.path === 'string' ? comment.path : undefined,
+    line: typeof comment.line === 'number' ? comment.line : undefined,
+    diffHunk: typeof comment.diffHunk === 'string' ? comment.diffHunk : undefined,
+  };
 }
 
 /**

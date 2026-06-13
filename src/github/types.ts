@@ -50,8 +50,10 @@ export interface GitHubPullRequest {
   title: string;
   url: string;
   headRefName: string;
+  baseRefName?: string;
   body: string;
   isDraft: boolean;
+  isCrossRepository?: boolean;
 }
 
 export interface CreateDraftPullRequestOptions {
@@ -71,13 +73,92 @@ export interface CommentOnIssueOptions {
   body: string;
 }
 
+export interface CommentOnPullRequestOptions {
+  number: number;
+  body: string;
+}
+
+export interface UpdatePullRequestBodyOptions {
+  number: number;
+  body: string;
+}
+
+export interface GitHubPullRequestFile {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface GitHubPullRequestComment {
+  id?: string;
+  databaseId?: number;
+  body: string;
+  authorLogin: string | null;
+  url?: string;
+  path?: string;
+  line?: number;
+  diffHunk?: string;
+}
+
+export interface GitHubPullRequestReviewSummary {
+  id?: string;
+  state: string;
+  body: string;
+  authorLogin: string | null;
+  url?: string;
+}
+
+export interface GitHubPullRequestReviewThread {
+  isResolved: boolean;
+  comments: GitHubPullRequestComment[];
+}
+
+export interface GitHubPullRequestReviewContext {
+  comments: GitHubPullRequestComment[];
+  reviews: GitHubPullRequestReviewSummary[];
+  unresolvedThreads: GitHubPullRequestReviewThread[];
+  files: GitHubPullRequestFile[];
+}
+
+export interface GitHubPullRequestDiff {
+  patch: string;
+}
+
+export type GitHubPullRequestReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+
+export interface PullRequestReviewCommentInput {
+  path: string;
+  line: number;
+  body: string;
+}
+
+export interface PublishPullRequestReviewOptions {
+  number: number;
+  event: GitHubPullRequestReviewEvent;
+  body: string;
+  comments: PullRequestReviewCommentInput[];
+}
+
+export interface ReplyToPullRequestReviewCommentOptions {
+  commentId: number;
+  body: string;
+}
+
 export interface GitHubClient {
   ensureLabels(labels: PullOpsLabel[]): Promise<EnsureLabelsResult>;
   getIssue(number: number): Promise<GitHubIssue>;
+  getPullRequest(number: number): Promise<GitHubPullRequest>;
+  getPullRequestReviewContext(number: number): Promise<GitHubPullRequestReviewContext>;
+  getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
   createDraftPullRequest(options: CreateDraftPullRequestOptions): Promise<GitHubPullRequest>;
   addLabelsToIssue(options: EditLabelsOptions): Promise<void>;
   removeLabelsFromIssue(options: EditLabelsOptions): Promise<void>;
   addLabelsToPullRequest(options: EditLabelsOptions): Promise<void>;
+  removeLabelsFromPullRequest(options: EditLabelsOptions): Promise<void>;
   commentOnIssue(options: CommentOnIssueOptions): Promise<void>;
+  commentOnPullRequest(options: CommentOnPullRequestOptions): Promise<void>;
+  updatePullRequestBody(options: UpdatePullRequestBodyOptions): Promise<void>;
+  publishPullRequestReview(options: PublishPullRequestReviewOptions): Promise<void>;
+  replyToPullRequestReviewComment(options: ReplyToPullRequestReviewCommentOptions): Promise<void>;
 }

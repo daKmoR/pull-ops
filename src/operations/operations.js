@@ -1,4 +1,5 @@
 import { runImplementIssue } from './implement-issue/run.js';
+import { runReviewPr } from './review-pr/run.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -78,6 +79,10 @@ export function getWorkflowOperation(name) {
 export async function runWorkflowOperation(context) {
   if (context.operation === 'implement-issue') {
     return await runImplementIssue(context);
+  }
+
+  if (context.operation === 'review-pr') {
+    return await runReviewPr(context);
   }
 
   return runPlaceholderOperation(context);

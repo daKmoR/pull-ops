@@ -199,6 +199,15 @@ function createFakeGitHubClient(overrides = {}) {
     async getIssue() {
       throw new Error('getIssue was not expected in this test.');
     },
+    async getPullRequest() {
+      throw new Error('getPullRequest was not expected in this test.');
+    },
+    async getPullRequestReviewContext() {
+      throw new Error('getPullRequestReviewContext was not expected in this test.');
+    },
+    async getPullRequestDiff() {
+      throw new Error('getPullRequestDiff was not expected in this test.');
+    },
     async findOpenPullRequestByHead() {
       throw new Error('findOpenPullRequestByHead was not expected in this test.');
     },
@@ -214,8 +223,23 @@ function createFakeGitHubClient(overrides = {}) {
     async addLabelsToPullRequest() {
       throw new Error('addLabelsToPullRequest was not expected in this test.');
     },
+    async removeLabelsFromPullRequest() {
+      throw new Error('removeLabelsFromPullRequest was not expected in this test.');
+    },
     async commentOnIssue() {
       throw new Error('commentOnIssue was not expected in this test.');
+    },
+    async commentOnPullRequest() {
+      throw new Error('commentOnPullRequest was not expected in this test.');
+    },
+    async updatePullRequestBody() {
+      throw new Error('updatePullRequestBody was not expected in this test.');
+    },
+    async publishPullRequestReview() {
+      throw new Error('publishPullRequestReview was not expected in this test.');
+    },
+    async replyToPullRequestReviewComment() {
+      throw new Error('replyToPullRequestReviewComment was not expected in this test.');
     },
     ...overrides,
   };

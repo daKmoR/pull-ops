@@ -317,6 +317,15 @@ function createFakeGitHub({ issue, existingPullRequest }) {
       async getIssue() {
         return issue;
       },
+      async getPullRequest() {
+        throw new Error('getPullRequest was not expected in this test.');
+      },
+      async getPullRequestReviewContext() {
+        throw new Error('getPullRequestReviewContext was not expected in this test.');
+      },
+      async getPullRequestDiff() {
+        throw new Error('getPullRequestDiff was not expected in this test.');
+      },
       async findOpenPullRequestByHead() {
         return existingPullRequest;
       },
@@ -340,8 +349,23 @@ function createFakeGitHub({ issue, existingPullRequest }) {
       async addLabelsToPullRequest(options) {
         pullRequestLabels.push(options);
       },
+      async removeLabelsFromPullRequest() {
+        throw new Error('removeLabelsFromPullRequest was not expected in this test.');
+      },
       async commentOnIssue(options) {
         comments.push(options);
+      },
+      async commentOnPullRequest() {
+        throw new Error('commentOnPullRequest was not expected in this test.');
+      },
+      async updatePullRequestBody() {
+        throw new Error('updatePullRequestBody was not expected in this test.');
+      },
+      async publishPullRequestReview() {
+        throw new Error('publishPullRequestReview was not expected in this test.');
+      },
+      async replyToPullRequestReviewComment() {
+        throw new Error('replyToPullRequestReviewComment was not expected in this test.');
       },
     },
   };
