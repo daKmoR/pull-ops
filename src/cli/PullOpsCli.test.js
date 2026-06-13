@@ -103,27 +103,27 @@ test('labels ensure reports label reconciliation results from the GitHub client 
 
   assert.equal(exitCode, 0);
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:prepare'),
+    ensuredLabels.some(label => label.name === 'pullops:prd:prepare'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:implement'),
+    ensuredLabels.some(label => label.name === 'pullops:issue:implement'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:coordinate'),
+    ensuredLabels.some(label => label.name === 'pullops:prd:coordinate'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:blocked'),
+    ensuredLabels.some(label => label.name === 'pullops:status:blocked'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:done'),
+    ensuredLabels.some(label => label.name === 'pullops:status:done'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:failed'),
+    ensuredLabels.some(label => label.name === 'pullops:status:failed'),
     true,
   );
   const expectedLabels = {

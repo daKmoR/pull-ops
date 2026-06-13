@@ -1,6 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_STATUS_LABEL_NAMES,
+  PULL_OPS_STATUS_LABELS,
+} from '../../labels/pullOpsLabels.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validateReviewPrOutput } from './output.js';
 import { buildReviewPrPrompt } from './prompt.js';
@@ -268,12 +273,16 @@ function filterRepliesToUnresolvedThreads({ replies, reviewContext }) {
 async function transitionPullRequestLabels(context, pullRequest, status) {
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: ['pullops:review', 'pullops:blocked', 'pullops:in-progress'],
+    labels: [PULL_OPS_OPERATION_LABELS.reviewPr, ...PULL_OPS_STATUS_LABEL_NAMES],
   });
 
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: [status === 'approved' ? 'pullops:prepare-merge' : 'pullops:address-review'],
+    labels: [
+      status === 'approved'
+        ? PULL_OPS_OPERATION_LABELS.prepareMerge
+        : PULL_OPS_OPERATION_LABELS.addressReview,
+    ],
   });
 }
 
@@ -333,11 +342,16 @@ async function recordPullRequestFailure(
 
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: ['pullops:blocked'],
+    labels: [PULL_OPS_STATUS_LABELS.blocked],
   });
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: ['pullops:review', 'pullops:in-progress'],
+    labels: [
+      PULL_OPS_OPERATION_LABELS.reviewPr,
+      PULL_OPS_STATUS_LABELS.inProgress,
+      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.done,
+    ],
   });
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,

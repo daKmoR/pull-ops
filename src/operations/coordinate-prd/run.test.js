@@ -33,7 +33,7 @@ describe('runCoordinatePrd', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 12,
-        labels: ['pullops:coordinate', 'pullops:in-progress'],
+        labels: ['pullops:prd:coordinate', 'pullops:status:in-progress'],
       },
     ]);
   });
@@ -93,7 +93,7 @@ function createIssue({ number = 12 } = {}) {
     state: 'OPEN',
     url: `https://github.com/acme/widgets/issues/${number}`,
     authorLogin: 'maintainer',
-    labels: ['pullops:coordinate'],
+    labels: ['pullops:prd:coordinate'],
     parent: null,
     subIssues: [],
   };

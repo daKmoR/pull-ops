@@ -61,23 +61,27 @@ A label-triggered unit of pull request work, such as preparing a Parent Issue, i
 _Avoid_: Job, workflow, task
 
 **Operation Label**:
-A repository label that requests one PullOps Operation on the issue or pull request it is applied to.
-_Avoid_: Trigger label, command label
+A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, such as `pullops:prd:prepare`, `pullops:issue:implement`, or `pullops:pr:review`.
+_Avoid_: Trigger label, command label, flat label
 
 **Status Label**:
-A repository label that records the current PullOps state of an issue or pull request without requesting new work.
-_Avoid_: State label, progress label
+A repository label that records the current PullOps state of an issue or pull request without requesting new work. Status Labels use the `pullops:status:<state>` grammar and are mutually exclusive for a PullOps target.
+_Avoid_: State label, progress label, operation label
 
 **Parent Issue**:
 An issue that represents a larger product requirement or PRD and owns implementation work through Child Issues.
 _Avoid_: Epic, project
+
+**PRD Issue**:
+The user-facing label target kind for Parent Issue preparation and coordination operations.
+_Avoid_: Epic, parent label target
 
 **Child Issue**:
 A Concrete Issue that belongs to a Parent Issue.
 _Avoid_: Subtask, sub-issue when not referring to GitHub's native feature
 
 **Concrete Issue**:
-An issue that is directly implementable by `pullops:implement` and does not own Child Issues.
+An issue that is directly implementable by `pullops:issue:implement` and does not own Child Issues.
 _Avoid_: Normal issue, task
 
 **Adjacent Work**:

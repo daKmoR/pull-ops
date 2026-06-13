@@ -1,3 +1,5 @@
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
@@ -54,7 +56,7 @@ export function createImplementIssuePullRequestBody({
     'Runner task: pullops-implement-issue',
     `Model tier: ${modelTier}`,
     `Model: ${model}`,
-    'Last operation: pullops:implement',
+    `Last operation: ${PULL_OPS_OPERATION_LABELS.implementIssue}`,
   ].join('\n');
 }
 

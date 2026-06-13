@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import { createParentBranchName } from '../branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../implement-issue/run.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
@@ -30,7 +31,10 @@ export async function runPreparePrd(context) {
     return await blockPreparation(context, issue, {
       reason: [
         `Issue #${issue.number} is already part of parent issue #${parentIssueNumber}.`,
-        'Use pullops:implement on concrete child issues, or pullops:prepare on the parent issue.',
+        [
+          `Use ${PULL_OPS_OPERATION_LABELS.implementIssue} on concrete child issues,`,
+          `or ${PULL_OPS_OPERATION_LABELS.preparePrd} on the parent issue.`,
+        ].join(' '),
       ].join(' '),
     });
   }
@@ -142,11 +146,16 @@ async function blockPreparation(context, issue, { reason }) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: ['pullops:blocked'],
+    labels: [PULL_OPS_STATUS_LABELS.blocked],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:failed', 'pullops:done'],
+    labels: [
+      PULL_OPS_OPERATION_LABELS.preparePrd,
+      PULL_OPS_STATUS_LABELS.inProgress,
+      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.done,
+    ],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -170,11 +179,15 @@ async function blockPreparation(context, issue, { reason }) {
 async function markPreparationInProgress(context, issue) {
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: ['pullops:in-progress'],
+    labels: [PULL_OPS_STATUS_LABELS.inProgress],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:blocked', 'pullops:failed', 'pullops:done'],
+    labels: [
+      PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.done,
+    ],
   });
 }
 
@@ -186,11 +199,16 @@ async function markPreparationInProgress(context, issue) {
 async function markPreparationDone(context, issue) {
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: ['pullops:done'],
+    labels: [PULL_OPS_STATUS_LABELS.done],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
+    labels: [
+      PULL_OPS_OPERATION_LABELS.preparePrd,
+      PULL_OPS_STATUS_LABELS.inProgress,
+      PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.failed,
+    ],
   });
 }
 
@@ -204,11 +222,16 @@ async function recordPreparationFailure(context, issue, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: ['pullops:failed'],
+    labels: [PULL_OPS_STATUS_LABELS.failed],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:blocked', 'pullops:done'],
+    labels: [
+      PULL_OPS_OPERATION_LABELS.preparePrd,
+      PULL_OPS_STATUS_LABELS.inProgress,
+      PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.done,
+    ],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,

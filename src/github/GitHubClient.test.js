@@ -14,38 +14,42 @@ describe('createGitHubClient', () => {
       PULL_OPS_LABELS.map(label => [label.name, label.color, label.description]),
       [
         [
-          'pullops:prepare',
+          'pullops:prd:prepare',
           '5319E7',
-          'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
+          'Prepare an umbrella branch and draft PR for a PRD issue.',
         ],
         [
-          'pullops:implement',
+          'pullops:prd:coordinate',
+          '5319E7',
+          'Reserved for future automatic PRD child issue orchestration.',
+        ],
+        [
+          'pullops:issue:implement',
           '5319E7',
           'Implement one concrete issue. Does not coordinate child issues.',
         ],
+        ['pullops:pr:review', '5319E7', 'Run PullOps automated PR review.'],
+        ['pullops:pr:address-review', '5319E7', 'Address actionable PullOps PR review feedback.'],
+        ['pullops:pr:fix-ci', '5319E7', 'Classify and fix actionable CI failures.'],
+        ['pullops:pr:update-branch', '5319E7', 'Update a same-repository PR branch.'],
         [
-          'pullops:coordinate',
-          '5319E7',
-          'Reserved for future automatic parent/child issue orchestration.',
-        ],
-        ['pullops:review', '5319E7', 'Run PullOps automated PR review.'],
-        ['pullops:address-review', '5319E7', 'Address actionable PullOps PR review feedback.'],
-        ['pullops:fix-ci', '5319E7', 'Classify and fix actionable CI failures.'],
-        ['pullops:update-branch', '5319E7', 'Update a same-repository PR branch.'],
-        [
-          'pullops:resolve-conflicts',
+          'pullops:pr:resolve-conflicts',
           '5319E7',
           'Resolve branch update conflicts with the PullOps runner.',
         ],
         [
-          'pullops:prepare-merge',
+          'pullops:pr:prepare-merge',
           '5319E7',
           'Prepare a PullOps-managed PR for human review and merge.',
         ],
-        ['pullops:in-progress', 'FBCA04', 'PullOps automation is currently working.'],
-        ['pullops:blocked', 'D93F0B', 'PullOps automation is blocked and needs human attention.'],
-        ['pullops:done', '0E8A16', 'PullOps automation completed successfully.'],
-        ['pullops:failed', 'B60205', 'PullOps automation failed and needs investigation.'],
+        ['pullops:status:in-progress', 'FBCA04', 'PullOps automation is currently working.'],
+        [
+          'pullops:status:blocked',
+          'D93F0B',
+          'PullOps automation is blocked and needs human attention.',
+        ],
+        ['pullops:status:done', '0E8A16', 'PullOps automation completed successfully.'],
+        ['pullops:status:failed', 'B60205', 'PullOps automation failed and needs investigation.'],
       ],
     );
   });
@@ -71,11 +75,11 @@ describe('createGitHubClient', () => {
       args: [
         'label',
         'create',
-        'pullops:prepare',
+        'pullops:prd:prepare',
         '--color',
         '5319E7',
         '--description',
-        'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
+        'Prepare an umbrella branch and draft PR for a PRD issue.',
       ],
     });
   });
@@ -322,7 +326,7 @@ describe('createGitHubClient', () => {
     });
     await client.removeLabelsFromPullRequest({
       number: 100,
-      labels: ['pullops:review'],
+      labels: ['pullops:pr:review'],
     });
     await client.commentOnPullRequest({
       number: 100,
@@ -368,7 +372,7 @@ describe('createGitHubClient', () => {
       },
       {
         file: 'gh',
-        args: ['pr', 'edit', '100', '--remove-label', 'pullops:review'],
+        args: ['pr', 'edit', '100', '--remove-label', 'pullops:pr:review'],
       },
       {
         file: 'gh',

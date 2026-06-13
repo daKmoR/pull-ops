@@ -63,15 +63,15 @@ describe('runPreparePrd', () => {
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-12');
     assert.match(github.createdPullRequests[0].body, /Tracks #12/);
     assert.match(github.createdPullRequests[0].body, /#34 Implement child workflow \(open\)/);
-    assert.match(github.createdPullRequests[0].body, /Last operation: pullops:prepare/);
+    assert.match(github.createdPullRequests[0].body, /Last operation: pullops:prd:prepare/);
     assert.deepEqual(github.issueLabelsAdded, [
       {
         number: 12,
-        labels: ['pullops:in-progress'],
+        labels: ['pullops:status:in-progress'],
       },
       {
         number: 12,
-        labels: ['pullops:done'],
+        labels: ['pullops:status:done'],
       },
     ]);
   });
@@ -104,7 +104,7 @@ describe('runPreparePrd', () => {
     assert.equal(github.createdPullRequests.length, 0);
     assert.equal(github.updatedPullRequestBodies.length, 1);
     assert.equal(github.updatedPullRequestBodies[0].number, 100);
-    assert.match(github.updatedPullRequestBodies[0].body, /Last operation: pullops:prepare/);
+    assert.match(github.updatedPullRequestBodies[0].body, /Last operation: pullops:prd:prepare/);
   });
 
   it('03: blocks prepare when applied to a known child issue', async () => {
@@ -125,7 +125,7 @@ describe('runPreparePrd', () => {
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /already part of parent issue #12/);
     assert.equal(git.branches.length, 0);
-    assert.match(github.comments[0].body, /pullops:prepare on the parent issue/);
+    assert.match(github.comments[0].body, /pullops:prd:prepare on the parent issue/);
   });
 });
 
@@ -180,7 +180,7 @@ function createIssue({
     state,
     url: `https://github.com/acme/widgets/issues/${number}`,
     authorLogin: 'maintainer',
-    labels: ['pullops:prepare'],
+    labels: ['pullops:prd:prepare'],
     parent,
     subIssues,
   };

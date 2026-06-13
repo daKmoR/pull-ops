@@ -1,31 +1,68 @@
 name: PullOps Review
 
 on:
-  pull_request_target:
-    types:
-      - labeled
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      head_ref:
+        description: Same-repository pull request head branch
+        required: true
+        type: string
+      trigger_actor:
+        description: GitHub actor that requested the operation
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: pullops-review-${{ github.event.pull_request.number }}
+  group: pullops-review-${{ inputs.pr }}
   cancel-in-progress: false
 
 jobs:
   review:
-    if: >-
-      github.event.label.name == 'pullops:review' &&
-      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
+      - name: Verify same-repository pull request
+        env:
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PR: ${{ inputs.pr }}
+          HEAD_REF: ${{ inputs.head_ref }}
+        run: |
+          actual_head_ref="$(
+            gh pr view "$PR" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json headRefName \
+              --jq '.headRefName'
+          )"
+          actual_head_repository="$(
+            gh pr view "$PR" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json headRepositoryOwner,headRepository \
+              --jq '.headRepositoryOwner.login + "/" + .headRepository.name'
+          )"
+
+          if [ "$actual_head_repository" != "$GITHUB_REPOSITORY" ]; then
+            echo "PullOps only reviews same-repository PRs."
+            exit 1
+          fi
+
+          if [ "$actual_head_ref" != "$HEAD_REF" ]; then
+            echo "Dispatched head_ref does not match PR head branch."
+            exit 1
+          fi
+
       - name: Check out pull request branch
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ inputs.head_ref }}
           token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
@@ -38,12 +75,12 @@ jobs:
         run: npm ci
 
       - name: Run PullOps review PR
-        run: npm run pullops:review-pr -- --pr ${{ github.event.pull_request.number }}
+        run: npm run pullops:review-pr -- --pr ${{ inputs.pr }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output

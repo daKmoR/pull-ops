@@ -1,0 +1,73 @@
+name: PullOps Dispatch
+
+on:
+  issues:
+    types:
+      - labeled
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  actions: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  dispatch-issue:
+    if: >-
+      github.event_name == 'issues' &&
+      (
+        github.event.label.name == 'pullops:prd:prepare' ||
+        github.event.label.name == 'pullops:prd:coordinate' ||
+        github.event.label.name == 'pullops:issue:implement'
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch issue operation workflow
+        env:
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          LABEL: ${{ github.event.label.name }}
+          ISSUE: ${{ github.event.issue.number }}
+          TRIGGER_ACTOR: ${{ github.actor }}
+        run: |
+          case "$LABEL" in
+            pullops:prd:prepare)
+              workflow="pullops-prepare.yml"
+              ;;
+            pullops:prd:coordinate)
+              workflow="pullops-coordinate.yml"
+              ;;
+            pullops:issue:implement)
+              workflow="pullops-implement.yml"
+              ;;
+          esac
+
+          gh workflow run "$workflow" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f issue="$ISSUE" \
+            -f trigger_actor="$TRIGGER_ACTOR"
+
+  dispatch-pull-request:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.label.name == 'pullops:pr:review' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch pull request operation workflow
+        env:
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          TRIGGER_ACTOR: ${{ github.actor }}
+        run: |
+          gh workflow run pullops-review.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            -f pr="$PR" \
+            -f head_ref="$HEAD_REF" \
+            -f trigger_actor="$TRIGGER_ACTOR"

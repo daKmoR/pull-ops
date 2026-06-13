@@ -1,21 +1,27 @@
 name: PullOps Coordinate
 
 on:
-  issues:
-    types:
-      - labeled
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+        type: string
+      trigger_actor:
+        description: GitHub actor that requested the operation
+        required: true
+        type: string
 
 permissions:
   contents: read
   issues: write
 
 concurrency:
-  group: pullops-coordinate-${{ github.event.issue.number }}
+  group: pullops-coordinate-${{ inputs.issue }}
   cancel-in-progress: false
 
 jobs:
   coordinate:
-    if: github.event.label.name == 'pullops:coordinate'
     runs-on: ubuntu-latest
 
     steps:
@@ -35,12 +41,12 @@ jobs:
         run: npm ci
 
       - name: Run PullOps coordinate PRD
-        run: npm run pullops:coordinate-prd -- --issue ${{ github.event.issue.number }}
+        run: npm run pullops:coordinate-prd -- --issue ${{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output

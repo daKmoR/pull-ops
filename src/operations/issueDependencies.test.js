@@ -44,9 +44,9 @@ describe('issueDependencies', () => {
     );
   });
 
-  it('03: treats closed or pullops:done dependency issues as done', () => {
+  it('03: treats closed or pullops:status:done dependency issues as done', () => {
     assert.equal(createDoneState({ state: 'CLOSED', labels: [] }), true);
-    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:done'] }), true);
+    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:status:done'] }), true);
     assert.equal(createDoneState({ state: 'OPEN', labels: [] }), false);
   });
 });

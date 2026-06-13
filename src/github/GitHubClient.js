@@ -1,6 +1,8 @@
 import { execFile as nodeExecFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
+
 const execFileAsync = promisify(nodeExecFile);
 
 /**
@@ -118,75 +120,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
   }
 }
 `;
-
-/** @type {PullOpsLabel[]} */
-export const PULL_OPS_LABELS = [
-  {
-    name: 'pullops:prepare',
-    color: '5319E7',
-    description: 'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
-  },
-  {
-    name: 'pullops:implement',
-    color: '5319E7',
-    description: 'Implement one concrete issue. Does not coordinate child issues.',
-  },
-  {
-    name: 'pullops:coordinate',
-    color: '5319E7',
-    description: 'Reserved for future automatic parent/child issue orchestration.',
-  },
-  {
-    name: 'pullops:review',
-    color: '5319E7',
-    description: 'Run PullOps automated PR review.',
-  },
-  {
-    name: 'pullops:address-review',
-    color: '5319E7',
-    description: 'Address actionable PullOps PR review feedback.',
-  },
-  {
-    name: 'pullops:fix-ci',
-    color: '5319E7',
-    description: 'Classify and fix actionable CI failures.',
-  },
-  {
-    name: 'pullops:update-branch',
-    color: '5319E7',
-    description: 'Update a same-repository PR branch.',
-  },
-  {
-    name: 'pullops:resolve-conflicts',
-    color: '5319E7',
-    description: 'Resolve branch update conflicts with the PullOps runner.',
-  },
-  {
-    name: 'pullops:prepare-merge',
-    color: '5319E7',
-    description: 'Prepare a PullOps-managed PR for human review and merge.',
-  },
-  {
-    name: 'pullops:in-progress',
-    color: 'FBCA04',
-    description: 'PullOps automation is currently working.',
-  },
-  {
-    name: 'pullops:blocked',
-    color: 'D93F0B',
-    description: 'PullOps automation is blocked and needs human attention.',
-  },
-  {
-    name: 'pullops:done',
-    color: '0E8A16',
-    description: 'PullOps automation completed successfully.',
-  },
-  {
-    name: 'pullops:failed',
-    color: 'B60205',
-    description: 'PullOps automation failed and needs investigation.',
-  },
-];
 
 /**
  * @param {{ execFile?: ExecFile }} [options]

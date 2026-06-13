@@ -1,3 +1,5 @@
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
@@ -42,7 +44,7 @@ export function createPreparePrdPullRequestBody({
     'Runner task: pullops-prepare-prd',
     `Model tier: ${modelTier}`,
     `Model: ${model}`,
-    'Last operation: pullops:prepare',
+    `Last operation: ${PULL_OPS_OPERATION_LABELS.preparePrd}`,
   ].join('\n');
 }
 

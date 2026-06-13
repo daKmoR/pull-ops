@@ -5,16 +5,24 @@ workflows from GitHub Actions.
 
 ## Workflow Labels
 
-Use `pullops:prepare` on a parent issue or PRD to create or update its umbrella
-branch and draft PR. Use `pullops:implement` on one concrete issue; it does not
-coordinate or implement child issues. `pullops:coordinate` is reserved for a
-later automatic parent/child orchestration slice and currently only reports that
-it is not implemented.
+Operation Labels request work and are namespaced by target kind:
+
+- `pullops:prd:prepare` creates or updates an umbrella branch and draft PR for a
+  PRD issue.
+- `pullops:prd:coordinate` is reserved for a later automatic parent/child
+  orchestration slice and currently only reports that it is not implemented.
+- `pullops:issue:implement` implements one concrete issue; it does not coordinate
+  or implement child issues.
+- `pullops:pr:review` runs automated review for a PullOps-managed PR.
+
+Status Labels report queryable state and use the `pullops:status:*` namespace:
+`pullops:status:in-progress`, `pullops:status:done`,
+`pullops:status:blocked`, and `pullops:status:failed`.
 
 For the current manual parent/child workflow:
 
-1. Label the parent issue with `pullops:prepare`.
-2. Label selected child issues with `pullops:implement`.
+1. Label the parent issue with `pullops:prd:prepare`.
+2. Label selected child issues with `pullops:issue:implement`.
 3. Child PRs target the parent umbrella branch.
 
 ## GitHub Token Setup
@@ -35,6 +43,7 @@ Prefer a fine-grained personal access token:
 5. Set **Repository access** to **Only select repositories**, then select this
    repository.
 6. Grant these repository permissions:
+   - **Actions**: read and write
    - **Contents**: read and write
    - **Issues**: read and write
    - **Pull requests**: read and write

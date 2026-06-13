@@ -82,17 +82,17 @@ describe('runImplementIssue', () => {
     assert.deepEqual(github.pullRequestLabels, [
       {
         number: 100,
-        labels: ['pullops:review'],
+        labels: ['pullops:pr:review'],
       },
     ]);
     assert.deepEqual(github.issueLabelsAdded, [
       {
         number: 42,
-        labels: ['pullops:in-progress'],
+        labels: ['pullops:status:in-progress'],
       },
       {
         number: 42,
-        labels: ['pullops:done'],
+        labels: ['pullops:status:done'],
       },
     ]);
   });
@@ -187,10 +187,10 @@ describe('runImplementIssue', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(String(result.summary), /Use pullops:prepare/);
+    assert.match(String(result.summary), /Use pullops:prd:prepare/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
-    assert.match(github.comments[0].body, /Use pullops:prepare/);
+    assert.match(github.comments[0].body, /Use pullops:prd:prepare/);
   });
 
   it('04: blocks a parent issue with children without implementing child issues', async () => {
@@ -223,7 +223,7 @@ describe('runImplementIssue', () => {
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /child issues/);
-    assert.match(String(result.summary), /Use pullops:prepare/);
+    assert.match(String(result.summary), /Use pullops:prd:prepare/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
@@ -282,7 +282,12 @@ describe('runImplementIssue', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 42,
-        labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
+        labels: [
+          'pullops:issue:implement',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:failed',
+        ],
       },
     ]);
   });
@@ -323,7 +328,7 @@ describe('runImplementIssue', () => {
     assert.match(github.comments[0].body, /Operation Output\.testPlan must be an array/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:failed'],
+      labels: ['pullops:status:failed'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
@@ -360,7 +365,7 @@ describe('runImplementIssue', () => {
     assert.match(github.comments[0].body, /push failed/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:failed'],
+      labels: ['pullops:status:failed'],
     });
   });
 
@@ -399,7 +404,7 @@ describe('runImplementIssue', () => {
     assert.deepEqual(github.issueLabelsAdded, [
       {
         number: 42,
-        labels: ['pullops:blocked'],
+        labels: ['pullops:status:blocked'],
       },
     ]);
   });
@@ -461,7 +466,7 @@ function createIssue({
   title = 'Implement the issue',
   body = '## What to build\n\nDo the thing.',
   state = 'OPEN',
-  labels = ['pullops:implement'],
+  labels = ['pullops:issue:implement'],
   parent = null,
   subIssues = [],
 } = {}) {

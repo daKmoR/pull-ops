@@ -100,17 +100,23 @@ describe('runReviewPr', () => {
     ]);
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 2 \/ 3/);
-    assert.match(github.updatedBodies[0].body, /Last operation: pullops:review/);
+    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:review/);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: ['pullops:review', 'pullops:blocked', 'pullops:in-progress'],
+        labels: [
+          'pullops:pr:review',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
       },
     ]);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:prepare-merge'],
+        labels: ['pullops:pr:prepare-merge'],
       },
     ]);
     const review = /** @type {{
@@ -174,7 +180,7 @@ describe('runReviewPr', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:address-review'],
+        labels: ['pullops:pr:address-review'],
       },
     ]);
     const review = /** @type {{ directChangesCommitted: boolean }} */ (result.review);
@@ -209,7 +215,7 @@ describe('runReviewPr', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:blocked'],
+        labels: ['pullops:status:blocked'],
       },
     ]);
     assert.match(github.comments[0].body, /The diff context was incomplete/);
@@ -281,7 +287,7 @@ describe('runReviewPr', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:blocked'],
+        labels: ['pullops:status:blocked'],
       },
     ]);
   });
@@ -336,7 +342,7 @@ function createPullRequest(overrides = {}) {
       'Review cycles: 1 / 3',
       'Source: Issue #42',
       'Branch: pullops/issue-42',
-      'Last operation: pullops:implement',
+      'Last operation: pullops:issue:implement',
     ].join('\n'),
     isDraft: true,
     isCrossRepository: false,

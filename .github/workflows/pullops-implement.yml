@@ -1,9 +1,16 @@
 name: PullOps Implement
 
 on:
-  issues:
-    types:
-      - labeled
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+        type: string
+      trigger_actor:
+        description: GitHub actor that requested the operation
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,12 +18,11 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pullops-implement-${{ github.event.issue.number }}
+  group: pullops-implement-${{ inputs.issue }}
   cancel-in-progress: false
 
 jobs:
   implement:
-    if: github.event.label.name == 'pullops:implement'
     runs-on: ubuntu-latest
 
     steps:
@@ -36,12 +42,12 @@ jobs:
         run: npm ci
 
       - name: Run PullOps implement issue
-        run: npm run pullops:implement-issue -- --issue ${{ github.event.issue.number }}
+        run: npm run pullops:implement-issue -- --issue ${{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output

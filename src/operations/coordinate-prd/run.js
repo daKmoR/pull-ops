@@ -1,3 +1,5 @@
+import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
+
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  */
@@ -11,8 +13,11 @@ export async function runCoordinatePrd(context) {
 
   const issue = await context.githubClient.getIssue(context.target.number);
   const summary = [
-    'pullops:coordinate is reserved for a later automatic parent/child orchestration slice.',
-    'Use pullops:prepare on the parent issue now, then label selected concrete child issues with pullops:implement.',
+    `${PULL_OPS_OPERATION_LABELS.coordinatePrd} is reserved for a later automatic parent/child orchestration slice.`,
+    [
+      `Use ${PULL_OPS_OPERATION_LABELS.preparePrd} on the parent issue now,`,
+      `then label selected concrete child issues with ${PULL_OPS_OPERATION_LABELS.implementIssue}.`,
+    ].join(' '),
   ].join(' ');
 
   await context.githubClient.commentOnIssue({
@@ -21,7 +26,7 @@ export async function runCoordinatePrd(context) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:coordinate', 'pullops:in-progress'],
+    labels: [PULL_OPS_OPERATION_LABELS.coordinatePrd, PULL_OPS_STATUS_LABELS.inProgress],
   });
 
   return {

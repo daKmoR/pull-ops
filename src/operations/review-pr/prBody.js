@@ -1,3 +1,5 @@
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+
 /**
  * @typedef {import('./output.js').ReviewResultStatus} ReviewResultStatus
  * @typedef {{
@@ -41,7 +43,7 @@ export function updatePullRequestBodyForReview({
   let updated = body.trimEnd();
   updated = upsertLine(updated, 'Status:', formatReviewStatus(reviewStatus));
   updated = upsertLine(updated, 'Review cycles:', `${reviewCycle} / ${maxReviewCycles}`);
-  updated = upsertLine(updated, 'Last operation:', 'pullops:review');
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.reviewPr);
   return `${updated}\n`;
 }
 
