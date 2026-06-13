@@ -9,6 +9,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
+ * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
+ * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
  * @typedef {import('../github/types.js').ExecFile} ExecFile
  */
 
@@ -92,7 +94,131 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
         `push branch ${branchName}`,
       );
     },
+
+    /**
+     * @param {GetChangedFilesSinceBaseOptions} options
+     * @returns {Promise<string[]>}
+     */
+    async getChangedFilesSinceBase({ baseBranch }) {
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      const result = await runGit(
+        execFile,
+        ['diff', '--name-only', '-z', `origin/${baseBranch}...HEAD`],
+        `inspect changed files since ${baseBranch}`,
+      );
+      return parseNullSeparatedFiles(result.stdout);
+    },
+
+    /**
+     * @param {RewriteBranchWithCommitPlanOptions} options
+     * @returns {Promise<void>}
+     */
+    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author }) {
+      const originalHead = (
+        await runGit(execFile, ['rev-parse', 'HEAD'], 'record the original branch head')
+      ).stdout
+        .toString()
+        .trim();
+      const baseRef = `origin/${baseBranch}`;
+
+      await runGit(execFile, ['reset', '--hard', baseRef], `reset branch to ${baseRef}`);
+
+      for (const [index, commit] of commits.entries()) {
+        for (const file of commit.files) {
+          await restorePathFromRevision(execFile, originalHead, file);
+        }
+
+        if (!(await hasStagedChanges(execFile))) {
+          throw new Error(`Commit Plan commit ${index + 1} did not stage any changes.`);
+        }
+
+        await runGit(
+          execFile,
+          [
+            '-c',
+            `user.name=${author.name}`,
+            '-c',
+            `user.email=${author.email}`,
+            'commit',
+            '-m',
+            commit.message,
+          ],
+          `create planned commit ${index + 1}`,
+        );
+      }
+
+      await runGit(
+        execFile,
+        ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
+        `force-with-lease push branch ${branchName}`,
+      );
+    },
   };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} revision
+ * @param {string} path
+ * @returns {Promise<void>}
+ */
+async function restorePathFromRevision(execFile, revision, path) {
+  if (await pathExistsAtRevision(execFile, revision, path)) {
+    await runGit(
+      execFile,
+      ['restore', '--source', revision, '--worktree', '--', path],
+      `restore ${path} from the original branch head`,
+    );
+    await runGit(execFile, ['add', '--', path], `stage ${path}`);
+    return;
+  }
+
+  await runGit(execFile, ['rm', '--ignore-unmatch', '--', path], `stage deletion of ${path}`);
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} revision
+ * @param {string} path
+ * @returns {Promise<boolean>}
+ */
+async function pathExistsAtRevision(execFile, revision, path) {
+  try {
+    await execFile('git', ['cat-file', '-e', `${revision}:${path}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<boolean>}
+ */
+async function hasStagedChanges(execFile) {
+  try {
+    await execFile('git', ['diff', '--cached', '--quiet']);
+    return false;
+  } catch (error) {
+    if (isPlainObject(error) && error.code === 1) {
+      return true;
+    }
+
+    throw new Error(`Failed to inspect staged changes: ${getCommandErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * @param {string | Buffer} stdout
+ * @returns {string[]}
+ */
+function parseNullSeparatedFiles(stdout) {
+  return stdout
+    .toString()
+    .split('\0')
+    .filter(file => file !== '');
 }
 
 /**

@@ -6,6 +6,8 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
  * @typedef {{
  *   managed: boolean;
  *   sourceIssueNumber?: number;
+ *   sourceKind?: 'issue' | 'parentIssue';
+ *   lastOperation?: string;
  *   reviewCycles: {
  *     current: number;
  *     max: number;
@@ -25,9 +27,17 @@ export const DEFAULT_MAX_CI_FIX_CYCLES = 2;
  * @returns {PullOpsPullRequestState}
  */
 export function readPullOpsPullRequestState(body) {
+  const source = readSource(body);
+
   return {
     managed: /^Managed PR:\s*yes\s*$/im.test(body),
-    sourceIssueNumber: readSourceIssueNumber(body),
+    ...(source === undefined
+      ? {}
+      : {
+          sourceIssueNumber: source.number,
+          sourceKind: source.kind,
+        }),
+    lastOperation: readLastOperation(body),
     reviewCycles: readReviewCycles(body),
     ciFixCycles: readCiFixCycles(body),
   };
@@ -133,20 +143,35 @@ function formatFixCiStatus(status) {
 
 /**
  * @param {string} body
- * @returns {number | undefined}
+ * @returns {{ number: number, kind: 'issue' | 'parentIssue' } | undefined}
  */
-function readSourceIssueNumber(body) {
-  const sourceMatch = body.match(/^Source:\s*Issue\s+#(\d+)\s*$/im);
-  if (sourceMatch?.[1] !== undefined) {
-    return Number(sourceMatch[1]);
+function readSource(body) {
+  const sourceMatch = body.match(/^Source:\s*(Parent\s+)?Issue\s+#(\d+)\s*$/im);
+  if (sourceMatch?.[2] !== undefined) {
+    return {
+      number: Number(sourceMatch[2]),
+      kind: sourceMatch[1] === undefined ? 'issue' : 'parentIssue',
+    };
   }
 
   const closesMatch = body.match(/^Closes\s+#(\d+)\s*$/im);
   if (closesMatch?.[1] !== undefined) {
-    return Number(closesMatch[1]);
+    return {
+      number: Number(closesMatch[1]),
+      kind: 'issue',
+    };
   }
 
   return undefined;
+}
+
+/**
+ * @param {string} body
+ * @returns {string | undefined}
+ */
+function readLastOperation(body) {
+  const match = body.match(/^Last operation:\s*(.+?)\s*$/im);
+  return match?.[1]?.trim();
 }
 
 /**

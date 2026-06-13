@@ -22,10 +22,28 @@ export interface PushBranchOptions {
   branchName: string;
 }
 
+export interface GetChangedFilesSinceBaseOptions {
+  baseBranch: string;
+}
+
+export interface PlannedRewriteCommit {
+  message: string;
+  files: string[];
+}
+
+export interface RewriteBranchWithCommitPlanOptions {
+  baseBranch: string;
+  branchName: string;
+  commits: PlannedRewriteCommit[];
+  author: GitCommitAuthor;
+}
+
 export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;
   pushBranch(options: PushBranchOptions): Promise<void>;
+  getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
+  rewriteBranchWithCommitPlan(options: RewriteBranchWithCommitPlanOptions): Promise<void>;
 }

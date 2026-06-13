@@ -73,6 +73,12 @@ function createContext(overrides = {}) {
       async pushBranch() {
         throw new Error('pushBranch was not expected in this test.');
       },
+      async getChangedFilesSinceBase() {
+        throw new Error('getChangedFilesSinceBase was not expected in this test.');
+      },
+      async rewriteBranchWithCommitPlan() {
+        throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
+      },
     },
     codexRunner: {
       async run() {

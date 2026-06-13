@@ -477,6 +477,52 @@ describe('runReviewPr', () => {
     ]);
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
+
+  it('11: marks the PR done when final review approves after prepare-merge', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: [
+          '## Summary',
+          '',
+          'Prepared for final review.',
+          '',
+          '## PullOps',
+          '',
+          'Managed PR: yes',
+          'Status: Prepared for final review',
+          'Review cycles: 2 / 3',
+          'Source: Issue #42',
+          'Branch: pullops/issue-42',
+          'Last operation: pullops:pr:prepare-merge',
+        ].join('\n'),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The prepared PR is ready for human review.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const result = await runReviewPr(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:status:done'],
+      },
+    ]);
+  });
 });
 
 /**
@@ -749,6 +795,12 @@ function createFakeGit({ hasChanges }) {
       },
       async pushBranch(options) {
         pushes.push(options);
+      },
+      async getChangedFilesSinceBase() {
+        throw new Error('getChangedFilesSinceBase was not expected in this test.');
+      },
+      async rewriteBranchWithCommitPlan() {
+        throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
       },
     },
   };
