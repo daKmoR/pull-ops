@@ -81,7 +81,7 @@ test('run operation accepts every workflow-facing operation shape', async () => 
   }
 });
 
-test('labels ensure uses the GitHub client seam', async () => {
+test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {
   const stdout = createWritableBuffer();
   /** @type {PullOpsLabel[]} */
   const ensuredLabels = [];
@@ -90,7 +90,11 @@ test('labels ensure uses the GitHub client seam', async () => {
     githubClient: {
       async ensureLabels(labels) {
         ensuredLabels.push(...labels);
-        return { labelsEnsured: labels.length };
+        return {
+          created: [labels[0].name],
+          updated: [labels[1].name],
+          alreadyCorrect: labels.slice(2).map(label => label.name),
+        };
       },
     },
   });
@@ -106,11 +110,33 @@ test('labels ensure uses the GitHub client seam', async () => {
     ensuredLabels.some(label => label.name === 'pullops:blocked'),
     true,
   );
+  const expectedLabels = {
+    created: [ensuredLabels[0].name],
+    updated: [ensuredLabels[1].name],
+    alreadyCorrect: ensuredLabels.slice(2).map(label => label.name),
+  };
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'Ensured 9 PullOps labels.',
-    labels: ensuredLabels.map(label => label.name),
+    summary: 'Ensured 9 PullOps labels: 1 created, 1 updated, 7 already correct.',
+    labels: expectedLabels,
   });
+});
+
+test('labels ensure reports GitHub failures', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stderr,
+    githubClient: {
+      async ensureLabels() {
+        throw new Error('Failed to list GitHub labels: authentication required');
+      },
+    },
+  });
+
+  const exitCode = await cli.run(['labels', 'ensure']);
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /Failed to list GitHub labels: authentication required/);
 });
 
 test('cli reports clear usage errors for unknown commands and missing arguments', async t => {

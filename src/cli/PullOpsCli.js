@@ -8,6 +8,7 @@ import { getWorkflowOperation, WORKFLOW_OPERATION_NAMES } from '../operations/op
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('./types.js').OperationRunner} OperationRunner
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
+ * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
  */
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
@@ -148,12 +149,12 @@ export class PullOpsCli {
       throw new CliUsageError(`Unknown labels ensure arguments: ${rest.join(' ')}.`);
     }
 
-    await this.githubClient.ensureLabels(PULL_OPS_LABELS);
+    const result = await this.githubClient.ensureLabels(PULL_OPS_LABELS);
 
     this.writeValidatedJson({
       status: 'accepted',
-      summary: `Ensured ${PULL_OPS_LABELS.length} PullOps labels.`,
-      labels: PULL_OPS_LABELS.map(label => label.name),
+      summary: summarizeEnsureLabelsResult(PULL_OPS_LABELS.length, result),
+      labels: result,
     });
     return 0;
   }
@@ -241,6 +242,20 @@ function usage() {
     '  pullops run <operation> --pr <number>',
     '  pullops labels ensure',
   ].join('\n');
+}
+
+/**
+ * @param {number} total
+ * @param {EnsureLabelsResult} result
+ * @returns {string}
+ */
+function summarizeEnsureLabelsResult(total, result) {
+  return [
+    `Ensured ${total} PullOps labels:`,
+    `${result.created.length} created,`,
+    `${result.updated.length} updated,`,
+    `${result.alreadyCorrect.length} already correct.`,
+  ].join(' ');
 }
 
 /**
