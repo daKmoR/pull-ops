@@ -15,6 +15,10 @@ export async function runCloseChildIssue(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
+  if (pullRequest.isCrossRepository === true) {
+    return skipped(pullRequest, `PR #${pullRequest.number} is not a same-repository PR.`);
+  }
+
   const childBranch = parseChildIssueBranchName({
     branchPrefix: context.config.branchPrefix,
     branchName: pullRequest.headRefName,

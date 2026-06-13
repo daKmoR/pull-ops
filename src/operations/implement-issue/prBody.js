@@ -82,7 +82,7 @@ function formatParentTraceability({ issue, parentIssueNumber }) {
     return [];
   }
 
-  return [`PRD: #${resolvedParentIssueNumber}`];
+  return [`Part of #${resolvedParentIssueNumber}`];
 }
 
 /**

@@ -88,7 +88,30 @@ describe('runCloseChildIssue', () => {
     assert.equal(github.closedIssues.length, 0);
   });
 
-  it('03: skips child-shaped PRs that do not target the matching PRD branch', async () => {
+  it('03: skips cross-repository child issue PRs', async () => {
+    const issue = createIssue({ number: 42 });
+    const pullRequest = createPullRequest({
+      number: 100,
+      headRefName: 'pullops/prd-1/issue-42',
+      baseRefName: 'pullops/prd-1',
+      state: 'MERGED',
+      mergedAt: '2026-06-14T10:00:00Z',
+      isCrossRepository: true,
+    });
+    const github = createFakeGitHub({ issue, pullRequest });
+
+    const result = await runCloseChildIssue(
+      createContext({
+        githubClient: github.client,
+      }),
+    );
+
+    assert.equal(result.status, 'skipped');
+    assert.match(String(result.summary), /not a same-repository PR/);
+    assert.equal(github.closedIssues.length, 0);
+  });
+
+  it('04: skips child-shaped PRs that do not target the matching PRD branch', async () => {
     const issue = createIssue({ number: 42 });
     const pullRequest = createPullRequest({
       number: 100,
@@ -110,7 +133,7 @@ describe('runCloseChildIssue', () => {
     assert.equal(github.closedIssues.length, 0);
   });
 
-  it('04: skips child PRs whose issue is not part of the parsed PRD parent', async () => {
+  it('05: skips child PRs whose issue is not part of the parsed PRD parent', async () => {
     const issue = createIssue({
       number: 42,
       parent: {
@@ -137,6 +160,38 @@ describe('runCloseChildIssue', () => {
     assert.equal(result.status, 'skipped');
     assert.match(String(result.summary), /not part of PRD issue #1/);
     assert.equal(github.closedIssues.length, 0);
+  });
+
+  it('06: accepts already-closed child issues without mutating them again', async () => {
+    const issue = createIssue({
+      number: 42,
+      state: 'CLOSED',
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const pullRequest = createPullRequest({
+      number: 100,
+      headRefName: 'pullops/prd-1/issue-42',
+      baseRefName: 'pullops/prd-1',
+      state: 'MERGED',
+      mergedAt: '2026-06-14T10:00:00Z',
+    });
+    const github = createFakeGitHub({ issue, pullRequest });
+
+    const result = await runCloseChildIssue(
+      createContext({
+        githubClient: github.client,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.match(String(result.summary), /already closed/);
+    assert.equal(github.closedIssues.length, 0);
+    assert.equal(github.issueLabelsRemoved.length, 0);
+    assert.equal(github.issueLabelsAdded.length, 0);
   });
 });
 
@@ -221,6 +276,7 @@ function createIssue({ number = 42, state = 'OPEN', parent = null } = {}) {
  * @param {string} [options.baseRefName]
  * @param {string} [options.state]
  * @param {string} [options.mergedAt]
+ * @param {boolean} [options.isCrossRepository]
  * @returns {GitHubPullRequest}
  */
 function createPullRequest({
@@ -229,6 +285,7 @@ function createPullRequest({
   baseRefName = 'pullops/prd-1',
   state = 'MERGED',
   mergedAt = '2026-06-14T10:00:00Z',
+  isCrossRepository = false,
 } = {}) {
   return {
     number,
@@ -240,7 +297,7 @@ function createPullRequest({
     mergedAt,
     body: 'Managed PR: yes',
     isDraft: false,
-    isCrossRepository: false,
+    isCrossRepository,
     labels: [],
   };
 }
