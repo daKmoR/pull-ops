@@ -72,7 +72,10 @@ jobs:
   dispatch-pull-request:
     if: >-
       github.event_name == 'pull_request_target' &&
-      github.event.label.name == 'pullops:pr:review' &&
+      (
+        github.event.label.name == 'pullops:pr:review' ||
+        github.event.label.name == 'pullops:pr:address-review'
+      ) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
@@ -99,11 +102,21 @@ jobs:
       - name: Dispatch pull request operation workflow
         env:
           GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ github.event.label.name }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           TRIGGER_ACTOR: ${{ github.actor }}
         run: |
-          gh workflow run pullops-review.yml \
+          case "$LABEL" in
+            pullops:pr:review)
+              workflow="pullops-review.yml"
+              ;;
+            pullops:pr:address-review)
+              workflow="pullops-address-review.yml"
+              ;;
+          esac
+
+          gh workflow run "$workflow" \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$GITHUB_REF_NAME" \
             -f pr="$PR" \

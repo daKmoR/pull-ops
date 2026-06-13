@@ -46,6 +46,7 @@
     "pullops:implement-issue": "node src/cli/cli.js run implement-issue",
     "pullops:coordinate-prd": "node src/cli/cli.js run coordinate-prd",
     "pullops:review-pr": "node src/cli/cli.js run review-pr",
+    "pullops:address-review": "node src/cli/cli.js run address-review",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",

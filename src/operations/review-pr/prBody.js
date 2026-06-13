@@ -2,6 +2,7 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 
 /**
  * @typedef {import('./output.js').ReviewResultStatus} ReviewResultStatus
+ * @typedef {'addressed' | 'blocked'} AddressReviewStatus
  * @typedef {{
  *   managed: boolean;
  *   sourceIssueNumber?: number;
@@ -48,6 +49,27 @@ export function updatePullRequestBodyForReview({
 }
 
 /**
+ * @param {object} options
+ * @param {string} options.body
+ * @param {AddressReviewStatus} options.addressReviewStatus
+ * @param {number} options.reviewCycle
+ * @param {number} options.maxReviewCycles
+ * @returns {string}
+ */
+export function updatePullRequestBodyForAddressReview({
+  body,
+  addressReviewStatus,
+  reviewCycle,
+  maxReviewCycles,
+}) {
+  let updated = body.trimEnd();
+  updated = upsertLine(updated, 'Status:', formatAddressReviewStatus(addressReviewStatus));
+  updated = upsertLine(updated, 'Review cycles:', `${reviewCycle} / ${maxReviewCycles}`);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.addressReview);
+  return `${updated}\n`;
+}
+
+/**
  * @param {ReviewResultStatus} status
  * @returns {string}
  */
@@ -58,6 +80,18 @@ function formatReviewStatus(status) {
 
   if (status === 'changes_requested') {
     return 'Changes requested';
+  }
+
+  return 'Blocked';
+}
+
+/**
+ * @param {AddressReviewStatus} status
+ * @returns {string}
+ */
+function formatAddressReviewStatus(status) {
+  if (status === 'addressed') {
+    return 'Review feedback addressed';
   }
 
   return 'Blocked';

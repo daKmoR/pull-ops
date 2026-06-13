@@ -1,3 +1,8 @@
+import {
+  runAddressReview,
+  runAddressReviewCodexActionFinalize,
+  runAddressReviewCodexActionPrepare,
+} from './address-review/run.js';
 import { runCoordinatePrd } from './coordinate-prd/run.js';
 import {
   runImplementIssue,
@@ -114,6 +119,14 @@ export async function runWorkflowOperation(context) {
       run: runReviewPr,
       prepare: runReviewPrCodexActionPrepare,
       finalize: runReviewPrCodexActionFinalize,
+    });
+  }
+
+  if (context.operation === 'address-review') {
+    return await runCodexBackedOperation(context, {
+      run: runAddressReview,
+      prepare: runAddressReviewCodexActionPrepare,
+      finalize: runAddressReviewCodexActionFinalize,
     });
   }
 
