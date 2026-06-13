@@ -56,6 +56,10 @@ _Avoid_: Provider config, model command
 The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
 _Avoid_: Phase, task script, provider
 
+**GitHub State Synchronization**:
+A deterministic PullOps workflow that reconciles GitHub issue or pull request state without invoking a Runner Adapter.
+_Avoid_: AI operation, runner task
+
 **Model Tier**:
 A named runner capability tier, such as high, mid, or low, that operations select instead of naming concrete models directly.
 _Avoid_: Model override, model preset
@@ -113,7 +117,7 @@ A pull request whose source branch belongs to the Target Repository, not a fork.
 _Avoid_: Internal PR, local PR
 
 **PullOps GitHub Token**:
-The Target Repository secret used by PullOps operation workflows when GitHub operations must push code or mutate issues and pull requests. Workflow dispatch uses GitHub Actions' built-in token, not this token.
+The Target Repository secret used by label-dispatched PullOps Operation workflows when GitHub operations must push code or mutate issues and pull requests. Workflow dispatch and narrow GitHub State Synchronization workflows may use GitHub Actions' built-in token instead.
 _Avoid_: PAT, agent token
 
 **Agent-Ready PR**:

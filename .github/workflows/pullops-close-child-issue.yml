@@ -1,80 +1,83 @@
 name: PullOps Close Child Issue
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number
-        required: true
-        type: string
-      head_ref:
-        description: Same-repository pull request head branch
-        required: true
-        type: string
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: read
+  pull-requests: read
+  issues: write
 
 concurrency:
-  group: pullops-close-child-issue-${{ inputs.pr }}
+  group: pullops-close-child-issue-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   close-child-issue:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
-      - name: Verify same-repository pull request
+      - name: Validate merged child PR shape
+        id: child_pr
         env:
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          PR: ${{ inputs.pr }}
-          HEAD_REF: ${{ inputs.head_ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          actual_head_ref="$(
-            gh pr view "$PR" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json headRefName \
-              --jq '.headRefName'
-          )"
-          actual_head_repository="$(
-            gh pr view "$PR" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json headRepositoryOwner,headRepository \
-              --jq '.headRepositoryOwner.login + "/" + .headRepository.name'
-          )"
+          base_pattern='^pullops/prd-([0-9]+)$'
+          head_pattern='^pullops/prd-([0-9]+)/issue-([0-9]+)$'
 
-          if [ "$actual_head_repository" != "$GITHUB_REPOSITORY" ]; then
-            echo "PullOps only closes child issues for same-repository PRs."
-            exit 1
+          if [[ "$BASE_REF" =~ $base_pattern ]]; then
+            base_prd="${BASH_REMATCH[1]}"
+          else
+            echo "PullOps close-child-issue skipped: base branch '$BASE_REF' is not a PRD branch."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          if [ "$actual_head_ref" != "$HEAD_REF" ]; then
-            echo "Dispatched head_ref does not match PR head branch."
-            exit 1
+          if [[ "$HEAD_REF" =~ $head_pattern ]]; then
+            head_prd="${BASH_REMATCH[1]}"
+            child_issue="${BASH_REMATCH[2]}"
+          else
+            echo "PullOps close-child-issue skipped: head branch '$HEAD_REF' is not a child issue branch."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          if [ "$base_prd" != "$head_prd" ]; then
+            echo "PullOps close-child-issue skipped: head PRD '$head_prd' does not match base PRD '$base_prd'."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "PullOps close-child-issue accepted for child issue #$child_issue in PRD #$base_prd."
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
 
       - name: Check out repository
+        if: steps.child_pr.outputs.should_run == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
-          token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
+        if: steps.child_pr.outputs.should_run == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
+        if: steps.child_pr.outputs.should_run == 'true'
         run: npm ci
 
       - name: Run PullOps close child issue
-        run: node src/cli/cli.js run close-child-issue --pr "${{ inputs.pr }}"
+        if: steps.child_pr.outputs.should_run == 'true'
+        run: node src/cli/cli.js run close-child-issue --pr "${{ github.event.pull_request.number }}"
         env:
-          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
-          # token under the standard names expected by gh and GitHub-aware tools.
-          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PULLOPS_GITHUB_TOKEN: ${{ github.token }}

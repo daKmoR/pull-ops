@@ -7,7 +7,6 @@ on:
   pull_request_target:
     types:
       - labeled
-      - closed
 
 permissions:
   actions: write
@@ -131,23 +130,3 @@ jobs:
             -f pr="$PR" \
             -f head_ref="$HEAD_REF" \
             -f trigger_actor="$TRIGGER_ACTOR"
-
-  dispatch-merged-child-pr:
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      github.event.action == 'closed' &&
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch child issue close workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          gh workflow run "pullops-close-child-issue.yml" \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$GITHUB_REF_NAME" \
-            -f pr="$PR" \
-            -f head_ref="$HEAD_REF"

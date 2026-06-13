@@ -19,7 +19,7 @@ Status Labels report queryable state and use the `pullops:status:*` namespace:
 `pullops:status:in-progress`, `pullops:status:done`,
 `pullops:status:blocked`, and `pullops:status:failed`.
 
-For the current manual parent/child workflow:
+For the current parent/child workflow:
 
 1. Label the parent issue with `pullops:prd:prepare`.
 2. PullOps opens an umbrella PR from `pullops/prd-<prd-number>` to the default
@@ -27,12 +27,19 @@ For the current manual parent/child workflow:
 3. Label selected child issues with `pullops:issue:implement`.
 4. PullOps opens each child PR from
    `pullops/prd-<prd-number>/issue-<issue-number>` to the PRD branch.
-5. The child issue closes when its child PR merges into the PRD branch.
+5. PullOps closes the child issue when its child PR merges into the PRD branch.
 
 `Blocked by: #<issue>` dependencies are satisfied only by closed issues, so one
 child issue can unblock another as soon as the blocking child PR has merged into
 the PRD branch. Standalone issue PRs still target the default branch and use
 GitHub closing keywords.
+
+The `pullops-close-child-issue` workflow listens for `pull_request.closed` and
+runs only for merged same-repository PRs whose base branch is
+`pullops/prd-<number>` and whose head branch is
+`pullops/prd-<prd-number>/issue-<issue-number>`. Child PR bodies use
+non-closing references such as `Refs #<issue>` and `Part of #<prd>`; PullOps
+comments on and closes the child issue explicitly after the merge.
 
 ## GitHub Token Setup
 
@@ -87,11 +94,14 @@ The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
 original label actor has write, maintain, or admin access to the repository. The
 Codex Action steps allow that bot actor only after this dispatcher gate.
 
-`PULLOPS_GITHUB_TOKEN` is used by the operation workflows after dispatch for
-repository checkout, pushes, labels, and pull request updates. Codex runner steps
-do not receive this token; PullOps prepare and finalize steps receive it, the
-workflow's built-in token remains read-only on Codex jobs, and finalize sets the
-authenticated `origin` URL immediately before pushing.
+`PULLOPS_GITHUB_TOKEN` is used by label-dispatched operation workflows after
+dispatch for repository checkout, pushes, labels, and pull request updates. Codex
+runner steps do not receive this token; PullOps prepare and finalize steps
+receive it, the workflow's built-in token remains read-only on Codex jobs, and
+finalize sets the authenticated `origin` URL immediately before pushing. The
+automatic close-child-issue synchronization workflow is deterministic and uses
+the built-in `GITHUB_TOKEN` with `contents: read`, `pull-requests: read`, and
+`issues: write`.
 
 ## OpenAI Codex Setup
 

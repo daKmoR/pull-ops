@@ -240,7 +240,7 @@ describe('runImplementIssue', () => {
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1/issue-42');
     assert.doesNotMatch(github.createdPullRequests[0].body, /Closes #42/);
     assert.match(github.createdPullRequests[0].body, /Refs #42/);
-    assert.match(github.createdPullRequests[0].body, /PRD: #1/);
+    assert.match(github.createdPullRequests[0].body, /Part of #1/);
   });
 
   it('05: blocks a PRD-looking issue without native GitHub child issues', async () => {
