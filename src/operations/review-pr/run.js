@@ -350,6 +350,7 @@ async function recordPullRequestFailure(
       PULL_OPS_OPERATION_LABELS.reviewPr,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });

@@ -48,6 +48,11 @@ describe('createGitHubClient', () => {
           'D93F0B',
           'PullOps automation is blocked and needs human attention.',
         ],
+        [
+          'pullops:status:prepared',
+          '1D76DB',
+          'PullOps prepared this target; downstream work remains.',
+        ],
         ['pullops:status:done', '0E8A16', 'PullOps automation completed successfully.'],
         ['pullops:status:failed', 'B60205', 'PullOps automation failed and needs investigation.'],
       ],

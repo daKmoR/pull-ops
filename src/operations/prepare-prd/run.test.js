@@ -71,7 +71,7 @@ describe('runPreparePrd', () => {
       },
       {
         number: 12,
-        labels: ['pullops:status:done'],
+        labels: ['pullops:status:prepared'],
       },
     ]);
   });

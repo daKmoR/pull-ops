@@ -76,6 +76,10 @@ _Avoid_: Epic, project
 A Parent Issue handled through the `prd` Operation Label target kind. It represents a PRD-shaped work item, not a separate GitHub issue type.
 _Avoid_: Epic, parent label target
 
+**Prepared PRD Issue**:
+A PRD Issue whose umbrella branch and draft PullOps-Managed PR have been created or refreshed. Prepared does not mean the PRD's product work is complete.
+_Avoid_: Done PRD, completed PRD
+
 **Child Issue**:
 A Concrete Issue that belongs to a Parent Issue.
 _Avoid_: Subtask, sub-issue when not referring to GitHub's native feature

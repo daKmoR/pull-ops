@@ -286,6 +286,7 @@ describe('runImplementIssue', () => {
           'pullops:issue:implement',
           'pullops:status:in-progress',
           'pullops:status:blocked',
+          'pullops:status:prepared',
           'pullops:status:failed',
         ],
       },

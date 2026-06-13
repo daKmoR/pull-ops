@@ -17,6 +17,7 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
   inProgress: 'pullops:status:in-progress',
   blocked: 'pullops:status:blocked',
+  prepared: 'pullops:status:prepared',
   done: 'pullops:status:done',
   failed: 'pullops:status:failed',
 });
@@ -103,6 +104,11 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_STATUS_LABELS.blocked,
     color: 'D93F0B',
     description: 'PullOps automation is blocked and needs human attention.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.prepared,
+    color: '1D76DB',
+    description: 'PullOps prepared this target; downstream work remains.',
   },
   {
     name: PULL_OPS_STATUS_LABELS.done,

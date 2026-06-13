@@ -57,7 +57,7 @@ export async function runPreparePrd(context) {
       number: existingPullRequest.number,
       body: pullRequestBody,
     });
-    await markPreparationDone(context, issue);
+    await markPreparationPrepared(context, issue);
 
     return {
       status: 'accepted',
@@ -90,7 +90,7 @@ export async function runPreparePrd(context) {
       baseBranch: context.config.baseBranch,
       headBranch: branchName,
     });
-    await markPreparationDone(context, issue);
+    await markPreparationPrepared(context, issue);
 
     return {
       status: 'accepted',
@@ -154,6 +154,7 @@ async function blockPreparation(context, issue, { reason }) {
       PULL_OPS_OPERATION_LABELS.preparePrd,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });
@@ -186,6 +187,7 @@ async function markPreparationInProgress(context, issue) {
     labels: [
       PULL_OPS_STATUS_LABELS.blocked,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });
@@ -196,10 +198,10 @@ async function markPreparationInProgress(context, issue) {
  * @param {GitHubIssue} issue
  * @returns {Promise<void>}
  */
-async function markPreparationDone(context, issue) {
+async function markPreparationPrepared(context, issue) {
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.done],
+    labels: [PULL_OPS_STATUS_LABELS.prepared],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
@@ -207,6 +209,7 @@ async function markPreparationDone(context, issue) {
       PULL_OPS_OPERATION_LABELS.preparePrd,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.done,
       PULL_OPS_STATUS_LABELS.failed,
     ],
   });
@@ -230,6 +233,7 @@ async function recordPreparationFailure(context, issue, reason) {
       PULL_OPS_OPERATION_LABELS.preparePrd,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });

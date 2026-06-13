@@ -108,6 +108,7 @@ describe('runReviewPr', () => {
           'pullops:pr:review',
           'pullops:status:in-progress',
           'pullops:status:blocked',
+          'pullops:status:prepared',
           'pullops:status:done',
           'pullops:status:failed',
         ],

@@ -172,6 +172,7 @@ export async function runImplementIssue(context) {
         PULL_OPS_OPERATION_LABELS.implementIssue,
         PULL_OPS_STATUS_LABELS.inProgress,
         PULL_OPS_STATUS_LABELS.blocked,
+        PULL_OPS_STATUS_LABELS.prepared,
         PULL_OPS_STATUS_LABELS.failed,
       ],
     });
@@ -285,6 +286,7 @@ async function blockIssue(context, issue, { reason, summary = reason }) {
       PULL_OPS_OPERATION_LABELS.implementIssue,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });
@@ -319,6 +321,7 @@ async function markIssueInProgress(context, issue) {
     labels: [
       PULL_OPS_STATUS_LABELS.blocked,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });
@@ -342,6 +345,7 @@ async function recordIssueFailure(context, issue, reason) {
       PULL_OPS_OPERATION_LABELS.implementIssue,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.done,
     ],
   });
@@ -367,6 +371,7 @@ async function clearIssueTaskLabels(context, issue) {
       PULL_OPS_OPERATION_LABELS.implementIssue,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.blocked,
+      PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.failed,
     ],
   });
