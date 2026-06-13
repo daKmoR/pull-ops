@@ -10,6 +10,7 @@ export function buildImplementIssuePrompt({ issue }) {
   return [
     'Use the pullops-implement-issue skill.',
     '',
+    ...formatParentContext(issue),
     `Implement GitHub Issue #${issue.number}: ${issue.title}`,
     '',
     'Issue body:',
@@ -45,4 +46,20 @@ export function buildImplementIssuePrompt({ issue }) {
       2,
     ),
   ].join('\n');
+}
+
+/**
+ * @param {GitHubIssue} issue
+ * @returns {string[]}
+ */
+function formatParentContext(issue) {
+  if (issue.parent === null) {
+    return [];
+  }
+
+  return [
+    `Parent PRD Issue #${issue.parent.number}: ${issue.parent.title ?? '(title unavailable)'}`,
+    'This is a manually selected PRD sub-issue. Implement only the selected sub-issue, using the parent PRD as context.',
+    '',
+  ];
 }

@@ -33,15 +33,6 @@ export async function runImplementIssue(context) {
     });
   }
 
-  if (issue.parent !== null) {
-    return await refuseIssue(context, issue, {
-      reason: [
-        `Issue #${issue.number} is linked to parent issue #${issue.parent.number}.`,
-        'Label the parent PRD Issue with pullops:implement instead of implementing a sub-issue directly.',
-      ].join(' '),
-    });
-  }
-
   if (issue.subIssues.length > 0) {
     return await refuseIssue(context, issue, {
       reason: [
@@ -173,12 +164,17 @@ export async function runImplementIssue(context) {
  * @returns {string}
  */
 export function createImplementIssueCommitMessage(issue) {
+  const footers = [`Refs: #${issue.number}`];
+  if (issue.parent !== null) {
+    footers.push(`PRD: #${issue.parent.number}`);
+  }
+
   return [
     `feat(issue): implement #${issue.number}`,
     '',
     `Implement ${issue.title}.`,
     '',
-    `Refs: #${issue.number}`,
+    ...footers,
   ].join('\n');
 }
 

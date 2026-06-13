@@ -38,6 +38,7 @@ export function createImplementIssuePullRequestBody({
     '## Traceability',
     '',
     `Closes #${issue.number}`,
+    ...formatParentTraceability(issue),
     '',
     '## PullOps',
     '',
@@ -53,6 +54,18 @@ export function createImplementIssuePullRequestBody({
     `Model: ${model}`,
     'Last operation: pullops:implement',
   ].join('\n');
+}
+
+/**
+ * @param {GitHubIssue} issue
+ * @returns {string[]}
+ */
+function formatParentTraceability(issue) {
+  if (issue.parent === null) {
+    return [];
+  }
+
+  return [`PRD: #${issue.parent.number}`];
 }
 
 /**

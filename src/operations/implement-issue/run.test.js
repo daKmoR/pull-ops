@@ -85,7 +85,7 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('02: refuses a direct native sub-issue', async () => {
+  it('02: implements a manually selected native sub-issue with parent PRD traceability', async () => {
     const issue = createIssue({
       number: 42,
       title: 'Do one child task',
@@ -97,7 +97,14 @@ describe('runImplementIssue', () => {
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented the selected sub-issue.',
+        changes: ['Added the selected behavior.'],
+        testPlan: ['npm test -- src/operations/implement-issue/run.test.js'],
+      }),
+    });
 
     const result = await runImplementIssue(
       createContext({
@@ -107,17 +114,32 @@ describe('runImplementIssue', () => {
       }),
     );
 
-    assert.equal(result.status, 'refused');
-    assert.match(String(result.summary), /parent issue #1/);
-    assert.equal(codex.calls.length, 0);
-    assert.equal(git.branches.length, 0);
-    assert.deepEqual(github.issueLabelsAdded, [
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Parent PRD Issue #1: PRD/);
+    assert.match(codex.calls[0].prompt, /Implement only the selected sub-issue/);
+    assert.deepEqual(git.branches, [
       {
-        number: 42,
-        labels: ['pullops:blocked'],
+        branchName: 'pullops/issue-42',
+        baseBranch: 'main',
       },
     ]);
-    assert.match(github.comments[0].body, /Label the parent PRD Issue/);
+    assert.deepEqual(git.commits, [
+      {
+        message: [
+          'feat(issue): implement #42',
+          '',
+          'Implement Do one child task.',
+          '',
+          'Refs: #42',
+          'PRD: #1',
+        ].join('\n'),
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      },
+    ]);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(github.createdPullRequests[0].body, /Closes #42/);
+    assert.match(github.createdPullRequests[0].body, /PRD: #1/);
   });
 
   it('03: refuses a PRD-looking issue without native GitHub sub-issues', async () => {
