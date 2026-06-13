@@ -78,7 +78,7 @@ jobs:
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
-          npx pullops run review-pr \
+          node src/cli/cli.js run review-pr \
             --phase prepare \
             --runner codex-action \
             --pr "${{ inputs.pr }}"
@@ -132,7 +132,7 @@ jobs:
         if: always()
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npx pullops run review-pr \
+          node src/cli/cli.js run review-pr \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
