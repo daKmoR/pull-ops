@@ -23,8 +23,27 @@ jobs:
         github.event.label.name == 'pullops:issue:implement'
       )
     runs-on: ubuntu-latest
-
     steps:
+      - name: Verify trigger actor can run Codex
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_ACTOR: ${{ github.actor }}
+        run: |
+          permission="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/collaborators/$TRIGGER_ACTOR/permission" \
+              --jq '.permission'
+          )"
+
+          case "$permission" in
+            admin|maintain|write)
+              ;;
+            *)
+              echo "Actor '$TRIGGER_ACTOR' must have write access to run PullOps Codex workflows. Detected permission: '$permission'." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Dispatch issue operation workflow
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,8 +75,27 @@ jobs:
       github.event.label.name == 'pullops:pr:review' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-
     steps:
+      - name: Verify trigger actor can run Codex
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRIGGER_ACTOR: ${{ github.actor }}
+        run: |
+          permission="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/collaborators/$TRIGGER_ACTOR/permission" \
+              --jq '.permission'
+          )"
+
+          case "$permission" in
+            admin|maintain|write)
+              ;;
+            *)
+              echo "Actor '$TRIGGER_ACTOR' must have write access to run PullOps Codex workflows. Detected permission: '$permission'." >&2
+              exit 1
+              ;;
+          esac
+
       - name: Dispatch pull request operation workflow
         env:
           GH_TOKEN: ${{ github.token }}

@@ -6,4 +6,4 @@ Status Labels stay in GitHub labels because they provide useful repository filte
 
 PRD preparation success uses `pullops:status:prepared`, not `pullops:status:done`, because the PRD target still owns downstream child work. `pullops:status:done` remains reserved for completed work that may satisfy dependency checks.
 
-The dispatcher uses the workflow's built-in `GITHUB_TOKEN` for `workflow_dispatch` calls, while dispatched operation workflows continue to use `PULLOPS_GITHUB_TOKEN` for repository mutation.
+The dispatcher uses the workflow's built-in `GITHUB_TOKEN` for `workflow_dispatch` calls, while dispatched operation workflows continue to use `PULLOPS_GITHUB_TOKEN` for repository mutation. Because GitHub records those dispatched runs as `github-actions[bot]`, the dispatcher checks that the original label actor has write, maintain, or admin repository permission before dispatching Codex-backed operation workflows.

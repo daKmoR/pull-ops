@@ -73,12 +73,16 @@ a classic personal access token only as a fallback. It needs `repo` and
 `workflow` scopes, which are broader than the fine-grained permissions above.
 
 The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
-`workflow_dispatch` calls. `PULLOPS_GITHUB_TOKEN` is used by the operation
-workflows after dispatch for repository checkout, pushes, labels, and pull
-request updates. Codex runner steps do not receive this token; PullOps prepare
-and finalize steps receive it, the workflow's built-in token remains read-only
-on Codex jobs, and finalize sets the authenticated `origin` URL immediately
-before pushing.
+`workflow_dispatch` calls, so dispatched operation workflows run as
+`github-actions[bot]`. Before dispatching, the dispatcher verifies that the
+original label actor has write, maintain, or admin access to the repository. The
+Codex Action steps allow that bot actor only after this dispatcher gate.
+
+`PULLOPS_GITHUB_TOKEN` is used by the operation workflows after dispatch for
+repository checkout, pushes, labels, and pull request updates. Codex runner steps
+do not receive this token; PullOps prepare and finalize steps receive it, the
+workflow's built-in token remains read-only on Codex jobs, and finalize sets the
+authenticated `origin` URL immediately before pushing.
 
 ## OpenAI Codex Setup
 
