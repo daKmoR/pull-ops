@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR, runAddressReview } from './run.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR, runFixCi } from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -13,7 +10,7 @@ import { GITHUB_ACTIONS_BOT_AUTHOR, runAddressReview } from './run.js';
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('../../github/types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
+ * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
@@ -22,44 +19,38 @@ import { GITHUB_ACTIONS_BOT_AUTHOR, runAddressReview } from './run.js';
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
  */
 
-describe('runAddressReview', () => {
-  it('01: addresses inline threads, requested-change summaries, PullOps review output, and top-level comments before returning to review', async () => {
+describe('runFixCi', () => {
+  it('01: automatically fixes actionable checks on a managed draft PR and returns it to review', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
+      checks: [createFailedCheck({ name: 'ESLint lint' })],
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
     const codex = createFakeCodexRunner({
       output: JSON.stringify({
-        status: 'addressed',
-        summary: 'Addressed all review feedback.',
-        addressed: [
+        status: 'fixed',
+        summary: 'Fixed the lint failure.',
+        classifications: [
           {
-            feedbackId: 'thread:9001',
-            response: 'Updated the implementation to cover the inline concern.',
-          },
-          {
-            feedbackId: 'review:PRR_requested',
-            response: 'Updated the docs requested by the review summary.',
-          },
-          {
-            feedbackId: 'pullops-review:PRR_pullops',
-            response: 'Added the missing regression test noted by PullOps review.',
-          },
-          {
-            feedbackId: 'comment:7001',
-            response: 'Clarified the behavior requested in the top-level comment.',
+            checkId: 'check-1',
+            classification: 'lint',
+            rationale: 'ESLint reported an unused variable.',
           },
         ],
-        declined: [],
-        deferred: [],
-        changes: ['Adjusted implementation, docs, and regression coverage.'],
-        testPlan: ['node --test src/operations/address-review/run.test.js'],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: false,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Removed the unused variable.'],
+        testPlan: ['npm run lint'],
       }),
     });
 
-    const result = await runAddressReview(
+    const result = await runFixCi(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
@@ -69,17 +60,15 @@ describe('runAddressReview', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Use the pullops-address-review skill/);
-    assert.match(codex.calls[0].prompt, /feedbackId `thread:9001`/);
-    assert.match(codex.calls[0].prompt, /requested-change review summary/);
-    assert.match(codex.calls[0].prompt, /PullOps review output/);
-    assert.match(codex.calls[0].prompt, /top-level PR comment/);
+    assert.match(codex.calls[0].prompt, /Use the pullops-fix-ci skill/);
+    assert.match(codex.calls[0].prompt, /checkId `check-1`/);
+    assert.match(codex.calls[0].prompt, /Classification: lint/);
     assert.deepEqual(git.commits, [
       {
         message: [
-          'fix(address-review): address feedback for PR #100',
+          'fix(ci): repair failures for PR #100',
           '',
-          '- Adjusted implementation, docs, and regression coverage.',
+          '- Removed the unused variable.',
           '',
           'Refs: #100',
         ].join('\n'),
@@ -87,31 +76,14 @@ describe('runAddressReview', () => {
       },
     ]);
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
-    assert.deepEqual(github.replies, [
-      {
-        commentId: 9001,
-        body: [
-          'PullOps addressed this feedback.',
-          '',
-          'Updated the implementation to cover the inline concern.',
-        ].join('\n'),
-      },
-    ]);
-    assert.equal(github.comments.length, 3);
-    assert.match(github.comments[0].body, /PullOps addressed feedback `review:PRR_requested`/);
-    assert.match(
-      github.comments[1].body,
-      /PullOps addressed feedback `pullops-review:PRR_pullops`/,
-    );
-    assert.match(github.comments[2].body, /PullOps addressed feedback `comment:7001`/);
-    assert.match(github.updatedBodies[0].body, /Status: Review feedback addressed/);
-    assert.match(github.updatedBodies[0].body, /Review cycles: 1 \/ 3/);
-    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:address-review/);
+    assert.match(github.updatedBodies[0].body, /Status: CI fixed/);
+    assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
+    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:fix-ci/);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
         labels: [
-          'pullops:pr:address-review',
+          'pullops:pr:fix-ci',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -126,64 +98,53 @@ describe('runAddressReview', () => {
         labels: ['pullops:pr:review'],
       },
     ]);
-    assert.deepEqual(result.addressReview, {
-      feedback: {
-        addressed: 4,
-        declined: 0,
-        deferred: 0,
+    assert.deepEqual(result.fixCi, {
+      checks: {
+        failed: 1,
+        classifications: {
+          lint: 1,
+        },
       },
       changesCommitted: true,
     });
   });
 
-  it('02: posts declined feedback responses, defers stale feedback without responding, and returns to review without requiring code changes', async () => {
+  it('02: supports explicit manual fix-ci on a non-managed same-repository PR', async () => {
     const github = createFakeGitHub({
-      pullRequest: createPullRequest(),
-      reviewContext: createReviewContext({
-        comments: [
-          {
-            databaseId: 7001,
-            body: 'Please rename the public option.',
-            authorLogin: 'maintainer',
-          },
-          {
-            databaseId: 7002,
-            body: 'This comment predates the latest review.',
-            authorLogin: 'maintainer',
-          },
-        ],
-        reviews: [],
+      pullRequest: createPullRequest({
+        body: 'Human-authored PR.',
+        headRefName: 'human/fix-lint',
+        isDraft: false,
+        labels: ['pullops:pr:fix-ci'],
       }),
+      checks: [createFailedCheck({ name: 'Prettier formatting' })],
+      reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const git = createFakeGit({ hasChanges: false });
+    const git = createFakeGit({ hasChanges: true });
     const codex = createFakeCodexRunner({
       output: JSON.stringify({
-        status: 'addressed',
-        summary: 'Declined one request and deferred one stale comment.',
-        addressed: [],
-        declined: [
+        status: 'fixed',
+        summary: 'Formatted the changed file.',
+        classifications: [
           {
-            feedbackId: 'thread:9001',
-            reason: 'The requested inline change would break the linked issue behavior.',
-          },
-          {
-            feedbackId: 'comment:7001',
-            reason: 'The public option name is already documented and released.',
+            checkId: 'check-1',
+            classification: 'formatting',
+            rationale: 'Prettier reported a formatting diff.',
           },
         ],
-        deferred: [
-          {
-            feedbackId: 'comment:7002',
-            reason: 'The comment is stale after the latest review cycle.',
-          },
-        ],
-        changes: [],
-        testPlan: [],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: false,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Formatted src/example.js.'],
+        testPlan: ['npm run format -- --check'],
       }),
     });
 
-    const result = await runAddressReview(
+    const result = await runFixCi(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
@@ -192,48 +153,69 @@ describe('runAddressReview', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(git.commits.length, 0);
-    assert.equal(git.pushes.length, 0);
-    assert.deepEqual(github.replies, [
-      {
-        commentId: 9001,
-        body: [
-          'PullOps declined this feedback.',
-          '',
-          'Reason: The requested inline change would break the linked issue behavior.',
-        ].join('\n'),
-      },
-    ]);
-    assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /PullOps declined feedback `comment:7001`/);
-    assert.doesNotMatch(github.comments[0].body, /7002/);
-    assert.deepEqual(github.pullRequestLabelsAdded, [
+    assert.equal(github.updatedBodies.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: ['pullops:pr:review'],
+        labels: [
+          'pullops:pr:fix-ci',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
       },
     ]);
-    assert.deepEqual(result.addressReview, {
-      feedback: {
-        addressed: 0,
-        declined: 2,
-        deferred: 1,
-      },
-      changesCommitted: false,
-    });
+    assert.deepEqual(git.pushes, [{ branchName: 'human/fix-lint' }]);
   });
 
-  it('03: blocks without running Codex when the review cycle budget is exhausted', async () => {
+  it('03: skips automatic fix-ci on a non-managed PR without mutating it', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
-        body: createPullRequestBody({ reviewCycles: '3 / 3' }),
+        body: 'Human-authored PR.',
+        headRefName: 'human/fix-lint',
+        isDraft: false,
+        labels: [],
       }),
+      checks: [createFailedCheck({ name: 'ESLint lint' })],
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: true });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.match(String(result.summary), /not a PullOps-managed draft PR/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.commits.length, 0);
+    assert.equal(github.updatedBodies.length, 0);
+    assert.equal(github.comments.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsRemoved, []);
+  });
+
+  it('04: blocks without running Codex when the CI fix cycle budget is exhausted', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createPullRequestBody({ ciFixCycles: '2 / 2' }),
+      }),
+      checks: [createFailedCheck({ name: 'Unit tests' })],
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
     const codex = createFakeCodexRunner({ output: '{}' });
 
-    const result = await runAddressReview(
+    const result = await runFixCi(
       createContext({
         githubClient: github.client,
         codexRunner: codex.runner,
@@ -241,10 +223,11 @@ describe('runAddressReview', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(String(result.summary), /Review cycle budget exhausted/);
+    assert.match(String(result.summary), /CI fix cycle budget exhausted/);
     assert.equal(codex.calls.length, 0);
     assert.match(github.updatedBodies[0].body, /Status: Blocked/);
-    assert.match(github.comments[0].body, /3 \/ 3 Review Cycles have already run/);
+    assert.match(github.updatedBodies[0].body, /CI fix cycles: 2 \/ 2/);
+    assert.match(github.comments[0].body, /2 \/ 2 CI Fix Cycles have already run/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -253,58 +236,80 @@ describe('runAddressReview', () => {
     ]);
   });
 
-  it('04: records invalid output before posting responses, committing, or pushing', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-address-review-failure-'));
+  it('05: blocks non-actionable secret, flaky, or environment failures before running Codex', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
-      reviewContext: createReviewContext({
-        reviews: [],
+      checks: [createFailedCheck({ name: 'Deploy with missing secret token' })],
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: true });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
       }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.commits.length, 0);
+    assert.match(github.comments[0].body, /classified as secret/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:status:blocked'],
+      },
+    ]);
+  });
+
+  it('06: refuses unsafe fix output before committing or pushing', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      checks: [createFailedCheck({ name: 'Unit tests' })],
+      reviewContext: createReviewContext(),
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
     const codex = createFakeCodexRunner({
       output: JSON.stringify({
-        status: 'addressed',
-        summary: 'Only classified one feedback item.',
-        addressed: [
+        status: 'fixed',
+        summary: 'Made the tests pass by deleting assertions.',
+        classifications: [
           {
-            feedbackId: 'thread:9001',
-            response: 'Handled the inline comment.',
+            checkId: 'check-1',
+            classification: 'test',
+            rationale: 'The unit test check failed.',
           },
         ],
-        declined: [],
-        deferred: [],
-        changes: ['A change that must not be committed after invalid output.'],
-        testPlan: ['Not run.'],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: true,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Deleted failing assertions.'],
+        testPlan: ['npm test'],
       }),
     });
 
-    await assert.rejects(
-      runAddressReview(
-        createContext({
-          githubClient: github.client,
-          gitClient: git.client,
-          codexRunner: codex.runner,
-          outputDirectory,
-        }),
-      ),
-      /Feedback item "comment:7001" must be classified as addressed, declined, or deferred/,
+    const result = await runFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
     );
 
-    assert.equal(github.replies.length, 0);
+    assert.equal(result.status, 'blocked');
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /Invalid Address Review Output/);
+    assert.match(github.comments[0].body, /unsafe repair actions/);
     assert.match(github.updatedBodies[0].body, /Status: Blocked/);
-    assert.equal(
-      await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
-      [
-        'Invalid Address Review Output: Feedback item "comment:7001" must be classified as addressed, declined, or deferred.',
-        '',
-      ].join('\n'),
-    );
+    assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
   });
 });
 
@@ -314,7 +319,7 @@ describe('runAddressReview', () => {
  */
 function createContext(overrides = {}) {
   return {
-    operation: 'address-review',
+    operation: 'fix-ci',
     phase: 'run',
     runnerAdapter: 'codex-cli',
     target: {
@@ -327,6 +332,7 @@ function createContext(overrides = {}) {
     model: 'gpt-5.4-mini',
     githubClient: createFakeGitHub({
       pullRequest: createPullRequest(),
+      checks: [createFailedCheck({ name: 'Unit tests' })],
       reviewContext: createReviewContext(),
       diff: createDiff(),
     }).client,
@@ -350,15 +356,16 @@ function createPullRequest(overrides = {}) {
     body: createPullRequestBody(),
     isDraft: true,
     isCrossRepository: false,
+    labels: [],
     ...overrides,
   };
 }
 
 /**
- * @param {{ reviewCycles?: string }} [options]
+ * @param {{ ciFixCycles?: string }} [options]
  * @returns {string}
  */
-function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
+function createPullRequestBody({ ciFixCycles = '0 / 2' } = {}) {
   return [
     '## Summary',
     '',
@@ -367,8 +374,9 @@ function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
     '## PullOps',
     '',
     'Managed PR: yes',
-    'Status: Changes requested',
-    `Review cycles: ${reviewCycles}`,
+    'Status: Draft automation',
+    'Review cycles: 1 / 3',
+    `CI fix cycles: ${ciFixCycles}`,
     'Source: Issue #42',
     'Branch: pullops/issue-42',
     'Last operation: pullops:pr:review',
@@ -393,47 +401,28 @@ function createIssue() {
 }
 
 /**
- * @param {Partial<GitHubPullRequestReviewContext>} [overrides]
+ * @param {Partial<GitHubCheckRun>} [overrides]
+ * @returns {GitHubCheckRun}
+ */
+function createFailedCheck(overrides = {}) {
+  return {
+    name: 'Unit tests',
+    workflowName: 'CI',
+    bucket: 'fail',
+    conclusion: 'failure',
+    detailsUrl: 'https://github.com/acme/widgets/actions/runs/1',
+    ...overrides,
+  };
+}
+
+/**
  * @returns {GitHubPullRequestReviewContext}
  */
-function createReviewContext(overrides = {}) {
+function createReviewContext() {
   return {
-    comments: [
-      {
-        databaseId: 7001,
-        body: 'Please clarify how this works from the top-level conversation.',
-        authorLogin: 'maintainer',
-      },
-    ],
-    reviews: [
-      {
-        id: 'PRR_requested',
-        state: 'CHANGES_REQUESTED',
-        body: 'Please update the docs for this behavior.',
-        authorLogin: 'reviewer',
-      },
-      {
-        id: 'PRR_pullops',
-        state: 'COMMENTED',
-        body: 'PullOps review found missing regression coverage.',
-        authorLogin: 'github-actions[bot]',
-      },
-    ],
-    unresolvedThreads: [
-      {
-        isResolved: false,
-        comments: [
-          {
-            id: 'PRRC_1',
-            databaseId: 9001,
-            body: 'Existing unresolved inline feedback.',
-            authorLogin: 'reviewer',
-            path: 'src/example.js',
-            line: 2,
-          },
-        ],
-      },
-    ],
+    comments: [],
+    reviews: [],
+    unresolvedThreads: [],
     files: [
       {
         path: 'src/example.js',
@@ -441,7 +430,6 @@ function createReviewContext(overrides = {}) {
         deletions: 0,
       },
     ],
-    ...overrides,
   };
 }
 
@@ -465,10 +453,10 @@ function createDiff() {
 /**
  * @param {object} options
  * @param {GitHubPullRequest} options.pullRequest
+ * @param {GitHubCheckRun[]} options.checks
  * @param {GitHubPullRequestReviewContext} options.reviewContext
  * @param {GitHubPullRequestDiff} options.diff
  * @returns {{
- *   replies: ReplyToPullRequestReviewCommentOptions[];
  *   updatedBodies: UpdatePullRequestBodyOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsRemoved: EditLabelsOptions[];
@@ -476,9 +464,7 @@ function createDiff() {
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ pullRequest, reviewContext, diff }) {
-  /** @type {ReplyToPullRequestReviewCommentOptions[]} */
-  const replies = [];
+function createFakeGitHub({ pullRequest, checks, reviewContext, diff }) {
   /** @type {UpdatePullRequestBodyOptions[]} */
   const updatedBodies = [];
   /** @type {EditLabelsOptions[]} */
@@ -489,7 +475,6 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
   const comments = [];
 
   return {
-    replies,
     updatedBodies,
     pullRequestLabelsAdded,
     pullRequestLabelsRemoved,
@@ -509,7 +494,7 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
         return pullRequest;
       },
       async getPullRequestChecks() {
-        throw new Error('getPullRequestChecks was not expected in this test.');
+        return checks;
       },
       async getPullRequestReviewContext() {
         return reviewContext;
@@ -547,8 +532,8 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
       async publishPullRequestReview() {
         throw new Error('publishPullRequestReview was not expected in this test.');
       },
-      async replyToPullRequestReviewComment(options) {
-        replies.push(options);
+      async replyToPullRequestReviewComment() {
+        throw new Error('replyToPullRequestReviewComment was not expected in this test.');
       },
     },
   };

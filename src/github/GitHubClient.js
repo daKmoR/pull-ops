@@ -15,6 +15,7 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('./types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('./types.js').GitHubCheckRun} GitHubCheckRun
  * @typedef {import('./types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./types.js').GitHubPullRequestComment} GitHubPullRequestComment
  * @typedef {import('./types.js').GitHubPullRequestReviewSummary} GitHubPullRequestReviewSummary
@@ -195,9 +196,24 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
         'view',
         String(number),
         '--json',
-        'number,title,url,headRefName,baseRefName,body,isDraft,isCrossRepository',
+        'number,title,url,headRefName,baseRefName,body,isDraft,isCrossRepository,labels',
       ]);
       return parsePullRequestObject(getStdout(result));
+    },
+
+    /**
+     * @param {number} number
+     * @returns {Promise<GitHubCheckRun[]>}
+     */
+    async getPullRequestChecks(number) {
+      const result = await execFile('gh', [
+        'pr',
+        'checks',
+        String(number),
+        '--json',
+        'bucket,description,link,name,state,workflow',
+      ]);
+      return parsePullRequestChecks(getStdout(result));
     },
 
     /**
@@ -646,7 +662,88 @@ function parsePullRequest(pullRequest, path) {
       typeof pullRequest.isCrossRepository === 'boolean'
         ? pullRequest.isCrossRepository
         : undefined,
+    labels: parseFlatLabelNames(pullRequest.labels),
   };
+}
+
+/**
+ * @param {string} stdout
+ * @returns {GitHubCheckRun[]}
+ */
+function parsePullRequestChecks(stdout) {
+  const parsed = JSON.parse(stdout);
+  if (!Array.isArray(parsed)) {
+    throw new Error('Expected gh pr checks to return an array.');
+  }
+
+  return parsed.map((check, index) => parsePullRequestCheck(check, index));
+}
+
+/**
+ * @param {unknown} check
+ * @param {number} index
+ * @returns {GitHubCheckRun}
+ */
+function parsePullRequestCheck(check, index) {
+  if (!isPlainObject(check)) {
+    throw new Error(`Expected pull request check at index ${index} to be an object.`);
+  }
+
+  return {
+    name: requireString(check.name, `pull request check at index ${index}.name`),
+    ...optionalProperty('workflowName', readOptionalString(check.workflow, check.workflowName)),
+    ...optionalProperty('state', readOptionalString(check.state)),
+    ...optionalProperty('conclusion', readOptionalString(check.conclusion)),
+    ...optionalProperty('bucket', readOptionalString(check.bucket)),
+    ...optionalProperty('detailsUrl', readOptionalString(check.detailsUrl, check.link)),
+    ...optionalProperty('summary', readOptionalString(check.description, check.summary)),
+  };
+}
+
+/**
+ * @param {unknown} labels
+ * @returns {string[] | undefined}
+ */
+function parseFlatLabelNames(labels) {
+  if (!Array.isArray(labels)) {
+    return undefined;
+  }
+
+  return labels.flatMap(label => {
+    if (isPlainObject(label) && typeof label.name === 'string') {
+      return [label.name];
+    }
+
+    if (typeof label === 'string') {
+      return [label];
+    }
+
+    return [];
+  });
+}
+
+/**
+ * @template {string} T
+ * @param {T} key
+ * @param {string | undefined} value
+ * @returns {Record<T, string> | {}}
+ */
+function optionalProperty(key, value) {
+  return value === undefined ? {} : { [key]: value };
+}
+
+/**
+ * @param {...unknown} values
+ * @returns {string | undefined}
+ */
+function readOptionalString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+
+  return undefined;
 }
 
 /**

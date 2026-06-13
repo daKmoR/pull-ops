@@ -54,6 +54,17 @@ export interface GitHubPullRequest {
   body: string;
   isDraft: boolean;
   isCrossRepository?: boolean;
+  labels?: string[];
+}
+
+export interface GitHubCheckRun {
+  name: string;
+  workflowName?: string;
+  state?: string;
+  conclusion?: string;
+  bucket?: string;
+  detailsUrl?: string;
+  summary?: string;
 }
 
 export interface CreateDraftPullRequestOptions {
@@ -148,6 +159,7 @@ export interface GitHubClient {
   ensureLabels(labels: PullOpsLabel[]): Promise<EnsureLabelsResult>;
   getIssue(number: number): Promise<GitHubIssue>;
   getPullRequest(number: number): Promise<GitHubPullRequest>;
+  getPullRequestChecks(number: number): Promise<GitHubCheckRun[]>;
   getPullRequestReviewContext(number: number): Promise<GitHubPullRequestReviewContext>;
   getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
