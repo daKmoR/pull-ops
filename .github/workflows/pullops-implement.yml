@@ -84,7 +84,7 @@ jobs:
           output-file: ${{ runner.temp }}/pullops-output/codex_output.json
           model: gpt-5.5
           sandbox: workspace-write
-          codex-args: '["--ask-for-approval","never","--ephemeral"]'
+          codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
 
       - name: Restore Node for PullOps finalize
