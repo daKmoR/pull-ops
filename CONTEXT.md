@@ -57,11 +57,11 @@ A named runner capability tier, such as high, mid, or low, that operations selec
 _Avoid_: Model override, model preset
 
 **PullOps Operation**:
-A label-triggered unit of pull request work, such as preparing a Parent Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
+A label-requested unit of issue or pull request work, such as preparing a PRD Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
 _Avoid_: Job, workflow, task
 
 **Operation Label**:
-A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, such as `pullops:prd:prepare`, `pullops:issue:implement`, or `pullops:pr:review`.
+A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, where the target kind identifies PRD Issue, Concrete Issue, or pull request operations.
 _Avoid_: Trigger label, command label, flat label
 
 **Status Label**:
@@ -73,7 +73,7 @@ An issue that represents a larger product requirement or PRD and owns implementa
 _Avoid_: Epic, project
 
 **PRD Issue**:
-The user-facing label target kind for Parent Issue preparation and coordination operations.
+A Parent Issue handled through the `prd` Operation Label target kind. It represents a PRD-shaped work item, not a separate GitHub issue type.
 _Avoid_: Epic, parent label target
 
 **Child Issue**:
@@ -93,7 +93,7 @@ A pull request whose source branch belongs to the Target Repository, not a fork.
 _Avoid_: Internal PR, local PR
 
 **PullOps GitHub Token**:
-The Target Repository secret used by PullOps workflows when GitHub operations must push code, mutate labels, or trigger follow-on workflows.
+The Target Repository secret used by PullOps operation workflows when GitHub operations must push code or mutate issues and pull requests. Workflow dispatch uses GitHub Actions' built-in token, not this token.
 _Avoid_: PAT, agent token
 
 **Agent-Ready PR**:
