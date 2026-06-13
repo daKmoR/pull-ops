@@ -26,8 +26,6 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
-    env:
-      OUTPUT_DIR: ${{ runner.temp }}/pullops-output
 
     steps:
       - name: Verify same-repository pull request
@@ -93,6 +91,7 @@ jobs:
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
@@ -123,6 +122,7 @@ jobs:
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
