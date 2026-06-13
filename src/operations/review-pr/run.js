@@ -290,7 +290,9 @@ async function finalizePreparedReviewPr(context, preparation, rawOutput) {
 
     await context.githubClient.publishPullRequestReview({
       number: pullRequest.number,
-      event: reviewResult.status === 'approved' ? 'APPROVE' : 'REQUEST_CHANGES',
+      // PullOps records approved/changes-requested in PR state and labels. A formal
+      // GitHub review event is rejected for draft PRs and same-token automation.
+      event: 'COMMENT',
       body: reviewResult.summary,
       comments: comments.publishable,
     });

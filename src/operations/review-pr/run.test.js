@@ -29,7 +29,7 @@ import {
  */
 
 describe('runReviewPr', () => {
-  it('01: approves a managed same-repository PR, publishes valid comments and replies, drops invalid anchors, and updates PR state', async () => {
+  it('01: accepts an approved managed same-repository PR, publishes valid comments and replies, drops invalid anchors, and updates PR state', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -86,7 +86,7 @@ describe('runReviewPr', () => {
     assert.deepEqual(github.publishedReviews, [
       {
         number: 100,
-        event: 'APPROVE',
+        event: 'COMMENT',
         body: 'The PR satisfies the issue and coding standards.',
         comments: [
           {
@@ -181,7 +181,7 @@ describe('runReviewPr', () => {
       },
     ]);
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
-    assert.equal(github.publishedReviews[0].event, 'REQUEST_CHANGES');
+    assert.equal(github.publishedReviews[0].event, 'COMMENT');
     assert.match(github.updatedBodies[0].body, /Status: Changes requested/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
@@ -259,7 +259,7 @@ describe('runReviewPr', () => {
     assert.equal(result.reviewResult, 'approved');
     assert.equal(codex.calls.length, 0);
     assert.equal(github.publishedReviews.length, 1);
-    assert.equal(github.publishedReviews[0].event, 'APPROVE');
+    assert.equal(github.publishedReviews[0].event, 'COMMENT');
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
 
@@ -436,6 +436,47 @@ describe('runReviewPr', () => {
       'Codex Action completed with outcome "failure".\n',
     );
   });
+
+  it('10: publishes Codex Action approval as a non-blocking review comment when GitHub rejects formal automation reviews', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-review-formal-review-'));
+    await writeFile(
+      join(outputDirectory, 'codex_output.json'),
+      JSON.stringify({
+        status: 'approved',
+        summary: 'The README change matches issue #15.',
+        comments: [],
+        replies: [],
+      }),
+    );
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+      rejectFormalReviewEvents: true,
+    });
+
+    const result = await runReviewPrCodexActionFinalize(
+      createContext({
+        githubClient: github.client,
+        outputDirectory,
+        codexActionOutcome: 'success',
+        runnerRan: true,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewResult, 'approved');
+    assert.deepEqual(github.publishedReviews, [
+      {
+        number: 100,
+        event: 'COMMENT',
+        body: 'The README change matches issue #15.',
+        comments: [],
+      },
+    ]);
+    assert.match(github.updatedBodies[0].body, /Status: Review approved/);
+  });
 });
 
 /**
@@ -580,6 +621,7 @@ function createDiff() {
  * @param {GitHubPullRequest} options.pullRequest
  * @param {GitHubPullRequestReviewContext} options.reviewContext
  * @param {GitHubPullRequestDiff} options.diff
+ * @param {boolean} [options.rejectFormalReviewEvents]
  * @returns {{
  *   publishedReviews: PublishPullRequestReviewOptions[];
  *   replies: ReplyToPullRequestReviewCommentOptions[];
@@ -590,7 +632,7 @@ function createDiff() {
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ pullRequest, reviewContext, diff }) {
+function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReviewEvents = false }) {
   /** @type {PublishPullRequestReviewOptions[]} */
   const publishedReviews = [];
   /** @type {ReplyToPullRequestReviewCommentOptions[]} */
@@ -659,6 +701,10 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
         updatedBodies.push(options);
       },
       async publishPullRequestReview(options) {
+        if (rejectFormalReviewEvents && options.event !== 'COMMENT') {
+          throw new Error(`GitHub rejected formal review event ${options.event}.`);
+        }
+
         publishedReviews.push(options);
       },
       async replyToPullRequestReviewComment(options) {
