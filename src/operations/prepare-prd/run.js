@@ -1,0 +1,241 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { createParentBranchName } from '../branchNames.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../implement-issue/run.js';
+import { getParentIssueNumber } from '../issueDependencies.js';
+import { createPreparePrdPullRequestBody } from './prBody.js';
+
+/**
+ * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ */
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPreparePrd(context) {
+  assertIssueTarget(context);
+
+  const issue = await context.githubClient.getIssue(context.target.number);
+  if (issue.state !== 'OPEN') {
+    return await blockPreparation(context, issue, {
+      reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only prepare open parent issues.`,
+    });
+  }
+
+  const parentIssueNumber = getParentIssueNumber(issue);
+  if (parentIssueNumber !== undefined) {
+    return await blockPreparation(context, issue, {
+      reason: [
+        `Issue #${issue.number} is already part of parent issue #${parentIssueNumber}.`,
+        'Use pullops:implement on concrete child issues, or pullops:prepare on the parent issue.',
+      ].join(' '),
+    });
+  }
+
+  const branchName = createParentBranchName({
+    branchPrefix: context.config.branchPrefix,
+    parentNumber: issue.number,
+  });
+  const pullRequestBody = createPreparePrdPullRequestBody({
+    issue,
+    branchName,
+    triggerActor: context.triggerActor,
+    modelTier: context.modelTier,
+    model: context.model,
+  });
+
+  const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
+  if (existingPullRequest !== undefined) {
+    await context.githubClient.updatePullRequestBody({
+      number: existingPullRequest.number,
+      body: pullRequestBody,
+    });
+    await markPreparationDone(context, issue);
+
+    return {
+      status: 'accepted',
+      summary: `Updated existing umbrella PR #${existingPullRequest.number} for parent issue #${issue.number}.`,
+      issue: issue.number,
+      pullRequest: {
+        number: existingPullRequest.number,
+        url: existingPullRequest.url,
+        branch: branchName,
+        draft: existingPullRequest.isDraft,
+      },
+    };
+  }
+
+  try {
+    await markPreparationInProgress(context, issue);
+    await context.gitClient.createBranch({
+      branchName,
+      baseBranch: context.config.baseBranch,
+    });
+    await context.gitClient.commitEmpty({
+      message: createPreparePrdCommitMessage(issue),
+      author: GITHUB_ACTIONS_BOT_AUTHOR,
+    });
+    await context.gitClient.pushBranch({ branchName });
+
+    const pullRequest = await context.githubClient.createDraftPullRequest({
+      title: `Prepare #${issue.number}: ${issue.title}`,
+      body: pullRequestBody,
+      baseBranch: context.config.baseBranch,
+      headBranch: branchName,
+    });
+    await markPreparationDone(context, issue);
+
+    return {
+      status: 'accepted',
+      summary: `Opened draft umbrella PR #${pullRequest.number} for parent issue #${issue.number}.`,
+      issue: {
+        number: issue.number,
+        url: issue.url,
+      },
+      pullRequest: {
+        number: pullRequest.number,
+        url: pullRequest.url,
+        branch: branchName,
+        draft: pullRequest.isDraft,
+      },
+    };
+  } catch (error) {
+    await recordPreparationFailure(context, issue, getErrorMessage(error));
+    throw error;
+  }
+}
+
+/**
+ * @param {GitHubIssue} issue
+ * @returns {string}
+ */
+export function createPreparePrdCommitMessage(issue) {
+  return [
+    `chore(prd): prepare #${issue.number}`,
+    '',
+    `Prepare umbrella branch for ${issue.title}.`,
+    '',
+    `Refs: #${issue.number}`,
+  ].join('\n');
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {asserts context is OperationRunnerContext & { target: { type: 'issue', number: number } }}
+ */
+function assertIssueTarget(context) {
+  if (context.target.type !== 'issue') {
+    throw new Error('prepare-prd requires an issue target.');
+  }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @param {{ reason: string }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockPreparation(context, issue, { reason }) {
+  await writeFailureReason(context, reason);
+  await context.githubClient.addLabelsToIssue({
+    number: issue.number,
+    labels: ['pullops:blocked'],
+  });
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:failed', 'pullops:done'],
+  });
+  await context.githubClient.commentOnIssue({
+    number: issue.number,
+    body: ['PullOps could not complete `pullops run prepare-prd`.', '', `Reason: ${reason}`].join(
+      '\n',
+    ),
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    issue: issue.number,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {Promise<void>}
+ */
+async function markPreparationInProgress(context, issue) {
+  await context.githubClient.addLabelsToIssue({
+    number: issue.number,
+    labels: ['pullops:in-progress'],
+  });
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:blocked', 'pullops:failed', 'pullops:done'],
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {Promise<void>}
+ */
+async function markPreparationDone(context, issue) {
+  await context.githubClient.addLabelsToIssue({
+    number: issue.number,
+    labels: ['pullops:done'],
+  });
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+async function recordPreparationFailure(context, issue, reason) {
+  await writeFailureReason(context, reason);
+  await context.githubClient.addLabelsToIssue({
+    number: issue.number,
+    labels: ['pullops:failed'],
+  });
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:prepare', 'pullops:in-progress', 'pullops:blocked', 'pullops:done'],
+  });
+  await context.githubClient.commentOnIssue({
+    number: issue.number,
+    body: ['PullOps could not complete `pullops run prepare-prd`.', '', `Reason: ${reason}`].join(
+      '\n',
+    ),
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+async function writeFailureReason(context, reason) {
+  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
+    return;
+  }
+
+  await mkdir(context.outputDirectory, { recursive: true });
+  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}

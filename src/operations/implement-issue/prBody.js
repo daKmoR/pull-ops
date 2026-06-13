@@ -9,6 +9,7 @@
  * @param {GitHubIssue} options.issue
  * @param {ImplementedIssueOutput} options.output
  * @param {string} options.branchName
+ * @param {number | undefined} options.parentIssueNumber
  * @param {string | undefined} options.triggerActor
  * @param {ModelTier} options.modelTier
  * @param {string} options.model
@@ -18,6 +19,7 @@ export function createImplementIssuePullRequestBody({
   issue,
   output,
   branchName,
+  parentIssueNumber,
   triggerActor,
   modelTier,
   model,
@@ -38,7 +40,7 @@ export function createImplementIssuePullRequestBody({
     '## Traceability',
     '',
     `Closes #${issue.number}`,
-    ...formatParentTraceability(issue),
+    ...formatParentTraceability({ issue, parentIssueNumber }),
     '',
     '## PullOps',
     '',
@@ -57,15 +59,16 @@ export function createImplementIssuePullRequestBody({
 }
 
 /**
- * @param {GitHubIssue} issue
+ * @param {{ issue: GitHubIssue, parentIssueNumber: number | undefined }} options
  * @returns {string[]}
  */
-function formatParentTraceability(issue) {
-  if (issue.parent === null) {
+function formatParentTraceability({ issue, parentIssueNumber }) {
+  const resolvedParentIssueNumber = parentIssueNumber ?? issue.parent?.number;
+  if (resolvedParentIssueNumber === undefined) {
     return [];
   }
 
-  return [`PRD: #${issue.parent.number}`];
+  return [`PRD: #${resolvedParentIssueNumber}`];
 }
 
 /**

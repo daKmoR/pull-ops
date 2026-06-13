@@ -1,4 +1,6 @@
+import { runCoordinatePrd } from './coordinate-prd/run.js';
 import { runImplementIssue } from './implement-issue/run.js';
+import { runPreparePrd } from './prepare-prd/run.js';
 import { runReviewPr } from './review-pr/run.js';
 
 /**
@@ -9,16 +11,22 @@ import { runReviewPr } from './review-pr/run.js';
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   {
+    name: 'prepare-prd',
+    target: 'issue',
+    option: 'issue',
+    configKey: 'preparePrd',
+  },
+  {
     name: 'implement-issue',
     target: 'issue',
     option: 'issue',
     configKey: 'implementIssue',
   },
   {
-    name: 'implement-prd',
+    name: 'coordinate-prd',
     target: 'issue',
     option: 'issue',
-    configKey: 'implementPrd',
+    configKey: 'coordinatePrd',
   },
   {
     name: 'review-pr',
@@ -77,8 +85,16 @@ export function getWorkflowOperation(name) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runWorkflowOperation(context) {
+  if (context.operation === 'prepare-prd') {
+    return await runPreparePrd(context);
+  }
+
   if (context.operation === 'implement-issue') {
     return await runImplementIssue(context);
+  }
+
+  if (context.operation === 'coordinate-prd') {
+    return await runCoordinatePrd(context);
   }
 
   if (context.operation === 'review-pr') {

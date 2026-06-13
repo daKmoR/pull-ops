@@ -1,13 +1,9 @@
+import { createIssueBranchName } from '../branchNames.js';
+
 /**
- * @param {{ branchPrefix: string, issueNumber: number }} options
+ * @param {{ branchPrefix: string, issueNumber: number, parentNumber?: number }} options
  * @returns {string}
  */
-export function createImplementIssueBranchName({ branchPrefix, issueNumber }) {
-  const normalizedPrefix = branchPrefix
-    .split('/')
-    .map(part => part.trim())
-    .filter(Boolean)
-    .join('/');
-
-  return `${normalizedPrefix || 'pullops'}/issue-${issueNumber}`;
+export function createImplementIssueBranchName({ branchPrefix, issueNumber, parentNumber }) {
+  return createIssueBranchName({ branchPrefix, issueNumber, parentNumber });
 }

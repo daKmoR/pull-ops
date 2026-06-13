@@ -103,11 +103,27 @@ test('labels ensure reports label reconciliation results from the GitHub client 
 
   assert.equal(exitCode, 0);
   assert.equal(
+    ensuredLabels.some(label => label.name === 'pullops:prepare'),
+    true,
+  );
+  assert.equal(
     ensuredLabels.some(label => label.name === 'pullops:implement'),
     true,
   );
   assert.equal(
+    ensuredLabels.some(label => label.name === 'pullops:coordinate'),
+    true,
+  );
+  assert.equal(
     ensuredLabels.some(label => label.name === 'pullops:blocked'),
+    true,
+  );
+  assert.equal(
+    ensuredLabels.some(label => label.name === 'pullops:done'),
+    true,
+  );
+  assert.equal(
+    ensuredLabels.some(label => label.name === 'pullops:failed'),
     true,
   );
   const expectedLabels = {
@@ -117,7 +133,7 @@ test('labels ensure reports label reconciliation results from the GitHub client 
   };
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'Ensured 9 PullOps labels: 1 created, 1 updated, 7 already correct.',
+    summary: 'Ensured 13 PullOps labels: 1 created, 1 updated, 11 already correct.',
     labels: expectedLabels,
   });
 });

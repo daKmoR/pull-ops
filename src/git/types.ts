@@ -13,6 +13,11 @@ export interface CommitAllOptions {
   author: GitCommitAuthor;
 }
 
+export interface CommitEmptyOptions {
+  message: string;
+  author: GitCommitAuthor;
+}
+
 export interface PushBranchOptions {
   branchName: string;
 }
@@ -21,5 +26,6 @@ export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
+  commitEmpty(options: CommitEmptyOptions): Promise<void>;
   pushBranch(options: PushBranchOptions): Promise<void>;
 }

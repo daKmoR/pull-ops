@@ -57,7 +57,7 @@ A named runner capability tier, such as high, mid, or low, that operations selec
 _Avoid_: Model override, model preset
 
 **PullOps Operation**:
-A label-triggered unit of AI-assisted pull request work, such as implementing an issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
+A label-triggered unit of pull request work, such as preparing a Parent Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
 _Avoid_: Job, workflow, task
 
 **Operation Label**:
@@ -68,12 +68,16 @@ _Avoid_: Trigger label, command label
 A repository label that records the current PullOps state of an issue or pull request without requesting new work.
 _Avoid_: State label, progress label
 
-**PRD Issue**:
-An issue that represents a larger product requirement and owns implementation work through native GitHub sub-issues.
-_Avoid_: Parent issue, epic, project
+**Parent Issue**:
+An issue that represents a larger product requirement or PRD and owns implementation work through Child Issues.
+_Avoid_: Epic, project
 
-**Leaf Issue**:
-An issue that is directly implementable by a PullOps Operation and does not own sub-issues.
+**Child Issue**:
+A Concrete Issue that belongs to a Parent Issue.
+_Avoid_: Subtask, sub-issue when not referring to GitHub's native feature
+
+**Concrete Issue**:
+An issue that is directly implementable by `pullops:implement` and does not own Child Issues.
 _Avoid_: Normal issue, task
 
 **Adjacent Work**:
@@ -93,7 +97,7 @@ A pull request whose implementation and automated review PullOps Operations have
 _Avoid_: Ready PR, reviewed PR
 
 **PullOps-Managed PR**:
-A pull request created by PullOps from a Leaf Issue or PRD Issue and tracked through its automated pre-human review workflow.
+A pull request created by PullOps from a Parent Issue preparation or Concrete Issue implementation and tracked through its automated pre-human review workflow.
 _Avoid_: Agent PR, generated PR
 
 **Review Result**:
@@ -144,9 +148,9 @@ _Avoid_: Squash, cleanup commits
 The structured prepare-merge output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
 _Avoid_: Rebase script, squash plan
 
-**Sub-Issue Commit**:
-A logical commit in a PRD implementation that corresponds to one completed sub-issue.
-_Avoid_: PRD commit, task commit
+**Child Issue Commit**:
+A logical commit in a parent/child workflow that corresponds to one completed Child Issue.
+_Avoid_: Sub-issue commit, PRD commit, task commit
 
 **Trigger Context**:
 The PR body record of who or what requested a PullOps Operation, which runner task executed it, and which model was used.

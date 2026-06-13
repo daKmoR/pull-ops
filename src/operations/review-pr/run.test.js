@@ -542,6 +542,9 @@ function createFakeGit({ hasChanges }) {
       async commitAll(options) {
         commits.push(options);
       },
+      async commitEmpty() {
+        throw new Error('commitEmpty was not expected in this test.');
+      },
       async pushBranch(options) {
         pushes.push(options);
       },

@@ -7,6 +7,7 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitClient} GitClient
  * @typedef {import('./types.js').CreateBranchOptions} CreateBranchOptions
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
+ * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../github/types.js').ExecFile} ExecFile
  */
@@ -56,6 +57,27 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
           message,
         ],
         'commit PullOps changes',
+      );
+    },
+
+    /**
+     * @param {CommitEmptyOptions} options
+     * @returns {Promise<void>}
+     */
+    async commitEmpty({ message, author }) {
+      await runGit(
+        execFile,
+        [
+          '-c',
+          `user.name=${author.name}`,
+          '-c',
+          `user.email=${author.email}`,
+          'commit',
+          '--allow-empty',
+          '-m',
+          message,
+        ],
+        'create an empty PullOps commit',
       );
     },
 

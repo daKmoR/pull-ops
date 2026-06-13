@@ -3,14 +3,14 @@
  */
 
 /**
- * @param {{ issue: GitHubIssue }} options
+ * @param {{ issue: GitHubIssue, parentIssueNumber?: number }} options
  * @returns {string}
  */
-export function buildImplementIssuePrompt({ issue }) {
+export function buildImplementIssuePrompt({ issue, parentIssueNumber }) {
   return [
     'Use the pullops-implement-issue skill.',
     '',
-    ...formatParentContext(issue),
+    ...formatParentContext({ issue, parentIssueNumber }),
     `Implement GitHub Issue #${issue.number}: ${issue.title}`,
     '',
     'Issue body:',
@@ -49,17 +49,18 @@ export function buildImplementIssuePrompt({ issue }) {
 }
 
 /**
- * @param {GitHubIssue} issue
+ * @param {{ issue: GitHubIssue, parentIssueNumber?: number }} options
  * @returns {string[]}
  */
-function formatParentContext(issue) {
-  if (issue.parent === null) {
+function formatParentContext({ issue, parentIssueNumber }) {
+  const resolvedParentIssueNumber = parentIssueNumber ?? issue.parent?.number;
+  if (resolvedParentIssueNumber === undefined) {
     return [];
   }
 
   return [
-    `Parent PRD Issue #${issue.parent.number}: ${issue.parent.title ?? '(title unavailable)'}`,
-    'This is a manually selected PRD sub-issue. Implement only the selected sub-issue, using the parent PRD as context.',
+    `Parent Issue #${resolvedParentIssueNumber}: ${issue.parent?.title ?? '(title unavailable)'}`,
+    'This is a manually selected Child Issue. Implement only the selected Child Issue, using the Parent Issue as context.',
     '',
   ];
 }

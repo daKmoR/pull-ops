@@ -1,15 +1,15 @@
 ---
 name: pullops-implement-issue
-description: Implement a PullOps Leaf Issue or manually selected PRD sub-issue and report structured implementation output for the CLI.
+description: Implement one PullOps Concrete Issue or manually selected Child Issue and report structured implementation output for the CLI.
 ---
 
 # PullOps Implement Issue
 
-Implement the linked Leaf Issue or manually selected PRD sub-issue as written.
+Implement the linked Concrete Issue or manually selected Child Issue as written.
 
-When the prompt identifies a parent PRD Issue, use it as context, but keep the
-implementation focused on the selected sub-issue. Do not silently implement
-sibling sub-issues or parent PRD scope.
+When the prompt identifies a Parent Issue, use it as context, but keep the
+implementation focused on the selected Child Issue. Do not silently implement
+sibling Child Issues or parent scope.
 
 Allowed scope:
 

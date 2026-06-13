@@ -20,7 +20,9 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
     mid: 'codex-mid',
     low: 'codex-low',
   });
+  assert.equal(config.operations.preparePrd.modelTier, 'low');
   assert.equal(config.operations.implementIssue.modelTier, 'high');
+  assert.equal(config.operations.coordinatePrd.modelTier, 'low');
   assert.equal(config.operations.fixCi.modelTier, 'mid');
   assert.equal(config.operations.updateBranch.modelTier, 'low');
 });
@@ -61,6 +63,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   });
   assert.equal(config.operations.reviewPr.modelTier, 'low');
   assert.equal(config.operations.implementIssue.modelTier, 'high');
+  assert.equal(config.operations.preparePrd.modelTier, 'low');
 });
 
 test('loadPullOpsConfig rejects partial model-tier overrides', async () => {

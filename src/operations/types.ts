@@ -3,8 +3,9 @@ export type WorkflowTarget = 'issue' | 'pr';
 export type WorkflowTargetOption = 'issue' | 'pr';
 
 export type WorkflowOperationConfigKey =
+  | 'preparePrd'
   | 'implementIssue'
-  | 'implementPrd'
+  | 'coordinatePrd'
   | 'reviewPr'
   | 'addressReview'
   | 'fixCi'

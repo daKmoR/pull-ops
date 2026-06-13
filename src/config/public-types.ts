@@ -13,8 +13,9 @@ export interface PullOpsConfig {
   branchPrefix: string;
   runner: RunnerConfig;
   operations: {
+    preparePrd: OperationConfig;
     implementIssue: OperationConfig;
-    implementPrd: OperationConfig;
+    coordinatePrd: OperationConfig;
     reviewPr: OperationConfig;
     addressReview: OperationConfig;
     fixCi: OperationConfig;

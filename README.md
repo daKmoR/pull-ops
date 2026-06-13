@@ -3,6 +3,20 @@
 PullOps is an npm CLI package for running AI-native GitHub issue and pull request
 workflows from GitHub Actions.
 
+## Workflow Labels
+
+Use `pullops:prepare` on a parent issue or PRD to create or update its umbrella
+branch and draft PR. Use `pullops:implement` on one concrete issue; it does not
+coordinate or implement child issues. `pullops:coordinate` is reserved for a
+later automatic parent/child orchestration slice and currently only reports that
+it is not implemented.
+
+For the current manual parent/child workflow:
+
+1. Label the parent issue with `pullops:prepare`.
+2. Label selected child issues with `pullops:implement`.
+3. Child PRs target the parent umbrella branch.
+
 ## GitHub Token Setup
 
 PullOps requires a repository secret named `PULLOPS_GITHUB_TOKEN`. The workflows

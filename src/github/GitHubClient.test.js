@@ -9,7 +9,48 @@ import { createGitHubClient, PULL_OPS_LABELS } from './GitHubClient.js';
  */
 
 describe('createGitHubClient', () => {
-  it('01: creates missing PullOps labels', async () => {
+  it('01: defines PullOps task and state labels', () => {
+    assert.deepEqual(
+      PULL_OPS_LABELS.map(label => [label.name, label.color, label.description]),
+      [
+        [
+          'pullops:prepare',
+          '5319E7',
+          'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
+        ],
+        [
+          'pullops:implement',
+          '5319E7',
+          'Implement one concrete issue. Does not coordinate child issues.',
+        ],
+        [
+          'pullops:coordinate',
+          '5319E7',
+          'Reserved for future automatic parent/child issue orchestration.',
+        ],
+        ['pullops:review', '5319E7', 'Run PullOps automated PR review.'],
+        ['pullops:address-review', '5319E7', 'Address actionable PullOps PR review feedback.'],
+        ['pullops:fix-ci', '5319E7', 'Classify and fix actionable CI failures.'],
+        ['pullops:update-branch', '5319E7', 'Update a same-repository PR branch.'],
+        [
+          'pullops:resolve-conflicts',
+          '5319E7',
+          'Resolve branch update conflicts with the PullOps runner.',
+        ],
+        [
+          'pullops:prepare-merge',
+          '5319E7',
+          'Prepare a PullOps-managed PR for human review and merge.',
+        ],
+        ['pullops:in-progress', 'FBCA04', 'PullOps automation is currently working.'],
+        ['pullops:blocked', 'D93F0B', 'PullOps automation is blocked and needs human attention.'],
+        ['pullops:done', '0E8A16', 'PullOps automation completed successfully.'],
+        ['pullops:failed', 'B60205', 'PullOps automation failed and needs investigation.'],
+      ],
+    );
+  });
+
+  it('02: creates missing PullOps labels', async () => {
     const { calls, execFile } = createFakeExecFile({ labels: [] });
     const client = createGitHubClient({ execFile });
 
@@ -30,16 +71,16 @@ describe('createGitHubClient', () => {
       args: [
         'label',
         'create',
-        'pullops:implement',
+        'pullops:prepare',
         '--color',
         '5319E7',
         '--description',
-        'Run PullOps implementation for an issue or PRD.',
+        'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
       ],
     });
   });
 
-  it('02: leaves existing PullOps labels unchanged when already correct', async () => {
+  it('03: leaves existing PullOps labels unchanged when already correct', async () => {
     const labels = PULL_OPS_LABELS.map(label => ({
       ...label,
       color: label.color.toLowerCase(),
@@ -57,7 +98,7 @@ describe('createGitHubClient', () => {
     assert.equal(calls.length, 1);
   });
 
-  it('03: creates missing labels and updates incorrect existing labels', async () => {
+  it('04: creates missing labels and updates incorrect existing labels', async () => {
     const labels = [
       {
         name: 'pullops:missing',
@@ -119,7 +160,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('04: reports GitHub command failures with label context', async () => {
+  it('05: reports GitHub command failures with label context', async () => {
     const { execFile } = createFakeExecFile({
       labels: [
         {
@@ -144,7 +185,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('05: reads native issue parent and sub-issue relationships', async () => {
+  it('06: reads native issue parent and sub-issue relationships', async () => {
     const { calls, execFile } = createFakeIssueExecFile({
       issue: {
         number: 1,
@@ -192,7 +233,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('06: ignores legacy Parent body sections when native relationships are absent', async () => {
+  it('07: ignores legacy Parent body sections when native relationships are absent', async () => {
     const { calls, execFile } = createFakeIssueExecFile({
       issue: {
         number: 4,
@@ -225,7 +266,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('07: loads pull request review context and diff context', async () => {
+  it('08: loads pull request review context and diff context', async () => {
     const { calls, execFile } = createFakePullRequestExecFile();
     const client = createGitHubClient({ execFile });
 
@@ -255,7 +296,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('08: publishes review decisions, replies, PR body updates, PR labels, and PR comments through gh', async () => {
+  it('09: publishes review decisions, replies, PR body updates, PR labels, and PR comments through gh', async () => {
     const { calls, execFile } = createFakePullRequestExecFile();
     const client = createGitHubClient({ execFile });
 

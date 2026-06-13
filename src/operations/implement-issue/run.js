@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { createImplementIssueBranchName } from './branch.js';
+import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
+import { getParentIssueNumber, isIssueDone, parseIssueDependencies } from '../issueDependencies.js';
 import { validateImplementIssueOutput } from './output.js';
 import { buildImplementIssuePrompt } from './prompt.js';
 import { createImplementIssuePullRequestBody } from './prBody.js';
@@ -9,7 +10,6 @@ import { createImplementIssuePullRequestBody } from './prBody.js';
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
- * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('./output.js').ImplementedIssueOutput} ImplementedIssueOutput
  */
 
@@ -26,57 +26,83 @@ export async function runImplementIssue(context) {
   assertIssueTarget(context);
 
   const issue = await context.githubClient.getIssue(context.target.number);
+  const parentIssueNumber = getParentIssueNumber(issue);
 
   if (issue.state !== 'OPEN') {
-    return await refuseIssue(context, issue, {
+    return await blockIssue(context, issue, {
       reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only implement open issues.`,
     });
   }
 
   if (issue.subIssues.length > 0) {
-    return await refuseIssue(context, issue, {
+    return await blockIssue(context, issue, {
       reason: [
-        `Issue #${issue.number} is a PRD Issue with native GitHub sub-issues.`,
-        'Native PRD implementation is not wired yet, so PullOps will not treat it as a Leaf Issue.',
+        `Issue #${issue.number} is a Parent Issue with child issues.`,
+        'Use pullops:prepare on the parent issue to create or update its umbrella branch and draft PR.',
+        'PullOps will not implement child issues from pullops:implement.',
       ].join(' '),
     });
   }
 
   if (looksLikePrdIssue(issue)) {
-    return await refuseIssue(context, issue, {
+    return await blockIssue(context, issue, {
       reason: [
-        `Issue #${issue.number} looks like a PRD Issue but has no native GitHub sub-issues.`,
-        'Add native GitHub sub-issues before labeling the PRD with pullops:implement, or label an open Leaf Issue directly.',
+        `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+        'Use pullops:prepare for parent setup, then label concrete child issues with pullops:implement.',
       ].join(' '),
     });
   }
 
-  const branchName = createImplementIssueBranchName({
+  const blockingDependencies = await findBlockingDependencies(context, issue);
+  if (blockingDependencies.length > 0) {
+    return await blockIssue(context, issue, {
+      reason: [
+        `Issue #${issue.number} is blocked by unfinished dependencies:`,
+        blockingDependencies.map(dependency => `#${dependency.number}`).join(', '),
+      ].join(' '),
+    });
+  }
+
+  const branchName = createIssueBranchName({
     branchPrefix: context.config.branchPrefix,
     issueNumber: issue.number,
+    parentNumber: parentIssueNumber,
   });
+  const baseBranch =
+    parentIssueNumber === undefined
+      ? context.config.baseBranch
+      : createParentBranchName({
+          branchPrefix: context.config.branchPrefix,
+          parentNumber: parentIssueNumber,
+        });
 
   const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
   if (existingPullRequest !== undefined) {
-    return await refuseIssue(context, issue, {
+    await clearIssueTaskLabels(context, issue);
+    return {
+      status: 'accepted',
+      summary: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
+      issue: issue.number,
       reason: `An open PullOps implementation PR already exists for issue #${issue.number}: ${existingPullRequest.url}`,
       existingPullRequest,
-    });
+    };
   }
 
   let failureRecorded = false;
 
   try {
+    await markIssueInProgress(context, issue);
+
     await context.gitClient.createBranch({
       branchName,
-      baseBranch: context.config.baseBranch,
+      baseBranch,
     });
 
     const rawOutput = await context.codexRunner.run({
       cwd: context.cwd,
       command: context.config.runner.command,
       model: context.model,
-      prompt: buildImplementIssuePrompt({ issue }),
+      prompt: buildImplementIssuePrompt({ issue, parentIssueNumber }),
     });
     const validatedOutput = validateImplementIssueOutput(rawOutput);
 
@@ -89,15 +115,16 @@ export async function runImplementIssue(context) {
 
     if (validatedOutput.value.status === 'blocked') {
       failureRecorded = true;
-      await recordIssueFailure(context, issue, validatedOutput.value.failureReason);
+      await blockIssue(context, issue, {
+        reason: validatedOutput.value.failureReason,
+        summary: validatedOutput.value.summary,
+      });
       return {
         status: 'blocked',
         summary: validatedOutput.value.summary,
         issue: issue.number,
       };
     }
-
-    await markIssueInProgress(context, issue);
 
     if (!(await context.gitClient.hasChanges())) {
       const reason = 'Codex runner completed but did not leave any working tree changes to commit.';
@@ -107,7 +134,7 @@ export async function runImplementIssue(context) {
     }
 
     await context.gitClient.commitAll({
-      message: createImplementIssueCommitMessage(issue),
+      message: createImplementIssueCommitMessage(issue, parentIssueNumber),
       author: GITHUB_ACTIONS_BOT_AUTHOR,
     });
     await context.gitClient.pushBranch({ branchName });
@@ -116,6 +143,7 @@ export async function runImplementIssue(context) {
       issue,
       output: validatedOutput.value,
       branchName,
+      parentIssueNumber,
       triggerActor: context.triggerActor,
       modelTier: context.modelTier,
       model: context.model,
@@ -123,7 +151,7 @@ export async function runImplementIssue(context) {
     const pullRequest = await context.githubClient.createDraftPullRequest({
       title: `Implement #${issue.number}: ${issue.title}`,
       body: pullRequestBody,
-      baseBranch: context.config.baseBranch,
+      baseBranch,
       headBranch: branchName,
     });
 
@@ -133,7 +161,11 @@ export async function runImplementIssue(context) {
     });
     await context.githubClient.removeLabelsFromIssue({
       number: issue.number,
-      labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked'],
+      labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
+    });
+    await context.githubClient.addLabelsToIssue({
+      number: issue.number,
+      labels: ['pullops:done'],
     });
 
     return {
@@ -161,12 +193,16 @@ export async function runImplementIssue(context) {
 
 /**
  * @param {GitHubIssue} issue
+ * @param {number | undefined} [parentIssueNumber]
  * @returns {string}
  */
-export function createImplementIssueCommitMessage(issue) {
+export function createImplementIssueCommitMessage(
+  issue,
+  parentIssueNumber = getParentIssueNumber(issue),
+) {
   const footers = [`Refs: #${issue.number}`];
-  if (issue.parent !== null) {
-    footers.push(`PRD: #${issue.parent.number}`);
+  if (parentIssueNumber !== undefined) {
+    footers.push(`PRD: #${parentIssueNumber}`);
   }
 
   return [
@@ -176,6 +212,26 @@ export function createImplementIssueCommitMessage(issue) {
     '',
     ...footers,
   ].join('\n');
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {Promise<GitHubIssue[]>}
+ */
+async function findBlockingDependencies(context, issue) {
+  const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
+  /** @type {GitHubIssue[]} */
+  const blockingDependencies = [];
+
+  for (const dependencyNumber of dependencyNumbers) {
+    const dependency = await context.githubClient.getIssue(dependencyNumber);
+    if (!isIssueDone(dependency)) {
+      blockingDependencies.push(dependency);
+    }
+  }
+
+  return blockingDependencies;
 }
 
 /**
@@ -202,23 +258,32 @@ function looksLikePrdIssue(issue) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubIssue} issue
- * @param {{ reason: string, existingPullRequest?: GitHubPullRequest }} options
+ * @param {{ reason: string, summary?: string }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function refuseIssue(context, issue, { reason, existingPullRequest }) {
-  await recordIssueFailure(context, issue, reason);
+async function blockIssue(context, issue, { reason, summary = reason }) {
+  await writeFailureReason(context, reason);
+  await context.githubClient.addLabelsToIssue({
+    number: issue.number,
+    labels: ['pullops:blocked'],
+  });
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:implement', 'pullops:in-progress', 'pullops:failed', 'pullops:done'],
+  });
+  await context.githubClient.commentOnIssue({
+    number: issue.number,
+    body: [
+      'PullOps could not complete `pullops run implement-issue`.',
+      '',
+      `Reason: ${reason}`,
+    ].join('\n'),
+  });
 
   return {
-    status: 'refused',
-    summary: reason,
+    status: 'blocked',
+    summary,
     issue: issue.number,
-    existingPullRequest:
-      existingPullRequest === undefined
-        ? undefined
-        : {
-            number: existingPullRequest.number,
-            url: existingPullRequest.url,
-          },
   };
 }
 
@@ -234,7 +299,7 @@ async function markIssueInProgress(context, issue) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:blocked'],
+    labels: ['pullops:blocked', 'pullops:failed', 'pullops:done'],
   });
 }
 
@@ -248,11 +313,11 @@ async function recordIssueFailure(context, issue, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: ['pullops:blocked'],
+    labels: ['pullops:failed'],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: ['pullops:implement', 'pullops:in-progress'],
+    labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked', 'pullops:done'],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -261,6 +326,18 @@ async function recordIssueFailure(context, issue, reason) {
       '',
       `Reason: ${reason}`,
     ].join('\n'),
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {Promise<void>}
+ */
+async function clearIssueTaskLabels(context, issue) {
+  await context.githubClient.removeLabelsFromIssue({
+    number: issue.number,
+    labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
   });
 }
 

@@ -122,9 +122,19 @@ query($owner: String!, $repo: String!, $number: Int!) {
 /** @type {PullOpsLabel[]} */
 export const PULL_OPS_LABELS = [
   {
+    name: 'pullops:prepare',
+    color: '5319E7',
+    description: 'Prepare an umbrella branch and draft PR for a parent issue or PRD.',
+  },
+  {
     name: 'pullops:implement',
     color: '5319E7',
-    description: 'Run PullOps implementation for an issue or PRD.',
+    description: 'Implement one concrete issue. Does not coordinate child issues.',
+  },
+  {
+    name: 'pullops:coordinate',
+    color: '5319E7',
+    description: 'Reserved for future automatic parent/child issue orchestration.',
   },
   {
     name: 'pullops:review',
@@ -165,6 +175,16 @@ export const PULL_OPS_LABELS = [
     name: 'pullops:blocked',
     color: 'D93F0B',
     description: 'PullOps automation is blocked and needs human attention.',
+  },
+  {
+    name: 'pullops:done',
+    color: '0E8A16',
+    description: 'PullOps automation completed successfully.',
+  },
+  {
+    name: 'pullops:failed',
+    color: 'B60205',
+    description: 'PullOps automation failed and needs investigation.',
   },
 ];
 

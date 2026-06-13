@@ -17,6 +17,7 @@ import { GITHUB_ACTIONS_BOT_AUTHOR, runImplementIssue } from './run.js';
  * @typedef {import('../../github/types.js').CommentOnIssueOptions} CommentOnIssueOptions
  * @typedef {import('../../git/types.js').CreateBranchOptions} CreateBranchOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
+ * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
  */
@@ -70,6 +71,7 @@ describe('runImplementIssue', () => {
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
     assert.equal(github.createdPullRequests.length, 1);
     assert.equal(github.createdPullRequests[0].title, 'Implement #42: Add the first operation');
+    assert.equal(github.createdPullRequests[0].baseBranch, 'main');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/issue-42');
     assert.match(github.createdPullRequests[0].body, /Managed PR: yes/);
     assert.match(github.createdPullRequests[0].body, /Status: Draft automation/);
@@ -83,9 +85,19 @@ describe('runImplementIssue', () => {
         labels: ['pullops:review'],
       },
     ]);
+    assert.deepEqual(github.issueLabelsAdded, [
+      {
+        number: 42,
+        labels: ['pullops:in-progress'],
+      },
+      {
+        number: 42,
+        labels: ['pullops:done'],
+      },
+    ]);
   });
 
-  it('02: implements a manually selected native sub-issue with parent PRD traceability', async () => {
+  it('02: implements a manually selected child issue against the parent branch', async () => {
     const issue = createIssue({
       number: 42,
       title: 'Do one child task',
@@ -100,7 +112,7 @@ describe('runImplementIssue', () => {
     const codex = createFakeCodexRunner({
       output: JSON.stringify({
         status: 'implemented',
-        summary: 'Implemented the selected sub-issue.',
+        summary: 'Implemented the selected child issue.',
         changes: ['Added the selected behavior.'],
         testPlan: ['npm test -- src/operations/implement-issue/run.test.js'],
       }),
@@ -116,12 +128,12 @@ describe('runImplementIssue', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Parent PRD Issue #1: PRD/);
-    assert.match(codex.calls[0].prompt, /Implement only the selected sub-issue/);
+    assert.match(codex.calls[0].prompt, /Parent Issue #1: PRD/);
+    assert.match(codex.calls[0].prompt, /Implement only the selected Child Issue/);
     assert.deepEqual(git.branches, [
       {
-        branchName: 'pullops/issue-42',
-        baseBranch: 'main',
+        branchName: 'pullops/prd-1/issue-42',
+        baseBranch: 'pullops/prd-1',
       },
     ]);
     assert.deepEqual(git.commits, [
@@ -138,11 +150,13 @@ describe('runImplementIssue', () => {
       },
     ]);
     assert.equal(github.createdPullRequests.length, 1);
+    assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/prd-1');
+    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1/issue-42');
     assert.match(github.createdPullRequests[0].body, /Closes #42/);
     assert.match(github.createdPullRequests[0].body, /PRD: #1/);
   });
 
-  it('03: refuses a PRD-looking issue without native GitHub sub-issues', async () => {
+  it('03: blocks a PRD-looking issue without native GitHub child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
@@ -162,27 +176,31 @@ describe('runImplementIssue', () => {
 
     const result = await runImplementIssue(
       createContext({
+        target: {
+          type: 'issue',
+          number: 1,
+        },
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
       }),
     );
 
-    assert.equal(result.status, 'refused');
-    assert.match(String(result.summary), /no native GitHub sub-issues/);
+    assert.equal(result.status, 'blocked');
+    assert.match(String(result.summary), /Use pullops:prepare/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
-    assert.match(github.comments[0].body, /Add native GitHub sub-issues/);
+    assert.match(github.comments[0].body, /Use pullops:prepare/);
   });
 
-  it('04: refuses a native PRD Issue while PRD implementation is not wired', async () => {
+  it('04: blocks a parent issue with children without implementing child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
       subIssues: [
         {
           number: 4,
-          title: 'Implement a Leaf Issue',
+          title: 'Implement a Child Issue',
           relationshipSource: 'native',
         },
       ],
@@ -193,15 +211,19 @@ describe('runImplementIssue', () => {
 
     const result = await runImplementIssue(
       createContext({
+        target: {
+          type: 'issue',
+          number: 1,
+        },
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
       }),
     );
 
-    assert.equal(result.status, 'refused');
-    assert.match(String(result.summary), /native GitHub sub-issues/);
-    assert.match(String(result.summary), /will not treat it as a Leaf Issue/);
+    assert.equal(result.status, 'blocked');
+    assert.match(String(result.summary), /child issues/);
+    assert.match(String(result.summary), /Use pullops:prepare/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
@@ -223,7 +245,7 @@ describe('runImplementIssue', () => {
       }),
     );
 
-    assert.equal(result.status, 'refused');
+    assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /closed/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
@@ -252,11 +274,17 @@ describe('runImplementIssue', () => {
       }),
     );
 
-    assert.equal(result.status, 'refused');
+    assert.equal(result.status, 'accepted');
     assert.match(String(result.summary), /already exists/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
     assert.equal(github.createdPullRequests.length, 0);
+    assert.deepEqual(github.issueLabelsRemoved, [
+      {
+        number: 42,
+        labels: ['pullops:implement', 'pullops:in-progress', 'pullops:blocked', 'pullops:failed'],
+      },
+    ]);
   });
 
   it('07: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
@@ -293,6 +321,10 @@ describe('runImplementIssue', () => {
     assert.equal(git.pushes.length, 0);
     assert.equal(github.createdPullRequests.length, 0);
     assert.match(github.comments[0].body, /Operation Output\.testPlan must be an array/);
+    assert.deepEqual(github.issueLabelsAdded.at(-1), {
+      number: 42,
+      labels: ['pullops:failed'],
+    });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
       'Invalid Operation Output: Operation Output.testPlan must be an array.\n',
@@ -328,17 +360,65 @@ describe('runImplementIssue', () => {
     assert.match(github.comments[0].body, /push failed/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:blocked'],
+      labels: ['pullops:failed'],
     });
   });
 
-  it('09: uses the configured Branch Prefix for deterministic branch names', () => {
+  it('09: blocks an issue when a dependency is not done', async () => {
+    const issue = createIssue({
+      number: 42,
+      body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
+    });
+    const dependency = createIssue({
+      number: 7,
+      title: 'Dependency',
+      labels: [],
+    });
+    const github = createFakeGitHub({
+      issue,
+      issuesByNumber: new Map([
+        [42, issue],
+        [7, dependency],
+      ]),
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssue(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(String(result.summary), /#7/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.branches.length, 0);
+    assert.deepEqual(github.issueLabelsAdded, [
+      {
+        number: 42,
+        labels: ['pullops:blocked'],
+      },
+    ]);
+  });
+
+  it('10: uses the configured Branch Prefix for deterministic branch names', () => {
     assert.equal(
       createImplementIssueBranchName({
         branchPrefix: 'automation/pullops/',
         issueNumber: 123,
       }),
       'automation/pullops/issue-123',
+    );
+    assert.equal(
+      createImplementIssueBranchName({
+        branchPrefix: 'automation/pullops/',
+        parentNumber: 10,
+        issueNumber: 123,
+      }),
+      'automation/pullops/prd-10/issue-123',
     );
   });
 });
@@ -371,6 +451,7 @@ function createContext(overrides = {}) {
  * @param {string} [options.title]
  * @param {string} [options.body]
  * @param {string} [options.state]
+ * @param {string[]} [options.labels]
  * @param {import('../../github/types.js').GitHubIssueReference | null} [options.parent]
  * @param {import('../../github/types.js').GitHubIssueReference[]} [options.subIssues]
  * @returns {GitHubIssue}
@@ -380,6 +461,7 @@ function createIssue({
   title = 'Implement the issue',
   body = '## What to build\n\nDo the thing.',
   state = 'OPEN',
+  labels = ['pullops:implement'],
   parent = null,
   subIssues = [],
 } = {}) {
@@ -390,14 +472,14 @@ function createIssue({
     state,
     url: `https://github.com/acme/widgets/issues/${number}`,
     authorLogin: 'maintainer',
-    labels: ['pullops:implement'],
+    labels,
     parent,
     subIssues,
   };
 }
 
 /**
- * @param {{ issue: GitHubIssue, existingPullRequest?: GitHubPullRequest }} options
+ * @param {{ issue: GitHubIssue, issuesByNumber?: Map<number, GitHubIssue>, existingPullRequest?: GitHubPullRequest }} options
  * @returns {{
  *   createdPullRequests: CreateDraftPullRequestOptions[];
  *   issueLabelsAdded: EditLabelsOptions[];
@@ -407,7 +489,11 @@ function createIssue({
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ issue, existingPullRequest }) {
+function createFakeGitHub({
+  issue,
+  issuesByNumber = new Map([[issue.number, issue]]),
+  existingPullRequest,
+}) {
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
   /** @type {EditLabelsOptions[]} */
@@ -433,8 +519,12 @@ function createFakeGitHub({ issue, existingPullRequest }) {
           alreadyCorrect: [],
         };
       },
-      async getIssue() {
-        return issue;
+      async getIssue(number) {
+        const foundIssue = issuesByNumber.get(number);
+        if (foundIssue === undefined) {
+          throw new Error(`Unexpected issue lookup: #${number}`);
+        }
+        return foundIssue;
       },
       async getPullRequest() {
         throw new Error('getPullRequest was not expected in this test.');
@@ -495,6 +585,7 @@ function createFakeGitHub({ issue, existingPullRequest }) {
  * @returns {{
  *   branches: CreateBranchOptions[];
  *   commits: CommitAllOptions[];
+ *   emptyCommits: CommitEmptyOptions[];
  *   pushes: PushBranchOptions[];
  *   client: import('../../git/types.js').GitClient;
  * }}
@@ -504,12 +595,15 @@ function createFakeGit({ failOn = () => false } = {}) {
   const branches = [];
   /** @type {CommitAllOptions[]} */
   const commits = [];
+  /** @type {CommitEmptyOptions[]} */
+  const emptyCommits = [];
   /** @type {PushBranchOptions[]} */
   const pushes = [];
 
   return {
     branches,
     commits,
+    emptyCommits,
     pushes,
     client: {
       async createBranch(options) {
@@ -529,6 +623,12 @@ function createFakeGit({ failOn = () => false } = {}) {
           throw new Error('commit failed');
         }
         commits.push(options);
+      },
+      async commitEmpty(options) {
+        if (failOn('commitEmpty')) {
+          throw new Error('empty commit failed');
+        }
+        emptyCommits.push(options);
       },
       async pushBranch(options) {
         if (failOn('pushBranch')) {

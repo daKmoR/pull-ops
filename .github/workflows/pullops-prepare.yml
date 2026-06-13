@@ -1,0 +1,47 @@
+name: PullOps Prepare
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pullops-prepare-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.event.label.name == 'pullops:prepare'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run PullOps prepare PRD
+        run: npm run pullops:prepare-prd -- --issue ${{ github.event.issue.number }}
+        env:
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
+          # token under the standard names expected by gh and GitHub-aware tools.
+          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output

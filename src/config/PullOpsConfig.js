@@ -28,8 +28,9 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     },
   },
   operations: {
+    preparePrd: { modelTier: 'low' },
     implementIssue: { modelTier: 'high' },
-    implementPrd: { modelTier: 'high' },
+    coordinatePrd: { modelTier: 'low' },
     reviewPr: { modelTier: 'high' },
     addressReview: { modelTier: 'mid' },
     fixCi: { modelTier: 'mid' },
