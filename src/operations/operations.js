@@ -3,6 +3,7 @@ import {
   runAddressReviewCodexActionFinalize,
   runAddressReviewCodexActionPrepare,
 } from './address-review/run.js';
+import { runCloseChildIssue } from './close-child-issue/run.js';
 import { runCoordinatePrd } from './coordinate-prd/run.js';
 import { runFixCi, runFixCiCodexActionFinalize, runFixCiCodexActionPrepare } from './fix-ci/run.js';
 import {
@@ -83,6 +84,12 @@ export const WORKFLOW_OPERATIONS = [
     option: 'pr',
     configKey: 'prepareMerge',
   },
+  {
+    name: 'close-child-issue',
+    target: 'pr',
+    option: 'pr',
+    configKey: 'closeChildIssue',
+  },
 ];
 
 export const WORKFLOW_OPERATION_NAMES = WORKFLOW_OPERATIONS.map(operation => operation.name);
@@ -150,6 +157,10 @@ export async function runWorkflowOperation(context) {
       prepare: runPrepareMergeCodexActionPrepare,
       finalize: runPrepareMergeCodexActionFinalize,
     });
+  }
+
+  if (context.operation === 'close-child-issue') {
+    return await runCloseChildIssue(context);
   }
 
   if (context.runnerAdapter === 'codex-action') {

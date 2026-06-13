@@ -41,7 +41,7 @@ export function createImplementIssuePullRequestBody({
     '',
     '## Traceability',
     '',
-    `Closes #${issue.number}`,
+    ...formatIssueTraceability({ issue, parentIssueNumber }),
     ...formatParentTraceability({ issue, parentIssueNumber }),
     '',
     '## PullOps',
@@ -58,6 +58,18 @@ export function createImplementIssuePullRequestBody({
     `Model: ${model}`,
     `Last operation: ${PULL_OPS_OPERATION_LABELS.implementIssue}`,
   ].join('\n');
+}
+
+/**
+ * @param {{ issue: GitHubIssue, parentIssueNumber: number | undefined }} options
+ * @returns {string[]}
+ */
+function formatIssueTraceability({ issue, parentIssueNumber }) {
+  if (parentIssueNumber === undefined) {
+    return [`Closes #${issue.number}`];
+  }
+
+  return [`Refs #${issue.number}`];
 }
 
 /**

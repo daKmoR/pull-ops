@@ -61,7 +61,7 @@ describe('runPreparePrd', () => {
     assert.equal(github.createdPullRequests[0].title, 'Prepare #12: PRD: Parent workflow');
     assert.equal(github.createdPullRequests[0].baseBranch, 'main');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-12');
-    assert.match(github.createdPullRequests[0].body, /Tracks #12/);
+    assert.match(github.createdPullRequests[0].body, /Closes #12/);
     assert.match(github.createdPullRequests[0].body, /#34 Implement child workflow \(open\)/);
     assert.match(github.createdPullRequests[0].body, /Last operation: pullops:prd:prepare/);
     assert.deepEqual(github.issueLabelsAdded, [
@@ -268,6 +268,9 @@ function createFakeGitHub({ issue, existingPullRequest }) {
       },
       async commentOnIssue(options) {
         comments.push(options);
+      },
+      async closeIssue() {
+        throw new Error('closeIssue was not expected in this test.');
       },
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');

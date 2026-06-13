@@ -1,5 +1,3 @@
-import { PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
-
 /**
  * @typedef {import('../github/types.js').GitHubIssue} GitHubIssue
  */
@@ -28,7 +26,7 @@ export function getParentIssueNumber(issue) {
  * @returns {boolean}
  */
 export function isIssueDone(issue) {
-  return issue.state === 'CLOSED' || issue.labels.includes(PULL_OPS_STATUS_LABELS.done);
+  return issue.state === 'CLOSED';
 }
 
 /**

@@ -117,9 +117,9 @@ describe('runPrepareMerge', () => {
     ]);
   });
 
-  it('02: rewrites a Parent Issue PR into Child Issue Commits with PRD traceability', async () => {
+  it('02: rewrites a Parent Issue PR into Child Issue Commits with PRD closing traceability', async () => {
     const repository = await createTemporaryRepository({
-      branchName: 'pullops/parent-1',
+      branchName: 'pullops/prd-1',
       changes: async workDir => {
         await writeFile(join(workDir, 'src/child-6.js'), 'export const child6 = true;\n');
         await writeFile(join(workDir, 'src/child-7.js'), 'export const child7 = true;\n');
@@ -128,10 +128,10 @@ describe('runPrepareMerge', () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         title: 'Prepare #1: Dogfood workflow kit',
-        headRefName: 'pullops/parent-1',
+        headRefName: 'pullops/prd-1',
         body: createPullRequestBody({
           source: 'Source: Parent Issue #1',
-          traceability: 'Tracks #1',
+          traceability: 'Closes #1',
           lastOperation: 'Last operation: pullops:pr:review',
         }),
       }),
@@ -167,7 +167,7 @@ describe('runPrepareMerge', () => {
           summary: 'Prepared the parent PR for final review.',
           changes: ['Completed child issue #6.', 'Completed child issue #7.'],
           testPlan: ['npm test'],
-          traceability: ['Tracks #1'],
+          traceability: ['Closes #1'],
         },
       }),
     });
@@ -201,7 +201,7 @@ describe('runPrepareMerge', () => {
         'PRD: #1',
       ].join('\n'),
     ]);
-    assert.match(github.updatedBodies[0].body, /Tracks #1/);
+    assert.match(github.updatedBodies[0].body, /Closes #1/);
     assert.match(github.updatedBodies[0].body, /Status: Prepared for final review/);
   });
 
@@ -456,6 +456,9 @@ function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
       },
       async commentOnIssue() {
         throw new Error('commentOnIssue was not expected in this test.');
+      },
+      async closeIssue() {
+        throw new Error('closeIssue was not expected in this test.');
       },
       async commentOnPullRequest(options) {
         comments.push(options);

@@ -11,7 +11,8 @@ export type WorkflowOperationConfigKey =
   | 'fixCi'
   | 'updateBranch'
   | 'resolveConflicts'
-  | 'prepareMerge';
+  | 'prepareMerge'
+  | 'closeChildIssue';
 
 export interface WorkflowOperation {
   name: string;

@@ -168,6 +168,9 @@ function createFakeGitHub({ issue }) {
       async commentOnIssue(options) {
         comments.push(options);
       },
+      async closeIssue() {
+        throw new Error('closeIssue was not expected in this test.');
+      },
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');
       },

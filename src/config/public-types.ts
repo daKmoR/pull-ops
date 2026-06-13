@@ -24,5 +24,6 @@ export interface PullOpsConfig {
     updateBranch: OperationConfig;
     resolveConflicts: OperationConfig;
     prepareMerge: OperationConfig;
+    closeChildIssue: OperationConfig;
   };
 }

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { createIssueBranchName, createParentBranchName } from './branchNames.js';
+import {
+  createIssueBranchName,
+  createParentBranchName,
+  parseChildIssueBranchName,
+} from './branchNames.js';
 
 describe('branchNames', () => {
   it('01: creates parent, child, and standalone issue branch names', () => {
@@ -37,6 +41,36 @@ describe('branchNames', () => {
         issueNumber: 2,
       }),
       'automation/pullops/prd-1/issue-2',
+    );
+  });
+
+  it('03: parses only configured child issue branch names', () => {
+    assert.deepEqual(
+      parseChildIssueBranchName({
+        branchPrefix: 'pullops',
+        branchName: 'pullops/prd-12/issue-34',
+      }),
+      {
+        parentNumber: 12,
+        issueNumber: 34,
+      },
+    );
+    assert.deepEqual(
+      parseChildIssueBranchName({
+        branchPrefix: ' automation/pullops/ ',
+        branchName: 'automation/pullops/prd-1/issue-2',
+      }),
+      {
+        parentNumber: 1,
+        issueNumber: 2,
+      },
+    );
+    assert.equal(
+      parseChildIssueBranchName({
+        branchPrefix: 'pullops',
+        branchName: 'pullops/issue-34',
+      }),
+      undefined,
     );
   });
 });

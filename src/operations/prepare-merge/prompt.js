@@ -49,7 +49,7 @@ export function buildPrepareMergePrompt({
     '- Commit headers must be conventional commit headers.',
     '- Commit footers must include traceability. Use Refs: #<issue> footers for the concrete work and PRD: #<parent> when applicable.',
     '- Concrete Issue PRs default to one logical commit. If more than one commit is necessary, include commitPlan.justification.',
-    '- Parent Issue PRs default to one Child Issue Commit per completed Child Issue.',
+    '- Parent Issue PRs default to one Child Issue Commit per merged Child Issue PR.',
     '- Prepare Merge is history cleanup and PR summary cleanup only. Never merge the PR.',
     '',
     'Final response must be only JSON in this shape:',
