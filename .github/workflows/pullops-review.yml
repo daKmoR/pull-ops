@@ -97,6 +97,16 @@ jobs:
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
+      - name: Verify OpenAI API key
+        if: steps.prepare.outputs.run_runner == 'true'
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
+            exit 1
+          fi
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
       - name: Run Codex
         if: steps.prepare.outputs.run_runner == 'true'
         id: codex

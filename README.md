@@ -95,7 +95,8 @@ pullops run implement-issue --issue 42
 GitHub Actions workflows select the `codex-action` runner adapter explicitly and
 use `openai/codex-action@v1` for Codex-backed operation steps. Add a repository
 Actions secret named `OPENAI_API_KEY`; the workflows pass it only to the Codex
-Action step as `openai-api-key`.
+Action step as `openai-api-key`. The workflows check for this secret before
+invoking the action so missing configuration fails with a direct setup error.
 
 ```sh
 gh secret set OPENAI_API_KEY --repo OWNER/REPO
