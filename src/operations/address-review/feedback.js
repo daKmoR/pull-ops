@@ -1,0 +1,128 @@
+/**
+ * @typedef {'unresolved_inline_thread' | 'requested_change_summary' | 'pullops_review_output' | 'top_level_comment'} AddressReviewFeedbackSurface
+ * @typedef {{
+ *   id: string;
+ *   surface: AddressReviewFeedbackSurface;
+ *   body: string;
+ *   authorLogin: string | null;
+ *   replyCommentId?: number;
+ *   location?: string;
+ *   url?: string;
+ * }} AddressReviewFeedbackItem
+ */
+
+const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestReviewContext} reviewContext
+ * @returns {AddressReviewFeedbackItem[]}
+ */
+export function collectAddressReviewFeedback(reviewContext) {
+  return [
+    ...collectUnresolvedThreadFeedback(reviewContext),
+    ...collectReviewSummaryFeedback(reviewContext),
+    ...collectTopLevelCommentFeedback(reviewContext),
+  ];
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestReviewContext} reviewContext
+ * @returns {AddressReviewFeedbackItem[]}
+ */
+function collectUnresolvedThreadFeedback(reviewContext) {
+  /** @type {AddressReviewFeedbackItem[]} */
+  const items = [];
+
+  for (const [threadIndex, thread] of reviewContext.unresolvedThreads.entries()) {
+    for (const [commentIndex, comment] of thread.comments.entries()) {
+      const body = comment.body.trim();
+      if (body === '') {
+        continue;
+      }
+
+      const fallbackId = `${threadIndex + 1}.${commentIndex + 1}`;
+      const id = `thread:${comment.databaseId ?? comment.id ?? fallbackId}`;
+      const location =
+        comment.path === undefined || comment.line === undefined
+          ? undefined
+          : `${comment.path}:${comment.line}`;
+
+      items.push({
+        id,
+        surface: 'unresolved_inline_thread',
+        body,
+        authorLogin: comment.authorLogin,
+        ...(comment.databaseId === undefined ? {} : { replyCommentId: comment.databaseId }),
+        ...(location === undefined ? {} : { location }),
+        ...(comment.url === undefined ? {} : { url: comment.url }),
+      });
+    }
+  }
+
+  return items;
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestReviewContext} reviewContext
+ * @returns {AddressReviewFeedbackItem[]}
+ */
+function collectReviewSummaryFeedback(reviewContext) {
+  /** @type {AddressReviewFeedbackItem[]} */
+  const items = [];
+
+  for (const [index, review] of reviewContext.reviews.entries()) {
+    const body = review.body.trim();
+    if (body === '') {
+      continue;
+    }
+
+    if (review.authorLogin === GITHUB_ACTIONS_BOT_LOGIN) {
+      items.push({
+        id: `pullops-review:${review.id ?? index + 1}`,
+        surface: 'pullops_review_output',
+        body,
+        authorLogin: review.authorLogin,
+        ...(review.url === undefined ? {} : { url: review.url }),
+      });
+      continue;
+    }
+
+    if (review.state === 'CHANGES_REQUESTED') {
+      items.push({
+        id: `review:${review.id ?? index + 1}`,
+        surface: 'requested_change_summary',
+        body,
+        authorLogin: review.authorLogin,
+        ...(review.url === undefined ? {} : { url: review.url }),
+      });
+    }
+  }
+
+  return items;
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestReviewContext} reviewContext
+ * @returns {AddressReviewFeedbackItem[]}
+ */
+function collectTopLevelCommentFeedback(reviewContext) {
+  /** @type {AddressReviewFeedbackItem[]} */
+  const items = [];
+
+  for (const [index, comment] of reviewContext.comments.entries()) {
+    const body = comment.body.trim();
+    if (body === '') {
+      continue;
+    }
+
+    items.push({
+      id: `comment:${comment.databaseId ?? comment.id ?? index + 1}`,
+      surface: 'top_level_comment',
+      body,
+      authorLogin: comment.authorLogin,
+      ...(comment.url === undefined ? {} : { url: comment.url }),
+    });
+  }
+
+  return items;
+}

@@ -72,6 +72,8 @@ query($owner: String!, $repo: String!, $number: Int!) {
     pullRequest(number: $number) {
       comments(first: 100) {
         nodes {
+          id
+          databaseId
           body
           url
           author {
