@@ -43,7 +43,6 @@ Prefer a fine-grained personal access token:
 5. Set **Repository access** to **Only select repositories**, then select this
    repository.
 6. Grant these repository permissions:
-   - **Actions**: read and write
    - **Contents**: read and write
    - **Issues**: read and write
    - **Pull requests**: read and write
@@ -72,6 +71,11 @@ the copied token value to `gh secret set`.
 If fine-grained tokens are not available for your repository or organization, use
 a classic personal access token only as a fallback. It needs `repo` and
 `workflow` scopes, which are broader than the fine-grained permissions above.
+
+The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
+`workflow_dispatch` calls. `PULLOPS_GITHUB_TOKEN` is used by the operation
+workflows after dispatch for repository checkout, pushes, labels, and pull
+request updates.
 
 See GitHub's docs for current UI details:
 

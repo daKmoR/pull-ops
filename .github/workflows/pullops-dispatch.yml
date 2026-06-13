@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Dispatch issue operation workflow
         env:
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           LABEL: ${{ github.event.label.name }}
           ISSUE: ${{ github.event.issue.number }}
           TRIGGER_ACTOR: ${{ github.actor }}
@@ -60,7 +60,7 @@ jobs:
     steps:
       - name: Dispatch pull request operation workflow
         env:
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           TRIGGER_ACTOR: ${{ github.actor }}
