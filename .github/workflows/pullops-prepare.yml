@@ -24,6 +24,8 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    env:
+      OUTPUT_DIR: ${{ runner.temp }}/pullops-output
 
     steps:
       - name: Check out repository
@@ -50,4 +52,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          OUTPUT_DIR: ${{ runner.temp }}/pullops-output

@@ -47,6 +47,7 @@ function createContext(overrides = {}) {
   return {
     operation: 'coordinate-prd',
     phase: 'run',
+    runnerAdapter: 'codex-cli',
     target: {
       type: 'issue',
       number: 12,

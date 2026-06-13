@@ -1,9 +1,11 @@
 import type { ModelTier, OperationConfig } from './types.js';
+import type { RunnerAdapter } from '../runner/types.js';
 
 export type { ModelTier, OperationConfig } from './types.js';
+export type { RunnerAdapter } from '../runner/types.js';
 
 export interface RunnerConfig {
-  provider: 'codex';
+  adapter: RunnerAdapter;
   command: string;
   models: Record<ModelTier, string>;
 }

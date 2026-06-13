@@ -42,6 +42,7 @@ test('run operation accepts explicit workflow command shapes', async () => {
   assert.equal(calls[0].config.baseBranch, 'main');
   assert.equal(calls[0].modelTier, 'high');
   assert.equal(calls[0].phase, 'run');
+  assert.equal(calls[0].runnerAdapter, 'codex-cli');
   assert.equal(calls[0].model, 'gpt-5.5');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
@@ -53,7 +54,7 @@ test('run operation accepts explicit workflow command shapes', async () => {
   });
 });
 
-test('run operation accepts Codex Action phases', async () => {
+test('run operation accepts explicit Codex Action lifecycle arguments', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const calls = [];
@@ -76,14 +77,20 @@ test('run operation accepts Codex Action phases', async () => {
     'run',
     'implement-issue',
     '--phase',
-    'prepare-codex',
+    'finalize',
+    '--runner',
+    'codex-action',
+    '--runner-ran',
+    'true',
     '--issue',
     '42',
   ]);
 
   assert.equal(exitCode, 0);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].phase, 'prepare-codex');
+  assert.equal(calls[0].phase, 'finalize');
+  assert.equal(calls[0].runnerAdapter, 'codex-action');
+  assert.equal(calls[0].runnerRan, true);
   assert.equal(calls[0].outputDirectory, '/tmp/pullops-output');
   assert.equal(calls[0].codexActionOutcome, 'success');
   assert.deepEqual(JSON.parse(stdout.text), {
@@ -118,8 +125,38 @@ test('run operation accepts every workflow-facing operation shape', async () => 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].operation, operation.name);
     assert.equal(calls[0].phase, 'run');
+    assert.equal(calls[0].runnerAdapter, 'codex-cli');
     assert.equal(calls[0].target.type, operation.target);
   }
+});
+
+test('run operation accepts explicit local runner override', async () => {
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout: createWritableBuffer(),
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'implement-issue',
+    '--runner',
+    'codex-cli',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].phase, 'run');
+  assert.equal(calls[0].runnerAdapter, 'codex-cli');
 });
 
 test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {
@@ -229,6 +266,78 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Missing required argument "--pr <number>"/);
+  });
+
+  await t.test('old runner-coupled phase names are rejected', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'implement-issue',
+      '--phase',
+      'prepare-codex',
+      '--issue',
+      '1',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unknown phase "prepare-codex"/);
+  });
+
+  await t.test('codex-action requires an explicit lifecycle phase', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'implement-issue',
+      '--runner',
+      'codex-action',
+      '--issue',
+      '1',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /requires "--phase prepare" or "--phase finalize"/);
+  });
+
+  await t.test('codex-action finalize requires runner-ran state', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'implement-issue',
+      '--runner',
+      'codex-action',
+      '--phase',
+      'finalize',
+      '--issue',
+      '1',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /requires "--runner-ran <true\|false>"/);
+  });
+
+  await t.test('local runner rejects workflow-only phases', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'implement-issue',
+      '--runner',
+      'codex-cli',
+      '--phase',
+      'prepare',
+      '--issue',
+      '1',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /only supports the default run phase/);
   });
 });
 

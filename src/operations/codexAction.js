@@ -27,6 +27,10 @@ export async function writeCodexActionPrompt(context, prompt) {
  * @returns {Promise<string>}
  */
 export async function readCodexActionOutput(context) {
+  if (context.runnerRan !== true) {
+    throw new Error('Codex Action output can only be read after the runner has run.');
+  }
+
   if (
     context.codexActionOutcome !== undefined &&
     context.codexActionOutcome !== '' &&
@@ -36,6 +40,24 @@ export async function readCodexActionOutput(context) {
   }
 
   return await readFile(join(requireOutputDirectory(context), CODEX_ACTION_OUTPUT_FILE), 'utf8');
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Record<string, unknown>}
+ */
+export function createSkippedCodexActionOutput(context) {
+  return {
+    status: 'accepted',
+    summary: [
+      `Skipped ${context.operation} for ${context.target.type} #${context.target.number}`,
+      'because prepare did not request a runner step.',
+    ].join(' '),
+    runner: {
+      adapter: 'codex-action',
+      ran: false,
+    },
+  };
 }
 
 /**

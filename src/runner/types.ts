@@ -8,6 +8,8 @@ export interface RunnerExecFileResult {
   stderr?: string | Buffer;
 }
 
+export type RunnerAdapter = 'codex-cli' | 'codex-action';
+
 export type RunnerExecFile = (
   file: string,
   args: string[],

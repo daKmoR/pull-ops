@@ -8,12 +8,14 @@ import {
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
+import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 
 /**
  * @typedef {import('./types.js').WritableLike} WritableLike
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('./types.js').OperationPhase} OperationPhase
  * @typedef {import('./types.js').OperationRunner} OperationRunner
+ * @typedef {import('../runner/types.js').RunnerAdapter} RunnerAdapter
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
@@ -131,18 +133,18 @@ export class PullOpsCli {
       );
     }
 
-    const targetNumber = parseRequiredNumberOption(operationArgs, operation.option, operation.name);
-    const phase = parseOperationPhase(operationArgs);
     const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const parsedArgs = parseRunOperationArgs(operationArgs, operation, config.runner.adapter);
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
 
     const output = await this.operationRunner({
       operation: operation.name,
-      phase,
+      phase: parsedArgs.phase,
+      runnerAdapter: parsedArgs.runnerAdapter,
       target: {
         type: operation.target,
-        number: targetNumber,
+        number: parsedArgs.targetNumber,
       },
       cwd: this.cwd,
       config,
@@ -154,6 +156,7 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       outputDirectory: this.env.OUTPUT_DIR,
       codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
+      runnerRan: parsedArgs.runnerRan,
     });
 
     this.writeValidatedJson(output);
@@ -207,11 +210,43 @@ export class PullOpsCli {
 
 /**
  * @param {string[]} args
+ * @param {import('../operations/types.js').WorkflowOperation} operation
+ * @param {RunnerAdapter} defaultRunnerAdapter
+ * @returns {{ targetNumber: number, phase: OperationPhase, runnerAdapter: RunnerAdapter, runnerRan?: boolean }}
+ */
+function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
+  const consumed = new Set();
+  const targetNumber = parseRequiredNumberOption(args, operation.option, operation.name, consumed);
+  const phase = parseOperationPhase(args, consumed);
+  const runnerAdapter = parseRunnerAdapter(args, defaultRunnerAdapter, consumed);
+  const runnerRan = parseRunnerRan(args, consumed);
+
+  validateRunnerLifecycle({ operationName: operation.name, phase, runnerAdapter, runnerRan });
+
+  const unknown = args.filter((unused, argIndex) => {
+    void unused;
+    return !consumed.has(argIndex);
+  });
+  if (unknown.length > 0) {
+    throw new CliUsageError(`Unknown arguments for ${operation.name}: ${unknown.join(' ')}.`);
+  }
+
+  return {
+    targetNumber,
+    phase,
+    runnerAdapter,
+    ...(runnerRan === undefined ? {} : { runnerRan }),
+  };
+}
+
+/**
+ * @param {string[]} args
  * @param {string} option
  * @param {string} operationName
+ * @param {Set<number>} consumed
  * @returns {number}
  */
-function parseRequiredNumberOption(args, option, operationName) {
+function parseRequiredNumberOption(args, option, operationName, consumed) {
   const optionName = `--${option}`;
   const index = args.indexOf(optionName);
 
@@ -226,19 +261,8 @@ function parseRequiredNumberOption(args, option, operationName) {
     throw new CliUsageError(`Missing value for "${optionName}" in ${operationName}.`);
   }
 
-  const consumed = new Set([index, index + 1]);
-  const phaseIndex = args.indexOf('--phase');
-  if (phaseIndex !== -1) {
-    consumed.add(phaseIndex);
-    consumed.add(phaseIndex + 1);
-  }
-  const unknown = args.filter((unused, argIndex) => {
-    void unused;
-    return !consumed.has(argIndex);
-  });
-  if (unknown.length > 0) {
-    throw new CliUsageError(`Unknown arguments for ${operationName}: ${unknown.join(' ')}.`);
-  }
+  consumed.add(index);
+  consumed.add(index + 1);
 
   const number = Number(rawValue);
   if (!Number.isInteger(number) || number <= 0) {
@@ -250,26 +274,124 @@ function parseRequiredNumberOption(args, option, operationName) {
 
 /**
  * @param {string[]} args
+ * @param {Set<number>} consumed
  * @returns {OperationPhase}
  */
-function parseOperationPhase(args) {
-  const index = args.indexOf('--phase');
-  if (index === -1) {
+function parseOperationPhase(args, consumed) {
+  const rawPhase = parseOptionalStringOption(args, '--phase', consumed);
+  if (rawPhase === undefined) {
     return 'run';
   }
 
-  const rawPhase = args[index + 1];
-  if (rawPhase === undefined) {
-    throw new CliUsageError('Missing value for "--phase".');
-  }
-
-  if (rawPhase === 'run' || rawPhase === 'prepare-codex' || rawPhase === 'finalize-codex') {
+  if (rawPhase === 'run' || rawPhase === 'prepare' || rawPhase === 'finalize') {
     return rawPhase;
   }
 
-  throw new CliUsageError(
-    `Unknown phase "${rawPhase}". Expected one of: run, prepare-codex, finalize-codex.`,
-  );
+  throw new CliUsageError(`Unknown phase "${rawPhase}". Expected one of: run, prepare, finalize.`);
+}
+
+/**
+ * @param {string[]} args
+ * @param {RunnerAdapter} defaultRunnerAdapter
+ * @param {Set<number>} consumed
+ * @returns {RunnerAdapter}
+ */
+function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
+  const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
+  if (rawRunner === undefined) {
+    return defaultRunnerAdapter;
+  }
+
+  if (!isRunnerAdapter(rawRunner)) {
+    throw new CliUsageError(
+      `Unknown runner "${rawRunner}". Expected one of: ${RUNNER_ADAPTERS.join(', ')}.`,
+    );
+  }
+
+  return rawRunner;
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {boolean | undefined}
+ */
+function parseRunnerRan(args, consumed) {
+  const rawRunnerRan = parseOptionalStringOption(args, '--runner-ran', consumed);
+  if (rawRunnerRan === undefined) {
+    return undefined;
+  }
+
+  if (rawRunnerRan === 'true') {
+    return true;
+  }
+
+  if (rawRunnerRan === 'false') {
+    return false;
+  }
+
+  throw new CliUsageError('"--runner-ran" must be either "true" or "false".');
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} optionName
+ * @param {Set<number>} consumed
+ * @returns {string | undefined}
+ */
+function parseOptionalStringOption(args, optionName, consumed) {
+  const index = args.indexOf(optionName);
+  if (index === -1) {
+    return undefined;
+  }
+
+  const rawValue = args[index + 1];
+  if (rawValue === undefined || rawValue.startsWith('--')) {
+    throw new CliUsageError(`Missing value for "${optionName}".`);
+  }
+
+  consumed.add(index);
+  consumed.add(index + 1);
+  return rawValue;
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.operationName
+ * @param {OperationPhase} options.phase
+ * @param {RunnerAdapter} options.runnerAdapter
+ * @param {boolean | undefined} options.runnerRan
+ */
+function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRan }) {
+  if (runnerAdapter === 'codex-action') {
+    if (phase === 'run') {
+      throw new CliUsageError(
+        `${operationName} with --runner codex-action requires "--phase prepare" or "--phase finalize".`,
+      );
+    }
+
+    if (phase === 'prepare' && runnerRan !== undefined) {
+      throw new CliUsageError('"--runner-ran" can only be used with "--phase finalize".');
+    }
+
+    if (phase === 'finalize' && runnerRan === undefined) {
+      throw new CliUsageError(
+        `${operationName} with --runner codex-action --phase finalize requires "--runner-ran <true|false>".`,
+      );
+    }
+
+    return;
+  }
+
+  if (phase !== 'run') {
+    throw new CliUsageError(
+      `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+    );
+  }
+
+  if (runnerRan !== undefined) {
+    throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
+  }
 }
 
 /**
@@ -278,8 +400,12 @@ function parseOperationPhase(args) {
 function usage() {
   return [
     'Usage:',
-    '  pullops run <operation> [--phase <phase>] --issue <number>',
-    '  pullops run <operation> [--phase <phase>] --pr <number>',
+    '  pullops run <operation> [--runner codex-cli] --issue <number>',
+    '  pullops run <operation> [--runner codex-cli] --pr <number>',
+    '  pullops run <operation> --runner codex-action --phase prepare --issue <number>',
+    '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --issue <number>',
+    '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
+    '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
     '  pullops labels ensure',
   ].join('\n');
 }

@@ -1,9 +1,10 @@
 import type { WorkflowOperationConfigKey } from '../operations/types.js';
+import type { RunnerAdapter } from '../runner/types.js';
 
 export type ModelTier = 'high' | 'mid' | 'low';
 
 export interface RunnerConfig {
-  provider: string;
+  adapter: RunnerAdapter;
   command: string;
   models: Record<ModelTier, string>;
 }
@@ -22,7 +23,7 @@ export interface PullOpsConfig {
 }
 
 export interface UserRunnerConfig {
-  provider?: unknown;
+  adapter?: unknown;
   command?: unknown;
   models?: unknown;
 }

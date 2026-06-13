@@ -13,9 +13,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: pullops-implement-${{ inputs.issue }}
@@ -24,12 +22,15 @@ concurrency:
 jobs:
   implement:
     runs-on: ubuntu-latest
+    env:
+      OUTPUT_DIR: ${{ runner.temp }}/pullops-output
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
@@ -45,12 +46,15 @@ jobs:
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
-          npm run pullops:implement-issue:prepare-codex -- --issue ${{ inputs.issue }}
+          npx pullops run implement-issue \
+            --phase prepare \
+            --runner codex-action \
+            --issue "${{ inputs.issue }}"
 
           if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
-            echo "run_codex=true" >> "$GITHUB_OUTPUT"
+            echo "run_runner=true" >> "$GITHUB_OUTPUT"
           else
-            echo "run_codex=false" >> "$GITHUB_OUTPUT"
+            echo "run_runner=false" >> "$GITHUB_OUTPUT"
           fi
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
@@ -59,14 +63,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
-
-      - name: Remove GitHub credentials before Codex
-        if: steps.prepare.outputs.run_codex == 'true'
-        run: git config --local --unset-all http.https://github.com/.extraheader || true
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_codex == 'true'
+        if: steps.prepare.outputs.run_runner == 'true'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true
@@ -79,10 +78,14 @@ jobs:
           codex-args: '["--ask-for-approval","never","--ephemeral"]'
 
       - name: Finalize PullOps implement issue
-        if: always() && steps.prepare.outputs.run_codex == 'true'
+        if: always()
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npm run pullops:implement-issue:finalize-codex -- --issue ${{ inputs.issue }}
+          npx pullops run implement-issue \
+            --phase finalize \
+            --runner codex-action \
+            --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
+            --issue "${{ inputs.issue }}"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
           # token under the standard names expected by gh and GitHub-aware tools.
@@ -90,5 +93,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex.outcome }}

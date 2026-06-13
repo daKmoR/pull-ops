@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import {
+  createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
@@ -106,6 +107,10 @@ export async function runImplementIssueCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runImplementIssueCodexActionFinalize(context) {
+  if (context.runnerRan === false) {
+    return createSkippedCodexActionOutput(context);
+  }
+
   const preparation = await readPreparedImplementIssue(context);
   let rawOutput;
 

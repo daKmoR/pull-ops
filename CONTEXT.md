@@ -52,6 +52,10 @@ _Avoid_: Workflow script, action code
 The Target Repository configuration that tells PullOps how to invoke the AI coding agent for a PullOps Operation.
 _Avoid_: Provider config, model command
 
+**Runner Adapter**:
+The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
+_Avoid_: Phase, task script, provider
+
 **Model Tier**:
 A named runner capability tier, such as high, mid, or low, that operations select instead of naming concrete models directly.
 _Avoid_: Model override, model preset

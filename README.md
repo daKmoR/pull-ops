@@ -75,13 +75,23 @@ a classic personal access token only as a fallback. It needs `repo` and
 The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
 `workflow_dispatch` calls. `PULLOPS_GITHUB_TOKEN` is used by the operation
 workflows after dispatch for repository checkout, pushes, labels, and pull
-request updates.
+request updates. Codex runner steps do not receive this token; PullOps prepare
+and finalize steps receive it, the workflow's built-in token remains read-only
+on Codex jobs, and finalize sets the authenticated `origin` URL immediately
+before pushing.
 
 ## OpenAI Codex Setup
 
-PullOps uses `openai/codex-action@v1` for Codex-backed operation steps. Add a
-repository Actions secret named `OPENAI_API_KEY`; the workflows pass it only to
-the Codex Action step as `openai-api-key`.
+PullOps uses the configured `codex-cli` runner adapter for local CLI runs:
+
+```sh
+pullops run implement-issue --issue 42
+```
+
+GitHub Actions workflows select the `codex-action` runner adapter explicitly and
+use `openai/codex-action@v1` for Codex-backed operation steps. Add a repository
+Actions secret named `OPENAI_API_KEY`; the workflows pass it only to the Codex
+Action step as `openai-api-key`.
 
 ```sh
 gh secret set OPENAI_API_KEY --repo OWNER/REPO
@@ -95,6 +105,13 @@ The implement and review workflows run in three phases:
    `$RUNNER_TEMP/pullops-output/codex_output.json`.
 3. PullOps validates the JSON output, commits or publishes review feedback, and
    updates labels.
+
+The workflow-facing lifecycle commands are internal workflow plumbing:
+
+```sh
+pullops run implement-issue --phase prepare --runner codex-action --issue 42
+pullops run implement-issue --phase finalize --runner codex-action --runner-ran true --issue 42
+```
 
 See GitHub's docs for current UI details:
 

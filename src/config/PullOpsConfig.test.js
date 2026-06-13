@@ -13,7 +13,7 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
 
   assert.equal(config.baseBranch, 'main');
   assert.equal(config.branchPrefix, 'pullops');
-  assert.equal(config.runner.provider, 'codex');
+  assert.equal(config.runner.adapter, 'codex-cli');
   assert.equal(config.runner.command, 'codex exec');
   assert.deepEqual(config.runner.models, {
     high: 'gpt-5.5',
@@ -36,6 +36,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
         baseBranch: 'trunk',
         branchPrefix: 'automation/pullops',
         runner: {
+          adapter: 'codex-action',
           command: 'codex exec --sandbox workspace-write',
           models: {
             high: 'model-high',
@@ -54,7 +55,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
 
   assert.equal(config.baseBranch, 'trunk');
   assert.equal(config.branchPrefix, 'automation/pullops');
-  assert.equal(config.runner.provider, 'codex');
+  assert.equal(config.runner.adapter, 'codex-action');
   assert.equal(config.runner.command, 'codex exec --sandbox workspace-write');
   assert.deepEqual(config.runner.models, {
     high: 'model-high',
@@ -64,6 +65,25 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.reviewPr.modelTier, 'low');
   assert.equal(config.operations.implementIssue.modelTier, 'high');
   assert.equal(config.operations.preparePrd.modelTier, 'low');
+});
+
+test('loadPullOpsConfig rejects unknown runner adapters', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-adapter-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runner: {
+          adapter: 'codex-cloud',
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /runner\.adapter must be one of: codex-cli, codex-action/,
+  );
 });
 
 test('loadPullOpsConfig rejects partial model-tier overrides', async () => {

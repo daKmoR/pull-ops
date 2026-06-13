@@ -137,6 +137,7 @@ function createContext(overrides = {}) {
   return {
     operation: 'prepare-prd',
     phase: 'run',
+    runnerAdapter: 'codex-cli',
     target: {
       type: 'issue',
       number: 12,

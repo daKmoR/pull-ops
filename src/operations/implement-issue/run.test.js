@@ -162,6 +162,7 @@ describe('runImplementIssue', () => {
         codexRunner: codex.runner,
         outputDirectory,
         codexActionOutcome: 'success',
+        runnerRan: true,
       }),
     );
 
@@ -515,6 +516,67 @@ describe('runImplementIssue', () => {
       'automation/pullops/prd-10/issue-123',
     );
   });
+
+  it('13: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
+    const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssueCodexActionFinalize(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        runnerRan: false,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.match(String(result.summary), /prepare did not request a runner step/);
+    assert.deepEqual(result.runner, {
+      adapter: 'codex-action',
+      ran: false,
+    });
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.commits.length, 0);
+    assert.equal(git.pushes.length, 0);
+    assert.equal(github.comments.length, 0);
+    assert.equal(github.issueLabelsAdded.length, 0);
+  });
+
+  it('14: records a failed Codex Action runner before failing finalize', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-failure-'));
+    const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    await assert.rejects(
+      runImplementIssueCodexActionFinalize(
+        createContext({
+          githubClient: github.client,
+          gitClient: git.client,
+          codexRunner: codex.runner,
+          outputDirectory,
+          codexActionOutcome: 'failure',
+          runnerRan: true,
+        }),
+      ),
+      /Codex Action completed with outcome "failure"/,
+    );
+
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.commits.length, 0);
+    assert.equal(git.pushes.length, 0);
+    assert.match(github.comments[0].body, /Codex Action completed with outcome "failure"/);
+    assert.deepEqual(github.issueLabelsAdded.at(-1), {
+      number: 42,
+      labels: ['pullops:status:failed'],
+    });
+    assert.equal(
+      await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
+      'Codex Action completed with outcome "failure".\n',
+    );
+  });
 });
 
 /**
@@ -525,6 +587,7 @@ function createContext(overrides = {}) {
   return {
     operation: 'implement-issue',
     phase: 'run',
+    runnerAdapter: 'codex-cli',
     target: {
       type: 'issue',
       number: 42,

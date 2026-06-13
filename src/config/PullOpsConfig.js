@@ -3,6 +3,11 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { WORKFLOW_OPERATIONS, WORKFLOW_OPERATION_CONFIG_KEYS } from '../operations/operations.js';
+import {
+  DEFAULT_RUNNER_ADAPTER,
+  isRunnerAdapter,
+  RUNNER_ADAPTERS,
+} from '../runner/runnerAdapters.js';
 
 /**
  * @typedef {import('./types.js').ModelTier} ModelTier
@@ -19,7 +24,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
   baseBranch: 'main',
   branchPrefix: 'pullops',
   runner: {
-    provider: 'codex',
+    adapter: DEFAULT_RUNNER_ADAPTER,
     command: 'codex exec',
     models: {
       high: 'gpt-5.5',
@@ -221,8 +226,8 @@ function mergeConfig(userConfig) {
     if (!isPlainObject(runner)) {
       throw new PullOpsConfigError('PullOps Config runner must be an object.');
     }
-    if (runner.provider !== undefined) {
-      config.runner.provider = requireString(runner.provider, 'runner.provider');
+    if (runner.adapter !== undefined) {
+      config.runner.adapter = requireRunnerAdapter(runner.adapter, 'runner.adapter');
     }
     if (runner.command !== undefined) {
       config.runner.command = requireString(runner.command, 'runner.command');
@@ -256,6 +261,21 @@ function requireString(value, path) {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new PullOpsConfigError(`PullOps Config ${path} must be a non-empty string.`);
   }
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {import('../runner/types.js').RunnerAdapter}
+ */
+function requireRunnerAdapter(value, path) {
+  if (!isRunnerAdapter(value)) {
+    throw new PullOpsConfigError(
+      `PullOps Config ${path} must be one of: ${RUNNER_ADAPTERS.join(', ')}.`,
+    );
+  }
+
   return value;
 }
 

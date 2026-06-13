@@ -98,15 +98,11 @@ export async function runWorkflowOperation(context) {
   }
 
   if (context.operation === 'implement-issue') {
-    if (context.phase === 'prepare-codex') {
-      return await runImplementIssueCodexActionPrepare(context);
-    }
-
-    if (context.phase === 'finalize-codex') {
-      return await runImplementIssueCodexActionFinalize(context);
-    }
-
-    return await runImplementIssue(context);
+    return await runCodexBackedOperation(context, {
+      run: runImplementIssue,
+      prepare: runImplementIssueCodexActionPrepare,
+      finalize: runImplementIssueCodexActionFinalize,
+    });
   }
 
   if (context.operation === 'coordinate-prd') {
@@ -114,18 +110,43 @@ export async function runWorkflowOperation(context) {
   }
 
   if (context.operation === 'review-pr') {
-    if (context.phase === 'prepare-codex') {
-      return await runReviewPrCodexActionPrepare(context);
-    }
+    return await runCodexBackedOperation(context, {
+      run: runReviewPr,
+      prepare: runReviewPrCodexActionPrepare,
+      finalize: runReviewPrCodexActionFinalize,
+    });
+  }
 
-    if (context.phase === 'finalize-codex') {
-      return await runReviewPrCodexActionFinalize(context);
-    }
-
-    return await runReviewPr(context);
+  if (context.runnerAdapter === 'codex-action') {
+    throw new Error(`${context.operation} does not support the codex-action runner adapter.`);
   }
 
   return runPlaceholderOperation(context);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   run: (context: OperationRunnerContext) => Promise<Record<string, unknown>>;
+ *   prepare: (context: OperationRunnerContext) => Promise<Record<string, unknown>>;
+ *   finalize: (context: OperationRunnerContext) => Promise<Record<string, unknown>>;
+ * }} handlers
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runCodexBackedOperation(context, handlers) {
+  if (context.runnerAdapter === 'codex-cli') {
+    return await handlers.run(context);
+  }
+
+  if (context.phase === 'prepare') {
+    return await handlers.prepare(context);
+  }
+
+  if (context.phase === 'finalize') {
+    return await handlers.finalize(context);
+  }
+
+  throw new Error(`${context.operation} has unsupported runner lifecycle arguments.`);
 }
 
 /**

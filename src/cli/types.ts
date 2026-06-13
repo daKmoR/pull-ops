@@ -1,7 +1,7 @@
 import type { ModelTier, PullOpsConfig } from '../config/types.js';
 import type { GitClient } from '../git/types.js';
 import type { GitHubClient } from '../github/types.js';
-import type { CodexRunner } from '../runner/types.js';
+import type { CodexRunner, RunnerAdapter } from '../runner/types.js';
 
 export interface WritableLike {
   write(chunk: string): void;
@@ -15,6 +15,7 @@ export interface OperationTarget {
 export interface OperationRunnerContext {
   operation: string;
   phase: OperationPhase;
+  runnerAdapter: RunnerAdapter;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;
@@ -26,9 +27,10 @@ export interface OperationRunnerContext {
   triggerActor?: string;
   outputDirectory?: string;
   codexActionOutcome?: string;
+  runnerRan?: boolean;
 }
 
-export type OperationPhase = 'run' | 'prepare-codex' | 'finalize-codex';
+export type OperationPhase = 'run' | 'prepare' | 'finalize';
 
 export type OperationRunner = (
   context: OperationRunnerContext,

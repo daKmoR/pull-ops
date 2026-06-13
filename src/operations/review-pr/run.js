@@ -7,6 +7,7 @@ import {
   PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
 import {
+  createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
@@ -126,6 +127,10 @@ export async function runReviewPrCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runReviewPrCodexActionFinalize(context) {
+  if (context.runnerRan === false) {
+    return createSkippedCodexActionOutput(context);
+  }
+
   const preparation = await prepareReviewPr(context);
   if (!preparation.ready) {
     return preparation.output;
