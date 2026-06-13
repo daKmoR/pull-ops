@@ -419,6 +419,7 @@ function filterRepliesToUnresolvedThreads({ replies, reviewContext }) {
  * @returns {Promise<void>}
  */
 async function transitionPullRequestLabels(context, pullRequest, status) {
+  const state = readPullOpsPullRequestState(pullRequest.body);
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
     labels: [PULL_OPS_OPERATION_LABELS.reviewPr, ...PULL_OPS_STATUS_LABEL_NAMES],
@@ -427,9 +428,11 @@ async function transitionPullRequestLabels(context, pullRequest, status) {
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
     labels: [
-      status === 'approved'
-        ? PULL_OPS_OPERATION_LABELS.prepareMerge
-        : PULL_OPS_OPERATION_LABELS.addressReview,
+      status === 'approved' && state.lastOperation === PULL_OPS_OPERATION_LABELS.prepareMerge
+        ? PULL_OPS_STATUS_LABELS.done
+        : status === 'approved'
+          ? PULL_OPS_OPERATION_LABELS.prepareMerge
+          : PULL_OPS_OPERATION_LABELS.addressReview,
     ],
   });
 }

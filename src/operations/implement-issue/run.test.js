@@ -797,6 +797,12 @@ function createFakeGit({ failOn = () => false } = {}) {
         }
         pushes.push(options);
       },
+      async getChangedFilesSinceBase() {
+        throw new Error('getChangedFilesSinceBase was not expected in this test.');
+      },
+      async rewriteBranchWithCommitPlan() {
+        throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
+      },
     },
   };
 }

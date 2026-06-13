@@ -12,6 +12,11 @@ import {
 } from './implement-issue/run.js';
 import { runPreparePrd } from './prepare-prd/run.js';
 import {
+  runPrepareMerge,
+  runPrepareMergeCodexActionFinalize,
+  runPrepareMergeCodexActionPrepare,
+} from './prepare-merge/run.js';
+import {
   runReviewPr,
   runReviewPrCodexActionFinalize,
   runReviewPrCodexActionPrepare,
@@ -136,6 +141,14 @@ export async function runWorkflowOperation(context) {
       run: runFixCi,
       prepare: runFixCiCodexActionPrepare,
       finalize: runFixCiCodexActionFinalize,
+    });
+  }
+
+  if (context.operation === 'prepare-merge') {
+    return await runCodexBackedOperation(context, {
+      run: runPrepareMerge,
+      prepare: runPrepareMergeCodexActionPrepare,
+      finalize: runPrepareMergeCodexActionFinalize,
     });
   }
 

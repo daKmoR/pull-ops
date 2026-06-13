@@ -75,7 +75,8 @@ jobs:
       (
         github.event.label.name == 'pullops:pr:review' ||
         github.event.label.name == 'pullops:pr:address-review' ||
-        github.event.label.name == 'pullops:pr:fix-ci'
+        github.event.label.name == 'pullops:pr:fix-ci' ||
+        github.event.label.name == 'pullops:pr:prepare-merge'
       ) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -117,6 +118,9 @@ jobs:
               ;;
             pullops:pr:fix-ci)
               workflow="pullops-fix-ci.yml"
+              ;;
+            pullops:pr:prepare-merge)
+              workflow="pullops-prepare-merge.yml"
               ;;
           esac
 

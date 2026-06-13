@@ -48,6 +48,7 @@
     "pullops:review-pr": "node src/cli/cli.js run review-pr",
     "pullops:address-review": "node src/cli/cli.js run address-review",
     "pullops:fix-ci": "node src/cli/cli.js run fix-ci",
+    "pullops:prepare-merge": "node src/cli/cli.js run prepare-merge",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",
