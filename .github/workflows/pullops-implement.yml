@@ -36,8 +36,10 @@ jobs:
         run: npm ci
 
       - name: Run PullOps implement issue
-        run: npx pullops run implement-issue --issue ${{ github.event.issue.number }}
+        run: npm run pullops:implement-issue -- --issue ${{ github.event.issue.number }}
         env:
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
+          # token under the standard names expected by gh and GitHub-aware tools.
           GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}

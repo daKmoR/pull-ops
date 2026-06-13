@@ -42,6 +42,8 @@
   "scripts": {
     "lint": "eslint . --ignore-pattern .gitignore && prettier \"**/*.{ts,js,json,md}\" --check --ignore-path .gitignore --ignore-path .prettierignore",
     "format": "eslint . --ignore-pattern .gitignore --fix && prettier \"**/*.{ts,js,json,md}\" --write --ignore-path .gitignore --ignore-path .prettierignore",
+    "pullops:implement-issue": "npx pullops run implement-issue",
+    "pullops:review-pr": "npx pullops run review-pr",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",
