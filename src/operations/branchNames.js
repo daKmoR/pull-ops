@@ -21,6 +21,25 @@ export function createIssueBranchName({ branchPrefix, issueNumber, parentNumber 
 }
 
 /**
+ * @param {{ branchPrefix: string, branchName: string }} options
+ * @returns {{ parentNumber: number, issueNumber: number } | undefined}
+ */
+export function parseChildIssueBranchName({ branchPrefix, branchName }) {
+  const prefix = normalizeBranchPrefix(branchPrefix);
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}/prd-(\\d+)/issue-(\\d+)$`);
+  const match = pattern.exec(branchName);
+
+  if (match === null) {
+    return undefined;
+  }
+
+  return {
+    parentNumber: Number(match[1]),
+    issueNumber: Number(match[2]),
+  };
+}
+
+/**
  * @param {string} branchPrefix
  * @returns {string}
  */
@@ -32,4 +51,12 @@ function normalizeBranchPrefix(branchPrefix) {
     .join('/');
 
   return normalizedPrefix || 'pullops';
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

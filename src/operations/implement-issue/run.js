@@ -335,10 +335,6 @@ async function finalizePreparedImplementIssue(context, preparation, rawOutput) {
         PULL_OPS_STATUS_LABELS.failed,
       ],
     });
-    await context.githubClient.addLabelsToIssue({
-      number: issue.number,
-      labels: [PULL_OPS_STATUS_LABELS.done],
-    });
 
     return {
       status: 'accepted',

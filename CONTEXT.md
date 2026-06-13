@@ -84,9 +84,21 @@ _Avoid_: Epic, parent label target
 A PRD Issue whose umbrella branch and draft PullOps-Managed PR have been created or refreshed. Prepared does not mean the PRD's product work is complete.
 _Avoid_: Done PRD, completed PRD
 
+**Umbrella Branch**:
+The branch for a PRD Issue that receives merged Child Issue PRs before the PRD's Umbrella PR merges to the Target Repository's default branch.
+_Avoid_: Parent branch, PRD work branch
+
+**Umbrella PR**:
+The PullOps-Managed PR from a PRD Issue's Umbrella Branch to the Target Repository's default branch.
+_Avoid_: Parent PR, PRD implementation PR
+
 **Child Issue**:
 A Concrete Issue that belongs to a Parent Issue.
 _Avoid_: Subtask, sub-issue when not referring to GitHub's native feature
+
+**Child Issue PR**:
+A PullOps-Managed PR for one Child Issue whose branch targets the Parent Issue's Umbrella Branch.
+_Avoid_: Child issue commit, direct child commit
 
 **Concrete Issue**:
 An issue that is directly implementable by `pullops:issue:implement` and does not own Child Issues.
@@ -161,8 +173,8 @@ The structured prepare-merge output that proposes how the current PR diff should
 _Avoid_: Rebase script, squash plan
 
 **Child Issue Commit**:
-A logical commit in a parent/child workflow that corresponds to one completed Child Issue.
-_Avoid_: Sub-issue commit, PRD commit, task commit
+A logical commit in an Umbrella Branch history that corresponds to one merged Child Issue PR.
+_Avoid_: Direct child commit, PRD commit, task commit
 
 **Trigger Context**:
 The PR body record of who or what requested a PullOps Operation, which runner task executed it, and which model was used.

@@ -285,6 +285,8 @@ describe('createGitHubClient', () => {
     const checks = await client.getPullRequestChecks(100);
 
     assert.equal(pullRequest.number, 100);
+    assert.equal(pullRequest.state, 'MERGED');
+    assert.equal(pullRequest.mergedAt, '2026-06-14T10:00:00Z');
     assert.equal(pullRequest.isCrossRepository, false);
     assert.deepEqual(pullRequest.labels, ['pullops:pr:fix-ci']);
     assert.deepEqual(reviewContext.files, [
@@ -318,7 +320,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('09: publishes review decisions, replies, PR body updates, PR labels, and PR comments through gh', async () => {
+  it('09: publishes review decisions, replies, PR body updates, issue close, PR labels, and PR comments through gh', async () => {
     const { calls, execFile } = createFakePullRequestExecFile();
     const client = createGitHubClient({ execFile });
 
@@ -341,6 +343,10 @@ describe('createGitHubClient', () => {
     await client.updatePullRequestBody({
       number: 100,
       body: 'Updated body.',
+    });
+    await client.closeIssue({
+      number: 42,
+      comment: 'Child PR merged into the PRD branch.',
     });
     await client.removeLabelsFromPullRequest({
       number: 100,
@@ -387,6 +393,10 @@ describe('createGitHubClient', () => {
       {
         file: 'gh',
         args: ['pr', 'edit', '100', '--body', 'Updated body.'],
+      },
+      {
+        file: 'gh',
+        args: ['issue', 'close', '42', '--comment', 'Child PR merged into the PRD branch.'],
       },
       {
         file: 'gh',
@@ -498,6 +508,8 @@ function createFakePullRequestExecFile() {
             url: 'https://github.com/acme/widgets/pull/100',
             headRefName: 'pullops/issue-42',
             baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-06-14T10:00:00Z',
             body: 'Managed PR: yes',
             isDraft: true,
             isCrossRepository: false,

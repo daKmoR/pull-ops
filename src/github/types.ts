@@ -51,6 +51,8 @@ export interface GitHubPullRequest {
   url: string;
   headRefName: string;
   baseRefName?: string;
+  state?: string;
+  mergedAt?: string;
   body: string;
   isDraft: boolean;
   isCrossRepository?: boolean;
@@ -82,6 +84,11 @@ export interface EditLabelsOptions {
 export interface CommentOnIssueOptions {
   number: number;
   body: string;
+}
+
+export interface CloseIssueOptions {
+  number: number;
+  comment: string;
 }
 
 export interface CommentOnPullRequestOptions {
@@ -169,6 +176,7 @@ export interface GitHubClient {
   addLabelsToPullRequest(options: EditLabelsOptions): Promise<void>;
   removeLabelsFromPullRequest(options: EditLabelsOptions): Promise<void>;
   commentOnIssue(options: CommentOnIssueOptions): Promise<void>;
+  closeIssue(options: CloseIssueOptions): Promise<void>;
   commentOnPullRequest(options: CommentOnPullRequestOptions): Promise<void>;
   updatePullRequestBody(options: UpdatePullRequestBodyOptions): Promise<void>;
   publishPullRequestReview(options: PublishPullRequestReviewOptions): Promise<void>;

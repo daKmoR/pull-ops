@@ -24,6 +24,7 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
  * @typedef {import('./types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
+ * @typedef {import('./types.js').CloseIssueOptions} CloseIssueOptions
  * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
@@ -196,7 +197,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
         'view',
         String(number),
         '--json',
-        'number,title,url,headRefName,baseRefName,body,isDraft,isCrossRepository,labels',
+        'number,title,url,headRefName,baseRefName,state,mergedAt,body,isDraft,isCrossRepository,labels',
       ]);
       return parsePullRequestObject(getStdout(result));
     },
@@ -346,6 +347,14 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      */
     async commentOnIssue({ number, body }) {
       await execFile('gh', ['issue', 'comment', String(number), '--body', body]);
+    },
+
+    /**
+     * @param {CloseIssueOptions} options
+     * @returns {Promise<void>}
+     */
+    async closeIssue({ number, comment }) {
+      await execFile('gh', ['issue', 'close', String(number), '--comment', comment]);
     },
 
     /**
@@ -656,6 +665,8 @@ function parsePullRequest(pullRequest, path) {
     url: requireString(pullRequest.url, `${path}.url`),
     headRefName: requireString(pullRequest.headRefName, `${path}.headRefName`),
     baseRefName: typeof pullRequest.baseRefName === 'string' ? pullRequest.baseRefName : undefined,
+    state: typeof pullRequest.state === 'string' ? pullRequest.state : undefined,
+    mergedAt: typeof pullRequest.mergedAt === 'string' ? pullRequest.mergedAt : undefined,
     body: typeof pullRequest.body === 'string' ? pullRequest.body : '',
     isDraft: Boolean(pullRequest.isDraft),
     isCrossRepository:

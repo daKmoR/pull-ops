@@ -81,6 +81,7 @@ describe('runImplementIssue', () => {
     assert.match(github.createdPullRequests[0].body, /Managed PR: yes/);
     assert.match(github.createdPullRequests[0].body, /Status: Draft automation/);
     assert.match(github.createdPullRequests[0].body, /Review cycles: 0 \/ 3/);
+    assert.match(github.createdPullRequests[0].body, /Closes #42/);
     assert.match(github.createdPullRequests[0].body, /Triggered by: @octocat/);
     assert.match(github.createdPullRequests[0].body, /Model tier: high/);
     assert.match(github.createdPullRequests[0].body, /Model: gpt-5\.5/);
@@ -94,10 +95,6 @@ describe('runImplementIssue', () => {
       {
         number: 42,
         labels: ['pullops:status:in-progress'],
-      },
-      {
-        number: 42,
-        labels: ['pullops:status:done'],
       },
     ]);
   });
@@ -241,7 +238,8 @@ describe('runImplementIssue', () => {
     assert.equal(github.createdPullRequests.length, 1);
     assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/prd-1');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1/issue-42');
-    assert.match(github.createdPullRequests[0].body, /Closes #42/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Closes #42/);
+    assert.match(github.createdPullRequests[0].body, /Refs #42/);
     assert.match(github.createdPullRequests[0].body, /PRD: #1/);
   });
 
@@ -499,7 +497,41 @@ describe('runImplementIssue', () => {
     ]);
   });
 
-  it('12: uses the configured Branch Prefix for deterministic branch names', () => {
+  it('12: blocks an issue when a dependency has only PullOps done status', async () => {
+    const issue = createIssue({
+      number: 42,
+      body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
+    });
+    const dependency = createIssue({
+      number: 7,
+      title: 'Dependency',
+      labels: ['pullops:status:done'],
+    });
+    const github = createFakeGitHub({
+      issue,
+      issuesByNumber: new Map([
+        [42, issue],
+        [7, dependency],
+      ]),
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runImplementIssue(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(String(result.summary), /#7/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.branches.length, 0);
+  });
+
+  it('13: uses the configured Branch Prefix for deterministic branch names', () => {
     assert.equal(
       createImplementIssueBranchName({
         branchPrefix: 'automation/pullops/',
@@ -517,7 +549,7 @@ describe('runImplementIssue', () => {
     );
   });
 
-  it('13: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
+  it('14: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
     const codex = createFakeCodexRunner({ output: '{}' });
@@ -544,7 +576,7 @@ describe('runImplementIssue', () => {
     assert.equal(github.issueLabelsAdded.length, 0);
   });
 
-  it('14: records a failed Codex Action runner before failing finalize', async () => {
+  it('15: records a failed Codex Action runner before failing finalize', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
@@ -724,6 +756,9 @@ function createFakeGitHub({
       },
       async commentOnIssue(options) {
         comments.push(options);
+      },
+      async closeIssue() {
+        throw new Error('closeIssue was not expected in this test.');
       },
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');

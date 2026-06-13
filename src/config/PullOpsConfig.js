@@ -42,6 +42,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     updateBranch: { modelTier: 'low' },
     resolveConflicts: { modelTier: 'high' },
     prepareMerge: { modelTier: 'high' },
+    closeChildIssue: { modelTier: 'low' },
   },
 };
 

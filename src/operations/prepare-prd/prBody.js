@@ -32,7 +32,7 @@ export function createPreparePrdPullRequestBody({
     '',
     '## Traceability',
     '',
-    `Tracks #${issue.number}`,
+    `Closes #${issue.number}`,
     '',
     '## PullOps',
     '',

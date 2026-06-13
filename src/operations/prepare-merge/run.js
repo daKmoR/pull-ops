@@ -393,7 +393,6 @@ function validateCommitPlan({ output, changedFiles, sourceKind, sourceIssueNumbe
   }
 
   const pullRequestTraceability = validatePullRequestTraceability(output, {
-    sourceKind,
     sourceIssueNumber,
   });
   if (!pullRequestTraceability.valid) {
@@ -480,12 +479,11 @@ function validateChangedFileCoverage(commits, changedFiles) {
 
 /**
  * @param {PlannedPrepareMergeOutput} output
- * @param {{ sourceKind: 'issue' | 'parentIssue', sourceIssueNumber: number }} options
+ * @param {{ sourceIssueNumber: number }} options
  * @returns {{ valid: true } | { valid: false, reason: string }}
  */
-function validatePullRequestTraceability(output, { sourceKind, sourceIssueNumber }) {
-  const expected =
-    sourceKind === 'parentIssue' ? `Tracks #${sourceIssueNumber}` : `Closes #${sourceIssueNumber}`;
+function validatePullRequestTraceability(output, { sourceIssueNumber }) {
+  const expected = `Closes #${sourceIssueNumber}`;
 
   if (!output.pullRequest.traceability.includes(expected)) {
     return {

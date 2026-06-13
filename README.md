@@ -22,8 +22,17 @@ Status Labels report queryable state and use the `pullops:status:*` namespace:
 For the current manual parent/child workflow:
 
 1. Label the parent issue with `pullops:prd:prepare`.
-2. Label selected child issues with `pullops:issue:implement`.
-3. Child PRs target the parent umbrella branch.
+2. PullOps opens an umbrella PR from `pullops/prd-<prd-number>` to the default
+   branch. The PRD issue closes when that umbrella PR merges.
+3. Label selected child issues with `pullops:issue:implement`.
+4. PullOps opens each child PR from
+   `pullops/prd-<prd-number>/issue-<issue-number>` to the PRD branch.
+5. The child issue closes when its child PR merges into the PRD branch.
+
+`Blocked by: #<issue>` dependencies are satisfied only by closed issues, so one
+child issue can unblock another as soon as the blocking child PR has merged into
+the PRD branch. Standalone issue PRs still target the default branch and use
+GitHub closing keywords.
 
 ## GitHub Token Setup
 

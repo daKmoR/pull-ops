@@ -538,6 +538,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
       async commentOnIssue() {
         throw new Error('commentOnIssue was not expected in this test.');
       },
+      async closeIssue() {
+        throw new Error('closeIssue was not expected in this test.');
+      },
       async commentOnPullRequest(options) {
         comments.push(options);
       },
