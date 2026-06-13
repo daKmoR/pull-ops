@@ -1,0 +1,785 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_STATUS_LABEL_NAMES,
+  PULL_OPS_STATUS_LABELS,
+} from '../../labels/pullOpsLabels.js';
+import {
+  createSkippedCodexActionOutput,
+  getCodexActionFiles,
+  readCodexActionOutput,
+  writeCodexActionPrompt,
+} from '../codexAction.js';
+import { readPullOpsPullRequestState, updatePullRequestBodyForFixCi } from '../review-pr/prBody.js';
+import { classifyCheckFailures } from './classification.js';
+import { validateFixCiOutput } from './output.js';
+import { buildFixCiPrompt } from './prompt.js';
+
+/**
+ * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
+ * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
+ * @typedef {import('./classification.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ * @typedef {import('./output.js').CompletedFixCiOutput} CompletedFixCiOutput
+ * @typedef {{ ready: false, output: Record<string, unknown> } | {
+ *   ready: true;
+ *   pullRequest: GitHubPullRequest;
+ *   issue?: GitHubIssue;
+ *   reviewContext: GitHubPullRequestReviewContext;
+ *   diff: GitHubPullRequestDiff;
+ *   checkFailures: ClassifiedCheckFailure[];
+ *   managed: boolean;
+ *   ciFixCycle: number;
+ *   maxCiFixCycles: number;
+ * }} FixCiPreparation
+ */
+
+export const GITHUB_ACTIONS_BOT_AUTHOR = {
+  name: 'github-actions[bot]',
+  email: '41898282+github-actions[bot]@users.noreply.github.com',
+};
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runFixCi(context) {
+  const preparation = await prepareFixCi(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await context.codexRunner.run({
+      cwd: context.cwd,
+      command: context.config.runner.command,
+      model: context.model,
+      prompt: buildFixCiPrompt({
+        pullRequest: preparation.pullRequest,
+        issue: preparation.issue,
+        reviewContext: preparation.reviewContext,
+        diff: preparation.diff,
+        checkFailures: preparation.checkFailures,
+      }),
+    });
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: preparation.managed,
+      ciFixCycle: preparation.ciFixCycle,
+      maxCiFixCycles: preparation.maxCiFixCycles,
+    });
+    throw error;
+  }
+
+  return await finalizePreparedFixCi(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runFixCiCodexActionPrepare(context) {
+  const preparation = await prepareFixCi(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  try {
+    await writeCodexActionPrompt(
+      context,
+      buildFixCiPrompt({
+        pullRequest: preparation.pullRequest,
+        issue: preparation.issue,
+        reviewContext: preparation.reviewContext,
+        diff: preparation.diff,
+        checkFailures: preparation.checkFailures,
+      }),
+    );
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: preparation.managed,
+      ciFixCycle: preparation.ciFixCycle,
+      maxCiFixCycles: preparation.maxCiFixCycles,
+    });
+    throw error;
+  }
+
+  const files = getCodexActionFiles(context);
+  return {
+    status: 'accepted',
+    summary: `Prepared Codex Action fix-ci run for PR #${preparation.pullRequest.number}.`,
+    pullRequest: {
+      number: preparation.pullRequest.number,
+      url: preparation.pullRequest.url,
+    },
+    checks: {
+      failed: preparation.checkFailures.length,
+      classifications: summarizeClassifications(preparation.checkFailures),
+    },
+    codexAction: {
+      promptFile: files.promptFile,
+      outputFile: files.outputFile,
+      model: context.model,
+      branch: preparation.pullRequest.headRefName,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runFixCiCodexActionFinalize(context) {
+  if (context.runnerRan === false) {
+    return createSkippedCodexActionOutput(context);
+  }
+
+  const preparation = await prepareFixCi(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await readCodexActionOutput(context);
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+      updateBody: preparation.managed,
+      ciFixCycle: preparation.ciFixCycle,
+      maxCiFixCycles: preparation.maxCiFixCycles,
+    });
+    throw error;
+  }
+
+  return await finalizePreparedFixCi(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<FixCiPreparation>}
+ */
+async function prepareFixCi(context) {
+  assertPullRequestTarget(context);
+
+  const pullRequest = await context.githubClient.getPullRequest(context.target.number);
+  const state = readPullOpsPullRequestState(pullRequest.body);
+  const manual = pullRequest.labels?.includes(PULL_OPS_OPERATION_LABELS.fixCi) === true;
+
+  if (pullRequest.isCrossRepository === true) {
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PullOps v1 only fixes CI on same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
+        updateBody: state.managed,
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      }),
+    };
+  }
+
+  if (!manual && !state.managed) {
+    return {
+      ready: false,
+      output: skipAutomaticFixCi(
+        pullRequest,
+        `PR #${pullRequest.number} is not a PullOps-managed draft PR and does not have an explicit ${PULL_OPS_OPERATION_LABELS.fixCi} label.`,
+      ),
+    };
+  }
+
+  if (!manual && state.managed && !pullRequest.isDraft) {
+    return {
+      ready: false,
+      output: skipAutomaticFixCi(
+        pullRequest,
+        `Automatic fix-ci only runs for PullOps-managed draft PRs. PR #${pullRequest.number} is not a draft.`,
+      ),
+    };
+  }
+
+  if (
+    state.managed &&
+    !hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)
+  ) {
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
+        updateBody: true,
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      }),
+    };
+  }
+
+  if (state.managed && state.sourceIssueNumber === undefined) {
+    return {
+      ready: false,
+      output: await refusePullRequest(context, pullRequest, {
+        reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
+        updateBody: true,
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      }),
+    };
+  }
+
+  if (state.managed && state.ciFixCycles.current >= state.ciFixCycles.max) {
+    return {
+      ready: false,
+      output: await blockCiFixCycleBudget(context, pullRequest, {
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      }),
+    };
+  }
+
+  const checks = await context.githubClient.getPullRequestChecks(pullRequest.number);
+  const checkFailures = classifyCheckFailures(checks);
+
+  if (checkFailures.length === 0) {
+    return {
+      ready: false,
+      output: await completeNoFailedChecks(context, pullRequest, {
+        managed: state.managed,
+      }),
+    };
+  }
+
+  const nonActionableFailures = checkFailures.filter(failure => !failure.actionable);
+  if (nonActionableFailures.length > 0) {
+    return {
+      ready: false,
+      output: await blockNonActionableFailures(context, pullRequest, nonActionableFailures, {
+        updateBody: state.managed,
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      }),
+    };
+  }
+
+  const issue =
+    state.sourceIssueNumber === undefined
+      ? undefined
+      : await context.githubClient.getIssue(state.sourceIssueNumber);
+  const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
+  const diff = await context.githubClient.getPullRequestDiff(pullRequest.number);
+
+  return {
+    ready: true,
+    pullRequest,
+    ...(issue === undefined ? {} : { issue }),
+    reviewContext,
+    diff,
+    checkFailures,
+    managed: state.managed,
+    ciFixCycle: state.ciFixCycles.current + 1,
+    maxCiFixCycles: state.ciFixCycles.max,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {FixCiPreparation & { ready: true }} preparation
+ * @param {unknown} rawOutput
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function finalizePreparedFixCi(context, preparation, rawOutput) {
+  const { pullRequest, checkFailures, managed, ciFixCycle, maxCiFixCycles } = preparation;
+  let failureRecorded = false;
+
+  try {
+    const validatedOutput = validateFixCiOutput(rawOutput);
+
+    if (!validatedOutput.valid) {
+      const reason = `Invalid Fix CI Output: ${validatedOutput.reason}`;
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, reason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      throw new Error(reason);
+    }
+
+    if (validatedOutput.value.status === 'blocked') {
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, validatedOutput.value.failureReason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      return {
+        status: 'blocked',
+        summary: validatedOutput.value.summary,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+        },
+      };
+    }
+
+    const coverage = validateClassificationCoverage(validatedOutput.value, checkFailures);
+    if (!coverage.valid) {
+      const reason = `Invalid Fix CI Output: ${coverage.reason}`;
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, reason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      throw new Error(reason);
+    }
+
+    const unsafeReason = summarizeUnsafeSafetyChecks(pullRequest, validatedOutput.value);
+    if (unsafeReason !== undefined) {
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, unsafeReason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      return {
+        status: 'blocked',
+        summary: unsafeReason,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+        },
+      };
+    }
+
+    if (!(await context.gitClient.hasChanges())) {
+      const reason =
+        'Fix-ci runner completed but did not leave any working tree changes to commit.';
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, reason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      throw new Error(reason);
+    }
+
+    await context.gitClient.commitAll({
+      message: createFixCiCommitMessage(pullRequest, validatedOutput.value),
+      author: GITHUB_ACTIONS_BOT_AUTHOR,
+    });
+    await context.gitClient.pushBranch({
+      branchName: pullRequest.headRefName,
+    });
+
+    if (managed) {
+      await context.githubClient.updatePullRequestBody({
+        number: pullRequest.number,
+        body: updatePullRequestBodyForFixCi({
+          body: pullRequest.body,
+          ciFixStatus: 'fixed',
+          ciFixCycle,
+          maxCiFixCycles,
+        }),
+      });
+    }
+
+    await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
+
+    return {
+      status: 'accepted',
+      summary: `Fixed actionable CI failures on PR #${pullRequest.number}.`,
+      pullRequest: {
+        number: pullRequest.number,
+        url: pullRequest.url,
+      },
+      fixCi: {
+        checks: {
+          failed: checkFailures.length,
+          classifications: summarizeClassifications(checkFailures),
+        },
+        changesCommitted: true,
+      },
+    };
+  } catch (error) {
+    if (!failureRecorded) {
+      await recordPullRequestFailure(context, pullRequest, getErrorMessage(error), {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @param {CompletedFixCiOutput} output
+ * @returns {string}
+ */
+export function createFixCiCommitMessage(pullRequest, output) {
+  return [
+    `fix(ci): repair failures for PR #${pullRequest.number}`,
+    '',
+    output.changes.length === 0
+      ? output.summary
+      : output.changes.map(change => `- ${change}`).join('\n'),
+    '',
+    `Refs: #${pullRequest.number}`,
+  ].join('\n');
+}
+
+/**
+ * @param {CompletedFixCiOutput} output
+ * @param {ClassifiedCheckFailure[]} checkFailures
+ * @returns {{ valid: true } | { valid: false, reason: string }}
+ */
+function validateClassificationCoverage(output, checkFailures) {
+  const expected = new Map(checkFailures.map(failure => [failure.id, failure.classification]));
+  const seen = new Set();
+
+  for (const classification of output.classifications) {
+    const expectedClassification = expected.get(classification.checkId);
+    if (expectedClassification === undefined) {
+      return {
+        valid: false,
+        reason: `Operation Output.classifications references unknown checkId "${classification.checkId}".`,
+      };
+    }
+
+    if (seen.has(classification.checkId)) {
+      return {
+        valid: false,
+        reason: `Check failure "${classification.checkId}" must be classified exactly once.`,
+      };
+    }
+
+    if (classification.classification !== expectedClassification) {
+      return {
+        valid: false,
+        reason: `Check failure "${classification.checkId}" was preclassified as ${expectedClassification}, but output reported ${classification.classification}.`,
+      };
+    }
+
+    seen.add(classification.checkId);
+  }
+
+  for (const checkId of expected.keys()) {
+    if (!seen.has(checkId)) {
+      return {
+        valid: false,
+        reason: `Check failure "${checkId}" must be included in Operation Output.classifications.`,
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @param {CompletedFixCiOutput} output
+ * @returns {string | undefined}
+ */
+function summarizeUnsafeSafetyChecks(pullRequest, output) {
+  const unsafeActions = [];
+  if (output.safetyChecks.weakenedTests) {
+    unsafeActions.push('weakened tests');
+  }
+  if (output.safetyChecks.deletedAssertions) {
+    unsafeActions.push('deleted assertions');
+  }
+  if (output.safetyChecks.bypassedChecks) {
+    unsafeActions.push('bypassed checks');
+  }
+  if (output.safetyChecks.secretOrInfrastructureWorkaround) {
+    unsafeActions.push('worked around secrets or infrastructure');
+  }
+
+  if (unsafeActions.length === 0) {
+    return undefined;
+  }
+
+  return [
+    `Fix-ci runner reported unsafe repair actions for PR #${pullRequest.number}:`,
+    `${unsafeActions.join(', ')}.`,
+    'PullOps will not commit unsafe CI repairs.',
+  ].join(' ');
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ managed: boolean }} options
+ * @returns {Promise<void>}
+ */
+async function transitionPullRequestLabelsAfterFix(context, pullRequest, { managed }) {
+  await context.githubClient.removeLabelsFromPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_OPERATION_LABELS.fixCi, ...PULL_OPS_STATUS_LABEL_NAMES],
+  });
+
+  if (managed) {
+    await context.githubClient.addLabelsToPullRequest({
+      number: pullRequest.number,
+      labels: [PULL_OPS_OPERATION_LABELS.reviewPr],
+    });
+  }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ managed: boolean }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function completeNoFailedChecks(context, pullRequest, { managed }) {
+  await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
+
+  return {
+    status: 'accepted',
+    summary: `No failed checks were found for PR #${pullRequest.number}.`,
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+    fixCi: {
+      checks: {
+        failed: 0,
+        classifications: {},
+      },
+      changesCommitted: false,
+    },
+  };
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @param {string} reason
+ * @returns {Record<string, unknown>}
+ */
+function skipAutomaticFixCi(pullRequest, reason) {
+  return {
+    status: 'accepted',
+    summary: reason,
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+    fixCi: {
+      skipped: true,
+      reason,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ ciFixCycle: number, maxCiFixCycles: number }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFixCycles }) {
+  const reason = [
+    `CI fix cycle budget exhausted for PR #${pullRequest.number}:`,
+    `${ciFixCycle} / ${maxCiFixCycles} CI Fix Cycles have already run.`,
+  ].join(' ');
+
+  await recordPullRequestFailure(context, pullRequest, reason, {
+    updateBody: true,
+    ciFixCycle,
+    maxCiFixCycles,
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {ClassifiedCheckFailure[]} nonActionableFailures
+ * @param {{ updateBody: boolean, ciFixCycle: number, maxCiFixCycles: number }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockNonActionableFailures(
+  context,
+  pullRequest,
+  nonActionableFailures,
+  { updateBody, ciFixCycle, maxCiFixCycles },
+) {
+  const reason = [
+    `CI failures are not safely actionable for PullOps on PR #${pullRequest.number}:`,
+    nonActionableFailures.map(formatNonActionableFailure).join('; '),
+  ].join(' ');
+
+  await recordPullRequestFailure(context, pullRequest, reason, {
+    updateBody,
+    ciFixCycle,
+    maxCiFixCycles,
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {ClassifiedCheckFailure} failure
+ * @returns {string}
+ */
+function formatNonActionableFailure(failure) {
+  return `${failure.id} "${failure.checkName}" is classified as ${failure.classification}: ${failure.reason}`;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ reason: string, updateBody: boolean, ciFixCycle: number, maxCiFixCycles: number }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function refusePullRequest(
+  context,
+  pullRequest,
+  { reason, updateBody, ciFixCycle, maxCiFixCycles },
+) {
+  await recordPullRequestFailure(context, pullRequest, reason, {
+    updateBody,
+    ciFixCycle,
+    maxCiFixCycles,
+  });
+
+  return {
+    status: 'refused',
+    summary: reason,
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {string} reason
+ * @param {{ updateBody: boolean, ciFixCycle: number, maxCiFixCycles: number }} options
+ * @returns {Promise<void>}
+ */
+async function recordPullRequestFailure(
+  context,
+  pullRequest,
+  reason,
+  { updateBody, ciFixCycle, maxCiFixCycles },
+) {
+  await writeFailureReason(context, reason);
+
+  if (updateBody) {
+    await context.githubClient.updatePullRequestBody({
+      number: pullRequest.number,
+      body: updatePullRequestBodyForFixCi({
+        body: pullRequest.body,
+        ciFixStatus: 'blocked',
+        ciFixCycle,
+        maxCiFixCycles,
+      }),
+    });
+  }
+
+  await context.githubClient.addLabelsToPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_STATUS_LABELS.blocked],
+  });
+  await context.githubClient.removeLabelsFromPullRequest({
+    number: pullRequest.number,
+    labels: [
+      PULL_OPS_OPERATION_LABELS.fixCi,
+      PULL_OPS_OPERATION_LABELS.reviewPr,
+      PULL_OPS_STATUS_LABELS.inProgress,
+      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.prepared,
+      PULL_OPS_STATUS_LABELS.done,
+    ],
+  });
+  await context.githubClient.commentOnPullRequest({
+    number: pullRequest.number,
+    body: ['PullOps could not complete `pullops run fix-ci`.', '', `Reason: ${reason}`].join('\n'),
+  });
+}
+
+/**
+ * @param {ClassifiedCheckFailure[]} checkFailures
+ * @returns {Record<string, number>}
+ */
+function summarizeClassifications(checkFailures) {
+  /** @type {Record<string, number>} */
+  const classifications = {};
+  for (const failure of checkFailures) {
+    classifications[failure.classification] = (classifications[failure.classification] ?? 0) + 1;
+  }
+  return classifications;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} reason
+ * @returns {Promise<void>}
+ */
+async function writeFailureReason(context, reason) {
+  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
+    return;
+  }
+
+  await mkdir(context.outputDirectory, { recursive: true });
+  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
+}
+
+/**
+ * @param {string} branchName
+ * @param {string} branchPrefix
+ * @returns {boolean}
+ */
+function hasPullOpsBranchPrefix(branchName, branchPrefix) {
+  const normalizedPrefix =
+    branchPrefix
+      .split('/')
+      .map(part => part.trim())
+      .filter(Boolean)
+      .join('/') || 'pullops';
+  return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {asserts context is OperationRunnerContext & { target: { type: 'pr', number: number } }}
+ */
+function assertPullRequestTarget(context) {
+  if (context.target.type !== 'pr') {
+    throw new Error('fix-ci requires a pull request target.');
+  }
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}

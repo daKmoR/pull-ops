@@ -10,10 +10,15 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
  *     current: number;
  *     max: number;
  *   };
+ *   ciFixCycles: {
+ *     current: number;
+ *     max: number;
+ *   };
  * }} PullOpsPullRequestState
  */
 
 export const DEFAULT_MAX_REVIEW_CYCLES = 3;
+export const DEFAULT_MAX_CI_FIX_CYCLES = 2;
 
 /**
  * @param {string} body
@@ -24,6 +29,7 @@ export function readPullOpsPullRequestState(body) {
     managed: /^Managed PR:\s*yes\s*$/im.test(body),
     sourceIssueNumber: readSourceIssueNumber(body),
     reviewCycles: readReviewCycles(body),
+    ciFixCycles: readCiFixCycles(body),
   };
 }
 
@@ -70,6 +76,22 @@ export function updatePullRequestBodyForAddressReview({
 }
 
 /**
+ * @param {object} options
+ * @param {string} options.body
+ * @param {'fixed' | 'blocked'} options.ciFixStatus
+ * @param {number} options.ciFixCycle
+ * @param {number} options.maxCiFixCycles
+ * @returns {string}
+ */
+export function updatePullRequestBodyForFixCi({ body, ciFixStatus, ciFixCycle, maxCiFixCycles }) {
+  let updated = body.trimEnd();
+  updated = upsertLine(updated, 'Status:', formatFixCiStatus(ciFixStatus));
+  updated = upsertLine(updated, 'CI fix cycles:', `${ciFixCycle} / ${maxCiFixCycles}`);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.fixCi);
+  return `${updated}\n`;
+}
+
+/**
  * @param {ReviewResultStatus} status
  * @returns {string}
  */
@@ -92,6 +114,18 @@ function formatReviewStatus(status) {
 function formatAddressReviewStatus(status) {
   if (status === 'addressed') {
     return 'Review feedback addressed';
+  }
+
+  return 'Blocked';
+}
+
+/**
+ * @param {'fixed' | 'blocked'} status
+ * @returns {string}
+ */
+function formatFixCiStatus(status) {
+  if (status === 'fixed') {
+    return 'CI fixed';
   }
 
   return 'Blocked';
@@ -125,6 +159,25 @@ function readReviewCycles(body) {
     return {
       current: 0,
       max: DEFAULT_MAX_REVIEW_CYCLES,
+    };
+  }
+
+  return {
+    current: Number(match[1]),
+    max: Number(match[2]),
+  };
+}
+
+/**
+ * @param {string} body
+ * @returns {{ current: number, max: number }}
+ */
+function readCiFixCycles(body) {
+  const match = body.match(/^CI fix cycles:\s*(\d+)\s*\/\s*(\d+)\s*$/im);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return {
+      current: 0,
+      max: DEFAULT_MAX_CI_FIX_CYCLES,
     };
   }
 

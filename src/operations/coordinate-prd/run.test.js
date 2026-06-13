@@ -132,6 +132,9 @@ function createFakeGitHub({ issue }) {
       async getPullRequest() {
         throw new Error('getPullRequest was not expected in this test.');
       },
+      async getPullRequestChecks() {
+        throw new Error('getPullRequestChecks was not expected in this test.');
+      },
       async getPullRequestReviewContext() {
         throw new Error('getPullRequestReviewContext was not expected in this test.');
       },

@@ -667,6 +667,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
       async getPullRequest() {
         return pullRequest;
       },
+      async getPullRequestChecks() {
+        throw new Error('getPullRequestChecks was not expected in this test.');
+      },
       async getPullRequestReviewContext() {
         return reviewContext;
       },

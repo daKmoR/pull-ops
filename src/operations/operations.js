@@ -4,6 +4,7 @@ import {
   runAddressReviewCodexActionPrepare,
 } from './address-review/run.js';
 import { runCoordinatePrd } from './coordinate-prd/run.js';
+import { runFixCi, runFixCiCodexActionFinalize, runFixCiCodexActionPrepare } from './fix-ci/run.js';
 import {
   runImplementIssue,
   runImplementIssueCodexActionFinalize,
@@ -127,6 +128,14 @@ export async function runWorkflowOperation(context) {
       run: runAddressReview,
       prepare: runAddressReviewCodexActionPrepare,
       finalize: runAddressReviewCodexActionFinalize,
+    });
+  }
+
+  if (context.operation === 'fix-ci') {
+    return await runCodexBackedOperation(context, {
+      run: runFixCi,
+      prepare: runFixCiCodexActionPrepare,
+      finalize: runFixCiCodexActionFinalize,
     });
   }
 

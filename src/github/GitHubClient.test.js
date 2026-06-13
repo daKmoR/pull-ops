@@ -282,9 +282,11 @@ describe('createGitHubClient', () => {
     const pullRequest = await client.getPullRequest(100);
     const reviewContext = await client.getPullRequestReviewContext(100);
     const diff = await client.getPullRequestDiff(100);
+    const checks = await client.getPullRequestChecks(100);
 
     assert.equal(pullRequest.number, 100);
     assert.equal(pullRequest.isCrossRepository, false);
+    assert.deepEqual(pullRequest.labels, ['pullops:pr:fix-ci']);
     assert.deepEqual(reviewContext.files, [
       {
         path: 'src/example.js',
@@ -294,6 +296,16 @@ describe('createGitHubClient', () => {
     ]);
     assert.deepEqual(reviewContext.unresolvedThreads[0].comments[0].databaseId, 9001);
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
+    assert.deepEqual(checks, [
+      {
+        name: 'ESLint lint',
+        workflowName: 'CI',
+        state: 'FAILURE',
+        bucket: 'fail',
+        detailsUrl: 'https://github.com/acme/widgets/actions/runs/1',
+        summary: 'ESLint reported an unused variable.',
+      },
+    ]);
     assert.deepEqual(
       calls.map(call => call.args.slice(0, 3)),
       [
@@ -301,6 +313,7 @@ describe('createGitHubClient', () => {
         ['repo', 'view', '--json'],
         ['api', 'graphql', '-f'],
         ['pr', 'diff', '100'],
+        ['pr', 'checks', '100'],
       ],
     );
   });
@@ -488,6 +501,11 @@ function createFakePullRequestExecFile() {
             body: 'Managed PR: yes',
             isDraft: true,
             isCrossRepository: false,
+            labels: [
+              {
+                name: 'pullops:pr:fix-ci',
+              },
+            ],
           }),
         };
       }
@@ -564,6 +582,21 @@ function createFakePullRequestExecFile() {
       if (args[0] === 'pr' && args[1] === 'diff') {
         return {
           stdout: 'diff --git a/src/example.js b/src/example.js\n',
+        };
+      }
+
+      if (args[0] === 'pr' && args[1] === 'checks') {
+        return {
+          stdout: JSON.stringify([
+            {
+              name: 'ESLint lint',
+              workflow: 'CI',
+              state: 'FAILURE',
+              bucket: 'fail',
+              link: 'https://github.com/acme/widgets/actions/runs/1',
+              description: 'ESLint reported an unused variable.',
+            },
+          ]),
         };
       }
 
