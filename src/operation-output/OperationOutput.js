@@ -81,6 +81,13 @@ function validateSpec(value, path, spec) {
   }
 
   if (typeof spec === 'string') {
+    if (spec === 'array') {
+      if (!Array.isArray(value)) {
+        return invalid(`${path} must be an array.`);
+      }
+      return { valid: true };
+    }
+
     if (typeof value !== spec) {
       return invalid(`${path} must be a ${spec}.`);
     }

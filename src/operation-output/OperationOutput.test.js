@@ -20,6 +20,22 @@ test('validateOperationOutput accepts structured JSON matching the contract', ()
   });
 });
 
+test('validateOperationOutput validates array fields', () => {
+  assert.deepEqual(
+    validateOperationOutput('{"changes":["one"]}', {
+      required: {
+        changes: 'array',
+      },
+    }),
+    {
+      valid: true,
+      value: {
+        changes: ['one'],
+      },
+    },
+  );
+});
+
 test('validateOperationOutput reports clear failure reasons', () => {
   const invalidJson = validateOperationOutput('{not json');
   assert.equal(invalidJson.valid, false);

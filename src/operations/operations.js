@@ -1,5 +1,8 @@
+import { runImplementIssue } from './implement-issue/run.js';
+
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
+ * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  */
 
 /** @type {WorkflowOperation[]} */
@@ -66,4 +69,31 @@ export const WORKFLOW_OPERATION_CONFIG_KEYS = WORKFLOW_OPERATIONS.map(
  */
 export function getWorkflowOperation(name) {
   return WORKFLOW_OPERATIONS.find(operation => operation.name === name);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runWorkflowOperation(context) {
+  if (context.operation === 'implement-issue') {
+    return await runImplementIssue(context);
+  }
+
+  return runPlaceholderOperation(context);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Record<string, unknown>}
+ */
+function runPlaceholderOperation({ operation, target, modelTier, model }) {
+  return {
+    status: 'accepted',
+    operation,
+    summary: `Accepted ${operation} for ${target.type} #${target.number}; runner implementation is not wired yet.`,
+    target,
+    modelTier,
+    model,
+  };
 }

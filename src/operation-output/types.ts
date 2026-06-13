@@ -1,4 +1,4 @@
-export type FieldType = 'string' | 'number' | 'boolean' | 'object';
+export type FieldType = 'string' | 'number' | 'boolean' | 'object' | 'array';
 
 export type FieldSpec = FieldType | readonly unknown[] | { type: FieldType };
 

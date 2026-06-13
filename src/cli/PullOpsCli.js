@@ -1,13 +1,21 @@
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
+import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
-import { getWorkflowOperation, WORKFLOW_OPERATION_NAMES } from '../operations/operations.js';
+import {
+  getWorkflowOperation,
+  runWorkflowOperation,
+  WORKFLOW_OPERATION_NAMES,
+} from '../operations/operations.js';
+import { createCodexRunner } from '../runner/CodexRunner.js';
 
 /**
  * @typedef {import('./types.js').WritableLike} WritableLike
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('./types.js').OperationRunner} OperationRunner
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
+ * @typedef {import('../git/types.js').GitClient} GitClient
+ * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
  * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
  */
 
@@ -26,20 +34,29 @@ export class PullOpsCli {
    * @param {WritableLike} [options.stdout]
    * @param {WritableLike} [options.stderr]
    * @param {GitHubClient} [options.githubClient]
+   * @param {GitClient} [options.gitClient]
+   * @param {CodexRunner} [options.codexRunner]
    * @param {OperationRunner} [options.operationRunner]
+   * @param {NodeJS.ProcessEnv} [options.env]
    */
   constructor({
     cwd = process.cwd(),
     stdout = process.stdout,
     stderr = process.stderr,
     githubClient = createGitHubClient(),
-    operationRunner = runPlaceholderOperation,
+    gitClient = createGitClient(),
+    codexRunner = createCodexRunner(),
+    operationRunner = runWorkflowOperation,
+    env = process.env,
   } = {}) {
     this.cwd = cwd;
     this.stdout = stdout;
     this.stderr = stderr;
     this.githubClient = githubClient;
+    this.gitClient = gitClient;
+    this.codexRunner = codexRunner;
     this.operationRunner = operationRunner;
+    this.env = env;
   }
 
   /**
@@ -124,10 +141,15 @@ export class PullOpsCli {
         type: operation.target,
         number: targetNumber,
       },
+      cwd: this.cwd,
       config,
       modelTier: operationConfig.modelTier,
       model,
       githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      outputDirectory: this.env.OUTPUT_DIR,
     });
 
     this.writeValidatedJson(output);
@@ -177,21 +199,6 @@ export class PullOpsCli {
   writeError(message) {
     this.stderr.write(`${message}\n`);
   }
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-async function runPlaceholderOperation({ operation, target, modelTier, model }) {
-  return {
-    status: 'accepted',
-    operation,
-    summary: `Accepted ${operation} for ${target.type} #${target.number}; runner implementation is not wired yet.`,
-    target,
-    modelTier,
-    model,
-  };
 }
 
 /**

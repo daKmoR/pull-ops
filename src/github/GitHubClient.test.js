@@ -143,6 +143,94 @@ describe('createGitHubClient', () => {
       /Failed to update GitHub label "pullops:wrong-color": GitHub refused the label change./,
     );
   });
+
+  it('05: infers malformed PRD relationships from issue body Parent sections', async () => {
+    const { execFile } = createFakeIssueExecFile({
+      issue: {
+        number: 1,
+        title: 'PRD',
+        body: '## What to build\n\nShip the workflow kit.',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/issues/1',
+        author: {
+          login: 'maintainer',
+        },
+        labels: {
+          nodes: [],
+        },
+        parent: null,
+        subIssues: {
+          totalCount: 0,
+          nodes: [],
+        },
+      },
+      issues: [
+        {
+          number: 4,
+          title: 'Implement a leaf issue',
+          body: '## Parent\n\n#1\n\n## What to build\n\nDo the work.',
+          state: 'OPEN',
+          url: 'https://github.com/acme/widgets/issues/4',
+        },
+      ],
+    });
+    const client = createGitHubClient({ execFile });
+
+    const issue = await client.getIssue(1);
+
+    assert.deepEqual(issue.subIssues, [
+      {
+        number: 4,
+        title: 'Implement a leaf issue',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/issues/4',
+        relationshipSource: 'body',
+      },
+    ]);
+  });
+
+  it('06: infers a malformed sub-issue parent from its own Parent section', async () => {
+    const { execFile } = createFakeIssueExecFile({
+      issue: {
+        number: 4,
+        title: 'Implement a leaf issue',
+        body: '## Parent\n\n#1\n\n## What to build\n\nDo the work.',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/issues/4',
+        author: {
+          login: 'maintainer',
+        },
+        labels: {
+          nodes: [],
+        },
+        parent: null,
+        subIssues: {
+          totalCount: 0,
+          nodes: [],
+        },
+      },
+      issues: [
+        {
+          number: 1,
+          title: 'PRD',
+          body: '## What to build\n\nShip the workflow kit.',
+          state: 'OPEN',
+          url: 'https://github.com/acme/widgets/issues/1',
+        },
+      ],
+    });
+    const client = createGitHubClient({ execFile });
+
+    const issue = await client.getIssue(4);
+
+    assert.deepEqual(issue.parent, {
+      number: 1,
+      title: 'PRD',
+      state: 'OPEN',
+      url: 'https://github.com/acme/widgets/issues/1',
+      relationshipSource: 'body',
+    });
+  });
 });
 
 /**
@@ -172,6 +260,52 @@ function createFakeExecFile({ labels, failOn = () => false }) {
       }
 
       return { stdout: '' };
+    },
+  };
+}
+
+/**
+ * @param {object} options
+ * @param {Record<string, unknown>} options.issue
+ * @param {Record<string, unknown>[]} options.issues
+ * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ */
+function createFakeIssueExecFile({ issue, issues }) {
+  /** @type {ExecFileCall[]} */
+  const calls = [];
+
+  return {
+    calls,
+    async execFile(file, args) {
+      calls.push({ file, args });
+
+      if (args[0] === 'repo' && args[1] === 'view') {
+        return {
+          stdout: JSON.stringify({
+            nameWithOwner: 'acme/widgets',
+          }),
+        };
+      }
+
+      if (args[0] === 'api' && args[1] === 'graphql') {
+        return {
+          stdout: JSON.stringify({
+            data: {
+              repository: {
+                issue,
+              },
+            },
+          }),
+        };
+      }
+
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return {
+          stdout: JSON.stringify(issues),
+        };
+      }
+
+      throw new Error(`Unexpected command: ${file} ${args.join(' ')}`);
     },
   };
 }

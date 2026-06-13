@@ -87,7 +87,7 @@ test('labels ensure reports label reconciliation results from the GitHub client 
   const ensuredLabels = [];
   const cli = new PullOpsCli({
     stdout,
-    githubClient: {
+    githubClient: createFakeGitHubClient({
       async ensureLabels(labels) {
         ensuredLabels.push(...labels);
         return {
@@ -96,7 +96,7 @@ test('labels ensure reports label reconciliation results from the GitHub client 
           alreadyCorrect: labels.slice(2).map(label => label.name),
         };
       },
-    },
+    }),
   });
 
   const exitCode = await cli.run(['labels', 'ensure']);
@@ -126,11 +126,11 @@ test('labels ensure reports GitHub failures', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({
     stderr,
-    githubClient: {
+    githubClient: createFakeGitHubClient({
       async ensureLabels() {
         throw new Error('Failed to list GitHub labels: authentication required');
       },
-    },
+    }),
   });
 
   const exitCode = await cli.run(['labels', 'ensure']);
@@ -180,5 +180,43 @@ function createWritableBuffer() {
     write(chunk) {
       this.text += chunk;
     },
+  };
+}
+
+/**
+ * @param {Partial<import('../github/types.js').GitHubClient>} overrides
+ * @returns {import('../github/types.js').GitHubClient}
+ */
+function createFakeGitHubClient(overrides = {}) {
+  return {
+    async ensureLabels() {
+      return {
+        created: [],
+        updated: [],
+        alreadyCorrect: [],
+      };
+    },
+    async getIssue() {
+      throw new Error('getIssue was not expected in this test.');
+    },
+    async findOpenPullRequestByHead() {
+      throw new Error('findOpenPullRequestByHead was not expected in this test.');
+    },
+    async createDraftPullRequest() {
+      throw new Error('createDraftPullRequest was not expected in this test.');
+    },
+    async addLabelsToIssue() {
+      throw new Error('addLabelsToIssue was not expected in this test.');
+    },
+    async removeLabelsFromIssue() {
+      throw new Error('removeLabelsFromIssue was not expected in this test.');
+    },
+    async addLabelsToPullRequest() {
+      throw new Error('addLabelsToPullRequest was not expected in this test.');
+    },
+    async commentOnIssue() {
+      throw new Error('commentOnIssue was not expected in this test.');
+    },
+    ...overrides,
   };
 }
