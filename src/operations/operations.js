@@ -34,6 +34,7 @@ import {
 
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
+  // Issue / PRD operations
   {
     name: 'prd-prepare',
     target: 'issue',
@@ -52,6 +53,7 @@ export const WORKFLOW_OPERATIONS = [
     option: 'issue',
     configKey: 'prdCoordinate',
   },
+  // PR review loop
   {
     name: 'pr-review',
     target: 'pr',
@@ -64,6 +66,7 @@ export const WORKFLOW_OPERATIONS = [
     option: 'pr',
     configKey: 'prAddressReview',
   },
+  // PR maintenance
   {
     name: 'pr-fix-ci',
     target: 'pr',
@@ -82,6 +85,7 @@ export const WORKFLOW_OPERATIONS = [
     option: 'pr',
     configKey: 'prResolveConflicts',
   },
+  // PR merge / bookkeeping
   {
     name: 'pr-prepare-merge',
     target: 'pr',
