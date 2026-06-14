@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 
 import { createGitHubClient, PULL_OPS_LABELS } from './GitHubClient.js';
@@ -321,7 +322,7 @@ describe('createGitHubClient', () => {
   });
 
   it('09: publishes review decisions, replies, PR body updates, issue close, PR labels, and PR comments through gh', async () => {
-    const { calls, execFile } = createFakePullRequestExecFile();
+    const { calls, execFile, jsonInputs } = createFakePullRequestExecFile();
     const client = createGitHubClient({ execFile });
 
     await client.publishPullRequestReview({
@@ -364,18 +365,22 @@ describe('createGitHubClient', () => {
         '--method',
         'POST',
         'repos/acme/widgets/pulls/100/reviews',
-        '-f',
-        'event=REQUEST_CHANGES',
-        '-f',
-        'body=Needs changes.',
-        '-f',
-        'comments[0][path]=src/example.js',
-        '-F',
-        'comments[0][line]=2',
-        '-f',
-        'comments[0][side]=RIGHT',
-        '-f',
-        'comments[0][body]=Inline feedback.',
+        '--header',
+        'Content-Type: application/json',
+        '--input',
+        calls[1].args.at(-1),
+      ],
+    });
+    assert.deepEqual(jsonInputs[0], {
+      event: 'REQUEST_CHANGES',
+      body: 'Needs changes.',
+      comments: [
+        {
+          path: 'src/example.js',
+          line: 2,
+          side: 'RIGHT',
+          body: 'Inline feedback.',
+        },
       ],
     });
     assert.deepEqual(calls[3], {
@@ -481,16 +486,26 @@ function createFakeIssueExecFile({ issue }) {
 }
 
 /**
- * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ * @returns {{ calls: ExecFileCall[], jsonInputs: unknown[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
  */
 function createFakePullRequestExecFile() {
   /** @type {ExecFileCall[]} */
   const calls = [];
+  /** @type {unknown[]} */
+  const jsonInputs = [];
 
   return {
     calls,
+    jsonInputs,
     async execFile(file, args) {
       calls.push({ file, args });
+
+      const inputIndex = args.indexOf('--input');
+      if (inputIndex !== -1) {
+        const inputPath = args[inputIndex + 1];
+        assert.equal(typeof inputPath, 'string');
+        jsonInputs.push(JSON.parse(await readFile(inputPath, 'utf8')));
+      }
 
       if (args[0] === 'repo' && args[1] === 'view') {
         return {
