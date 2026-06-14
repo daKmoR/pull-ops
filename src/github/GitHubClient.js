@@ -1,4 +1,7 @@
 import { execFile as nodeExecFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
@@ -379,31 +382,29 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      */
     async publishPullRequestReview(options) {
       const repository = await getCurrentRepository(execFile);
-      const args = [
-        'api',
-        '--method',
-        'POST',
-        `repos/${repository.owner}/${repository.name}/pulls/${options.number}/reviews`,
-        '-f',
-        `event=${options.event}`,
-        '-f',
-        `body=${options.body}`,
-      ];
+      const body = {
+        event: options.event,
+        body: options.body,
+        comments: options.comments.map(comment => ({
+          path: comment.path,
+          line: comment.line,
+          side: 'RIGHT',
+          body: comment.body,
+        })),
+      };
 
-      for (const [index, comment] of options.comments.entries()) {
-        args.push(
-          '-f',
-          `comments[${index}][path]=${comment.path}`,
-          '-F',
-          `comments[${index}][line]=${comment.line}`,
-          '-f',
-          `comments[${index}][side]=RIGHT`,
-          '-f',
-          `comments[${index}][body]=${comment.body}`,
-        );
-      }
-
-      await execFile('gh', args);
+      await withJsonInputFile(body, async inputPath => {
+        await execFile('gh', [
+          'api',
+          '--method',
+          'POST',
+          `repos/${repository.owner}/${repository.name}/pulls/${options.number}/reviews`,
+          '--header',
+          'Content-Type: application/json',
+          '--input',
+          inputPath,
+        ]);
+      });
     },
 
     /**
@@ -422,6 +423,24 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
       ]);
     },
   };
+}
+
+/**
+ * @template T
+ * @param {unknown} body
+ * @param {(inputPath: string) => Promise<T>} callback
+ * @returns {Promise<T>}
+ */
+async function withJsonInputFile(body, callback) {
+  const directory = await mkdtemp(join(tmpdir(), 'pullops-gh-api-'));
+  const inputPath = join(directory, 'body.json');
+
+  try {
+    await writeFile(inputPath, `${JSON.stringify(body)}\n`);
+    return await callback(inputPath);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 /**
