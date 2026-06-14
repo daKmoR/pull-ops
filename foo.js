@@ -1,3 +1,3 @@
-export   function foo( ){
-console.log( "foo" )
-return  1}
+export function foo() {
+  return 1;
+}
