@@ -14,16 +14,35 @@ export function parseCount(args) {
 }
 ```
 
-Keep small, module-local types in the `.js` file that uses them:
+Keep small non-object aliases in the `.js` file when they are local and clearer inline:
 
 ```js
 /**
  * @typedef {'high' | 'mid' | 'low'} ModelTier
- * @typedef {{ modelTier: ModelTier }} OperationConfig
  */
 ```
 
-When a type is shared across modules, public, or duplicated in several files, move the type to a type-only TypeScript module and import it from JavaScript through JSDoc:
+Do not define object-shape types with inline JSDoc `@typedef {{ ... }}` blocks in `.js` files. Move object shapes to a type-only TypeScript module and import them from JavaScript through JSDoc.
+
+Use an accompanying `*.types.ts` file when the type belongs to one runtime module:
+
+```ts
+// src/operations/implement-issue/output.types.ts
+export interface ImplementedIssueOutput {
+  status: 'implemented';
+  summary: string;
+  changes: string[];
+}
+```
+
+```js
+// src/operations/implement-issue/output.js
+/**
+ * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
+ */
+```
+
+Use a shared `types.ts` file when a type is shared across a feature, public, or duplicated in several files:
 
 ```ts
 // src/config/types.ts
@@ -42,7 +61,9 @@ export interface OperationConfig {
  */
 ```
 
-Type-only `.ts` files must only export erased TypeScript constructs such as `type` and `interface`. Do not export runtime values, classes, functions, or enums from them, and do not import them with runtime `import` statements from `.js` files.
+Prefer colocated names that mirror the runtime module: `output.js` uses `output.types.ts`, `run.js` uses `run.types.ts`, and test-only helper types can use `Foo.test.types.ts`. In JSDoc import specifiers, use the emitted `.js` path for TypeScript modules, such as `import('./output.types.js')`, because this repo uses NodeNext declaration emit.
+
+Type-only `.ts` files must only export erased TypeScript constructs such as `type` and `interface`. Do not export runtime values, classes, functions, or enums from them, and do not import them with runtime `import` statements from `.js` files. Inside type-only `.ts` files, use `import type` when referencing types from other modules.
 
 Use JSDoc `@typedef {import(...)}` for reusable imported types, `@type` for constants, `@param` and `@returns` for functions, and narrow inline casts only at validated boundaries:
 
@@ -53,4 +74,3 @@ const tier = /** @type {ModelTier} */ (rawTier);
 Prefer plain JavaScript validation before casting unknown input. Casts should document a proven fact, not silence a type error.
 
 Run `npm run types` after changing JSDoc or type-only TypeScript files. The TypeScript config checks JavaScript with `allowJs` and `checkJs`, and emits declarations into `dist-types`.
-
