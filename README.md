@@ -43,10 +43,10 @@ comments on and closes the child issue explicitly after the merge.
 
 ## GitHub Token Setup
 
-PullOps requires a repository secret named `PULLOPS_GITHUB_TOKEN`. The workflows
-expose that same secret as `GH_TOKEN`, `GITHUB_TOKEN`, and `PULLOPS_GITHUB_TOKEN`
-so the PullOps CLI, `gh`, and other GitHub-aware tools all use the same
-credential.
+PullOps requires a repository secret named `PULLOPS_GITHUB_TOKEN`. The PullOps
+CLI reads GitHub API auth from `PULLOPS_GITHUB_TOKEN` first, then
+`GITHUB_TOKEN`. The workflows expose the install-facing secret under both names
+so PullOps and GitHub-aware tools use the same credential.
 
 Prefer a fine-grained personal access token:
 
@@ -88,7 +88,7 @@ If fine-grained tokens are not available for your repository or organization, us
 a classic personal access token only as a fallback. It needs `repo` and
 `workflow` scopes, which are broader than the fine-grained permissions above.
 
-The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` for
+The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` with Octokit for
 `workflow_dispatch` calls, so dispatched operation workflows run as
 `github-actions[bot]`. Before dispatching, the dispatcher verifies that the
 original label actor has write, maintain, or admin access to the repository. The

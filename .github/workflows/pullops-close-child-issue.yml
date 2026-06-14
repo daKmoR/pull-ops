@@ -78,6 +78,5 @@ jobs:
         if: steps.child_pr.outputs.should_run == 'true'
         run: node src/cli/cli.js run close-child-issue --pr "${{ github.event.pull_request.number }}"
         env:
-          GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
           PULLOPS_GITHUB_TOKEN: ${{ github.token }}

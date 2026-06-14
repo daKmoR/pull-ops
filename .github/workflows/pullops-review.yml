@@ -29,33 +29,28 @@ jobs:
 
     steps:
       - name: Verify same-repository pull request
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PR: ${{ inputs.pr }}
           HEAD_REF: ${{ inputs.head_ref }}
-        run: |
-          actual_head_ref="$(
-            gh pr view "$PR" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json headRefName \
-              --jq '.headRefName'
-          )"
-          actual_head_repository="$(
-            gh pr view "$PR" \
-              --repo "$GITHUB_REPOSITORY" \
-              --json headRepositoryOwner,headRepository \
-              --jq '.headRepositoryOwner.login + "/" + .headRepository.name'
-          )"
+        with:
+          github-token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: Number(process.env.PR),
+            });
 
-          if [ "$actual_head_repository" != "$GITHUB_REPOSITORY" ]; then
-            echo "PullOps only reviews same-repository PRs."
-            exit 1
-          fi
+            if (pullRequest.head.repo?.full_name !== `${owner}/${repo}`) {
+              core.setFailed('PullOps only reviews same-repository PRs.');
+              return;
+            }
 
-          if [ "$actual_head_ref" != "$HEAD_REF" ]; then
-            echo "Dispatched head_ref does not match PR head branch."
-            exit 1
-          fi
+            if (pullRequest.head.ref !== process.env.HEAD_REF) {
+              core.setFailed('Dispatched head_ref does not match PR head branch.');
+            }
 
       - name: Check out pull request branch
         uses: actions/checkout@v6
@@ -89,10 +84,9 @@ jobs:
             echo "run_runner=false" >> "$GITHUB_OUTPUT"
           fi
         env:
-          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
-          # token under the standard names expected by gh and GitHub-aware tools.
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
+          # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
@@ -138,10 +132,9 @@ jobs:
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
             --pr "${{ inputs.pr }}"
         env:
-          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
-          # token under the standard names expected by gh and GitHub-aware tools.
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
+          # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}

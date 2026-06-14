@@ -25,49 +25,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify trigger actor can run Codex
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           TRIGGER_ACTOR: ${{ github.actor }}
-        run: |
-          permission="$(
-            gh api \
-              "repos/$GITHUB_REPOSITORY/collaborators/$TRIGGER_ACTOR/permission" \
-              --jq '.permission'
-          )"
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner,
+              repo,
+              username: process.env.TRIGGER_ACTOR,
+            });
 
-          case "$permission" in
-            admin|maintain|write)
-              ;;
-            *)
-              echo "Actor '$TRIGGER_ACTOR' must have write access to run PullOps Codex workflows. Detected permission: '$permission'." >&2
-              exit 1
-              ;;
-          esac
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) {
+              core.setFailed(
+                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '${data.permission}'.`,
+              );
+            }
 
       - name: Dispatch issue operation workflow
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           LABEL: ${{ github.event.label.name }}
           ISSUE: ${{ github.event.issue.number }}
           TRIGGER_ACTOR: ${{ github.actor }}
-        run: |
-          case "$LABEL" in
-            pullops:prd:prepare)
-              workflow="pullops-prepare.yml"
-              ;;
-            pullops:prd:coordinate)
-              workflow="pullops-coordinate.yml"
-              ;;
-            pullops:issue:implement)
-              workflow="pullops-implement.yml"
-              ;;
-          esac
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const workflows = {
+              'pullops:prd:prepare': 'pullops-prepare.yml',
+              'pullops:prd:coordinate': 'pullops-coordinate.yml',
+              'pullops:issue:implement': 'pullops-implement.yml',
+            };
+            const workflow_id = workflows[process.env.LABEL];
+            if (workflow_id === undefined) {
+              core.setFailed(`Unsupported PullOps label '${process.env.LABEL}'.`);
+              return;
+            }
 
-          gh workflow run "$workflow" \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$GITHUB_REF_NAME" \
-            -f issue="$ISSUE" \
-            -f trigger_actor="$TRIGGER_ACTOR"
+            const { owner, repo } = context.repo;
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id,
+              ref: process.env.GITHUB_REF_NAME,
+              inputs: {
+                issue: process.env.ISSUE,
+                trigger_actor: process.env.TRIGGER_ACTOR,
+              },
+            });
 
   dispatch-pull-request:
     if: >-
@@ -82,51 +89,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify trigger actor can run Codex
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           TRIGGER_ACTOR: ${{ github.actor }}
-        run: |
-          permission="$(
-            gh api \
-              "repos/$GITHUB_REPOSITORY/collaborators/$TRIGGER_ACTOR/permission" \
-              --jq '.permission'
-          )"
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner,
+              repo,
+              username: process.env.TRIGGER_ACTOR,
+            });
 
-          case "$permission" in
-            admin|maintain|write)
-              ;;
-            *)
-              echo "Actor '$TRIGGER_ACTOR' must have write access to run PullOps Codex workflows. Detected permission: '$permission'." >&2
-              exit 1
-              ;;
-          esac
+            if (!['admin', 'maintain', 'write'].includes(data.permission)) {
+              core.setFailed(
+                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '${data.permission}'.`,
+              );
+            }
 
       - name: Dispatch pull request operation workflow
+        uses: actions/github-script@v8
         env:
-          GH_TOKEN: ${{ github.token }}
           LABEL: ${{ github.event.label.name }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           TRIGGER_ACTOR: ${{ github.actor }}
-        run: |
-          case "$LABEL" in
-            pullops:pr:review)
-              workflow="pullops-review.yml"
-              ;;
-            pullops:pr:address-review)
-              workflow="pullops-address-review.yml"
-              ;;
-            pullops:pr:fix-ci)
-              workflow="pullops-fix-ci.yml"
-              ;;
-            pullops:pr:prepare-merge)
-              workflow="pullops-prepare-merge.yml"
-              ;;
-          esac
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const workflows = {
+              'pullops:pr:review': 'pullops-review.yml',
+              'pullops:pr:address-review': 'pullops-address-review.yml',
+              'pullops:pr:fix-ci': 'pullops-fix-ci.yml',
+              'pullops:pr:prepare-merge': 'pullops-prepare-merge.yml',
+            };
+            const workflow_id = workflows[process.env.LABEL];
+            if (workflow_id === undefined) {
+              core.setFailed(`Unsupported PullOps label '${process.env.LABEL}'.`);
+              return;
+            }
 
-          gh workflow run "$workflow" \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$GITHUB_REF_NAME" \
-            -f pr="$PR" \
-            -f head_ref="$HEAD_REF" \
-            -f trigger_actor="$TRIGGER_ACTOR"
+            const { owner, repo } = context.repo;
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id,
+              ref: process.env.GITHUB_REF_NAME,
+              inputs: {
+                pr: process.env.PR,
+                head_ref: process.env.HEAD_REF,
+                trigger_actor: process.env.TRIGGER_ACTOR,
+              },
+            });

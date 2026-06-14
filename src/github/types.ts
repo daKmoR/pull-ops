@@ -50,6 +50,7 @@ export interface GitHubPullRequest {
   title: string;
   url: string;
   headRefName: string;
+  headSha?: string;
   baseRefName?: string;
   state?: string;
   mergedAt?: string;

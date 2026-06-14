@@ -70,7 +70,9 @@
   "bin": {
     "pullops": "src/cli/cli.js"
   },
-  "dependencies": {},
+  "dependencies": {
+    "octokit": "^5.0.5"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@eslint/eslintrc": "^3.3.5",

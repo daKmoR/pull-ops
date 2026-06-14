@@ -43,10 +43,9 @@ jobs:
       - name: Run PullOps coordinate PRD
         run: npm run pullops:coordinate-prd -- --issue ${{ inputs.issue }}
         env:
-          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose the same
-          # token under the standard names expected by gh and GitHub-aware tools.
+          # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
+          # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
-          GH_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}

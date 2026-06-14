@@ -1,19 +1,11 @@
-import { execFile as nodeExecFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { promisify } from 'node:util';
+import { Octokit } from 'octokit';
 
 export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
-
-const execFileAsync = promisify(nodeExecFile);
 
 /**
  * @typedef {import('./types.js').PullOpsLabel} PullOpsLabel
  * @typedef {import('./types.js').GitHubLabel} GitHubLabel
  * @typedef {import('./types.js').EnsureLabelsResult} EnsureLabelsResult
- * @typedef {import('./types.js').ExecFile} ExecFile
- * @typedef {import('./types.js').ExecFileResult} ExecFileResult
  * @typedef {import('./types.js').GitHubClient} GitHubClient
  * @typedef {import('./types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./types.js').GitHubIssueReference} GitHubIssueReference
@@ -32,6 +24,36 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
  * @typedef {import('./types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
+ *
+ * @typedef {{ owner: string, repo: string }} GitHubRepository
+ * @typedef {(parameters: Record<string, unknown>) => Promise<{ data: unknown }>} OctokitEndpoint
+ * @typedef {{
+ *   paginate: (endpoint: OctokitEndpoint, parameters: Record<string, unknown>) => Promise<unknown[]>;
+ *   graphql: (query: string, variables: Record<string, unknown>) => Promise<unknown>;
+ *   rest: {
+ *     checks: { listForRef: OctokitEndpoint };
+ *     issues: {
+ *       addLabels: OctokitEndpoint;
+ *       createComment: OctokitEndpoint;
+ *       createLabel: OctokitEndpoint;
+ *       listLabelsForRepo: OctokitEndpoint;
+ *       removeLabel: OctokitEndpoint;
+ *       update: OctokitEndpoint;
+ *       updateLabel: OctokitEndpoint;
+ *     };
+ *     pulls: {
+ *       create: OctokitEndpoint;
+ *       createReplyForReviewComment: OctokitEndpoint;
+ *       createReview: OctokitEndpoint;
+ *       get: OctokitEndpoint;
+ *       getReviewComment: OctokitEndpoint;
+ *       list: OctokitEndpoint;
+ *       update: OctokitEndpoint;
+ *     };
+ *     repos: { getCombinedStatusForRef: OctokitEndpoint };
+ *   };
+ * }} GitHubApiClient
+ * @typedef {(options: { auth?: string }) => GitHubApiClient} CreateOctokit
  */
 
 const ISSUE_RELATIONSHIPS_QUERY = `
@@ -129,17 +151,30 @@ query($owner: String!, $repo: String!, $number: Int!) {
 `;
 
 /**
- * @param {{ execFile?: ExecFile }} [options]
+ * @param {object} [options]
+ * @param {GitHubApiClient} [options.octokit]
+ * @param {NodeJS.ProcessEnv} [options.env]
+ * @param {GitHubRepository} [options.repository]
+ * @param {CreateOctokit} [options.createOctokit]
  * @returns {GitHubClient}
  */
-export function createGitHubClient({ execFile = execFileAsync } = {}) {
+export function createGitHubClient({
+  octokit,
+  env = process.env,
+  repository,
+  createOctokit = createOctokitClient,
+} = {}) {
+  const api = octokit ?? createOctokit({ auth: readGitHubToken(env) });
+  const getRepository = createRepositoryResolver(repository, env);
+
   return {
     /**
      * @param {PullOpsLabel[]} labels
      * @returns {Promise<EnsureLabelsResult>}
      */
     async ensureLabels(labels) {
-      const existingLabels = await listLabels(execFile);
+      const repository = getRepository();
+      const existingLabels = await listLabels(api, repository);
       const existingLabelsByName = new Map(existingLabels.map(label => [label.name, label]));
       /** @type {EnsureLabelsResult} */
       const result = {
@@ -152,13 +187,13 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
         const existingLabel = existingLabelsByName.get(label.name);
 
         if (existingLabel === undefined) {
-          await createLabel(execFile, label);
+          await createLabel(api, repository, label);
           result.created.push(label.name);
           continue;
         }
 
         if (labelNeedsUpdate(existingLabel, label)) {
-          await updateLabel(execFile, label);
+          await updateLabel(api, repository, label);
           result.updated.push(label.name);
           continue;
         }
@@ -174,20 +209,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubIssue>}
      */
     async getIssue(number) {
-      const repository = await getCurrentRepository(execFile);
-      const result = await execFile('gh', [
-        'api',
-        'graphql',
-        '-f',
-        `owner=${repository.owner}`,
-        '-f',
-        `repo=${repository.name}`,
-        '-F',
-        `number=${number}`,
-        '-f',
-        `query=${ISSUE_RELATIONSHIPS_QUERY}`,
-      ]);
-      return parseGraphqlIssue(getStdout(result));
+      return await getIssue(api, getRepository(), number);
     },
 
     /**
@@ -195,14 +217,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubPullRequest>}
      */
     async getPullRequest(number) {
-      const result = await execFile('gh', [
-        'pr',
-        'view',
-        String(number),
-        '--json',
-        'number,title,url,headRefName,baseRefName,state,mergedAt,body,isDraft,isCrossRepository,labels',
-      ]);
-      return parsePullRequestObject(getStdout(result));
+      return await getPullRequest(api, getRepository(), number);
     },
 
     /**
@@ -210,14 +225,12 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubCheckRun[]>}
      */
     async getPullRequestChecks(number) {
-      const result = await execFile('gh', [
-        'pr',
-        'checks',
-        String(number),
-        '--json',
-        'bucket,description,link,name,state,workflow',
-      ]);
-      return parsePullRequestChecks(getStdout(result));
+      const repository = getRepository();
+      const pullRequest = await getPullRequest(api, repository, number);
+      const ref = pullRequest.headSha ?? pullRequest.headRefName;
+      const checkRuns = await listCheckRunsForRef(api, repository, ref);
+      const statuses = await listStatusesForRef(api, repository, ref);
+      return [...checkRuns, ...statuses];
     },
 
     /**
@@ -225,20 +238,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubPullRequestReviewContext>}
      */
     async getPullRequestReviewContext(number) {
-      const repository = await getCurrentRepository(execFile);
-      const result = await execFile('gh', [
-        'api',
-        'graphql',
-        '-f',
-        `owner=${repository.owner}`,
-        '-f',
-        `repo=${repository.name}`,
-        '-F',
-        `number=${number}`,
-        '-f',
-        `query=${PULL_REQUEST_REVIEW_CONTEXT_QUERY}`,
-      ]);
-      return parsePullRequestReviewContext(getStdout(result));
+      return await getPullRequestReviewContext(api, getRepository(), number);
     },
 
     /**
@@ -246,9 +246,14 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<import('./types.js').GitHubPullRequestDiff>}
      */
     async getPullRequestDiff(number) {
-      const result = await execFile('gh', ['pr', 'diff', String(number), '--patch']);
+      const repository = getRepository();
+      const response = await api.rest.pulls.get({
+        ...repository,
+        pull_number: number,
+        mediaType: { format: 'diff' },
+      });
       return {
-        patch: getStdout(result),
+        patch: requireString(response.data, 'pull request diff'),
       };
     },
 
@@ -257,20 +262,18 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubPullRequest | undefined>}
      */
     async findOpenPullRequestByHead(headBranch) {
-      const result = await execFile('gh', [
-        'pr',
-        'list',
-        '--state',
-        'open',
-        '--head',
-        headBranch,
-        '--limit',
-        '1',
-        '--json',
-        'number,title,url,headRefName,body,isDraft',
-      ]);
-      const pullRequests = parsePullRequests(getStdout(result));
-      return pullRequests[0];
+      const repository = getRepository();
+      const response = await api.rest.pulls.list({
+        ...repository,
+        state: 'open',
+        head: `${repository.owner}:${headBranch}`,
+        per_page: 1,
+      });
+      const pullRequests = requireArray(response.data, 'pull request list');
+      const pullRequest = pullRequests[0];
+      return pullRequest === undefined
+        ? undefined
+        : parsePullRequest(pullRequest, 'pull request at index 0');
     },
 
     /**
@@ -278,30 +281,16 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<GitHubPullRequest>}
      */
     async createDraftPullRequest({ title, body, baseBranch, headBranch }) {
-      const result = await execFile('gh', [
-        'pr',
-        'create',
-        '--draft',
-        '--title',
+      const repository = getRepository();
+      const response = await api.rest.pulls.create({
+        ...repository,
         title,
-        '--body',
         body,
-        '--base',
-        baseBranch,
-        '--head',
-        headBranch,
-      ]);
-      const url = getStdout(result).trim();
-      const number = parsePullRequestNumberFromUrl(url);
-
-      return {
-        number,
-        title,
-        url,
-        headRefName: headBranch,
-        body,
-        isDraft: true,
-      };
+        base: baseBranch,
+        head: headBranch,
+        draft: true,
+      });
+      return parsePullRequest(response.data, 'created pull request');
     },
 
     /**
@@ -309,7 +298,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async addLabelsToIssue({ number, labels }) {
-      await editIssueLabels(execFile, number, '--add-label', labels);
+      await addLabels(api, getRepository(), number, labels);
     },
 
     /**
@@ -317,7 +306,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async removeLabelsFromIssue({ number, labels }) {
-      await editIssueLabels(execFile, number, '--remove-label', labels);
+      await removeLabels(api, getRepository(), number, labels);
     },
 
     /**
@@ -325,11 +314,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async addLabelsToPullRequest({ number, labels }) {
-      if (labels.length === 0) {
-        return;
-      }
-
-      await execFile('gh', ['pr', 'edit', String(number), '--add-label', labels.join(',')]);
+      await addLabels(api, getRepository(), number, labels);
     },
 
     /**
@@ -337,11 +322,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async removeLabelsFromPullRequest({ number, labels }) {
-      if (labels.length === 0) {
-        return;
-      }
-
-      await execFile('gh', ['pr', 'edit', String(number), '--remove-label', labels.join(',')]);
+      await removeLabels(api, getRepository(), number, labels);
     },
 
     /**
@@ -349,7 +330,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async commentOnIssue({ number, body }) {
-      await execFile('gh', ['issue', 'comment', String(number), '--body', body]);
+      await createIssueComment(api, getRepository(), number, body);
     },
 
     /**
@@ -357,7 +338,13 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async closeIssue({ number, comment }) {
-      await execFile('gh', ['issue', 'close', String(number), '--comment', comment]);
+      const repository = getRepository();
+      await createIssueComment(api, repository, number, comment);
+      await api.rest.issues.update({
+        ...repository,
+        issue_number: number,
+        state: 'closed',
+      });
     },
 
     /**
@@ -365,7 +352,7 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async commentOnPullRequest({ number, body }) {
-      await execFile('gh', ['pr', 'comment', String(number), '--body', body]);
+      await createIssueComment(api, getRepository(), number, body);
     },
 
     /**
@@ -373,7 +360,12 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async updatePullRequestBody({ number, body }) {
-      await execFile('gh', ['pr', 'edit', String(number), '--body', body]);
+      const repository = getRepository();
+      await api.rest.pulls.update({
+        ...repository,
+        pull_number: number,
+        body,
+      });
     },
 
     /**
@@ -381,8 +373,10 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async publishPullRequestReview(options) {
-      const repository = await getCurrentRepository(execFile);
-      const body = {
+      const repository = getRepository();
+      await api.rest.pulls.createReview({
+        ...repository,
+        pull_number: options.number,
         event: options.event,
         body: options.body,
         comments: options.comments.map(comment => ({
@@ -391,19 +385,6 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
           side: 'RIGHT',
           body: comment.body,
         })),
-      };
-
-      await withJsonInputFile(body, async inputPath => {
-        await execFile('gh', [
-          'api',
-          '--method',
-          'POST',
-          `repos/${repository.owner}/${repository.name}/pulls/${options.number}/reviews`,
-          '--header',
-          'Content-Type: application/json',
-          '--input',
-          inputPath,
-        ]);
       });
     },
 
@@ -412,52 +393,139 @@ export function createGitHubClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async replyToPullRequestReviewComment({ commentId, body }) {
-      const repository = await getCurrentRepository(execFile);
-      await execFile('gh', [
-        'api',
-        '--method',
-        'POST',
-        `repos/${repository.owner}/${repository.name}/pulls/comments/${commentId}/replies`,
-        '-f',
-        `body=${body}`,
-      ]);
+      const repository = getRepository();
+      const pullNumber = await getPullRequestNumberForReviewComment(api, repository, commentId);
+      await api.rest.pulls.createReplyForReviewComment({
+        ...repository,
+        pull_number: pullNumber,
+        comment_id: commentId,
+        body,
+      });
     },
   };
 }
 
 /**
- * @template T
- * @param {unknown} body
- * @param {(inputPath: string) => Promise<T>} callback
- * @returns {Promise<T>}
+ * @param {{ auth?: string }} options
+ * @returns {GitHubApiClient}
  */
-async function withJsonInputFile(body, callback) {
-  const directory = await mkdtemp(join(tmpdir(), 'pullops-gh-api-'));
-  const inputPath = join(directory, 'body.json');
-
-  try {
-    await writeFile(inputPath, `${JSON.stringify(body)}\n`);
-    return await callback(inputPath);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+function createOctokitClient({ auth }) {
+  const options = auth === undefined ? {} : { auth };
+  return /** @type {GitHubApiClient} */ (/** @type {unknown} */ (new Octokit(options)));
 }
 
 /**
- * @param {ExecFile} execFile
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | undefined}
+ */
+function readGitHubToken(env) {
+  return readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN) ?? readNonEmptyEnv(env.GITHUB_TOKEN);
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string | undefined}
+ */
+function readNonEmptyEnv(value) {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  return value;
+}
+
+/**
+ * @param {GitHubRepository | undefined} repository
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {() => GitHubRepository}
+ */
+function createRepositoryResolver(repository, env) {
+  /** @type {GitHubRepository | undefined} */
+  let cachedRepository = repository;
+
+  return () => {
+    cachedRepository ??= parseGitHubRepository(env.GITHUB_REPOSITORY);
+    return cachedRepository;
+  };
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {GitHubRepository}
+ */
+export function parseGitHubRepository(value) {
+  if (value === undefined || value.trim() === '') {
+    throw new Error('GITHUB_REPOSITORY must be set to "OWNER/REPO".');
+  }
+
+  const [owner, repo, ...extra] = value.split('/');
+  if (
+    owner === undefined ||
+    owner.trim() === '' ||
+    repo === undefined ||
+    repo.trim() === '' ||
+    extra.length > 0
+  ) {
+    throw new Error(`Invalid GITHUB_REPOSITORY "${value}". Expected "OWNER/REPO".`);
+  }
+
+  return { owner, repo };
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @returns {Promise<GitHubIssue>}
+ */
+async function getIssue(octokit, repository, number) {
+  const result = await octokit.graphql(ISSUE_RELATIONSHIPS_QUERY, {
+    ...repository,
+    number,
+  });
+  return parseGraphqlIssue(result);
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @returns {Promise<GitHubPullRequest>}
+ */
+async function getPullRequest(octokit, repository, number) {
+  const response = await octokit.rest.pulls.get({
+    ...repository,
+    pull_number: number,
+  });
+  return parsePullRequest(response.data, 'pull request');
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @returns {Promise<GitHubPullRequestReviewContext>}
+ */
+async function getPullRequestReviewContext(octokit, repository, number) {
+  const result = await octokit.graphql(PULL_REQUEST_REVIEW_CONTEXT_QUERY, {
+    ...repository,
+    number,
+  });
+  return parsePullRequestReviewContext(result);
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @returns {Promise<GitHubLabel[]>}
  */
-async function listLabels(execFile) {
+async function listLabels(octokit, repository) {
   try {
-    const result = await execFile('gh', [
-      'label',
-      'list',
-      '--limit',
-      '1000',
-      '--json',
-      'name,color,description',
-    ]);
-    return parseGitHubLabels(getStdout(result));
+    const labels = await octokit.paginate(octokit.rest.issues.listLabelsForRepo, {
+      ...repository,
+      per_page: 100,
+    });
+    return labels.map(parseGitHubLabel);
   } catch (error) {
     throw new Error(`Failed to list GitHub labels: ${getGitHubErrorMessage(error)}`, {
       cause: error,
@@ -466,21 +534,19 @@ async function listLabels(execFile) {
 }
 
 /**
- * @param {ExecFile} execFile
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @param {PullOpsLabel} label
  * @returns {Promise<void>}
  */
-async function createLabel(execFile, label) {
+async function createLabel(octokit, repository, label) {
   try {
-    await execFile('gh', [
-      'label',
-      'create',
-      label.name,
-      '--color',
-      label.color,
-      '--description',
-      label.description,
-    ]);
+    await octokit.rest.issues.createLabel({
+      ...repository,
+      name: label.name,
+      color: label.color,
+      description: label.description,
+    });
   } catch (error) {
     throw new Error(
       `Failed to create GitHub label "${label.name}": ${getGitHubErrorMessage(error)}`,
@@ -490,21 +556,19 @@ async function createLabel(execFile, label) {
 }
 
 /**
- * @param {ExecFile} execFile
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @param {PullOpsLabel} label
  * @returns {Promise<void>}
  */
-async function updateLabel(execFile, label) {
+async function updateLabel(octokit, repository, label) {
   try {
-    await execFile('gh', [
-      'label',
-      'edit',
-      label.name,
-      '--color',
-      label.color,
-      '--description',
-      label.description,
-    ]);
+    await octokit.rest.issues.updateLabel({
+      ...repository,
+      name: label.name,
+      color: label.color,
+      description: label.description,
+    });
   } catch (error) {
     throw new Error(
       `Failed to update GitHub label "${label.name}": ${getGitHubErrorMessage(error)}`,
@@ -514,55 +578,120 @@ async function updateLabel(execFile, label) {
 }
 
 /**
- * @param {ExecFile} execFile
- * @returns {Promise<{ owner: string, name: string }>}
- */
-async function getCurrentRepository(execFile) {
-  try {
-    const result = await execFile('gh', ['repo', 'view', '--json', 'nameWithOwner']);
-    const parsed = JSON.parse(getStdout(result));
-    if (!isPlainObject(parsed) || typeof parsed.nameWithOwner !== 'string') {
-      throw new Error('Expected gh repo view to return nameWithOwner.');
-    }
-
-    const [owner, name] = parsed.nameWithOwner.split('/');
-    if (owner === undefined || name === undefined) {
-      throw new Error(`Invalid nameWithOwner: ${parsed.nameWithOwner}`);
-    }
-
-    return { owner, name };
-  } catch (error) {
-    throw new Error(
-      `Failed to resolve current GitHub repository: ${getGitHubErrorMessage(error)}`,
-      {
-        cause: error,
-      },
-    );
-  }
-}
-
-/**
- * @param {ExecFile} execFile
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @param {number} number
- * @param {'--add-label' | '--remove-label'} action
  * @param {string[]} labels
  * @returns {Promise<void>}
  */
-async function editIssueLabels(execFile, number, action, labels) {
+async function addLabels(octokit, repository, number, labels) {
   if (labels.length === 0) {
     return;
   }
 
-  await execFile('gh', ['issue', 'edit', String(number), action, labels.join(',')]);
+  await octokit.rest.issues.addLabels({
+    ...repository,
+    issue_number: number,
+    labels,
+  });
 }
 
 /**
- * @param {string} stdout
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @param {string[]} labels
+ * @returns {Promise<void>}
+ */
+async function removeLabels(octokit, repository, number, labels) {
+  for (const label of labels) {
+    await octokit.rest.issues.removeLabel({
+      ...repository,
+      issue_number: number,
+      name: label,
+    });
+  }
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @param {string} body
+ * @returns {Promise<void>}
+ */
+async function createIssueComment(octokit, repository, number, body) {
+  await octokit.rest.issues.createComment({
+    ...repository,
+    issue_number: number,
+    body,
+  });
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {string} ref
+ * @returns {Promise<GitHubCheckRun[]>}
+ */
+async function listCheckRunsForRef(octokit, repository, ref) {
+  const response = await octokit.rest.checks.listForRef({
+    ...repository,
+    ref,
+    per_page: 100,
+  });
+  const data = requirePlainObject(response.data, 'check runs response');
+  const checkRuns = requireArray(data.check_runs, 'check runs response.check_runs');
+  return checkRuns.map((check, index) => parseCheckRun(check, index));
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {string} ref
+ * @returns {Promise<GitHubCheckRun[]>}
+ */
+async function listStatusesForRef(octokit, repository, ref) {
+  const response = await octokit.rest.repos.getCombinedStatusForRef({
+    ...repository,
+    ref,
+    per_page: 100,
+  });
+  const data = requirePlainObject(response.data, 'combined status response');
+  const statuses = requireArray(data.statuses, 'combined status response.statuses');
+  return statuses.map((status, index) => parseStatus(status, index));
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} commentId
+ * @returns {Promise<number>}
+ */
+async function getPullRequestNumberForReviewComment(octokit, repository, commentId) {
+  const response = await octokit.rest.pulls.getReviewComment({
+    ...repository,
+    comment_id: commentId,
+  });
+  const comment = requirePlainObject(response.data, 'pull request review comment');
+  const pullRequestUrl = requireString(
+    comment.pull_request_url,
+    'pull request review comment.pull_request_url',
+  );
+  return parsePullRequestNumberFromApiUrl(pullRequestUrl);
+}
+
+/**
+ * @param {unknown} value
  * @returns {GitHubIssue}
  */
-function parseGraphqlIssue(stdout) {
-  const parsed = JSON.parse(stdout);
-  const issue = parsed?.data?.repository?.issue;
+function parseGraphqlIssue(value) {
+  const root = requirePlainObject(value, 'GitHub GraphQL issue response');
+  const repository = requirePlainObject(
+    root.repository,
+    'GitHub GraphQL issue response.repository',
+  );
+  const issue = repository.issue;
 
   if (!isPlainObject(issue)) {
     throw new Error('Expected GitHub GraphQL issue response to include an issue object.');
@@ -645,30 +774,6 @@ function parseIssueReference(value, source) {
 }
 
 /**
- * @param {string} stdout
- * @returns {GitHubPullRequest[]}
- */
-function parsePullRequests(stdout) {
-  const parsed = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected gh pr list to return an array.');
-  }
-
-  return parsed.map((pullRequest, index) =>
-    parsePullRequest(pullRequest, `pull request at index ${index}`),
-  );
-}
-
-/**
- * @param {string} stdout
- * @returns {GitHubPullRequest}
- */
-function parsePullRequestObject(stdout) {
-  const parsed = JSON.parse(stdout);
-  return parsePullRequest(parsed, 'pull request');
-}
-
-/**
  * @param {unknown} pullRequest
  * @param {string} path
  * @returns {GitHubPullRequest}
@@ -678,35 +783,62 @@ function parsePullRequest(pullRequest, path) {
     throw new Error(`Expected ${path} to be an object.`);
   }
 
+  const head = requirePlainObject(pullRequest.head, `${path}.head`);
+  const base = isPlainObject(pullRequest.base) ? pullRequest.base : undefined;
+  const headRepo = isPlainObject(head.repo) ? head.repo : undefined;
+  const baseRepo = base !== undefined && isPlainObject(base.repo) ? base.repo : undefined;
+  const mergedAt = readOptionalString(pullRequest.merged_at, pullRequest.mergedAt);
+
   return {
     number: requireNumber(pullRequest.number, `${path}.number`),
     title: requireString(pullRequest.title, `${path}.title`),
-    url: requireString(pullRequest.url, `${path}.url`),
-    headRefName: requireString(pullRequest.headRefName, `${path}.headRefName`),
-    baseRefName: typeof pullRequest.baseRefName === 'string' ? pullRequest.baseRefName : undefined,
-    state: typeof pullRequest.state === 'string' ? pullRequest.state : undefined,
-    mergedAt: typeof pullRequest.mergedAt === 'string' ? pullRequest.mergedAt : undefined,
+    url: requireString(pullRequest.html_url ?? pullRequest.url, `${path}.html_url`),
+    headRefName: requireString(head.ref ?? pullRequest.headRefName, `${path}.head.ref`),
+    ...optionalProperty('headSha', readOptionalString(head.sha, pullRequest.headSha)),
+    ...optionalProperty('baseRefName', readOptionalString(base?.ref, pullRequest.baseRefName)),
+    ...optionalProperty('state', normalizePullRequestState(pullRequest.state, mergedAt)),
+    ...optionalProperty('mergedAt', mergedAt),
     body: typeof pullRequest.body === 'string' ? pullRequest.body : '',
-    isDraft: Boolean(pullRequest.isDraft),
-    isCrossRepository:
-      typeof pullRequest.isCrossRepository === 'boolean'
-        ? pullRequest.isCrossRepository
-        : undefined,
+    isDraft: Boolean(pullRequest.draft ?? pullRequest.isDraft),
+    ...optionalProperty(
+      'isCrossRepository',
+      parseIsCrossRepository(headRepo, baseRepo, pullRequest),
+    ),
     labels: parseFlatLabelNames(pullRequest.labels),
   };
 }
 
 /**
- * @param {string} stdout
- * @returns {GitHubCheckRun[]}
+ * @param {unknown} state
+ * @param {string | undefined} mergedAt
+ * @returns {string | undefined}
  */
-function parsePullRequestChecks(stdout) {
-  const parsed = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected gh pr checks to return an array.');
+function normalizePullRequestState(state, mergedAt) {
+  if (mergedAt !== undefined) {
+    return 'MERGED';
   }
 
-  return parsed.map((check, index) => parsePullRequestCheck(check, index));
+  return typeof state === 'string' ? state.toUpperCase() : undefined;
+}
+
+/**
+ * @param {Record<string, unknown> | undefined} headRepo
+ * @param {Record<string, unknown> | undefined} baseRepo
+ * @param {Record<string, unknown>} pullRequest
+ * @returns {boolean | undefined}
+ */
+function parseIsCrossRepository(headRepo, baseRepo, pullRequest) {
+  if (typeof pullRequest.isCrossRepository === 'boolean') {
+    return pullRequest.isCrossRepository;
+  }
+
+  const headFullName = readOptionalString(headRepo?.full_name, headRepo?.nameWithOwner);
+  const baseFullName = readOptionalString(baseRepo?.full_name, baseRepo?.nameWithOwner);
+  if (headFullName !== undefined && baseFullName !== undefined) {
+    return headFullName !== baseFullName;
+  }
+
+  return undefined;
 }
 
 /**
@@ -714,20 +846,101 @@ function parsePullRequestChecks(stdout) {
  * @param {number} index
  * @returns {GitHubCheckRun}
  */
-function parsePullRequestCheck(check, index) {
+function parseCheckRun(check, index) {
   if (!isPlainObject(check)) {
     throw new Error(`Expected pull request check at index ${index} to be an object.`);
   }
 
   return {
     name: requireString(check.name, `pull request check at index ${index}.name`),
-    ...optionalProperty('workflowName', readOptionalString(check.workflow, check.workflowName)),
-    ...optionalProperty('state', readOptionalString(check.state)),
+    ...optionalProperty('workflowName', parseCheckRunWorkflowName(check)),
+    ...optionalProperty('state', readOptionalString(check.status)),
     ...optionalProperty('conclusion', readOptionalString(check.conclusion)),
-    ...optionalProperty('bucket', readOptionalString(check.bucket)),
-    ...optionalProperty('detailsUrl', readOptionalString(check.detailsUrl, check.link)),
-    ...optionalProperty('summary', readOptionalString(check.description, check.summary)),
+    ...optionalProperty('bucket', parseCheckRunBucket(check)),
+    ...optionalProperty('detailsUrl', readOptionalString(check.details_url, check.html_url)),
+    ...optionalProperty('summary', parseCheckRunSummary(check)),
   };
+}
+
+/**
+ * @param {Record<string, unknown>} check
+ * @returns {string | undefined}
+ */
+function parseCheckRunWorkflowName(check) {
+  const checkSuite = isPlainObject(check.check_suite) ? check.check_suite : undefined;
+  const app =
+    checkSuite !== undefined && isPlainObject(checkSuite.app) ? checkSuite.app : undefined;
+  return readOptionalString(check.workflow_name, app?.name);
+}
+
+/**
+ * @param {Record<string, unknown>} check
+ * @returns {string | undefined}
+ */
+function parseCheckRunBucket(check) {
+  const conclusion = readOptionalString(check.conclusion);
+  if (conclusion === undefined) {
+    return undefined;
+  }
+
+  return conclusion === 'success' || conclusion === 'neutral' || conclusion === 'skipped'
+    ? 'pass'
+    : 'fail';
+}
+
+/**
+ * @param {Record<string, unknown>} check
+ * @returns {string | undefined}
+ */
+function parseCheckRunSummary(check) {
+  const output = isPlainObject(check.output) ? check.output : undefined;
+  return readOptionalString(output?.summary, output?.text);
+}
+
+/**
+ * @param {unknown} status
+ * @param {number} index
+ * @returns {GitHubCheckRun}
+ */
+function parseStatus(status, index) {
+  if (!isPlainObject(status)) {
+    throw new Error(`Expected pull request status at index ${index} to be an object.`);
+  }
+
+  const state = requireString(status.state, `pull request status at index ${index}.state`);
+
+  return {
+    name: requireString(status.context, `pull request status at index ${index}.context`),
+    state,
+    ...optionalProperty('conclusion', parseStatusConclusion(state)),
+    bucket: parseStatusBucket(state),
+    ...optionalProperty('detailsUrl', readOptionalString(status.target_url)),
+    ...optionalProperty('summary', readOptionalString(status.description)),
+  };
+}
+
+/**
+ * @param {string} state
+ * @returns {string | undefined}
+ */
+function parseStatusConclusion(state) {
+  return ['success', 'failure', 'error'].includes(state) ? state : undefined;
+}
+
+/**
+ * @param {string} state
+ * @returns {string}
+ */
+function parseStatusBucket(state) {
+  if (state === 'success') {
+    return 'pass';
+  }
+
+  if (state === 'failure' || state === 'error') {
+    return 'fail';
+  }
+
+  return state;
 }
 
 /**
@@ -754,9 +967,10 @@ function parseFlatLabelNames(labels) {
 
 /**
  * @template {string} T
+ * @template V
  * @param {T} key
- * @param {string | undefined} value
- * @returns {Record<T, string> | {}}
+ * @param {V | undefined} value
+ * @returns {Record<T, V> | {}}
  */
 function optionalProperty(key, value) {
   return value === undefined ? {} : { [key]: value };
@@ -777,12 +991,16 @@ function readOptionalString(...values) {
 }
 
 /**
- * @param {string} stdout
+ * @param {unknown} value
  * @returns {GitHubPullRequestReviewContext}
  */
-function parsePullRequestReviewContext(stdout) {
-  const parsed = JSON.parse(stdout);
-  const pullRequest = parsed?.data?.repository?.pullRequest;
+function parsePullRequestReviewContext(value) {
+  const root = requirePlainObject(value, 'GitHub GraphQL pull request response');
+  const repository = requirePlainObject(
+    root.repository,
+    'GitHub GraphQL pull request response.repository',
+  );
+  const pullRequest = repository.pullRequest;
 
   if (!isPlainObject(pullRequest)) {
     throw new Error('Expected GitHub GraphQL pull request response to include a pull request.');
@@ -905,8 +1123,8 @@ function parsePullRequestComment(comment, path) {
  * @param {string} url
  * @returns {number}
  */
-function parsePullRequestNumberFromUrl(url) {
-  const match = url.match(/\/pull\/(\d+)$/);
+function parsePullRequestNumberFromApiUrl(url) {
+  const match = url.match(/\/pulls\/(\d+)$/);
   if (match?.[1] === undefined) {
     throw new Error(`Unable to parse pull request number from ${url}.`);
   }
@@ -932,27 +1150,6 @@ function labelNeedsUpdate(existingLabel, expectedLabel) {
  */
 function normalizeColor(color) {
   return color.replace(/^#/, '').toLowerCase();
-}
-
-/**
- * @param {ExecFileResult} result
- * @returns {string}
- */
-function getStdout(result) {
-  return result.stdout.toString();
-}
-
-/**
- * @param {string} stdout
- * @returns {GitHubLabel[]}
- */
-function parseGitHubLabels(stdout) {
-  const parsed = JSON.parse(stdout);
-  if (!Array.isArray(parsed)) {
-    throw new Error('Expected gh label list to return an array.');
-  }
-
-  return parsed.map(parseGitHubLabel);
 }
 
 /**
@@ -987,6 +1184,32 @@ function parseGitHubLabel(label, index) {
 /**
  * @param {unknown} value
  * @param {string} path
+ * @returns {Record<string, unknown>}
+ */
+function requirePlainObject(value, path) {
+  if (!isPlainObject(value)) {
+    throw new Error(`Expected ${path} to be an object.`);
+  }
+
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {unknown[]}
+ */
+function requireArray(value, path) {
+  if (!Array.isArray(value)) {
+    throw new Error(`Expected ${path} to be an array.`);
+  }
+
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
  * @returns {string}
  */
 function requireString(value, path) {
@@ -1016,12 +1239,10 @@ function requireNumber(value, path) {
  */
 function getGitHubErrorMessage(error) {
   if (isPlainObject(error)) {
-    const stderr = error.stderr;
-    if (typeof stderr === 'string' && stderr.trim() !== '') {
-      return stderr.trim();
-    }
-    if (Buffer.isBuffer(stderr) && stderr.toString().trim() !== '') {
-      return stderr.toString().trim();
+    const response = isPlainObject(error.response) ? error.response : undefined;
+    const data = response !== undefined && isPlainObject(response.data) ? response.data : undefined;
+    if (typeof data?.message === 'string' && data.message.trim() !== '') {
+      return data.message.trim();
     }
   }
 

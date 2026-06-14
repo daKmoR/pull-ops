@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 
-import { createGitHubClient, PULL_OPS_LABELS } from './GitHubClient.js';
+import { createGitHubClient, parseGitHubRepository, PULL_OPS_LABELS } from './GitHubClient.js';
 
 /**
- * @typedef {{ file: string, args: string[] }} ExecFileCall
+ * @typedef {{ name: string, params: Record<string, unknown>, query?: string }} OctokitCall
  * @typedef {{ name: string, color: string, description: string | null }} ExistingLabel
  */
 
@@ -60,9 +59,9 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('02: creates missing PullOps labels', async () => {
-    const { calls, execFile } = createFakeExecFile({ labels: [] });
-    const client = createGitHubClient({ execFile });
+  it('02: creates missing PullOps labels through Octokit', async () => {
+    const { calls, octokit } = createFakeOctokit({ labels: [] });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const result = await client.ensureLabels(PULL_OPS_LABELS);
 
@@ -73,20 +72,20 @@ describe('createGitHubClient', () => {
     });
     assert.equal(calls.length, PULL_OPS_LABELS.length + 1);
     assert.deepEqual(calls[0], {
-      file: 'gh',
-      args: ['label', 'list', '--limit', '1000', '--json', 'name,color,description'],
+      name: 'issues.listLabelsForRepo',
+      params: {
+        ...TEST_REPOSITORY,
+        per_page: 100,
+      },
     });
     assert.deepEqual(calls[1], {
-      file: 'gh',
-      args: [
-        'label',
-        'create',
-        'pullops:prd:prepare',
-        '--color',
-        '5319E7',
-        '--description',
-        'Prepare an umbrella branch and draft PR for a PRD issue.',
-      ],
+      name: 'issues.createLabel',
+      params: {
+        ...TEST_REPOSITORY,
+        name: 'pullops:prd:prepare',
+        color: '5319E7',
+        description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
+      },
     });
   });
 
@@ -95,8 +94,8 @@ describe('createGitHubClient', () => {
       ...label,
       color: label.color.toLowerCase(),
     }));
-    const { calls, execFile } = createFakeExecFile({ labels });
-    const client = createGitHubClient({ execFile });
+    const { calls, octokit } = createFakeOctokit({ labels });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const result = await client.ensureLabels(PULL_OPS_LABELS);
 
@@ -105,7 +104,10 @@ describe('createGitHubClient', () => {
       updated: [],
       alreadyCorrect: PULL_OPS_LABELS.map(label => label.name),
     });
-    assert.equal(calls.length, 1);
+    assert.deepEqual(
+      calls.map(call => call.name),
+      ['issues.listLabelsForRepo'],
+    );
   });
 
   it('04: creates missing labels and updates incorrect existing labels', async () => {
@@ -131,7 +133,7 @@ describe('createGitHubClient', () => {
         description: 'Already correct.',
       },
     ];
-    const { calls, execFile } = createFakeExecFile({
+    const { calls, octokit } = createFakeOctokit({
       labels: [
         {
           name: 'pullops:wrong-color',
@@ -150,7 +152,7 @@ describe('createGitHubClient', () => {
         },
       ],
     });
-    const client = createGitHubClient({ execFile });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const result = await client.ensureLabels(labels);
 
@@ -160,18 +162,18 @@ describe('createGitHubClient', () => {
       alreadyCorrect: ['pullops:already-correct'],
     });
     assert.deepEqual(
-      calls.map(call => call.args.slice(0, 3)),
+      calls.map(call => call.name),
       [
-        ['label', 'list', '--limit'],
-        ['label', 'create', 'pullops:missing'],
-        ['label', 'edit', 'pullops:wrong-color'],
-        ['label', 'edit', 'pullops:wrong-description'],
+        'issues.listLabelsForRepo',
+        'issues.createLabel',
+        'issues.updateLabel',
+        'issues.updateLabel',
       ],
     );
   });
 
-  it('05: reports GitHub command failures with label context', async () => {
-    const { execFile } = createFakeExecFile({
+  it('05: reports GitHub API failures with label context', async () => {
+    const { octokit } = createFakeOctokit({
       labels: [
         {
           name: 'pullops:wrong-color',
@@ -179,9 +181,9 @@ describe('createGitHubClient', () => {
           description: 'Correct description.',
         },
       ],
-      failOn: call => call.args[1] === 'edit',
+      failOn: call => call.name === 'issues.updateLabel',
     });
-    const client = createGitHubClient({ execFile });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     await assert.rejects(
       client.ensureLabels([
@@ -196,20 +198,11 @@ describe('createGitHubClient', () => {
   });
 
   it('06: reads native issue parent and sub-issue relationships', async () => {
-    const { calls, execFile } = createFakeIssueExecFile({
-      issue: {
+    const { calls, octokit } = createFakeOctokit({
+      issue: createIssue({
         number: 1,
         title: 'PRD',
         body: '## What to build\n\nShip the workflow kit.',
-        state: 'OPEN',
-        url: 'https://github.com/acme/widgets/issues/1',
-        author: {
-          login: 'maintainer',
-        },
-        labels: {
-          nodes: [],
-        },
-        parent: null,
         subIssues: {
           totalCount: 1,
           nodes: [
@@ -222,9 +215,9 @@ describe('createGitHubClient', () => {
             },
           ],
         },
-      },
+      }),
     });
-    const client = createGitHubClient({ execFile });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const issue = await client.getIssue(1);
 
@@ -237,52 +230,72 @@ describe('createGitHubClient', () => {
         relationshipSource: 'native',
       },
     ]);
-    assert.equal(
-      calls.some(call => call.args[0] === 'issue' && call.args[1] === 'list'),
-      false,
-    );
+    assert.deepEqual(calls[0].name, 'graphql');
+    assert.deepEqual(calls[0].params, {
+      ...TEST_REPOSITORY,
+      number: 1,
+    });
   });
 
   it('07: ignores legacy Parent body sections when native relationships are absent', async () => {
-    const { calls, execFile } = createFakeIssueExecFile({
-      issue: {
+    const { octokit } = createFakeOctokit({
+      issue: createIssue({
         number: 4,
         title: 'Implement a leaf issue',
         body: '## Parent\n\n#1\n\n## What to build\n\nDo the work.',
-        state: 'OPEN',
-        url: 'https://github.com/acme/widgets/issues/4',
-        author: {
-          login: 'maintainer',
-        },
-        labels: {
-          nodes: [],
-        },
-        parent: null,
-        subIssues: {
-          totalCount: 0,
-          nodes: [],
-        },
-      },
+      }),
     });
-    const client = createGitHubClient({ execFile });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const issue = await client.getIssue(4);
 
     assert.equal(issue.parent, null);
     assert.deepEqual(issue.subIssues, []);
-    assert.equal(
-      calls.some(call => call.args[0] === 'issue' && call.args[1] === 'list'),
-      false,
-    );
   });
 
-  it('08: loads pull request review context and diff context', async () => {
-    const { calls, execFile } = createFakePullRequestExecFile();
-    const client = createGitHubClient({ execFile });
+  it('08: loads pull request metadata, review context, diff, open PRs, drafts, and checks', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      pullRequest: createPullRequest(),
+      openPullRequests: [createPullRequest()],
+      reviewContext: createReviewContext(),
+      diff: 'diff --git a/src/example.js b/src/example.js\n',
+      checkRuns: [
+        {
+          name: 'ESLint lint',
+          status: 'completed',
+          conclusion: 'failure',
+          details_url: 'https://github.com/acme/widgets/actions/runs/1',
+          output: {
+            summary: 'ESLint reported an unused variable.',
+          },
+          check_suite: {
+            app: {
+              name: 'CI',
+            },
+          },
+        },
+      ],
+      statuses: [
+        {
+          context: 'coverage',
+          state: 'pending',
+          target_url: 'https://github.com/acme/widgets/actions/runs/2',
+          description: 'Waiting for coverage.',
+        },
+      ],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     const pullRequest = await client.getPullRequest(100);
     const reviewContext = await client.getPullRequestReviewContext(100);
     const diff = await client.getPullRequestDiff(100);
+    const existingPullRequest = await client.findOpenPullRequestByHead('pullops/issue-42');
+    const createdPullRequest = await client.createDraftPullRequest({
+      title: 'Implement #42',
+      body: 'Managed PR: yes',
+      baseBranch: 'main',
+      headBranch: 'pullops/issue-42',
+    });
     const checks = await client.getPullRequestChecks(100);
 
     assert.equal(pullRequest.number, 100);
@@ -299,31 +312,44 @@ describe('createGitHubClient', () => {
     ]);
     assert.deepEqual(reviewContext.unresolvedThreads[0].comments[0].databaseId, 9001);
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
+    assert.equal(existingPullRequest?.number, 100);
+    assert.equal(createdPullRequest.headRefName, 'pullops/issue-42');
     assert.deepEqual(checks, [
       {
         name: 'ESLint lint',
         workflowName: 'CI',
-        state: 'FAILURE',
+        state: 'completed',
+        conclusion: 'failure',
         bucket: 'fail',
         detailsUrl: 'https://github.com/acme/widgets/actions/runs/1',
         summary: 'ESLint reported an unused variable.',
       },
+      {
+        name: 'coverage',
+        state: 'pending',
+        bucket: 'pending',
+        detailsUrl: 'https://github.com/acme/widgets/actions/runs/2',
+        summary: 'Waiting for coverage.',
+      },
     ]);
     assert.deepEqual(
-      calls.map(call => call.args.slice(0, 3)),
+      calls.map(call => call.name),
       [
-        ['pr', 'view', '100'],
-        ['repo', 'view', '--json'],
-        ['api', 'graphql', '-f'],
-        ['pr', 'diff', '100'],
-        ['pr', 'checks', '100'],
+        'pulls.get',
+        'graphql',
+        'pulls.get',
+        'pulls.list',
+        'pulls.create',
+        'pulls.get',
+        'checks.listForRef',
+        'repos.getCombinedStatusForRef',
       ],
     );
   });
 
-  it('09: publishes review decisions, replies, PR body updates, issue close, PR labels, and PR comments through gh', async () => {
-    const { calls, execFile, jsonInputs } = createFakePullRequestExecFile();
-    const client = createGitHubClient({ execFile });
+  it('09: publishes review decisions, replies, PR body updates, issue close, labels, and comments', async () => {
+    const { calls, octokit } = createFakeOctokit();
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     await client.publishPullRequestReview({
       number: 100,
@@ -353,281 +379,390 @@ describe('createGitHubClient', () => {
       number: 100,
       labels: ['pullops:pr:review'],
     });
+    await client.addLabelsToIssue({
+      number: 42,
+      labels: ['pullops:status:done'],
+    });
     await client.commentOnPullRequest({
       number: 100,
       body: 'Failure reason.',
     });
 
-    assert.deepEqual(calls[1], {
-      file: 'gh',
-      args: [
-        'api',
-        '--method',
-        'POST',
-        'repos/acme/widgets/pulls/100/reviews',
-        '--header',
-        'Content-Type: application/json',
-        '--input',
-        calls[1].args.at(-1),
-      ],
+    assert.deepEqual(calls[0], {
+      name: 'pulls.createReview',
+      params: {
+        ...TEST_REPOSITORY,
+        pull_number: 100,
+        event: 'REQUEST_CHANGES',
+        body: 'Needs changes.',
+        comments: [
+          {
+            path: 'src/example.js',
+            line: 2,
+            side: 'RIGHT',
+            body: 'Inline feedback.',
+          },
+        ],
+      },
     });
-    assert.deepEqual(jsonInputs[0], {
-      event: 'REQUEST_CHANGES',
-      body: 'Needs changes.',
-      comments: [
-        {
-          path: 'src/example.js',
-          line: 2,
-          side: 'RIGHT',
-          body: 'Inline feedback.',
-        },
+    assert.deepEqual(
+      calls.slice(1).map(call => call.name),
+      [
+        'pulls.getReviewComment',
+        'pulls.createReplyForReviewComment',
+        'pulls.update',
+        'issues.createComment',
+        'issues.update',
+        'issues.removeLabel',
+        'issues.addLabels',
+        'issues.createComment',
       ],
+    );
+    assert.deepEqual(calls[2].params, {
+      ...TEST_REPOSITORY,
+      pull_number: 100,
+      comment_id: 9001,
+      body: 'Reply body.',
     });
-    assert.deepEqual(calls[3], {
-      file: 'gh',
-      args: [
-        'api',
-        '--method',
-        'POST',
-        'repos/acme/widgets/pulls/comments/9001/replies',
-        '-f',
-        'body=Reply body.',
-      ],
+  });
+
+  it('10: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
+    const { octokit } = createFakeOctokit({ labels: [] });
+    /** @type {string | undefined} */
+    let auth;
+    const client = createGitHubClient({
+      env: {
+        PULLOPS_GITHUB_TOKEN: 'pullops-token',
+        GITHUB_TOKEN: 'github-token',
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      createOctokit(options) {
+        auth = options.auth;
+        return octokit;
+      },
     });
-    assert.deepEqual(calls.slice(4), [
-      {
-        file: 'gh',
-        args: ['pr', 'edit', '100', '--body', 'Updated body.'],
-      },
-      {
-        file: 'gh',
-        args: ['issue', 'close', '42', '--comment', 'Child PR merged into the PRD branch.'],
-      },
-      {
-        file: 'gh',
-        args: ['pr', 'edit', '100', '--remove-label', 'pullops:pr:review'],
-      },
-      {
-        file: 'gh',
-        args: ['pr', 'comment', '100', '--body', 'Failure reason.'],
-      },
-    ]);
+
+    await client.ensureLabels([]);
+
+    assert.equal(auth, 'pullops-token');
+    assert.deepEqual(parseGitHubRepository('acme/widgets'), TEST_REPOSITORY);
+    assert.throws(() => parseGitHubRepository(undefined), /GITHUB_REPOSITORY/);
+    assert.throws(() => parseGitHubRepository('acme/widgets/extra'), /Invalid GITHUB_REPOSITORY/);
   });
 });
 
+const TEST_REPOSITORY = {
+  owner: 'acme',
+  repo: 'widgets',
+};
+
 /**
- * @param {object} options
- * @param {ExistingLabel[]} options.labels
- * @param {(call: ExecFileCall) => boolean} [options.failOn]
- * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ * @param {object} [options]
+ * @param {ExistingLabel[]} [options.labels]
+ * @param {Record<string, unknown>} [options.issue]
+ * @param {Record<string, unknown>} [options.pullRequest]
+ * @param {Record<string, unknown>[]} [options.openPullRequests]
+ * @param {Record<string, unknown>} [options.reviewContext]
+ * @param {string} [options.diff]
+ * @param {Record<string, unknown>[]} [options.checkRuns]
+ * @param {Record<string, unknown>[]} [options.statuses]
+ * @param {(call: OctokitCall) => boolean} [options.failOn]
+ * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.js').GitHubApiClient }}
  */
-function createFakeExecFile({ labels, failOn = () => false }) {
-  /** @type {ExecFileCall[]} */
+function createFakeOctokit({
+  labels = [],
+  issue = createIssue(),
+  pullRequest = createPullRequest(),
+  openPullRequests = [],
+  reviewContext = createReviewContext(),
+  diff = '',
+  checkRuns = [],
+  statuses = [],
+  failOn = () => false,
+} = {}) {
+  /** @type {OctokitCall[]} */
   const calls = [];
 
-  return {
-    calls,
-    async execFile(file, args) {
-      const call = { file, args };
+  /**
+   * @param {string} name
+   * @param {(params: Record<string, unknown>) => unknown} handler
+   * @returns {(params: Record<string, unknown>) => Promise<{ data: unknown }>}
+   */
+  function endpoint(name, handler) {
+    return async params => {
+      const call = { name, params };
       calls.push(call);
 
       if (failOn(call)) {
-        const error = new Error('Command failed.');
-        Object.assign(error, { stderr: 'GitHub refused the label change.' });
+        const error = new Error('GitHub API failed.');
+        Object.assign(error, {
+          response: {
+            data: {
+              message: 'GitHub refused the label change.',
+            },
+          },
+        });
         throw error;
       }
 
-      if (args[0] === 'label' && args[1] === 'list') {
-        return { stdout: JSON.stringify(labels) };
+      return { data: handler(params) };
+    };
+  }
+
+  const octokit = {
+    /**
+     * @param {(params: Record<string, unknown>) => Promise<{ data: unknown }>} endpointToPaginate
+     * @param {Record<string, unknown>} params
+     * @returns {Promise<unknown[]>}
+     */
+    async paginate(endpointToPaginate, params) {
+      const response = await endpointToPaginate(params);
+      assert.ok(Array.isArray(response.data));
+      return response.data;
+    },
+    /**
+     * @param {string} query
+     * @param {Record<string, unknown>} variables
+     * @returns {Promise<unknown>}
+     */
+    async graphql(query, variables) {
+      calls.push({ name: 'graphql', params: variables, query });
+      if (query.includes('issue(number: $number)')) {
+        return {
+          repository: {
+            issue,
+          },
+        };
       }
 
-      return { stdout: '' };
+      return {
+        repository: {
+          pullRequest: reviewContext,
+        },
+      };
     },
+    rest: {
+      checks: {
+        listForRef: endpoint('checks.listForRef', () => ({
+          total_count: checkRuns.length,
+          check_runs: checkRuns,
+        })),
+      },
+      issues: {
+        addLabels: endpoint('issues.addLabels', () => ({})),
+        createComment: endpoint('issues.createComment', () => ({})),
+        createLabel: endpoint('issues.createLabel', () => ({})),
+        listLabelsForRepo: endpoint('issues.listLabelsForRepo', () => labels),
+        removeLabel: endpoint('issues.removeLabel', () => ({})),
+        update: endpoint('issues.update', () => ({})),
+        updateLabel: endpoint('issues.updateLabel', () => ({})),
+      },
+      pulls: {
+        create: endpoint('pulls.create', params =>
+          createPullRequest({
+            title: requireStringParam(params.title),
+            body: requireStringParam(params.body),
+            baseRefName: requireStringParam(params.base),
+            headRefName: requireStringParam(params.head),
+            mergedAt: undefined,
+          }),
+        ),
+        createReplyForReviewComment: endpoint('pulls.createReplyForReviewComment', () => ({})),
+        createReview: endpoint('pulls.createReview', () => ({})),
+        get: endpoint('pulls.get', params => {
+          if (isPlainObject(params.mediaType) && params.mediaType.format === 'diff') {
+            return diff;
+          }
+
+          return pullRequest;
+        }),
+        getReviewComment: endpoint('pulls.getReviewComment', () => ({
+          pull_request_url: 'https://api.github.com/repos/acme/widgets/pulls/100',
+        })),
+        list: endpoint('pulls.list', () => openPullRequests),
+        update: endpoint('pulls.update', () => ({})),
+      },
+      repos: {
+        getCombinedStatusForRef: endpoint('repos.getCombinedStatusForRef', () => ({
+          statuses,
+        })),
+      },
+    },
+  };
+
+  return {
+    calls,
+    octokit,
   };
 }
 
 /**
- * @param {object} options
- * @param {Record<string, unknown>} options.issue
- * @returns {{ calls: ExecFileCall[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ * @param {object} [options]
+ * @param {number} [options.number]
+ * @param {string} [options.title]
+ * @param {string} [options.body]
+ * @param {Record<string, unknown> | null} [options.parent]
+ * @param {Record<string, unknown>} [options.subIssues]
+ * @returns {Record<string, unknown>}
  */
-function createFakeIssueExecFile({ issue }) {
-  /** @type {ExecFileCall[]} */
-  const calls = [];
-
+function createIssue({
+  number = 1,
+  title = 'PRD',
+  body = '## What to build\n\nShip the workflow kit.',
+  parent = null,
+  subIssues = {
+    totalCount: 0,
+    nodes: [],
+  },
+} = {}) {
   return {
-    calls,
-    async execFile(file, args) {
-      calls.push({ file, args });
-
-      if (args[0] === 'repo' && args[1] === 'view') {
-        return {
-          stdout: JSON.stringify({
-            nameWithOwner: 'acme/widgets',
-          }),
-        };
-      }
-
-      if (args[0] === 'api' && args[1] === 'graphql') {
-        return {
-          stdout: JSON.stringify({
-            data: {
-              repository: {
-                issue,
-              },
-            },
-          }),
-        };
-      }
-
-      throw new Error(`Unexpected command: ${file} ${args.join(' ')}`);
+    number,
+    title,
+    body,
+    state: 'OPEN',
+    url: `https://github.com/acme/widgets/issues/${number}`,
+    author: {
+      login: 'maintainer',
     },
+    labels: {
+      nodes: [],
+    },
+    parent,
+    subIssues,
   };
 }
 
 /**
- * @returns {{ calls: ExecFileCall[], jsonInputs: unknown[], execFile: (file: string, args: string[]) => Promise<{ stdout: string }> }}
+ * @param {object} [options]
+ * @param {number} [options.number]
+ * @param {string} [options.title]
+ * @param {string} [options.body]
+ * @param {string} [options.headRefName]
+ * @param {string} [options.headSha]
+ * @param {string} [options.baseRefName]
+ * @param {string | undefined} [options.mergedAt]
+ * @param {string} [options.headRepository]
+ * @param {string} [options.baseRepository]
+ * @param {string[]} [options.labels]
+ * @returns {Record<string, unknown>}
  */
-function createFakePullRequestExecFile() {
-  /** @type {ExecFileCall[]} */
-  const calls = [];
-  /** @type {unknown[]} */
-  const jsonInputs = [];
-
+function createPullRequest({
+  number = 100,
+  title = 'Implement #42',
+  body = 'Managed PR: yes',
+  headRefName = 'pullops/issue-42',
+  headSha = 'abc123',
+  baseRefName = 'main',
+  mergedAt = '2026-06-14T10:00:00Z',
+  headRepository = 'acme/widgets',
+  baseRepository = 'acme/widgets',
+  labels = ['pullops:pr:fix-ci'],
+} = {}) {
   return {
-    calls,
-    jsonInputs,
-    async execFile(file, args) {
-      calls.push({ file, args });
+    number,
+    title,
+    html_url: `https://github.com/acme/widgets/pull/${number}`,
+    head: {
+      ref: headRefName,
+      sha: headSha,
+      repo: {
+        full_name: headRepository,
+      },
+    },
+    base: {
+      ref: baseRefName,
+      repo: {
+        full_name: baseRepository,
+      },
+    },
+    state: mergedAt === undefined ? 'open' : 'closed',
+    merged_at: mergedAt,
+    body,
+    draft: true,
+    labels: labels.map(name => ({ name })),
+  };
+}
 
-      const inputIndex = args.indexOf('--input');
-      if (inputIndex !== -1) {
-        const inputPath = args[inputIndex + 1];
-        assert.equal(typeof inputPath, 'string');
-        jsonInputs.push(JSON.parse(await readFile(inputPath, 'utf8')));
-      }
-
-      if (args[0] === 'repo' && args[1] === 'view') {
-        return {
-          stdout: JSON.stringify({
-            nameWithOwner: 'acme/widgets',
-          }),
-        };
-      }
-
-      if (args[0] === 'pr' && args[1] === 'view') {
-        return {
-          stdout: JSON.stringify({
-            number: 100,
-            title: 'Implement #42',
-            url: 'https://github.com/acme/widgets/pull/100',
-            headRefName: 'pullops/issue-42',
-            baseRefName: 'main',
-            state: 'MERGED',
-            mergedAt: '2026-06-14T10:00:00Z',
-            body: 'Managed PR: yes',
-            isDraft: true,
-            isCrossRepository: false,
-            labels: [
+/**
+ * @returns {Record<string, unknown>}
+ */
+function createReviewContext() {
+  return {
+    comments: {
+      nodes: [
+        {
+          body: 'PR comment.',
+          url: 'https://github.com/acme/widgets/pull/100#issuecomment-1',
+          author: {
+            login: 'maintainer',
+          },
+        },
+      ],
+    },
+    reviews: {
+      nodes: [
+        {
+          id: 'R_1',
+          state: 'COMMENTED',
+          body: 'Review summary.',
+          url: 'https://github.com/acme/widgets/pull/100#pullrequestreview-1',
+          author: {
+            login: 'reviewer',
+          },
+        },
+      ],
+    },
+    reviewThreads: {
+      nodes: [
+        {
+          isResolved: false,
+          comments: {
+            nodes: [
               {
-                name: 'pullops:pr:fix-ci',
-              },
-            ],
-          }),
-        };
-      }
-
-      if (args[0] === 'api' && args[1] === 'graphql') {
-        return {
-          stdout: JSON.stringify({
-            data: {
-              repository: {
-                pullRequest: {
-                  comments: {
-                    nodes: [
-                      {
-                        body: 'PR comment.',
-                        url: 'https://github.com/acme/widgets/pull/100#issuecomment-1',
-                        author: {
-                          login: 'maintainer',
-                        },
-                      },
-                    ],
-                  },
-                  reviews: {
-                    nodes: [
-                      {
-                        id: 'R_1',
-                        state: 'COMMENTED',
-                        body: 'Review summary.',
-                        url: 'https://github.com/acme/widgets/pull/100#pullrequestreview-1',
-                        author: {
-                          login: 'reviewer',
-                        },
-                      },
-                    ],
-                  },
-                  reviewThreads: {
-                    nodes: [
-                      {
-                        isResolved: false,
-                        comments: {
-                          nodes: [
-                            {
-                              id: 'PRRC_1',
-                              databaseId: 9001,
-                              body: 'Unresolved feedback.',
-                              path: 'src/example.js',
-                              line: 2,
-                              diffHunk: '@@ -1 +1 @@',
-                              url: 'https://github.com/acme/widgets/pull/100#discussion_r9001',
-                              author: {
-                                login: 'reviewer',
-                              },
-                            },
-                          ],
-                        },
-                      },
-                    ],
-                  },
-                  files: {
-                    nodes: [
-                      {
-                        path: 'src/example.js',
-                        additions: 1,
-                        deletions: 0,
-                      },
-                    ],
-                  },
+                id: 'PRRC_1',
+                databaseId: 9001,
+                body: 'Unresolved feedback.',
+                path: 'src/example.js',
+                line: 2,
+                diffHunk: '@@ -1 +1 @@',
+                url: 'https://github.com/acme/widgets/pull/100#discussion_r9001',
+                author: {
+                  login: 'reviewer',
                 },
               },
-            },
-          }),
-        };
-      }
-
-      if (args[0] === 'pr' && args[1] === 'diff') {
-        return {
-          stdout: 'diff --git a/src/example.js b/src/example.js\n',
-        };
-      }
-
-      if (args[0] === 'pr' && args[1] === 'checks') {
-        return {
-          stdout: JSON.stringify([
-            {
-              name: 'ESLint lint',
-              workflow: 'CI',
-              state: 'FAILURE',
-              bucket: 'fail',
-              link: 'https://github.com/acme/widgets/actions/runs/1',
-              description: 'ESLint reported an unused variable.',
-            },
-          ]),
-        };
-      }
-
-      return { stdout: '' };
+            ],
+          },
+        },
+      ],
+    },
+    files: {
+      nodes: [
+        {
+          path: 'src/example.js',
+          additions: 1,
+          deletions: 0,
+        },
+      ],
     },
   };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function requireStringParam(value) {
+  if (typeof value !== 'string') {
+    assert.fail('Expected a string parameter.');
+  }
+
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

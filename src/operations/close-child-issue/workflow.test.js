@@ -40,7 +40,8 @@ describe('pullops-close-child-issue workflow', () => {
       workflow,
       /node src\/cli\/cli\.js run close-child-issue --pr "\$\{\{ github\.event\.pull_request\.number \}\}"/,
     );
-    assert.match(workflow, /GH_TOKEN: \$\{\{ github\.token \}\}/);
+    assert.match(workflow, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
+    assert.match(workflow, /PULLOPS_GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
     assert.doesNotMatch(workflow, /workflow_dispatch/);
     assert.doesNotMatch(workflow, /pull_request_target/);
     assert.doesNotMatch(workflow, /head_ref/);
