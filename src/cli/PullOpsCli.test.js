@@ -30,13 +30,13 @@ test('run operation accepts explicit workflow command shapes', async () => {
     },
   });
 
-  const exitCode = await cli.run(['run', 'implement-issue', '--issue', '42']);
+  const exitCode = await cli.run(['run', 'issue-implement', '--issue', '42']);
 
   assert.equal(exitCode, 0);
   assert.equal(stderr.text, '');
   assert.deepEqual(
     calls.map(call => call.operation),
-    ['implement-issue'],
+    ['issue-implement'],
   );
   assert.deepEqual(calls[0].target, { type: 'issue', number: 42 });
   assert.equal(calls[0].config.baseBranch, 'main');
@@ -47,7 +47,7 @@ test('run operation accepts explicit workflow command shapes', async () => {
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'operation accepted',
-    operation: 'implement-issue',
+    operation: 'issue-implement',
     target: { type: 'issue', number: 42 },
     modelTier: 'high',
     model: 'gpt-5.5',
@@ -75,7 +75,7 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
 
   const exitCode = await cli.run([
     'run',
-    'implement-issue',
+    'issue-implement',
     '--phase',
     'finalize',
     '--runner',
@@ -146,7 +146,7 @@ test('run operation accepts explicit local runner override', async () => {
 
   const exitCode = await cli.run([
     'run',
-    'implement-issue',
+    'issue-implement',
     '--runner',
     'codex-cli',
     '--issue',
@@ -262,7 +262,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
-    const exitCode = await cli.run(['run', 'review-pr']);
+    const exitCode = await cli.run(['run', 'pr-review']);
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Missing required argument "--pr <number>"/);
@@ -274,7 +274,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     const exitCode = await cli.run([
       'run',
-      'implement-issue',
+      'issue-implement',
       '--phase',
       'prepare-codex',
       '--issue',
@@ -291,7 +291,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     const exitCode = await cli.run([
       'run',
-      'implement-issue',
+      'issue-implement',
       '--runner',
       'codex-action',
       '--issue',
@@ -308,7 +308,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     const exitCode = await cli.run([
       'run',
-      'implement-issue',
+      'issue-implement',
       '--runner',
       'codex-action',
       '--phase',
@@ -327,7 +327,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     const exitCode = await cli.run([
       'run',
-      'implement-issue',
+      'issue-implement',
       '--runner',
       'codex-cli',
       '--phase',

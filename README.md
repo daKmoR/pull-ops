@@ -34,7 +34,7 @@ child issue can unblock another as soon as the blocking child PR has merged into
 the PRD branch. Standalone issue PRs still target the default branch and use
 GitHub closing keywords.
 
-The `pullops-close-child-issue` workflow listens for `pull_request.closed` and
+The `pullops-pr-close-child-issue` workflow listens for `pull_request.closed` and
 runs only for merged same-repository PRs whose base branch is
 `pullops/prd-<number>` and whose head branch is
 `pullops/prd-<prd-number>/issue-<issue-number>`. Child PR bodies use
@@ -99,7 +99,7 @@ dispatch for repository checkout, pushes, labels, and pull request updates. Code
 runner steps do not receive this token; PullOps prepare and finalize steps
 receive it, the workflow's built-in token remains read-only on Codex jobs, and
 finalize sets the authenticated `origin` URL immediately before pushing. The
-automatic close-child-issue synchronization workflow is deterministic and uses
+automatic pr-close-child-issue synchronization workflow is deterministic and uses
 the built-in `GITHUB_TOKEN` with `contents: read`, `pull-requests: read`, and
 `issues: write`.
 
@@ -108,7 +108,7 @@ the built-in `GITHUB_TOKEN` with `contents: read`, `pull-requests: read`, and
 PullOps uses the configured `codex-cli` runner adapter for local CLI runs:
 
 ```sh
-pullops run implement-issue --issue 42
+pullops run issue-implement --issue 42
 ```
 
 GitHub Actions workflows select the `codex-action` runner adapter explicitly and
@@ -133,8 +133,8 @@ The implement and review workflows run in three phases:
 The workflow-facing lifecycle commands are internal workflow plumbing:
 
 ```sh
-pullops run implement-issue --phase prepare --runner codex-action --issue 42
-pullops run implement-issue --phase finalize --runner codex-action --runner-ran true --issue 42
+pullops run issue-implement --phase prepare --runner codex-action --issue 42
+pullops run issue-implement --phase finalize --runner codex-action --runner-ran true --issue 42
 ```
 
 See GitHub's docs for current UI details:

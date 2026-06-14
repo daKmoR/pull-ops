@@ -54,9 +54,9 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const workflows = {
-              'pullops:prd:prepare': 'pullops-prepare.yml',
-              'pullops:prd:coordinate': 'pullops-coordinate.yml',
-              'pullops:issue:implement': 'pullops-implement.yml',
+              'pullops:prd:prepare': 'pullops-prd-prepare.yml',
+              'pullops:prd:coordinate': 'pullops-prd-coordinate.yml',
+              'pullops:issue:implement': 'pullops-issue-implement.yml',
             };
             const workflow_id = workflows[process.env.LABEL];
             if (workflow_id === undefined) {
@@ -119,10 +119,10 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const workflows = {
-              'pullops:pr:review': 'pullops-review.yml',
-              'pullops:pr:address-review': 'pullops-address-review.yml',
-              'pullops:pr:fix-ci': 'pullops-fix-ci.yml',
-              'pullops:pr:prepare-merge': 'pullops-prepare-merge.yml',
+              'pullops:pr:review': 'pullops-pr-review.yml',
+              'pullops:pr:address-review': 'pullops-pr-address-review.yml',
+              'pullops:pr:fix-ci': 'pullops-pr-fix-ci.yml',
+              'pullops:pr:prepare-merge': 'pullops-pr-prepare-merge.yml',
             };
             const workflow_id = workflows[process.env.LABEL];
             if (workflow_id === undefined) {

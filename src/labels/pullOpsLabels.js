@@ -3,15 +3,15 @@
  */
 
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
-  preparePrd: 'pullops:prd:prepare',
-  coordinatePrd: 'pullops:prd:coordinate',
-  implementIssue: 'pullops:issue:implement',
-  reviewPr: 'pullops:pr:review',
-  addressReview: 'pullops:pr:address-review',
-  fixCi: 'pullops:pr:fix-ci',
-  updateBranch: 'pullops:pr:update-branch',
-  resolveConflicts: 'pullops:pr:resolve-conflicts',
-  prepareMerge: 'pullops:pr:prepare-merge',
+  prdPrepare: 'pullops:prd:prepare',
+  prdCoordinate: 'pullops:prd:coordinate',
+  issueImplement: 'pullops:issue:implement',
+  prReview: 'pullops:pr:review',
+  prAddressReview: 'pullops:pr:address-review',
+  prFixCi: 'pullops:pr:fix-ci',
+  prUpdateBranch: 'pullops:pr:update-branch',
+  prResolveConflicts: 'pullops:pr:resolve-conflicts',
+  prPrepareMerge: 'pullops:pr:prepare-merge',
 });
 
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
@@ -23,21 +23,21 @@ export const PULL_OPS_STATUS_LABELS = Object.freeze({
 });
 
 export const PULL_OPS_PRD_OPERATION_LABELS = Object.freeze([
-  PULL_OPS_OPERATION_LABELS.preparePrd,
-  PULL_OPS_OPERATION_LABELS.coordinatePrd,
+  PULL_OPS_OPERATION_LABELS.prdPrepare,
+  PULL_OPS_OPERATION_LABELS.prdCoordinate,
 ]);
 
 export const PULL_OPS_ISSUE_OPERATION_LABELS = Object.freeze([
-  PULL_OPS_OPERATION_LABELS.implementIssue,
+  PULL_OPS_OPERATION_LABELS.issueImplement,
 ]);
 
 export const PULL_OPS_PR_OPERATION_LABELS = Object.freeze([
-  PULL_OPS_OPERATION_LABELS.reviewPr,
-  PULL_OPS_OPERATION_LABELS.addressReview,
-  PULL_OPS_OPERATION_LABELS.fixCi,
-  PULL_OPS_OPERATION_LABELS.updateBranch,
-  PULL_OPS_OPERATION_LABELS.resolveConflicts,
-  PULL_OPS_OPERATION_LABELS.prepareMerge,
+  PULL_OPS_OPERATION_LABELS.prReview,
+  PULL_OPS_OPERATION_LABELS.prAddressReview,
+  PULL_OPS_OPERATION_LABELS.prFixCi,
+  PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+  PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+  PULL_OPS_OPERATION_LABELS.prPrepareMerge,
 ]);
 
 export const PULL_OPS_OPERATION_LABEL_NAMES = Object.freeze([
@@ -51,47 +51,47 @@ export const PULL_OPS_STATUS_LABEL_NAMES = Object.freeze(Object.values(PULL_OPS_
 /** @type {PullOpsLabel[]} */
 export const PULL_OPS_LABELS = [
   {
-    name: PULL_OPS_OPERATION_LABELS.preparePrd,
+    name: PULL_OPS_OPERATION_LABELS.prdPrepare,
     color: '5319E7',
     description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.coordinatePrd,
+    name: PULL_OPS_OPERATION_LABELS.prdCoordinate,
     color: '5319E7',
     description: 'Reserved for future automatic PRD child issue orchestration.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.implementIssue,
+    name: PULL_OPS_OPERATION_LABELS.issueImplement,
     color: '5319E7',
     description: 'Implement one concrete issue. Does not coordinate child issues.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.reviewPr,
+    name: PULL_OPS_OPERATION_LABELS.prReview,
     color: '5319E7',
     description: 'Run PullOps automated PR review.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.addressReview,
+    name: PULL_OPS_OPERATION_LABELS.prAddressReview,
     color: '5319E7',
     description: 'Address actionable PullOps PR review feedback.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.fixCi,
+    name: PULL_OPS_OPERATION_LABELS.prFixCi,
     color: '5319E7',
     description: 'Classify and fix actionable CI failures.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.updateBranch,
+    name: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
     color: '5319E7',
     description: 'Update a same-repository PR branch.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.resolveConflicts,
+    name: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
     color: '5319E7',
     description: 'Resolve branch update conflicts with the PullOps runner.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.prepareMerge,
+    name: PULL_OPS_OPERATION_LABELS.prPrepareMerge,
     color: '5319E7',
     description: 'Prepare a PullOps-managed PR for human review and merge.',
   },

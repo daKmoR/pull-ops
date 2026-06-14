@@ -20,11 +20,11 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
     mid: 'gpt-5.4-mini',
     low: 'gpt-5.4-mini',
   });
-  assert.equal(config.operations.preparePrd.modelTier, 'low');
-  assert.equal(config.operations.implementIssue.modelTier, 'high');
-  assert.equal(config.operations.coordinatePrd.modelTier, 'low');
-  assert.equal(config.operations.fixCi.modelTier, 'mid');
-  assert.equal(config.operations.updateBranch.modelTier, 'low');
+  assert.equal(config.operations.prdPrepare.modelTier, 'low');
+  assert.equal(config.operations.issueImplement.modelTier, 'high');
+  assert.equal(config.operations.prdCoordinate.modelTier, 'low');
+  assert.equal(config.operations.prFixCi.modelTier, 'mid');
+  assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
 });
 
 test('loadPullOpsConfig loads JavaScript config and merges with defaults', async () => {
@@ -45,7 +45,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
           },
         },
         operations: {
-          reviewPr: { modelTier: 'low' },
+          prReview: { modelTier: 'low' },
         },
       };
     `,
@@ -62,9 +62,9 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
     mid: 'model-mid',
     low: 'model-low',
   });
-  assert.equal(config.operations.reviewPr.modelTier, 'low');
-  assert.equal(config.operations.implementIssue.modelTier, 'high');
-  assert.equal(config.operations.preparePrd.modelTier, 'low');
+  assert.equal(config.operations.prReview.modelTier, 'low');
+  assert.equal(config.operations.issueImplement.modelTier, 'high');
+  assert.equal(config.operations.prdPrepare.modelTier, 'low');
 });
 
 test('loadPullOpsConfig rejects unknown runner adapters', async () => {
@@ -114,7 +114,7 @@ test('loadPullOpsConfig rejects unknown operation model tiers', async () => {
     `
       export default {
         operations: {
-          reviewPr: { modelTier: 'tiny' },
+          prReview: { modelTier: 'tiny' },
         },
       };
     `,
@@ -122,6 +122,6 @@ test('loadPullOpsConfig rejects unknown operation model tiers', async () => {
 
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
-    /operations\.reviewPr\.modelTier must be one of: high, mid, low/,
+    /operations\.prReview\.modelTier must be one of: high, mid, low/,
   );
 });

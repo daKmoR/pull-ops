@@ -1,27 +1,31 @@
 import {
-  runAddressReview,
-  runAddressReviewCodexActionFinalize,
-  runAddressReviewCodexActionPrepare,
-} from './address-review/run.js';
-import { runCloseChildIssue } from './close-child-issue/run.js';
-import { runCoordinatePrd } from './coordinate-prd/run.js';
-import { runFixCi, runFixCiCodexActionFinalize, runFixCiCodexActionPrepare } from './fix-ci/run.js';
+  runPrAddressReview,
+  runPrAddressReviewCodexActionFinalize,
+  runPrAddressReviewCodexActionPrepare,
+} from './pr-address-review/run.js';
+import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
+import { runPrdCoordinate } from './prd-coordinate/run.js';
 import {
-  runImplementIssue,
-  runImplementIssueCodexActionFinalize,
-  runImplementIssueCodexActionPrepare,
-} from './implement-issue/run.js';
-import { runPreparePrd } from './prepare-prd/run.js';
+  runPrFixCi,
+  runPrFixCiCodexActionFinalize,
+  runPrFixCiCodexActionPrepare,
+} from './pr-fix-ci/run.js';
 import {
-  runPrepareMerge,
-  runPrepareMergeCodexActionFinalize,
-  runPrepareMergeCodexActionPrepare,
-} from './prepare-merge/run.js';
+  runIssueImplement,
+  runIssueImplementCodexActionFinalize,
+  runIssueImplementCodexActionPrepare,
+} from './issue-implement/run.js';
+import { runPrdPrepare } from './prd-prepare/run.js';
 import {
-  runReviewPr,
-  runReviewPrCodexActionFinalize,
-  runReviewPrCodexActionPrepare,
-} from './review-pr/run.js';
+  runPrPrepareMerge,
+  runPrPrepareMergeCodexActionFinalize,
+  runPrPrepareMergeCodexActionPrepare,
+} from './pr-prepare-merge/run.js';
+import {
+  runPrReview,
+  runPrReviewCodexActionFinalize,
+  runPrReviewCodexActionPrepare,
+} from './pr-review/run.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -31,64 +35,64 @@ import {
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   {
-    name: 'prepare-prd',
+    name: 'prd-prepare',
     target: 'issue',
     option: 'issue',
-    configKey: 'preparePrd',
+    configKey: 'prdPrepare',
   },
   {
-    name: 'implement-issue',
+    name: 'issue-implement',
     target: 'issue',
     option: 'issue',
-    configKey: 'implementIssue',
+    configKey: 'issueImplement',
   },
   {
-    name: 'coordinate-prd',
+    name: 'prd-coordinate',
     target: 'issue',
     option: 'issue',
-    configKey: 'coordinatePrd',
+    configKey: 'prdCoordinate',
   },
   {
-    name: 'review-pr',
+    name: 'pr-review',
     target: 'pr',
     option: 'pr',
-    configKey: 'reviewPr',
+    configKey: 'prReview',
   },
   {
-    name: 'address-review',
+    name: 'pr-address-review',
     target: 'pr',
     option: 'pr',
-    configKey: 'addressReview',
+    configKey: 'prAddressReview',
   },
   {
-    name: 'fix-ci',
+    name: 'pr-fix-ci',
     target: 'pr',
     option: 'pr',
-    configKey: 'fixCi',
+    configKey: 'prFixCi',
   },
   {
-    name: 'update-branch',
+    name: 'pr-update-branch',
     target: 'pr',
     option: 'pr',
-    configKey: 'updateBranch',
+    configKey: 'prUpdateBranch',
   },
   {
-    name: 'resolve-conflicts',
+    name: 'pr-resolve-conflicts',
     target: 'pr',
     option: 'pr',
-    configKey: 'resolveConflicts',
+    configKey: 'prResolveConflicts',
   },
   {
-    name: 'prepare-merge',
+    name: 'pr-prepare-merge',
     target: 'pr',
     option: 'pr',
-    configKey: 'prepareMerge',
+    configKey: 'prPrepareMerge',
   },
   {
-    name: 'close-child-issue',
+    name: 'pr-close-child-issue',
     target: 'pr',
     option: 'pr',
-    configKey: 'closeChildIssue',
+    configKey: 'prCloseChildIssue',
   },
 ];
 
@@ -111,56 +115,56 @@ export function getWorkflowOperation(name) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runWorkflowOperation(context) {
-  if (context.operation === 'prepare-prd') {
-    return await runPreparePrd(context);
+  if (context.operation === 'prd-prepare') {
+    return await runPrdPrepare(context);
   }
 
-  if (context.operation === 'implement-issue') {
+  if (context.operation === 'issue-implement') {
     return await runCodexBackedOperation(context, {
-      run: runImplementIssue,
-      prepare: runImplementIssueCodexActionPrepare,
-      finalize: runImplementIssueCodexActionFinalize,
+      run: runIssueImplement,
+      prepare: runIssueImplementCodexActionPrepare,
+      finalize: runIssueImplementCodexActionFinalize,
     });
   }
 
-  if (context.operation === 'coordinate-prd') {
-    return await runCoordinatePrd(context);
+  if (context.operation === 'prd-coordinate') {
+    return await runPrdCoordinate(context);
   }
 
-  if (context.operation === 'review-pr') {
+  if (context.operation === 'pr-review') {
     return await runCodexBackedOperation(context, {
-      run: runReviewPr,
-      prepare: runReviewPrCodexActionPrepare,
-      finalize: runReviewPrCodexActionFinalize,
+      run: runPrReview,
+      prepare: runPrReviewCodexActionPrepare,
+      finalize: runPrReviewCodexActionFinalize,
     });
   }
 
-  if (context.operation === 'address-review') {
+  if (context.operation === 'pr-address-review') {
     return await runCodexBackedOperation(context, {
-      run: runAddressReview,
-      prepare: runAddressReviewCodexActionPrepare,
-      finalize: runAddressReviewCodexActionFinalize,
+      run: runPrAddressReview,
+      prepare: runPrAddressReviewCodexActionPrepare,
+      finalize: runPrAddressReviewCodexActionFinalize,
     });
   }
 
-  if (context.operation === 'fix-ci') {
+  if (context.operation === 'pr-fix-ci') {
     return await runCodexBackedOperation(context, {
-      run: runFixCi,
-      prepare: runFixCiCodexActionPrepare,
-      finalize: runFixCiCodexActionFinalize,
+      run: runPrFixCi,
+      prepare: runPrFixCiCodexActionPrepare,
+      finalize: runPrFixCiCodexActionFinalize,
     });
   }
 
-  if (context.operation === 'prepare-merge') {
+  if (context.operation === 'pr-prepare-merge') {
     return await runCodexBackedOperation(context, {
-      run: runPrepareMerge,
-      prepare: runPrepareMergeCodexActionPrepare,
-      finalize: runPrepareMergeCodexActionFinalize,
+      run: runPrPrepareMerge,
+      prepare: runPrPrepareMergeCodexActionPrepare,
+      finalize: runPrPrepareMergeCodexActionFinalize,
     });
   }
 
-  if (context.operation === 'close-child-issue') {
-    return await runCloseChildIssue(context);
+  if (context.operation === 'pr-close-child-issue') {
+    return await runPrCloseChildIssue(context);
   }
 
   if (context.runnerAdapter === 'codex-action') {

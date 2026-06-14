@@ -27,7 +27,7 @@ Do not define object-shape types with inline JSDoc `@typedef {{ ... }}` blocks i
 Use an accompanying `*.types.ts` file when the type belongs to one runtime module:
 
 ```ts
-// src/operations/implement-issue/output.types.ts
+// src/operations/issue-implement/output.types.ts
 export interface ImplementedIssueOutput {
   status: 'implemented';
   summary: string;
@@ -36,7 +36,7 @@ export interface ImplementedIssueOutput {
 ```
 
 ```js
-// src/operations/implement-issue/output.js
+// src/operations/issue-implement/output.js
 /**
  * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
  */

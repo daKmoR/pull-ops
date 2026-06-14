@@ -1,0 +1,3 @@
+# Use pr-prepare-merge for history cleanup
+
+PullOps v1 includes pr-prepare-merge as the operation that shapes a PullOps-Managed PR into a clean Logical Commit Stack before humans review and merge it. PullOps should default to one commit per issue, allow a small focused stack when the work genuinely has separable parts, rebase branches onto the base branch for clean history, and never merge the PR automatically in v1. pr-prepare-merge runs automatically for PullOps-Managed draft PRs, while human-created PRs require an explicit `pullops:pr:prepare-merge` Operation Label because the operation rewrites history.

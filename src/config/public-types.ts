@@ -15,15 +15,15 @@ export interface PullOpsConfig {
   branchPrefix: string;
   runner: RunnerConfig;
   operations: {
-    preparePrd: OperationConfig;
-    implementIssue: OperationConfig;
-    coordinatePrd: OperationConfig;
-    reviewPr: OperationConfig;
-    addressReview: OperationConfig;
-    fixCi: OperationConfig;
-    updateBranch: OperationConfig;
-    resolveConflicts: OperationConfig;
-    prepareMerge: OperationConfig;
-    closeChildIssue: OperationConfig;
+    prdPrepare: OperationConfig;
+    issueImplement: OperationConfig;
+    prdCoordinate: OperationConfig;
+    prReview: OperationConfig;
+    prAddressReview: OperationConfig;
+    prFixCi: OperationConfig;
+    prUpdateBranch: OperationConfig;
+    prResolveConflicts: OperationConfig;
+    prPrepareMerge: OperationConfig;
+    prCloseChildIssue: OperationConfig;
   };
 }

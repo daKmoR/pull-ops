@@ -68,6 +68,10 @@ _Avoid_: Model override, model preset
 A label-requested unit of issue or pull request work, such as preparing a PRD Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
 _Avoid_: Job, workflow, task
 
+**Operation Name**:
+The canonical target-prefixed identifier for a PullOps Operation, using the same target kind and action as its Operation Label without the `pullops:` prefix, such as `prd-prepare`, `issue-implement`, or `pr-review`.
+_Avoid_: Legacy object/action names like `prd-prepare`, `issue-implement`, `pr-review`
+
 **Operation Label**:
 A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, where the target kind identifies PRD Issue, Concrete Issue, or pull request operations.
 _Avoid_: Trigger label, command label, flat label
@@ -153,7 +157,7 @@ One automated loop where PullOps responds to failing checks on a PullOps-Managed
 _Avoid_: Build retry, CI retry
 
 **Check Failure Classification**:
-The fix-ci operation's classification of a failed check as formatting, lint, type, test, build, environment, flaky, secret, or another actionable category before changing code.
+The `pr-fix-ci` operation's classification of a failed check as formatting, lint, type, test, build, environment, flaky, secret, or another actionable category before changing code.
 _Avoid_: CI error type, failure reason
 
 **Branch Update**:
@@ -173,7 +177,7 @@ The final commit history shape for a PR: one commit for the main issue by defaul
 _Avoid_: Squash, cleanup commits
 
 **Commit Plan**:
-The structured prepare-merge output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
+The structured `pr-prepare-merge` output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
 _Avoid_: Rebase script, squash plan
 
 **Child Issue Commit**:
