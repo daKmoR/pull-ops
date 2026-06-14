@@ -17,14 +17,8 @@ import { createImplementIssuePullRequestBody } from './prBody.js';
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
- * @typedef {import('./output.js').ImplementedIssueOutput} ImplementedIssueOutput
- * @typedef {{ ready: false, output: Record<string, unknown> } | {
- *   ready: true;
- *   issue: GitHubIssue;
- *   parentIssueNumber?: number;
- *   branchName: string;
- *   baseBranch: string;
- * }} ImplementIssuePreparation
+ * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
+ * @typedef {import('./run.types.js').ImplementIssuePreparation} ImplementIssuePreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {

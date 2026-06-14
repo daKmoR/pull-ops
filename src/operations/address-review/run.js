@@ -26,20 +26,11 @@ import {
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('./feedback.js').AddressReviewFeedbackItem} AddressReviewFeedbackItem
- * @typedef {import('./output.js').AddressedFeedback} AddressedFeedback
- * @typedef {import('./output.js').ReasonedFeedback} ReasonedFeedback
- * @typedef {import('./output.js').CompletedAddressReviewOutput} CompletedAddressReviewOutput
- * @typedef {{ ready: false, output: Record<string, unknown> } | {
- *   ready: true;
- *   pullRequest: GitHubPullRequest;
- *   issue: GitHubIssue;
- *   reviewContext: GitHubPullRequestReviewContext;
- *   diff: GitHubPullRequestDiff;
- *   feedbackItems: AddressReviewFeedbackItem[];
- *   reviewCycle: number;
- *   maxReviewCycles: number;
- * }} AddressReviewPreparation
+ * @typedef {import('./feedback.types.js').AddressReviewFeedbackItem} AddressReviewFeedbackItem
+ * @typedef {import('./output.types.js').AddressedFeedback} AddressedFeedback
+ * @typedef {import('./output.types.js').ReasonedFeedback} ReasonedFeedback
+ * @typedef {import('./output.types.js').CompletedAddressReviewOutput} CompletedAddressReviewOutput
+ * @typedef {import('./run.types.js').AddressReviewPreparation} AddressReviewPreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {
@@ -498,7 +489,7 @@ async function postFeedbackResponse(context, pullRequest, feedback, response) {
 }
 
 /**
- * @param {import('./feedback.js').AddressReviewFeedbackSurface} surface
+ * @param {import('./feedback.types.js').AddressReviewFeedbackSurface} surface
  * @returns {string}
  */
 function formatFeedbackSurface(surface) {

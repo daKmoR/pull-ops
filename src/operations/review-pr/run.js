@@ -21,18 +21,10 @@ import { readPullOpsPullRequestState, updatePullRequestBodyForReview } from './p
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
- * @typedef {import('./output.js').CompletedReviewPrOutput} CompletedReviewPrOutput
- * @typedef {import('./output.js').ReviewReply} ReviewReply
- * @typedef {import('./output.js').ReviewResultStatus} ReviewResultStatus
- * @typedef {{ ready: false, output: Record<string, unknown> } | {
- *   ready: true;
- *   pullRequest: GitHubPullRequest;
- *   issue: import('../../github/types.js').GitHubIssue;
- *   reviewContext: GitHubPullRequestReviewContext;
- *   diff: import('../../github/types.js').GitHubPullRequestDiff;
- *   nextReviewCycle: number;
- *   maxReviewCycles: number;
- * }} ReviewPrPreparation
+ * @typedef {import('./output.types.js').CompletedReviewPrOutput} CompletedReviewPrOutput
+ * @typedef {import('./output.types.js').ReviewReply} ReviewReply
+ * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
+ * @typedef {import('./run.types.js').ReviewPrPreparation} ReviewPrPreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {

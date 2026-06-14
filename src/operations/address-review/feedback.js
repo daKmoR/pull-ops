@@ -1,14 +1,6 @@
 /**
- * @typedef {'unresolved_inline_thread' | 'requested_change_summary' | 'pullops_review_output' | 'top_level_comment'} AddressReviewFeedbackSurface
- * @typedef {{
- *   id: string;
- *   surface: AddressReviewFeedbackSurface;
- *   body: string;
- *   authorLogin: string | null;
- *   replyCommentId?: number;
- *   location?: string;
- *   url?: string;
- * }} AddressReviewFeedbackItem
+ * @typedef {import('./feedback.types.js').AddressReviewFeedbackSurface} AddressReviewFeedbackSurface
+ * @typedef {import('./feedback.types.js').AddressReviewFeedbackItem} AddressReviewFeedbackItem
  */
 
 const GITHUB_ACTIONS_BOT_LOGIN = 'github-actions[bot]';

@@ -1,9 +1,6 @@
 /**
- * @typedef {import('./output.js').ReviewInlineComment} ReviewInlineComment
- * @typedef {{
- *   comment: ReviewInlineComment;
- *   reason: string;
- * }} DroppedReviewComment
+ * @typedef {import('./output.types.js').ReviewInlineComment} ReviewInlineComment
+ * @typedef {import('./anchors.types.js').DroppedReviewComment} DroppedReviewComment
  */
 
 /**

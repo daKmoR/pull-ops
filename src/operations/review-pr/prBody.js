@@ -1,22 +1,9 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 
 /**
- * @typedef {import('./output.js').ReviewResultStatus} ReviewResultStatus
- * @typedef {'addressed' | 'blocked'} AddressReviewStatus
- * @typedef {{
- *   managed: boolean;
- *   sourceIssueNumber?: number;
- *   sourceKind?: 'issue' | 'parentIssue';
- *   lastOperation?: string;
- *   reviewCycles: {
- *     current: number;
- *     max: number;
- *   };
- *   ciFixCycles: {
- *     current: number;
- *     max: number;
- *   };
- * }} PullOpsPullRequestState
+ * @typedef {import('./prBody.types.js').ReviewResultStatus} ReviewResultStatus
+ * @typedef {import('./prBody.types.js').AddressReviewStatus} AddressReviewStatus
+ * @typedef {import('./prBody.types.js').PullOpsPullRequestState} PullOpsPullRequestState
  */
 
 export const DEFAULT_MAX_REVIEW_CYCLES = 3;

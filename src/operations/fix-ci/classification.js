@@ -1,17 +1,6 @@
 /**
- * @typedef {'formatting' | 'lint' | 'type' | 'test' | 'build' | 'environment' | 'flaky' | 'secret'} CheckFailureClassification
- * @typedef {{
- *   id: string;
- *   checkName: string;
- *   workflowName?: string;
- *   state?: string;
- *   conclusion?: string;
- *   bucket?: string;
- *   detailsUrl?: string;
- *   classification: CheckFailureClassification;
- *   actionable: boolean;
- *   reason: string;
- * }} ClassifiedCheckFailure
+ * @typedef {import('./classification.types.js').CheckFailureClassification} CheckFailureClassification
+ * @typedef {import('./classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
  * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
  */
 

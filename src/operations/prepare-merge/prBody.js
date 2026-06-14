@@ -1,7 +1,7 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 
 /**
- * @typedef {import('./output.js').PreparedPullRequestSections} PreparedPullRequestSections
+ * @typedef {import('./output.types.js').PreparedPullRequestSections} PreparedPullRequestSections
  */
 
 /**

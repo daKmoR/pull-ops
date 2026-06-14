@@ -3,7 +3,7 @@
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('./classification.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ * @typedef {import('./classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
  */
 
 /**

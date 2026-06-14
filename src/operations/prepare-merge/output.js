@@ -1,36 +1,13 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {{
- *   header: string;
- *   body: string[];
- *   footers: string[];
- *   files: string[];
- * }} PlannedCommit
- * @typedef {{
- *   justification?: string;
- *   commits: PlannedCommit[];
- * }} CommitPlan
- * @typedef {{
- *   summary: string;
- *   changes: string[];
- *   testPlan: string[];
- *   traceability: string[];
- * }} PreparedPullRequestSections
- * @typedef {{
- *   status: 'planned';
- *   summary: string;
- *   commitPlan: CommitPlan;
- *   pullRequest: PreparedPullRequestSections;
- *   followUps: string[];
- * }} PlannedPrepareMergeOutput
- * @typedef {{
- *   status: 'blocked';
- *   summary: string;
- *   failureReason: string;
- * }} BlockedPrepareMergeOutput
- * @typedef {PlannedPrepareMergeOutput | BlockedPrepareMergeOutput} PrepareMergeOutput
- * @typedef {{ valid: true, value: PrepareMergeOutput } | { valid: false, reason: string }} PrepareMergeOutputValidationResult
+ * @typedef {import('./output.types.js').PlannedCommit} PlannedCommit
+ * @typedef {import('./output.types.js').CommitPlan} CommitPlan
+ * @typedef {import('./output.types.js').PreparedPullRequestSections} PreparedPullRequestSections
+ * @typedef {import('./output.types.js').PlannedPrepareMergeOutput} PlannedPrepareMergeOutput
+ * @typedef {import('./output.types.js').BlockedPrepareMergeOutput} BlockedPrepareMergeOutput
+ * @typedef {import('./output.types.js').PrepareMergeOutput} PrepareMergeOutput
+ * @typedef {import('./output.types.js').PrepareMergeOutputValidationResult} PrepareMergeOutputValidationResult
  */
 
 /** @type {import('../../operation-output/types.js').OperationOutputContract} */

@@ -23,19 +23,9 @@ import { buildFixCiPrompt } from './prompt.js';
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('./classification.js').ClassifiedCheckFailure} ClassifiedCheckFailure
- * @typedef {import('./output.js').CompletedFixCiOutput} CompletedFixCiOutput
- * @typedef {{ ready: false, output: Record<string, unknown> } | {
- *   ready: true;
- *   pullRequest: GitHubPullRequest;
- *   issue?: GitHubIssue;
- *   reviewContext: GitHubPullRequestReviewContext;
- *   diff: GitHubPullRequestDiff;
- *   checkFailures: ClassifiedCheckFailure[];
- *   managed: boolean;
- *   ciFixCycle: number;
- *   maxCiFixCycles: number;
- * }} FixCiPreparation
+ * @typedef {import('./classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ * @typedef {import('./output.types.js').CompletedFixCiOutput} CompletedFixCiOutput
+ * @typedef {import('./run.types.js').FixCiPreparation} FixCiPreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {

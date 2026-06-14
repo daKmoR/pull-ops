@@ -25,35 +25,9 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
  * @typedef {import('./types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
  *
- * @typedef {{ owner: string, repo: string }} GitHubRepository
- * @typedef {(parameters: Record<string, unknown>) => Promise<{ data: unknown }>} OctokitEndpoint
- * @typedef {{
- *   paginate: (endpoint: OctokitEndpoint, parameters: Record<string, unknown>) => Promise<unknown[]>;
- *   graphql: (query: string, variables: Record<string, unknown>) => Promise<unknown>;
- *   rest: {
- *     checks: { listForRef: OctokitEndpoint };
- *     issues: {
- *       addLabels: OctokitEndpoint;
- *       createComment: OctokitEndpoint;
- *       createLabel: OctokitEndpoint;
- *       listLabelsForRepo: OctokitEndpoint;
- *       removeLabel: OctokitEndpoint;
- *       update: OctokitEndpoint;
- *       updateLabel: OctokitEndpoint;
- *     };
- *     pulls: {
- *       create: OctokitEndpoint;
- *       createReplyForReviewComment: OctokitEndpoint;
- *       createReview: OctokitEndpoint;
- *       get: OctokitEndpoint;
- *       getReviewComment: OctokitEndpoint;
- *       list: OctokitEndpoint;
- *       update: OctokitEndpoint;
- *     };
- *     repos: { getCombinedStatusForRef: OctokitEndpoint };
- *   };
- * }} GitHubApiClient
- * @typedef {(options: { auth?: string }) => GitHubApiClient} CreateOctokit
+ * @typedef {import('./GitHubClient.types.js').GitHubRepository} GitHubRepository
+ * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
+ * @typedef {import('./GitHubClient.types.js').CreateOctokit} CreateOctokit
  */
 
 const ISSUE_RELATIONSHIPS_QUERY = `

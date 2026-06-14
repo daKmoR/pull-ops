@@ -1,34 +1,13 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {import('./classification.js').CheckFailureClassification} CheckFailureClassification
- * @typedef {{
- *   checkId: string;
- *   classification: CheckFailureClassification;
- *   rationale: string;
- * }} FixCiOutputClassification
- * @typedef {{
- *   weakenedTests: boolean;
- *   deletedAssertions: boolean;
- *   bypassedChecks: boolean;
- *   secretOrInfrastructureWorkaround: boolean;
- * }} FixCiSafetyChecks
- * @typedef {{
- *   status: 'fixed';
- *   summary: string;
- *   classifications: FixCiOutputClassification[];
- *   safetyChecks: FixCiSafetyChecks;
- *   changes: string[];
- *   testPlan: string[];
- *   followUps: string[];
- * }} CompletedFixCiOutput
- * @typedef {{
- *   status: 'blocked';
- *   summary: string;
- *   failureReason: string;
- * }} BlockedFixCiOutput
- * @typedef {CompletedFixCiOutput | BlockedFixCiOutput} FixCiOutput
- * @typedef {{ valid: true, value: FixCiOutput } | { valid: false, reason: string }} FixCiOutputValidationResult
+ * @typedef {import('./classification.types.js').CheckFailureClassification} CheckFailureClassification
+ * @typedef {import('./output.types.js').FixCiOutputClassification} FixCiOutputClassification
+ * @typedef {import('./output.types.js').FixCiSafetyChecks} FixCiSafetyChecks
+ * @typedef {import('./output.types.js').CompletedFixCiOutput} CompletedFixCiOutput
+ * @typedef {import('./output.types.js').BlockedFixCiOutput} BlockedFixCiOutput
+ * @typedef {import('./output.types.js').FixCiOutput} FixCiOutput
+ * @typedef {import('./output.types.js').FixCiOutputValidationResult} FixCiOutputValidationResult
  */
 
 /** @type {CheckFailureClassification[]} */

@@ -1,20 +1,10 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {{
- *   status: 'implemented';
- *   summary: string;
- *   changes: string[];
- *   testPlan: string[];
- *   followUps: string[];
- * }} ImplementedIssueOutput
- * @typedef {{
- *   status: 'blocked';
- *   summary: string;
- *   failureReason: string;
- * }} BlockedIssueOutput
- * @typedef {ImplementedIssueOutput | BlockedIssueOutput} ImplementIssueOutput
- * @typedef {{ valid: true, value: ImplementIssueOutput } | { valid: false, reason: string }} ImplementIssueOutputValidationResult
+ * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
+ * @typedef {import('./output.types.js').BlockedIssueOutput} BlockedIssueOutput
+ * @typedef {import('./output.types.js').ImplementIssueOutput} ImplementIssueOutput
+ * @typedef {import('./output.types.js').ImplementIssueOutputValidationResult} ImplementIssueOutputValidationResult
  */
 
 /** @type {import('../../operation-output/types.js').OperationOutputContract} */

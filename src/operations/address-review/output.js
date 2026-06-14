@@ -1,31 +1,12 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {{
- *   feedbackId: string;
- *   response: string;
- * }} AddressedFeedback
- * @typedef {{
- *   feedbackId: string;
- *   reason: string;
- * }} ReasonedFeedback
- * @typedef {{
- *   status: 'addressed';
- *   summary: string;
- *   addressed: AddressedFeedback[];
- *   declined: ReasonedFeedback[];
- *   deferred: ReasonedFeedback[];
- *   changes: string[];
- *   testPlan: string[];
- *   followUps: string[];
- * }} CompletedAddressReviewOutput
- * @typedef {{
- *   status: 'blocked';
- *   summary: string;
- *   failureReason: string;
- * }} BlockedAddressReviewOutput
- * @typedef {CompletedAddressReviewOutput | BlockedAddressReviewOutput} AddressReviewOutput
- * @typedef {{ valid: true, value: AddressReviewOutput } | { valid: false, reason: string }} AddressReviewOutputValidationResult
+ * @typedef {import('./output.types.js').AddressedFeedback} AddressedFeedback
+ * @typedef {import('./output.types.js').ReasonedFeedback} ReasonedFeedback
+ * @typedef {import('./output.types.js').CompletedAddressReviewOutput} CompletedAddressReviewOutput
+ * @typedef {import('./output.types.js').BlockedAddressReviewOutput} BlockedAddressReviewOutput
+ * @typedef {import('./output.types.js').AddressReviewOutput} AddressReviewOutput
+ * @typedef {import('./output.types.js').AddressReviewOutputValidationResult} AddressReviewOutputValidationResult
  */
 
 /** @type {import('../../operation-output/types.js').OperationOutputContract} */

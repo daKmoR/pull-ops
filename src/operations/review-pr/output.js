@@ -1,31 +1,13 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {'approved' | 'changes_requested' | 'blocked'} ReviewResultStatus
- * @typedef {{
- *   path: string;
- *   line: number;
- *   body: string;
- * }} ReviewInlineComment
- * @typedef {{
- *   commentId: number;
- *   body: string;
- * }} ReviewReply
- * @typedef {{
- *   status: 'approved' | 'changes_requested';
- *   summary: string;
- *   comments: ReviewInlineComment[];
- *   replies: ReviewReply[];
- *   directChanges: string[];
- *   followUps: string[];
- * }} CompletedReviewPrOutput
- * @typedef {{
- *   status: 'blocked';
- *   summary: string;
- *   failureReason: string;
- * }} BlockedReviewPrOutput
- * @typedef {CompletedReviewPrOutput | BlockedReviewPrOutput} ReviewPrOutput
- * @typedef {{ valid: true, value: ReviewPrOutput } | { valid: false, reason: string }} ReviewPrOutputValidationResult
+ * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
+ * @typedef {import('./output.types.js').ReviewInlineComment} ReviewInlineComment
+ * @typedef {import('./output.types.js').ReviewReply} ReviewReply
+ * @typedef {import('./output.types.js').CompletedReviewPrOutput} CompletedReviewPrOutput
+ * @typedef {import('./output.types.js').BlockedReviewPrOutput} BlockedReviewPrOutput
+ * @typedef {import('./output.types.js').ReviewPrOutput} ReviewPrOutput
+ * @typedef {import('./output.types.js').ReviewPrOutputValidationResult} ReviewPrOutputValidationResult
  */
 
 /** @type {import('../../operation-output/types.js').OperationOutputContract} */

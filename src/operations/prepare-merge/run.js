@@ -26,19 +26,9 @@ import {
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('./output.js').PlannedPrepareMergeOutput} PlannedPrepareMergeOutput
- * @typedef {import('./output.js').PlannedCommit} PlannedCommit
- * @typedef {{ ready: false, output: Record<string, unknown> } | {
- *   ready: true;
- *   pullRequest: GitHubPullRequest;
- *   issue: GitHubIssue;
- *   sourceKind: 'issue' | 'parentIssue';
- *   sourceIssueNumber: number;
- *   baseBranch: string;
- *   reviewContext: GitHubPullRequestReviewContext;
- *   diff: GitHubPullRequestDiff;
- *   changedFiles: string[];
- * }} PrepareMergePreparation
+ * @typedef {import('./output.types.js').PlannedPrepareMergeOutput} PlannedPrepareMergeOutput
+ * @typedef {import('./output.types.js').PlannedCommit} PlannedCommit
+ * @typedef {import('./run.types.js').PrepareMergePreparation} PrepareMergePreparation
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {

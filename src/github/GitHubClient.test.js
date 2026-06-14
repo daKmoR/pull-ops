@@ -4,8 +4,8 @@ import { describe, it } from 'node:test';
 import { createGitHubClient, parseGitHubRepository, PULL_OPS_LABELS } from './GitHubClient.js';
 
 /**
- * @typedef {{ name: string, params: Record<string, unknown>, query?: string }} OctokitCall
- * @typedef {{ name: string, color: string, description: string | null }} ExistingLabel
+ * @typedef {import('./GitHubClient.test.types.js').OctokitCall} OctokitCall
+ * @typedef {import('./GitHubClient.test.types.js').ExistingLabel} ExistingLabel
  */
 
 describe('createGitHubClient', () => {
@@ -467,7 +467,7 @@ const TEST_REPOSITORY = {
  * @param {Record<string, unknown>[]} [options.checkRuns]
  * @param {Record<string, unknown>[]} [options.statuses]
  * @param {(call: OctokitCall) => boolean} [options.failOn]
- * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.js').GitHubApiClient }}
+ * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.types.js').GitHubApiClient }}
  */
 function createFakeOctokit({
   labels = [],

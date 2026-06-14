@@ -3,7 +3,7 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
- * @typedef {import('./output.js').ImplementedIssueOutput} ImplementedIssueOutput
+ * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
  */
 
 /**
