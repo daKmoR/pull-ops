@@ -118,6 +118,64 @@ describe('createGitClient', () => {
     );
     assert.deepEqual(calls, []);
   });
+
+  it('05: rebases with the configured committer identity', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+    const committer = {
+      name: 'github-actions[bot]',
+      email: '41898282+github-actions[bot]@users.noreply.github.com',
+    };
+
+    await gitClient.rebaseBranchOntoBase({
+      branchName: 'pullops/issue-15',
+      baseBranch: 'main',
+      committer,
+    });
+    await gitClient.startRebaseBranchOntoBase?.({
+      branchName: 'pullops/issue-15',
+      baseBranch: 'main',
+      committer,
+    });
+    await gitClient.continueRebase?.({
+      branchName: 'pullops/issue-15',
+      baseBranch: 'main',
+      committer,
+    });
+
+    assert.equal(
+      countGitCalls(calls, [
+        '-c',
+        'user.name=github-actions[bot]',
+        '-c',
+        'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+        'rebase',
+        'origin/main',
+      ]),
+      2,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          '-c',
+          'user.name=github-actions[bot]',
+          '-c',
+          'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+          '-c',
+          'core.editor=true',
+          'rebase',
+          '--continue',
+        ]),
+      ),
+      true,
+    );
+  });
 });
 
 /**
@@ -147,4 +205,13 @@ function isGitCall(call, args) {
     call.args.length === args.length &&
     call.args.every((arg, index) => arg === args[index])
   );
+}
+
+/**
+ * @param {Array<{ file: string, args: string[] }>} calls
+ * @param {string[]} args
+ * @returns {number}
+ */
+function countGitCalls(calls, args) {
+  return calls.filter(call => isGitCall(call, args)).length;
 }

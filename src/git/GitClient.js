@@ -7,6 +7,7 @@ const execFileAsync = promisify(nodeExecFile);
 
 /**
  * @typedef {import('./types.js').GitClient} GitClient
+ * @typedef {import('./types.js').GitCommitAuthor} GitCommitAuthor
  * @typedef {import('./types.js').CreateBranchOptions} CreateBranchOptions
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
@@ -116,7 +117,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @param {RebaseBranchOntoBaseOptions} options
      * @returns {Promise<GitRebaseResult>}
      */
-    async rebaseBranchOntoBase({ branchName, baseBranch }) {
+    async rebaseBranchOntoBase({ branchName, baseBranch, committer }) {
       await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       await runGit(
@@ -133,7 +134,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
       try {
         await runGit(
           execFile,
-          ['rebase', `origin/${baseBranch}`],
+          withGitCommitter(['rebase', `origin/${baseBranch}`], committer),
           `rebase branch ${branchName} onto ${baseBranch}`,
         );
       } catch (error) {
@@ -164,7 +165,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @param {StartRebaseBranchOntoBaseOptions} options
      * @returns {Promise<GitRebaseStepResult>}
      */
-    async startRebaseBranchOntoBase({ branchName, baseBranch }) {
+    async startRebaseBranchOntoBase({ branchName, baseBranch, committer }) {
       await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       await runGit(
@@ -181,7 +182,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
       try {
         await runGit(
           execFile,
-          ['rebase', `origin/${baseBranch}`],
+          withGitCommitter(['rebase', `origin/${baseBranch}`], committer),
           `start conflictable rebase of branch ${branchName} onto ${baseBranch}`,
         );
       } catch (error) {
@@ -206,13 +207,13 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @param {ContinueRebaseOptions} options
      * @returns {Promise<GitRebaseStepResult>}
      */
-    async continueRebase({ branchName, baseBranch }) {
+    async continueRebase({ branchName, baseBranch, committer }) {
       await runGit(execFile, ['add', '--all'], 'stage resolved rebase conflicts');
 
       try {
         await runGit(
           execFile,
-          ['-c', 'core.editor=true', 'rebase', '--continue'],
+          withGitCommitter(['-c', 'core.editor=true', 'rebase', '--continue'], committer),
           `continue rebase of branch ${branchName}`,
         );
       } catch (error) {
@@ -379,6 +380,15 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
       };
     },
   };
+}
+
+/**
+ * @param {string[]} args
+ * @param {GitCommitAuthor} committer
+ * @returns {string[]}
+ */
+function withGitCommitter(args, committer) {
+  return ['-c', `user.name=${committer.name}`, '-c', `user.email=${committer.email}`, ...args];
 }
 
 /**

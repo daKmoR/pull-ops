@@ -32,6 +32,10 @@ import { buildPrResolveConflictsPrompt } from './prompt.js';
  */
 
 const CONFLICT_PASS_STATE_FILE = 'pr_resolve_conflicts_state.json';
+const GITHUB_ACTIONS_BOT_COMMITTER = {
+  name: 'github-actions[bot]',
+  email: '41898282+github-actions[bot]@users.noreply.github.com',
+};
 
 /**
  * @param {OperationRunnerContext} context
@@ -270,6 +274,7 @@ async function startOrReadRebaseStep(context, preparation) {
   )({
     branchName: preparation.pullRequest.headRefName,
     baseBranch: preparation.baseBranch,
+    committer: GITHUB_ACTIONS_BOT_COMMITTER,
   });
 }
 
@@ -355,6 +360,7 @@ async function validateOutputAndContinueRebase(context, preparation, conflictCon
     )({
       branchName: preparation.pullRequest.headRefName,
       baseBranch: preparation.baseBranch,
+      committer: GITHUB_ACTIONS_BOT_COMMITTER,
     });
 
     return {

@@ -18,6 +18,11 @@ import {
  * @typedef {import('../../git/types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  */
 
+const GITHUB_ACTIONS_BOT_COMMITTER = {
+  name: 'github-actions[bot]',
+  email: '41898282+github-actions[bot]@users.noreply.github.com',
+};
+
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
@@ -43,6 +48,7 @@ export async function runPrUpdateBranch(context) {
     const rebaseResult = await context.gitClient.rebaseBranchOntoBase({
       branchName: pullRequest.headRefName,
       baseBranch,
+      committer: GITHUB_ACTIONS_BOT_COMMITTER,
     });
 
     if (rebaseResult.status === 'conflicts') {

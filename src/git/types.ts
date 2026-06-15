@@ -25,16 +25,19 @@ export interface PushBranchOptions {
 export interface RebaseBranchOntoBaseOptions {
   branchName: string;
   baseBranch: string;
+  committer: GitCommitAuthor;
 }
 
 export interface StartRebaseBranchOntoBaseOptions {
   branchName: string;
   baseBranch: string;
+  committer: GitCommitAuthor;
 }
 
 export interface ContinueRebaseOptions {
   branchName: string;
   baseBranch: string;
+  committer: GitCommitAuthor;
 }
 
 export interface ReadRebaseConflictContextOptions {

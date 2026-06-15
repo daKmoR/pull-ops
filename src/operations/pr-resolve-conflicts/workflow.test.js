@@ -31,6 +31,11 @@ describe('pullops-pr-resolve-conflicts workflow', () => {
       workflow,
       /git remote set-url origin "https:\/\/x-access-token:\$\{PULLOPS_GITHUB_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git"/,
     );
+    assert.match(workflow, /git config user\.name "github-actions\[bot\]"/);
+    assert.match(
+      workflow,
+      /git config user\.email "41898282\+github-actions\[bot\]@users\.noreply\.github\.com"/,
+    );
     assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);
     assert.match(workflow, /PULLOPS_GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);
   });
