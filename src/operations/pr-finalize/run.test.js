@@ -34,6 +34,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         headSha: reviewedHead,
@@ -55,10 +56,12 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
       }),
     );
 
     assert.equal(firstResult.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
     assert.deepEqual(firstResult.prFinalize, {
       waiting: true,
       stage: 'finalized-head',
@@ -121,6 +124,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryChildRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
     const childIssue = createIssue({
       parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
       body: '## Parent\n\nPart of: #999\n\n## What to build\n\nDo child work.',
@@ -145,10 +149,12 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
       }),
     );
 
     assert.equal(firstResult.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
     assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/prd-7'), 1);
     assert.equal(await readTreeHash(repository.workDir), reviewedTree);
     assert.deepEqual(await readCommitMessages(repository.workDir, 'origin/pullops/prd-7'), [
@@ -501,6 +507,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryParentRepository({ childOrder: [22, 21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
@@ -533,10 +540,12 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
       }),
     );
 
     assert.equal(firstResult.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
     assert.deepEqual(await readCommitMessages(repository.workDir), [
       createPrFinalizeCommitMessage(21, 7),
       createPrFinalizeCommitMessage(22, 7),
@@ -588,6 +597,167 @@ describe('runPrFinalize', () => {
     });
     assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
   });
+
+  it('11: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
+    const repository = await createTemporaryAmbiguousParentRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner({ output: createPlannerOutput() });
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Plan ambiguous PR Finalize history grouping/);
+    assert.match(codex.calls[0].prompt, /Do not edit files, run commands, create commits/);
+    assert.doesNotMatch(codex.calls[0].prompt, /"pullRequest"/);
+    assert.deepEqual(await readCommitMessages(repository.workDir), [
+      createPrFinalizeCommitMessage(21, 7),
+      createPrFinalizeCommitMessage(22, 7),
+    ]);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+    assert.equal(await readTreeHash(repository.workDir), reviewedTree);
+    assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
+  });
+
+  it('12: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
+    const repository = await createTemporaryAmbiguousParentRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        config: createConfig({
+          prFinalize: {
+            aiHistoryCleanup: false,
+          },
+        }),
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(codex.calls.length, 0);
+    assert.match(github.comments[0].body, /AI history cleanup fallback is disabled/);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+  });
+
+  it('13: rejects invalid fallback planner output before rewriting history', async () => {
+    const repository = await createTemporaryAmbiguousParentRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner({
+      output: createPlannerOutput({
+        commits: [
+          createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
+          createPlannerCommit({ issueNumber: 22, files: ['src/child-21.js'] }),
+        ],
+      }),
+    });
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    await assert.rejects(
+      runPrFinalize(
+        createContext({
+          cwd: repository.workDir,
+          githubClient: github.client,
+          gitClient: createGitClientFor(repository.workDir),
+          codexRunner: codex.runner,
+        }),
+      ),
+      /assigns "src\/child-21\.js" more than once/,
+    );
+
+    assert.equal(codex.calls.length, 1);
+    assert.match(github.comments[0].body, /Invalid PR Finalize Planner Output/);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+  });
+
+  it('14: rejects AI-proposed rewrites whose final tree differs from the reviewed tree', async () => {
+    const repository = await createTemporaryAmbiguousParentRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner({ output: createPlannerOutput() });
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+    const realGitClient = createGitClientFor(repository.workDir);
+
+    await assert.rejects(
+      runPrFinalize(
+        createContext({
+          cwd: repository.workDir,
+          githubClient: github.client,
+          gitClient: {
+            ...realGitClient,
+            async rewriteBranchWithCommitPlan(options) {
+              const result = await realGitClient.rewriteBranchWithCommitPlan(options);
+              return {
+                ...result,
+                treeHash: 'different-tree',
+              };
+            },
+          },
+          codexRunner: codex.runner,
+        }),
+      ),
+      /Finalized tree different-tree did not match reviewed tree/,
+    );
+
+    assert.equal(codex.calls.length, 1);
+    assert.match(github.comments[0].body, /Finalized tree different-tree did not match/);
+  });
 });
 
 /**
@@ -613,6 +783,56 @@ function createContext(overrides = {}) {
     gitClient: createGitClientFor('/workspace'),
     codexRunner: createFakeCodexRunner().runner,
     ...overrides,
+  };
+}
+
+/**
+ * @param {{ prFinalize?: { aiHistoryCleanup?: boolean } }} [overrides]
+ * @returns {import('../../config/types.js').PullOpsConfig}
+ */
+function createConfig({ prFinalize } = {}) {
+  return {
+    ...DEFAULT_PULL_OPS_CONFIG,
+    operations: {
+      ...DEFAULT_PULL_OPS_CONFIG.operations,
+      prFinalize: {
+        ...DEFAULT_PULL_OPS_CONFIG.operations.prFinalize,
+        ...prFinalize,
+      },
+    },
+  };
+}
+
+/**
+ * @param {{ commits?: ReturnType<typeof createPlannerCommit>[] }} [options]
+ * @returns {string}
+ */
+function createPlannerOutput({
+  commits = [
+    createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
+    createPlannerCommit({ issueNumber: 22, files: ['src/child-22.js'] }),
+  ],
+} = {}) {
+  return JSON.stringify({
+    status: 'planned',
+    summary: 'Group ambiguous PRD history by closed Child Issue.',
+    commitPlan: {
+      commits,
+    },
+    followUps: [],
+  });
+}
+
+/**
+ * @param {{ issueNumber: number, files: string[] }} options
+ * @returns {{ header: string, body: string[], footers: string[], files: string[] }}
+ */
+function createPlannerCommit({ issueNumber, files }) {
+  return {
+    header: `feat(issue): implement #${issueNumber}`,
+    body: [`Finalize Child Issue #${issueNumber} for rebase merge into PRD #7.`],
+    footers: [`Refs: #${issueNumber}`, 'PRD: #7'],
+    files,
   };
 }
 
@@ -778,6 +998,29 @@ function createIssue(overrides = {}) {
     subIssues: [],
     ...overrides,
   };
+}
+
+/**
+ * @returns {GitHubIssue}
+ */
+function createParentIssueWithClosedChildren() {
+  return createIssue({
+    number: 7,
+    title: 'PRD: Parent workflow',
+    body: '## Problem Statement\n\nGroup the child issue work.',
+    subIssues: [
+      createIssueReference({
+        number: 21,
+        title: 'First child',
+        state: 'CLOSED',
+      }),
+      createIssueReference({
+        number: 22,
+        title: 'Second child',
+        state: 'CLOSED',
+      }),
+    ],
+  });
 }
 
 /**
@@ -952,9 +1195,10 @@ function createFakeGitHub({
 }
 
 /**
+ * @param {{ output?: unknown }} [options]
  * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
  */
-function createFakeCodexRunner() {
+function createFakeCodexRunner({ output } = {}) {
   /** @type {CodexRunOptions[]} */
   const calls = [];
 
@@ -963,6 +1207,10 @@ function createFakeCodexRunner() {
     runner: {
       async run(options) {
         calls.push(options);
+        if (output !== undefined) {
+          return output;
+        }
+
         throw new Error('codexRunner.run was not expected in this test.');
       },
     },
@@ -1092,6 +1340,46 @@ async function createTemporaryParentRepository({ childOrder }) {
     await git(workDir, ['commit', '-m', createPrFinalizeCommitMessage(childIssueNumber, 7)]);
   }
 
+  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
+
+  return { root, originDir, workDir };
+}
+
+/**
+ * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
+ */
+async function createTemporaryAmbiguousParentRepository() {
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-ambiguous-parent-'));
+  const originDir = join(root, 'origin.git');
+  const workDir = join(root, 'work');
+
+  await mkdir(originDir, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await git(originDir, ['init', '--bare']);
+  await git(workDir, ['init', '--initial-branch=main']);
+  await git(workDir, ['config', 'user.name', 'Test User']);
+  await git(workDir, ['config', 'user.email', 'test@example.com']);
+  await mkdir(join(workDir, 'src'), { recursive: true });
+  await writeFile(join(workDir, 'README.md'), '# Test\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'chore: initial commit']);
+  await git(workDir, ['remote', 'add', 'origin', originDir]);
+  await git(workDir, ['push', '-u', 'origin', 'main']);
+  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
+  await git(workDir, [
+    'commit',
+    '--allow-empty',
+    '-m',
+    ['chore(prd): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
+  ]);
+  await writeFile(join(workDir, 'src', 'child-21.js'), 'export const child21 = true;\n');
+  await writeFile(join(workDir, 'src', 'child-22.js'), 'export const child22 = true;\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, [
+    'commit',
+    '-m',
+    ['feat: implement child work', '', 'This commit is missing PullOps traceability.'].join('\n'),
+  ]);
   await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
 
   return { root, originDir, workDir };

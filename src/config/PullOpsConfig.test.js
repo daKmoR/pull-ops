@@ -25,6 +25,7 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
   assert.equal(config.operations.prdCoordinate.modelTier, 'low');
   assert.equal(config.operations.prFixCi.modelTier, 'mid');
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
+  assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
 });
 
 test('loadPullOpsConfig loads JavaScript config and merges with defaults', async () => {
@@ -46,6 +47,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
         },
         operations: {
           prReview: { modelTier: 'low' },
+          prFinalize: { aiHistoryCleanup: false },
         },
       };
     `,
@@ -63,6 +65,8 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
     low: 'model-low',
   });
   assert.equal(config.operations.prReview.modelTier, 'low');
+  assert.equal(config.operations.prFinalize.modelTier, 'high');
+  assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
   assert.equal(config.operations.issueImplement.modelTier, 'high');
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
 });
@@ -123,5 +127,24 @@ test('loadPullOpsConfig rejects unknown operation model tiers', async () => {
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
     /operations\.prReview\.modelTier must be one of: high, mid, low/,
+  );
+});
+
+test('loadPullOpsConfig rejects non-boolean pr-finalize AI history cleanup config', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-pr-finalize-ai-history-cleanup-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          prFinalize: { aiHistoryCleanup: 'false' },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations\.prFinalize\.aiHistoryCleanup must be a boolean/,
   );
 });

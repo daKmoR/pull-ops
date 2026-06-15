@@ -1,5 +1,5 @@
 import type { PlannedRewriteCommit } from '../../git/types.js';
-import type { GitHubIssueReference, GitHubPullRequest } from '../../github/types.js';
+import type { GitHubIssue, GitHubIssueReference, GitHubPullRequest } from '../../github/types.js';
 
 export type PrFinalizeSourceKind = 'standalone' | 'childIssue' | 'parentIssue';
 
@@ -26,6 +26,7 @@ export type PrFinalizeSource =
       sourceKind: 'parentIssue';
       sourceIssueNumber: number;
       baseBranch: string;
+      parentIssue: GitHubIssue;
       childIssues: GitHubIssueReference[];
       closedChildIssues: GitHubIssueReference[];
     };
@@ -44,6 +45,19 @@ export type PrFinalizePreparation =
       currentTreeHash: string;
       reviewedTreeHash: string;
       commitPlan: PlannedRewriteCommit[];
+    }
+  | {
+      ready: true;
+      mode: 'planner';
+      pullRequest: GitHubPullRequest;
+      sourceKind: 'parentIssue';
+      sourceIssueNumber: number;
+      childIssues: GitHubIssueReference[];
+      baseBranch: string;
+      currentTreeHash: string;
+      reviewedTreeHash: string;
+      changedFiles: string[];
+      prompt: string;
     }
   | {
       ready: true;

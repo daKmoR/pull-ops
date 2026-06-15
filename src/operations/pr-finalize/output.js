@@ -3,7 +3,6 @@ import { validateOperationOutput } from '../../operation-output/OperationOutput.
 /**
  * @typedef {import('./output.types.js').PlannedCommit} PlannedCommit
  * @typedef {import('./output.types.js').CommitPlan} CommitPlan
- * @typedef {import('./output.types.js').PreparedPullRequestSections} PreparedPullRequestSections
  * @typedef {import('./output.types.js').PlannedPrFinalizeOutput} PlannedPrFinalizeOutput
  * @typedef {import('./output.types.js').BlockedPrFinalizeOutput} BlockedPrFinalizeOutput
  * @typedef {import('./output.types.js').PrFinalizeOutput} PrFinalizeOutput
@@ -34,6 +33,20 @@ export function validatePrFinalizeOutput(input) {
     return summary;
   }
 
+  const supportedFields = findUnsupportedFields(result.value, {
+    allowed:
+      status === 'blocked'
+        ? ['status', 'summary', 'failureReason']
+        : ['status', 'summary', 'commitPlan', 'followUps'],
+  });
+  if (supportedFields.length > 0) {
+    return invalid(
+      `Operation Output contains unsupported PR Finalize planner fields: ${supportedFields.join(
+        ', ',
+      )}.`,
+    );
+  }
+
   if (status === 'blocked') {
     const failureReason = readNonEmptyString(
       result.value.failureReason,
@@ -58,14 +71,6 @@ export function validatePrFinalizeOutput(input) {
     return commitPlan;
   }
 
-  const pullRequest = readPullRequestSections(
-    result.value.pullRequest,
-    'Operation Output.pullRequest',
-  );
-  if (!pullRequest.valid) {
-    return pullRequest;
-  }
-
   const followUps =
     result.value.followUps === undefined
       ? []
@@ -80,10 +85,18 @@ export function validatePrFinalizeOutput(input) {
       status,
       summary: summary.value,
       commitPlan: commitPlan.value,
-      pullRequest: pullRequest.value,
       followUps: Array.isArray(followUps) ? followUps : followUps.value,
     },
   };
+}
+
+/**
+ * @param {Record<string, unknown>} value
+ * @param {{ allowed: string[] }} options
+ * @returns {string[]}
+ */
+function findUnsupportedFields(value, { allowed }) {
+  return Object.keys(value).filter(field => !allowed.includes(field));
 }
 
 /**
@@ -168,47 +181,6 @@ function readPlannedCommits(value, path) {
   }
 
   return { valid: true, value: commits };
-}
-
-/**
- * @param {unknown} value
- * @param {string} path
- * @returns {{ valid: true, value: PreparedPullRequestSections } | { valid: false, reason: string }}
- */
-function readPullRequestSections(value, path) {
-  if (!isPlainObject(value)) {
-    return invalid(`${path} must be an object.`);
-  }
-
-  const summary = readNonEmptyString(value.summary, `${path}.summary`);
-  if (!summary.valid) {
-    return summary;
-  }
-
-  const changes = readStringArray(value.changes, `${path}.changes`);
-  if (!changes.valid) {
-    return changes;
-  }
-
-  const testPlan = readStringArray(value.testPlan, `${path}.testPlan`);
-  if (!testPlan.valid) {
-    return testPlan;
-  }
-
-  const traceability = readNonEmptyStringArray(value.traceability, `${path}.traceability`);
-  if (!traceability.valid) {
-    return traceability;
-  }
-
-  return {
-    valid: true,
-    value: {
-      summary: summary.value,
-      changes: changes.value,
-      testPlan: testPlan.value,
-      traceability: traceability.value,
-    },
-  };
 }
 
 /**

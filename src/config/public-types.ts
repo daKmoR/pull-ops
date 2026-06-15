@@ -1,7 +1,7 @@
-import type { ModelTier, OperationConfig } from './types.js';
+import type { ModelTier, OperationConfig, PrFinalizeOperationConfig } from './types.js';
 import type { RunnerAdapter } from '../runner/types.js';
 
-export type { ModelTier, OperationConfig } from './types.js';
+export type { ModelTier, OperationConfig, PrFinalizeOperationConfig } from './types.js';
 export type { RunnerAdapter } from '../runner/types.js';
 
 export interface RunnerConfig {
@@ -23,7 +23,7 @@ export interface PullOpsConfig {
     prFixCi: OperationConfig;
     prUpdateBranch: OperationConfig;
     prResolveConflicts: OperationConfig;
-    prFinalize: OperationConfig;
+    prFinalize: PrFinalizeOperationConfig;
     prCloseChildIssue: OperationConfig;
   };
 }

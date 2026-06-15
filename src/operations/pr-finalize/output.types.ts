@@ -10,18 +10,10 @@ export interface CommitPlan {
   commits: PlannedCommit[];
 }
 
-export interface PreparedPullRequestSections {
-  summary: string;
-  changes: string[];
-  testPlan: string[];
-  traceability: string[];
-}
-
 export interface PlannedPrFinalizeOutput {
   status: 'planned';
   summary: string;
   commitPlan: CommitPlan;
-  pullRequest: PreparedPullRequestSections;
   followUps: string[];
 }
 

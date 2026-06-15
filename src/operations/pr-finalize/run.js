@@ -12,13 +12,20 @@ import {
   parseChildIssueBranchName,
   parseParentBranchName,
 } from '../branchNames.js';
-import { createSkippedCodexActionOutput } from '../codexAction.js';
+import {
+  createSkippedCodexActionOutput,
+  getCodexActionFiles,
+  readCodexActionOutput,
+  writeCodexActionPrompt,
+} from '../codexAction.js';
 import { readPullOpsPullRequestState } from '../pr-review/prBody.js';
+import { validatePrFinalizeOutput } from './output.js';
 import {
   updatePullRequestBodyForPrFinalize,
   updatePullRequestBodyForPrFinalizeFailure,
   updatePullRequestBodyForPrFinalizeReroute,
 } from './prBody.js';
+import { buildPrFinalizePrompt } from './prompt.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -29,6 +36,7 @@ import {
  * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
+ * @typedef {import('./output.types.js').PlannedCommit} PlannedCommit
  * @typedef {import('./run.types.js').PrFinalizePreparation} PrFinalizePreparation
  * @typedef {import('./run.types.js').PrFinalizeSource} PrFinalizeSource
  * @typedef {import('./run.types.js').PrFinalizeSourceKind} PrFinalizeSourceKind
@@ -49,18 +57,67 @@ export async function runPrFinalize(context) {
     return preparation.output;
   }
 
+  if (preparation.mode === 'planner') {
+    let rawOutput;
+
+    try {
+      rawOutput = await context.codexRunner.run({
+        cwd: context.cwd,
+        command: context.config.runner.command,
+        model: context.model,
+        prompt: preparation.prompt,
+      });
+    } catch (error) {
+      await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+      throw error;
+    }
+
+    return await completePrFinalizePlannerFallback(context, preparation, rawOutput);
+  }
+
   return await completePrFinalize(context, preparation);
 }
 
 /**
- * `pr-finalize` is deterministic. In a Codex Action workflow, the prepare
- * phase does the work and the runner step should be skipped by workflow glue.
+ * `pr-finalize` is deterministic unless ambiguous Parent Issue history needs
+ * the narrowed fallback planner. In a Codex Action workflow, prepare completes
+ * deterministic paths and writes a prompt only for that fallback.
  *
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeCodexActionPrepare(context) {
-  return await runPrFinalize(context);
+  const preparation = await preparePrFinalize(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  if (preparation.mode !== 'planner') {
+    return await completePrFinalize(context, preparation);
+  }
+
+  try {
+    await writeCodexActionPrompt(context, preparation.prompt);
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+    throw error;
+  }
+
+  const files = getCodexActionFiles(context);
+  return {
+    status: 'accepted',
+    summary: `Prepared Codex Action PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
+    pullRequest: {
+      number: preparation.pullRequest.number,
+      url: preparation.pullRequest.url,
+    },
+    codexAction: {
+      promptFile: files.promptFile,
+      outputFile: files.outputFile,
+      model: context.model,
+      branch: preparation.pullRequest.headRefName,
+    },
+  };
 }
 
 /**
@@ -72,7 +129,25 @@ export async function runPrFinalizeCodexActionFinalize(context) {
     return createSkippedCodexActionOutput(context);
   }
 
-  return await runPrFinalize(context);
+  const preparation = await preparePrFinalize(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  if (preparation.mode !== 'planner') {
+    return await completePrFinalize(context, preparation);
+  }
+
+  let rawOutput;
+
+  try {
+    rawOutput = await readCodexActionOutput(context);
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+    throw error;
+  }
+
+  return await completePrFinalizePlannerFallback(context, preparation, rawOutput);
 }
 
 /**
@@ -255,6 +330,26 @@ async function preparePrFinalize(context) {
   const commitPlan = await createPrFinalizeCommitPlan(context, pullRequest, source);
   if (!commitPlan.ready) {
     return commitPlan;
+  }
+
+  if (commitPlan.mode === 'planner') {
+    if (source.sourceKind !== 'parentIssue') {
+      throw new Error('PR Finalize planner fallback is only supported for Parent Issue PRs.');
+    }
+
+    return {
+      ready: true,
+      mode: 'planner',
+      pullRequest,
+      sourceKind: 'parentIssue',
+      sourceIssueNumber: source.sourceIssueNumber,
+      childIssues: source.childIssues,
+      baseBranch: source.baseBranch,
+      currentTreeHash,
+      reviewedTreeHash: state.reviewedTreeHash,
+      changedFiles: commitPlan.changedFiles,
+      prompt: commitPlan.prompt,
+    };
   }
 
   return {
@@ -465,6 +560,7 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
     sourceKind: 'parentIssue',
     sourceIssueNumber: sourceIssue.number,
     baseBranch,
+    parentIssue: sourceIssue,
     childIssues: sourceIssue.subIssues,
     closedChildIssues: sourceIssue.subIssues.filter(isClosedIssue),
   };
@@ -573,7 +669,8 @@ async function prepareChildIssueSource(
  * @param {PrFinalizeSource & { ready: true }} source
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
- *   | { ready: true; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
 async function createPrFinalizeCommitPlan(context, pullRequest, source) {
@@ -598,6 +695,7 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
 
   return {
     ready: true,
+    mode: 'rewrite',
     commits: [
       {
         message: createPrFinalizeCommitMessage(
@@ -616,7 +714,8 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
  * @param {PrFinalizeSource & { ready: true, sourceKind: 'parentIssue' }} source
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
- *   | { ready: true; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
 async function createParentIssueCommitPlan(context, pullRequest, source) {
@@ -638,6 +737,56 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
   });
 
   if (!analysis.valid) {
+    if (analysis.fallbackAllowed === true) {
+      if (!context.config.operations.prFinalize.aiHistoryCleanup) {
+        return {
+          ready: false,
+          output: await blockPullRequest(
+            context,
+            pullRequest,
+            [
+              analysis.reason,
+              'AI history cleanup fallback is disabled by PullOps config operations.prFinalize.aiHistoryCleanup=false.',
+            ].join(' '),
+          ),
+        };
+      }
+
+      const changedFiles = await readChangedFiles(context, pullRequest, {
+        baseBranch: source.baseBranch,
+      });
+      if (changedFiles.length === 0) {
+        return {
+          ready: false,
+          output: await refusePullRequest(
+            context,
+            pullRequest,
+            `Umbrella PRD PR #${pullRequest.number} has no changed files to finalize.`,
+            { updateBody: true },
+          ),
+        };
+      }
+
+      const reviewContext = await context.githubClient.getPullRequestReviewContext(
+        pullRequest.number,
+      );
+
+      return {
+        ready: true,
+        mode: 'planner',
+        changedFiles,
+        prompt: buildPrFinalizePrompt({
+          pullRequest,
+          parentIssue: source.parentIssue,
+          closedChildIssues: source.closedChildIssues,
+          ambiguousReason: analysis.reason,
+          commits: history,
+          reviewContext,
+          changedFiles,
+        }),
+      };
+    }
+
     return {
       ready: false,
       output: await blockPullRequest(context, pullRequest, analysis.reason),
@@ -658,6 +807,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
 
   return {
     ready: true,
+    mode: 'rewrite',
     commits: analysis.commits,
   };
 }
@@ -667,7 +817,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
  * @param {GitCommit[]} options.commits
  * @param {number} options.parentIssueNumber
  * @param {GitHubIssueReference[]} options.closedChildIssues
- * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string }}
+ * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string, fallbackAllowed?: boolean }}
  */
 function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssues }) {
   const closedChildNumbers = new Set(closedChildIssues.map(childIssue => childIssue.number));
@@ -708,6 +858,7 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
         `Umbrella PRD history contains commit ${commit.sha} that is not traceable to`,
         `a closed native Child Issue of PRD #${parentIssueNumber} or explicit PRD-level work.`,
       ].join(' '),
+      fallbackAllowed: true,
     };
   }
 
@@ -739,10 +890,140 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {PrFinalizePreparation & { ready: true, mode: 'planner' }} preparation
+ * @param {unknown} rawOutput
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function completePrFinalizePlannerFallback(context, preparation, rawOutput) {
+  const validatedOutput = validatePrFinalizeOutput(rawOutput);
+
+  if (!validatedOutput.valid) {
+    const reason = `Invalid PR Finalize Planner Output: ${validatedOutput.reason}`;
+    await recordPullRequestFailure(context, preparation.pullRequest, reason);
+    throw new Error(reason);
+  }
+
+  if (validatedOutput.value.status === 'blocked') {
+    await recordPullRequestFailure(
+      context,
+      preparation.pullRequest,
+      validatedOutput.value.failureReason,
+    );
+
+    return {
+      status: 'blocked',
+      summary: validatedOutput.value.summary,
+      pullRequest: {
+        number: preparation.pullRequest.number,
+        url: preparation.pullRequest.url,
+      },
+    };
+  }
+
+  const commitPlan = validatePlannerCommitPlan({
+    plannedCommits: validatedOutput.value.commitPlan.commits,
+    changedFiles: preparation.changedFiles,
+  });
+  if (!commitPlan.valid) {
+    const reason = `Invalid PR Finalize Planner Output: ${commitPlan.reason}`;
+    await recordPullRequestFailure(context, preparation.pullRequest, reason);
+    throw new Error(reason);
+  }
+
+  return await completePrFinalize(context, {
+    ready: true,
+    mode: 'rewrite',
+    pullRequest: preparation.pullRequest,
+    sourceKind: preparation.sourceKind,
+    sourceIssueNumber: preparation.sourceIssueNumber,
+    childIssues: preparation.childIssues,
+    baseBranch: preparation.baseBranch,
+    currentTreeHash: preparation.currentTreeHash,
+    reviewedTreeHash: preparation.reviewedTreeHash,
+    commitPlan: commitPlan.commits,
+  });
+}
+
+/**
+ * @param {object} options
+ * @param {PlannedCommit[]} options.plannedCommits
+ * @param {string[]} options.changedFiles
+ * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string }}
+ */
+function validatePlannerCommitPlan({ plannedCommits, changedFiles }) {
+  const expectedFiles = new Set(changedFiles);
+  const assignedFiles = new Set();
+  /** @type {PlannedRewriteCommit[]} */
+  const commits = [];
+
+  for (const [commitIndex, plannedCommit] of plannedCommits.entries()) {
+    for (const file of plannedCommit.files) {
+      if (!expectedFiles.has(file)) {
+        return invalidPlannerCommitPlan(
+          `commitPlan.commits[${commitIndex}].files contains unchanged file "${file}".`,
+        );
+      }
+
+      if (assignedFiles.has(file)) {
+        return invalidPlannerCommitPlan(
+          `commitPlan.commits[${commitIndex}].files assigns "${file}" more than once.`,
+        );
+      }
+
+      assignedFiles.add(file);
+    }
+
+    commits.push({
+      message: createPlannerCommitMessage(plannedCommit),
+      files: plannedCommit.files,
+    });
+  }
+
+  const missingFiles = changedFiles.filter(file => !assignedFiles.has(file));
+  if (missingFiles.length > 0) {
+    return invalidPlannerCommitPlan(
+      `commitPlan.commits must assign every changed file exactly once; missing ${missingFiles.join(
+        ', ',
+      )}.`,
+    );
+  }
+
+  return { valid: true, commits };
+}
+
+/**
+ * @param {PlannedCommit} commit
+ * @returns {string}
+ */
+function createPlannerCommitMessage(commit) {
+  const parts = [commit.header];
+
+  if (commit.body.length > 0) {
+    parts.push('', ...commit.body);
+  }
+
+  parts.push('', ...commit.footers);
+  return parts.join('\n');
+}
+
+/**
+ * @param {string} reason
+ * @returns {{ valid: false, reason: string }}
+ */
+function invalidPlannerCommitPlan(reason) {
+  return { valid: false, reason };
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @param {PrFinalizePreparation & { ready: true }} preparation
  * @returns {Promise<Record<string, unknown>>}
  */
 async function completePrFinalize(context, preparation) {
+  if (preparation.mode === 'planner') {
+    throw new Error('PR Finalize planner preparation must be completed with planner output.');
+  }
+
   if (preparation.mode === 'finalized') {
     return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
       sourceIssueNumber: preparation.sourceIssueNumber,

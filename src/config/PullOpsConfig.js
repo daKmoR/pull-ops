@@ -41,7 +41,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prFixCi: { modelTier: 'mid' },
     prUpdateBranch: { modelTier: 'low' },
     prResolveConflicts: { modelTier: 'high' },
-    prFinalize: { modelTier: 'high' },
+    prFinalize: { modelTier: 'high', aiHistoryCleanup: true },
     prCloseChildIssue: { modelTier: 'low' },
   },
 };
@@ -205,6 +205,18 @@ function validateOperationOverrides(userConfig) {
         )}. Received ${JSON.stringify(modelTier)}.`,
       );
     }
+
+    if (
+      operation === 'prFinalize' &&
+      settings.aiHistoryCleanup !== undefined &&
+      typeof settings.aiHistoryCleanup !== 'boolean'
+    ) {
+      throw new PullOpsConfigError(
+        `PullOps Config operations.prFinalize.aiHistoryCleanup must be a boolean. Received ${JSON.stringify(
+          settings.aiHistoryCleanup,
+        )}.`,
+      );
+    }
   }
 }
 
@@ -242,10 +254,7 @@ function mergeConfig(userConfig) {
     for (const operation of WORKFLOW_OPERATIONS) {
       const settings = userConfig.operations[operation.configKey];
       if (settings !== undefined) {
-        config.operations[operation.configKey] = {
-          ...config.operations[operation.configKey],
-          ...settings,
-        };
+        Object.assign(config.operations[operation.configKey], settings);
       }
     }
   }
