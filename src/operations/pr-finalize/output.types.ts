@@ -17,7 +17,7 @@ export interface PreparedPullRequestSections {
   traceability: string[];
 }
 
-export interface PlannedPrPrepareMergeOutput {
+export interface PlannedPrFinalizeOutput {
   status: 'planned';
   summary: string;
   commitPlan: CommitPlan;
@@ -25,14 +25,14 @@ export interface PlannedPrPrepareMergeOutput {
   followUps: string[];
 }
 
-export interface BlockedPrPrepareMergeOutput {
+export interface BlockedPrFinalizeOutput {
   status: 'blocked';
   summary: string;
   failureReason: string;
 }
 
-export type PrPrepareMergeOutput = PlannedPrPrepareMergeOutput | BlockedPrPrepareMergeOutput;
+export type PrFinalizeOutput = PlannedPrFinalizeOutput | BlockedPrFinalizeOutput;
 
-export type PrPrepareMergeOutputValidationResult =
-  | { valid: true; value: PrPrepareMergeOutput }
+export type PrFinalizeOutputValidationResult =
+  | { valid: true; value: PrFinalizeOutput }
   | { valid: false; reason: string };

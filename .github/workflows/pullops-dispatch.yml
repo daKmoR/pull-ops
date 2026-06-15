@@ -83,7 +83,7 @@ jobs:
         github.event.label.name == 'pullops:pr:review' ||
         github.event.label.name == 'pullops:pr:address-review' ||
         github.event.label.name == 'pullops:pr:fix-ci' ||
-        github.event.label.name == 'pullops:pr:prepare-merge'
+        github.event.label.name == 'pullops:pr:finalize'
       ) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -122,7 +122,7 @@ jobs:
               'pullops:pr:review': 'pullops-pr-review.yml',
               'pullops:pr:address-review': 'pullops-pr-address-review.yml',
               'pullops:pr:fix-ci': 'pullops-pr-fix-ci.yml',
-              'pullops:pr:prepare-merge': 'pullops-pr-prepare-merge.yml',
+              'pullops:pr:finalize': 'pullops-pr-finalize.yml',
             };
             const workflow_id = workflows[process.env.LABEL];
             if (workflow_id === undefined) {

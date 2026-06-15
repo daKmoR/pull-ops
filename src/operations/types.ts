@@ -11,7 +11,7 @@ export type WorkflowOperationConfigKey =
   | 'prFixCi'
   | 'prUpdateBranch'
   | 'prResolveConflicts'
-  | 'prPrepareMerge'
+  | 'prFinalize'
   | 'prCloseChildIssue';
 
 export interface WorkflowOperation {

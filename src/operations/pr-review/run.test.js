@@ -123,7 +123,7 @@ describe('runPrReview', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:pr:prepare-merge'],
+        labels: ['pullops:pr:finalize'],
       },
     ]);
     const review = /** @type {{
@@ -149,8 +149,8 @@ describe('runPrReview', () => {
       body: [
         createPullRequest().body,
         'Reviewed tree: stale-reviewed-tree',
-        'Prepared tree: stale-prepared-tree',
-        'Prepared head: stale-prepared-head',
+        'Finalized tree: stale-finalized-tree',
+        'Finalized head: stale-finalized-head',
         'Merge method: rebase',
       ].join('\n'),
     });
@@ -194,8 +194,8 @@ describe('runPrReview', () => {
     assert.equal(github.publishedReviews[0].event, 'COMMENT');
     assert.match(github.updatedBodies[0].body, /Status: Changes requested/);
     assert.doesNotMatch(github.updatedBodies[0].body, /Reviewed tree:/);
-    assert.doesNotMatch(github.updatedBodies[0].body, /Prepared tree:/);
-    assert.doesNotMatch(github.updatedBodies[0].body, /Prepared head:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized head:/);
     assert.doesNotMatch(github.updatedBodies[0].body, /Merge method:/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
@@ -492,7 +492,7 @@ describe('runPrReview', () => {
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
 
-  it('11: marks the PR done when final review approves after pr-prepare-merge', async () => {
+  it('11: marks the PR done when final review approves after pr-finalize', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         body: [
@@ -507,7 +507,7 @@ describe('runPrReview', () => {
           'Review cycles: 2 / 3',
           'Source: Issue #42',
           'Branch: pullops/issue-42',
-          'Last operation: pullops:pr:prepare-merge',
+          'Last operation: pullops:pr:finalize',
         ].join('\n'),
       }),
       reviewContext: createReviewContext(),

@@ -65,7 +65,7 @@ A named runner capability tier, such as high, mid, or low, that operations selec
 _Avoid_: Model override, model preset
 
 **PullOps Operation**:
-A label-requested unit of issue or pull request work, such as preparing a PRD Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or preparing a PR for merge.
+A label-requested unit of issue or pull request work, such as preparing a PRD Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or finalizing a PR before merge.
 _Avoid_: Job, workflow, task
 
 **Operation Name**:
@@ -168,7 +168,7 @@ _Avoid_: Sync, refresh branch
 The PullOps Operation that uses the AI runner to resolve merge conflicts between a PR branch and its base branch.
 _Avoid_: Update branch with conflicts, merge fix
 
-**Prepare Merge**:
+**PR Finalize**:
 The PullOps Operation that cleans up a PullOps-Managed PR's commit history and PR description before human review and merge.
 _Avoid_: Auto-merge, merge preflight
 
@@ -177,7 +177,7 @@ The final commit history shape for a PR: one commit for the main issue by defaul
 _Avoid_: Squash, cleanup commits
 
 **Commit Plan**:
-The structured `pr-prepare-merge` output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
+The structured `pr-finalize` output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
 _Avoid_: Rebase script, squash plan
 
 **Child Issue Commit**:

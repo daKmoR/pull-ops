@@ -15,9 +15,9 @@ import {
 import { createSkippedCodexActionOutput } from '../codexAction.js';
 import { readPullOpsPullRequestState } from '../pr-review/prBody.js';
 import {
-  updatePullRequestBodyForPrPrepareMerge,
-  updatePullRequestBodyForPrPrepareMergeFailure,
-  updatePullRequestBodyForPrPrepareMergeReroute,
+  updatePullRequestBodyForPrFinalize,
+  updatePullRequestBodyForPrFinalizeFailure,
+  updatePullRequestBodyForPrFinalizeReroute,
 } from './prBody.js';
 
 /**
@@ -26,9 +26,9 @@ import {
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
- * @typedef {import('./run.types.js').PrPrepareMergePreparation} PrPrepareMergePreparation
- * @typedef {import('./run.types.js').PrPrepareMergeSource} PrPrepareMergeSource
- * @typedef {import('./run.types.js').PrPrepareMergeSourceKind} PrPrepareMergeSourceKind
+ * @typedef {import('./run.types.js').PrFinalizePreparation} PrFinalizePreparation
+ * @typedef {import('./run.types.js').PrFinalizeSource} PrFinalizeSource
+ * @typedef {import('./run.types.js').PrFinalizeSourceKind} PrFinalizeSourceKind
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {
@@ -40,43 +40,43 @@ export const GITHUB_ACTIONS_BOT_AUTHOR = {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrPrepareMerge(context) {
-  const preparation = await preparePrPrepareMerge(context);
+export async function runPrFinalize(context) {
+  const preparation = await preparePrFinalize(context);
   if (!preparation.ready) {
     return preparation.output;
   }
 
-  return await completePrPrepareMerge(context, preparation);
+  return await completePrFinalize(context, preparation);
 }
 
 /**
- * `pr-prepare-merge` is deterministic. In a Codex Action workflow, the prepare
+ * `pr-finalize` is deterministic. In a Codex Action workflow, the prepare
  * phase does the work and the runner step should be skipped by workflow glue.
  *
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrPrepareMergeCodexActionPrepare(context) {
-  return await runPrPrepareMerge(context);
+export async function runPrFinalizeCodexActionPrepare(context) {
+  return await runPrFinalize(context);
 }
 
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrPrepareMergeCodexActionFinalize(context) {
+export async function runPrFinalizeCodexActionFinalize(context) {
   if (context.runnerRan === false) {
     return createSkippedCodexActionOutput(context);
   }
 
-  return await runPrPrepareMerge(context);
+  return await runPrFinalize(context);
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @returns {Promise<PrPrepareMergePreparation>}
+ * @returns {Promise<PrFinalizePreparation>}
  */
-async function preparePrPrepareMerge(context) {
+async function preparePrFinalize(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
@@ -88,7 +88,7 @@ async function preparePrPrepareMerge(context) {
       output: await refusePullRequest(
         context,
         pullRequest,
-        `PullOps v1 only prepares same-repository PRs for merge. PR #${pullRequest.number} comes from a fork.`,
+        `PullOps v1 only finalizes same-repository PRs for merge. PR #${pullRequest.number} comes from a fork.`,
         { updateBody: state.managed },
       ),
     };
@@ -131,7 +131,7 @@ async function preparePrPrepareMerge(context) {
   }
 
   const baseBranch = pullRequest.baseRefName ?? context.config.baseBranch;
-  const source = await preparePrPrepareMergeSource(context, pullRequest, {
+  const source = await preparePrFinalizeSource(context, pullRequest, {
     baseBranch,
     sourceIssueNumber: state.sourceIssueNumber,
     sourceKind: state.sourceKind,
@@ -143,13 +143,13 @@ async function preparePrPrepareMerge(context) {
   const currentTreeHash = await readCurrentTreeHash(context, pullRequest);
   const currentHeadSha = await readCurrentHeadSha(context, pullRequest);
 
-  if (state.preparedTreeHash !== undefined && state.preparedHeadSha !== undefined) {
-    if (currentTreeHash !== state.preparedTreeHash) {
+  if (state.finalizedTreeHash !== undefined && state.finalizedHeadSha !== undefined) {
+    if (currentTreeHash !== state.finalizedTreeHash) {
       return {
         ready: false,
         output: await routeOrBlockChangedTree(context, pullRequest, {
           currentTreeHash,
-          expectedTreeHash: state.preparedTreeHash,
+          expectedTreeHash: state.finalizedTreeHash,
           reviewCycle: state.reviewCycles.current,
           maxReviewCycles: state.reviewCycles.max,
         }),
@@ -158,7 +158,7 @@ async function preparePrPrepareMerge(context) {
 
     return {
       ready: true,
-      mode: 'prepared',
+      mode: 'finalized',
       pullRequest,
       sourceKind: source.sourceKind,
       sourceIssueNumber: source.sourceIssueNumber,
@@ -167,8 +167,8 @@ async function preparePrPrepareMerge(context) {
         : {}),
       baseBranch: source.baseBranch,
       currentTreeHash,
-      preparedTreeHash: state.preparedTreeHash,
-      preparedHeadSha: currentHeadSha,
+      finalizedTreeHash: state.finalizedTreeHash,
+      finalizedHeadSha: currentHeadSha,
     };
   }
 
@@ -254,7 +254,7 @@ async function preparePrPrepareMerge(context) {
       output: await refusePullRequest(
         context,
         pullRequest,
-        `PR #${pullRequest.number} has no changed files to prepare for merge.`,
+        `PR #${pullRequest.number} has no changed files to finalize.`,
         { updateBody: true },
       ),
     };
@@ -281,9 +281,9 @@ async function preparePrPrepareMerge(context) {
  * @param {string} options.baseBranch
  * @param {number} options.sourceIssueNumber
  * @param {'issue' | 'parentIssue'} options.sourceKind
- * @returns {Promise<PrPrepareMergeSource>}
+ * @returns {Promise<PrFinalizeSource>}
  */
-async function preparePrPrepareMergeSource(
+async function preparePrFinalizeSource(
   context,
   pullRequest,
   { baseBranch, sourceIssueNumber, sourceKind },
@@ -295,7 +295,7 @@ async function preparePrPrepareMergeSource(
         context,
         pullRequest,
         [
-          `PR #${pullRequest.number} is not a Concrete Issue PR that Prepare Merge can rewrite.`,
+          `PR #${pullRequest.number} is not a Concrete Issue PR that PR Finalize can rewrite.`,
           `Source kind: ${sourceKind}; base branch: ${baseBranch}.`,
         ].join(' '),
         { updateBody: true },
@@ -384,7 +384,7 @@ async function preparePrPrepareMergeSource(
  * @param {{ parentNumber: number, issueNumber: number } | undefined} options.childBranch
  * @param {number} options.nativeParentIssueNumber
  * @param {GitHubIssue} options.sourceIssue
- * @returns {Promise<PrPrepareMergeSource>}
+ * @returns {Promise<PrFinalizeSource>}
  */
 async function prepareChildIssueSource(
   context,
@@ -475,16 +475,16 @@ async function prepareChildIssueSource(
 
 /**
  * @param {OperationRunnerContext} context
- * @param {PrPrepareMergePreparation & { ready: true }} preparation
+ * @param {PrFinalizePreparation & { ready: true }} preparation
  * @returns {Promise<Record<string, unknown>>}
  */
-async function completePrPrepareMerge(context, preparation) {
-  if (preparation.mode === 'prepared') {
-    return await completePreparedHeadChecks(context, preparation.pullRequest, {
+async function completePrFinalize(context, preparation) {
+  if (preparation.mode === 'finalized') {
+    return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
       sourceIssueNumber: preparation.sourceIssueNumber,
       parentIssueNumber: preparation.parentIssueNumber,
-      preparedTreeHash: preparation.preparedTreeHash,
-      preparedHeadSha: preparation.preparedHeadSha,
+      finalizedTreeHash: preparation.finalizedTreeHash,
+      finalizedHeadSha: preparation.finalizedHeadSha,
       body: preparation.pullRequest.body,
     });
   }
@@ -494,7 +494,7 @@ async function completePrPrepareMerge(context, preparation) {
     branchName: preparation.pullRequest.headRefName,
     commits: [
       {
-        message: createPrPrepareMergeCommitMessage(
+        message: createPrFinalizeCommitMessage(
           preparation.sourceIssueNumber,
           preparation.parentIssueNumber,
         ),
@@ -506,31 +506,31 @@ async function completePrPrepareMerge(context, preparation) {
 
   if (rewriteResult.treeHash !== preparation.reviewedTreeHash) {
     const reason = [
-      `Prepared tree ${rewriteResult.treeHash} did not match reviewed tree`,
+      `Finalized tree ${rewriteResult.treeHash} did not match reviewed tree`,
       `${preparation.reviewedTreeHash} for PR #${preparation.pullRequest.number}.`,
     ].join(' ');
     await recordPullRequestFailure(context, preparation.pullRequest, reason);
     throw new Error(reason);
   }
 
-  const preparedBody = updatePullRequestBodyForPrPrepareMerge({
+  const finalizedBody = updatePullRequestBodyForPrFinalize({
     body: preparation.pullRequest.body,
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
-    preparedTreeHash: rewriteResult.treeHash,
-    preparedHeadSha: rewriteResult.headSha,
+    finalizedTreeHash: rewriteResult.treeHash,
+    finalizedHeadSha: rewriteResult.headSha,
   });
   await context.githubClient.updatePullRequestBody({
     number: preparation.pullRequest.number,
-    body: preparedBody,
+    body: finalizedBody,
   });
 
-  return await completePreparedHeadChecks(context, preparation.pullRequest, {
+  return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
-    preparedTreeHash: rewriteResult.treeHash,
-    preparedHeadSha: rewriteResult.headSha,
-    body: preparedBody,
+    finalizedTreeHash: rewriteResult.treeHash,
+    finalizedHeadSha: rewriteResult.headSha,
+    body: finalizedBody,
   });
 }
 
@@ -539,12 +539,12 @@ async function completePrPrepareMerge(context, preparation) {
  * @param {number | undefined} parentIssueNumber
  * @returns {string}
  */
-export function createPrPrepareMergeCommitMessage(sourceIssueNumber, parentIssueNumber) {
+export function createPrFinalizeCommitMessage(sourceIssueNumber, parentIssueNumber) {
   if (parentIssueNumber !== undefined) {
     return [
       `feat(issue): implement #${sourceIssueNumber}`,
       '',
-      `Prepare Child Issue #${sourceIssueNumber} for rebase merge into PRD #${parentIssueNumber}.`,
+      `Finalize Child Issue #${sourceIssueNumber} for rebase merge into PRD #${parentIssueNumber}.`,
       '',
       `Refs: #${sourceIssueNumber}`,
       `PRD: #${parentIssueNumber}`,
@@ -554,7 +554,7 @@ export function createPrPrepareMergeCommitMessage(sourceIssueNumber, parentIssue
   return [
     `feat(issue): implement #${sourceIssueNumber}`,
     '',
-    `Prepare standalone Concrete Issue #${sourceIssueNumber} for rebase merge.`,
+    `Finalize standalone Concrete Issue #${sourceIssueNumber} for rebase merge.`,
     '',
     `Closes #${sourceIssueNumber}`,
   ].join('\n');
@@ -566,23 +566,23 @@ export function createPrPrepareMergeCommitMessage(sourceIssueNumber, parentIssue
  * @param {object} options
  * @param {number} options.sourceIssueNumber
  * @param {number | undefined} options.parentIssueNumber
- * @param {string} options.preparedTreeHash
- * @param {string} options.preparedHeadSha
+ * @param {string} options.finalizedTreeHash
+ * @param {string} options.finalizedHeadSha
  * @param {string} options.body
  * @returns {Promise<Record<string, unknown>>}
  */
-async function completePreparedHeadChecks(
+async function completeFinalizedHeadChecks(
   context,
   pullRequest,
-  { sourceIssueNumber, parentIssueNumber, preparedTreeHash, preparedHeadSha, body },
+  { sourceIssueNumber, parentIssueNumber, finalizedTreeHash, finalizedHeadSha, body },
 ) {
-  const checks = await context.githubClient.getPullRequestChecksForRef(preparedHeadSha);
+  const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyChecks(checks);
 
   if (checkState === 'absent' || checkState === 'pending') {
     return waitForChecks(pullRequest, {
-      checkedRef: preparedHeadSha,
-      stage: 'prepared-head',
+      checkedRef: finalizedHeadSha,
+      stage: 'finalized-head',
       checks,
     });
   }
@@ -591,18 +591,18 @@ async function completePreparedHeadChecks(
     return await routePullRequestToPrFixCi(
       context,
       pullRequest,
-      `Prepared-head checks failed for PR #${pullRequest.number} at ${preparedHeadSha}.`,
+      `Finalized-head checks failed for PR #${pullRequest.number} at ${finalizedHeadSha}.`,
     );
   }
 
   await context.githubClient.updatePullRequestBody({
     number: pullRequest.number,
-    body: updatePullRequestBodyForPrPrepareMerge({
+    body: updatePullRequestBodyForPrFinalize({
       body,
       sourceIssueNumber,
       parentIssueNumber,
-      preparedTreeHash,
-      preparedHeadSha,
+      finalizedTreeHash,
+      finalizedHeadSha,
       status: 'ready',
     }),
   });
@@ -613,20 +613,20 @@ async function completePreparedHeadChecks(
 
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
   });
 
   return {
     status: 'accepted',
-    summary: `Prepared PullOps-managed PR #${pullRequest.number} for human rebase merge.`,
+    summary: `Finalized PullOps-managed PR #${pullRequest.number} for human rebase merge.`,
     pullRequest: {
       number: pullRequest.number,
       url: pullRequest.url,
     },
-    prPrepareMerge: {
+    prFinalize: {
       commits: 1,
-      preparedTree: preparedTreeHash,
-      preparedHead: preparedHeadSha,
+      finalizedTree: finalizedTreeHash,
+      finalizedHead: finalizedHeadSha,
       mergeMethod: 'rebase',
       readyForReview: true,
     },
@@ -818,7 +818,7 @@ function compareReviews(left, right) {
 
 /**
  * @param {GitHubPullRequest} pullRequest
- * @param {{ checkedRef: string, stage: 'reviewed-head' | 'prepared-head', checks: GitHubCheckRun[] }} options
+ * @param {{ checkedRef: string, stage: 'reviewed-head' | 'finalized-head', checks: GitHubCheckRun[] }} options
  * @returns {Record<string, unknown>}
  */
 function waitForChecks(pullRequest, { checkedRef, stage, checks }) {
@@ -829,7 +829,7 @@ function waitForChecks(pullRequest, { checkedRef, stage, checks }) {
       number: pullRequest.number,
       url: pullRequest.url,
     },
-    prPrepareMerge: {
+    prFinalize: {
       waiting: true,
       stage,
       checkedRef,
@@ -875,13 +875,13 @@ async function routePullRequestToReview(context, pullRequest, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.updatePullRequestBody({
     number: pullRequest.number,
-    body: updatePullRequestBodyForPrPrepareMergeReroute({
+    body: updatePullRequestBodyForPrFinalizeReroute({
       body: pullRequest.body,
     }),
   });
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
   });
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
@@ -890,7 +890,7 @@ async function routePullRequestToReview(context, pullRequest, reason) {
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,
     body: [
-      'PullOps routed `pullops run pr-prepare-merge` back to review.',
+      'PullOps routed `pullops run pr-finalize` back to review.',
       '',
       `Reason: ${reason}`,
     ].join('\n'),
@@ -903,7 +903,7 @@ async function routePullRequestToReview(context, pullRequest, reason) {
       number: pullRequest.number,
       url: pullRequest.url,
     },
-    prPrepareMerge: {
+    prFinalize: {
       routedTo: PULL_OPS_OPERATION_LABELS.prReview,
       reason,
     },
@@ -920,7 +920,7 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
   });
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
@@ -928,11 +928,9 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
   });
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,
-    body: [
-      'PullOps routed `pullops run pr-prepare-merge` to CI repair.',
-      '',
-      `Reason: ${reason}`,
-    ].join('\n'),
+    body: ['PullOps routed `pullops run pr-finalize` to CI repair.', '', `Reason: ${reason}`].join(
+      '\n',
+    ),
   });
 
   return {
@@ -942,7 +940,7 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
       number: pullRequest.number,
       url: pullRequest.url,
     },
-    prPrepareMerge: {
+    prFinalize: {
       routedTo: PULL_OPS_OPERATION_LABELS.prFixCi,
       reason,
     },
@@ -1001,7 +999,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
   if (updateBody) {
     await context.githubClient.updatePullRequestBody({
       number: pullRequest.number,
-      body: updatePullRequestBodyForPrPrepareMergeFailure({
+      body: updatePullRequestBodyForPrFinalizeFailure({
         body: pullRequest.body,
       }),
     });
@@ -1014,7 +1012,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
     labels: [
-      PULL_OPS_OPERATION_LABELS.prPrepareMerge,
+      PULL_OPS_OPERATION_LABELS.prFinalize,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.failed,
       PULL_OPS_STATUS_LABELS.prepared,
@@ -1023,11 +1021,9 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
   });
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,
-    body: [
-      'PullOps could not complete `pullops run pr-prepare-merge`.',
-      '',
-      `Reason: ${reason}`,
-    ].join('\n'),
+    body: ['PullOps could not complete `pullops run pr-finalize`.', '', `Reason: ${reason}`].join(
+      '\n',
+    ),
   });
 }
 
@@ -1066,7 +1062,7 @@ function hasPullOpsBranchPrefix(branchName, branchPrefix) {
  */
 function assertPullRequestTarget(context) {
   if (context.target.type !== 'pr') {
-    throw new Error('pr-prepare-merge requires a pull request target.');
+    throw new Error('pr-finalize requires a pull request target.');
   }
 }
 

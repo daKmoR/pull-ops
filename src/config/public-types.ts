@@ -23,7 +23,7 @@ export interface PullOpsConfig {
     prFixCi: OperationConfig;
     prUpdateBranch: OperationConfig;
     prResolveConflicts: OperationConfig;
-    prPrepareMerge: OperationConfig;
+    prFinalize: OperationConfig;
     prCloseChildIssue: OperationConfig;
   };
 }

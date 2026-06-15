@@ -41,7 +41,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prFixCi: { modelTier: 'mid' },
     prUpdateBranch: { modelTier: 'low' },
     prResolveConflicts: { modelTier: 'high' },
-    prPrepareMerge: { modelTier: 'high' },
+    prFinalize: { modelTier: 'high' },
     prCloseChildIssue: { modelTier: 'low' },
   },
 };

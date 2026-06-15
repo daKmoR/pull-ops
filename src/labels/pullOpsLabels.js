@@ -11,7 +11,7 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prFixCi: 'pullops:pr:fix-ci',
   prUpdateBranch: 'pullops:pr:update-branch',
   prResolveConflicts: 'pullops:pr:resolve-conflicts',
-  prPrepareMerge: 'pullops:pr:prepare-merge',
+  prFinalize: 'pullops:pr:finalize',
 });
 
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
@@ -37,7 +37,7 @@ export const PULL_OPS_PR_OPERATION_LABELS = Object.freeze([
   PULL_OPS_OPERATION_LABELS.prFixCi,
   PULL_OPS_OPERATION_LABELS.prUpdateBranch,
   PULL_OPS_OPERATION_LABELS.prResolveConflicts,
-  PULL_OPS_OPERATION_LABELS.prPrepareMerge,
+  PULL_OPS_OPERATION_LABELS.prFinalize,
 ]);
 
 export const PULL_OPS_OPERATION_LABEL_NAMES = Object.freeze([
@@ -91,9 +91,9 @@ export const PULL_OPS_LABELS = [
     description: 'Resolve branch update conflicts with the PullOps runner.',
   },
   {
-    name: PULL_OPS_OPERATION_LABELS.prPrepareMerge,
+    name: PULL_OPS_OPERATION_LABELS.prFinalize,
     color: '5319E7',
-    description: 'Prepare a PullOps-managed PR for human review and merge.',
+    description: 'Finalize a PullOps-managed PR for human review and merge.',
   },
   {
     name: PULL_OPS_STATUS_LABELS.inProgress,

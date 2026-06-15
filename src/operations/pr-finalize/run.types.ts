@@ -1,8 +1,8 @@
 import type { GitHubPullRequest } from '../../github/types.js';
 
-export type PrPrepareMergeSourceKind = 'standalone' | 'childIssue';
+export type PrFinalizeSourceKind = 'standalone' | 'childIssue';
 
-export type PrPrepareMergeSource =
+export type PrFinalizeSource =
   | {
       ready: false;
       output: Record<string, unknown>;
@@ -21,13 +21,13 @@ export type PrPrepareMergeSource =
       baseBranch: string;
     };
 
-export type PrPrepareMergePreparation =
+export type PrFinalizePreparation =
   | { ready: false; output: Record<string, unknown> }
   | {
       ready: true;
       mode: 'rewrite';
       pullRequest: GitHubPullRequest;
-      sourceKind: PrPrepareMergeSourceKind;
+      sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
       baseBranch: string;
@@ -37,13 +37,13 @@ export type PrPrepareMergePreparation =
     }
   | {
       ready: true;
-      mode: 'prepared';
+      mode: 'finalized';
       pullRequest: GitHubPullRequest;
-      sourceKind: PrPrepareMergeSourceKind;
+      sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
       baseBranch: string;
       currentTreeHash: string;
-      preparedTreeHash: string;
-      preparedHeadSha: string;
+      finalizedTreeHash: string;
+      finalizedHeadSha: string;
     };

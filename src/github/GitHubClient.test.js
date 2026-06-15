@@ -38,9 +38,9 @@ describe('createGitHubClient', () => {
           'Resolve branch update conflicts with the PullOps runner.',
         ],
         [
-          'pullops:pr:prepare-merge',
+          'pullops:pr:finalize',
           '5319E7',
-          'Prepare a PullOps-managed PR for human review and merge.',
+          'Finalize a PullOps-managed PR for human review and merge.',
         ],
         ['pullops:status:in-progress', 'FBCA04', 'PullOps automation is currently working.'],
         [

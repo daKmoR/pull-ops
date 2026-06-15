@@ -15,7 +15,7 @@
  * @param {string[]} options.changedFiles
  * @returns {string}
  */
-export function buildPrPrepareMergePrompt({
+export function buildPrFinalizePrompt({
   pullRequest,
   issue,
   sourceKind,
@@ -24,9 +24,9 @@ export function buildPrPrepareMergePrompt({
   changedFiles,
 }) {
   return [
-    'Use the pullops-pr-prepare-merge skill.',
+    'Use the pullops-pr-finalize skill.',
     '',
-    `Prepare merge for PR #${pullRequest.number}: ${pullRequest.title}`,
+    `Finalize PR #${pullRequest.number}: ${pullRequest.title}`,
     '',
     'Linked source context:',
     formatIssue(issue, sourceKind),
@@ -50,13 +50,13 @@ export function buildPrPrepareMergePrompt({
     '- Commit footers must include traceability. Use Refs: #<issue> footers for the concrete work and PRD: #<parent> when applicable.',
     '- Concrete Issue PRs default to one logical commit. If more than one commit is necessary, include commitPlan.justification.',
     '- Parent Issue PRs default to one Child Issue Commit per merged Child Issue PR.',
-    '- Prepare Merge is history cleanup and PR summary cleanup only. Never merge the PR.',
+    '- PR Finalize is history cleanup and PR summary cleanup only. Never merge the PR.',
     '',
     'Final response must be only JSON in this shape:',
     JSON.stringify(
       {
         status: 'planned',
-        summary: 'One sentence summary of the prepared merge plan.',
+        summary: 'One sentence summary of the PR finalization plan.',
         commitPlan: {
           justification: 'Required only when a Concrete Issue PR needs multiple commits.',
           commits: [

@@ -126,11 +126,11 @@ describe('createGitClient', () => {
  */
 function stdoutFor(args) {
   if (args[0] === 'rev-parse' && args[1] === 'HEAD^{tree}') {
-    return 'prepared-tree\n';
+    return 'rewritten-tree\n';
   }
 
   if (args[0] === 'rev-parse') {
-    return 'prepared-head\n';
+    return 'rewritten-head\n';
   }
 
   return '';

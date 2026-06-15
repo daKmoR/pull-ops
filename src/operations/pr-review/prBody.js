@@ -26,8 +26,8 @@ export function readPullOpsPullRequestState(body) {
         }),
     lastOperation: readLastOperation(body),
     reviewedTreeHash: readMarker(body, 'Reviewed tree:'),
-    preparedTreeHash: readMarker(body, 'Prepared tree:'),
-    preparedHeadSha: readMarker(body, 'Prepared head:'),
+    finalizedTreeHash: readMarker(body, 'Finalized tree:'),
+    finalizedHeadSha: readMarker(body, 'Finalized head:'),
     mergeMethod: readMarker(body, 'Merge method:'),
     reviewCycles: readReviewCycles(body),
     ciFixCycles: readCiFixCycles(body),
@@ -242,7 +242,7 @@ function upsertLine(body, prefix, value) {
  */
 function removeMergePreparationMarkers(body) {
   let updated = body;
-  for (const prefix of ['Reviewed tree:', 'Prepared tree:', 'Prepared head:', 'Merge method:']) {
+  for (const prefix of ['Reviewed tree:', 'Finalized tree:', 'Finalized head:', 'Merge method:']) {
     updated = removeLine(updated, prefix);
   }
   return updated.trimEnd();

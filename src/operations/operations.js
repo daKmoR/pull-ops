@@ -17,10 +17,10 @@ import {
 } from './issue-implement/run.js';
 import { runPrdPrepare } from './prd-prepare/run.js';
 import {
-  runPrPrepareMerge,
-  runPrPrepareMergeCodexActionFinalize,
-  runPrPrepareMergeCodexActionPrepare,
-} from './pr-prepare-merge/run.js';
+  runPrFinalize,
+  runPrFinalizeCodexActionFinalize,
+  runPrFinalizeCodexActionPrepare,
+} from './pr-finalize/run.js';
 import {
   runPrReview,
   runPrReviewCodexActionFinalize,
@@ -87,10 +87,10 @@ export const WORKFLOW_OPERATIONS = [
   },
   // PR merge / bookkeeping
   {
-    name: 'pr-prepare-merge',
+    name: 'pr-finalize',
     target: 'pr',
     option: 'pr',
-    configKey: 'prPrepareMerge',
+    configKey: 'prFinalize',
   },
   {
     name: 'pr-close-child-issue',
@@ -159,11 +159,11 @@ export async function runWorkflowOperation(context) {
     });
   }
 
-  if (context.operation === 'pr-prepare-merge') {
+  if (context.operation === 'pr-finalize') {
     return await runCodexBackedOperation(context, {
-      run: runPrPrepareMerge,
-      prepare: runPrPrepareMergeCodexActionPrepare,
-      finalize: runPrPrepareMergeCodexActionFinalize,
+      run: runPrFinalize,
+      prepare: runPrFinalizeCodexActionPrepare,
+      finalize: runPrFinalizeCodexActionFinalize,
     });
   }
 

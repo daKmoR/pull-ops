@@ -50,7 +50,7 @@
     "pullops:pr-review": "node src/cli/cli.js run pr-review",
     "pullops:pr-address-review": "node src/cli/cli.js run pr-address-review",
     "pullops:pr-fix-ci": "node src/cli/cli.js run pr-fix-ci",
-    "pullops:pr-prepare-merge": "node src/cli/cli.js run pr-prepare-merge",
+    "pullops:pr-finalize": "node src/cli/cli.js run pr-finalize",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",

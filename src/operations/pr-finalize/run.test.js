@@ -12,7 +12,7 @@ import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_STATUS_LABEL_NAMES,
 } from '../../labels/pullOpsLabels.js';
-import { runPrPrepareMerge } from './run.js';
+import { runPrFinalize } from './run.js';
 
 const execFile = promisify(nodeExecFile);
 
@@ -29,8 +29,8 @@ const execFile = promisify(nodeExecFile);
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
  */
 
-describe('runPrPrepareMerge', () => {
-  it('01: rewrites a standalone Concrete Issue PR once, records prepared markers, waits, and then marks it ready', async () => {
+describe('runPrFinalize', () => {
+  it('01: rewrites a standalone Concrete Issue PR once, records finalized markers, waits, and then marks it ready', async () => {
     const repository = await createTemporaryRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -42,7 +42,7 @@ describe('runPrPrepareMerge', () => {
       reviewContext: createReviewContext({
         comments: [
           {
-            body: 'A regular PR-level comment must not block prepare merge.',
+            body: 'A regular PR-level comment must not block PR finalize.',
             authorLogin: 'maintainer',
           },
         ],
@@ -50,7 +50,7 @@ describe('runPrPrepareMerge', () => {
       checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
     });
 
-    const firstResult = await runPrPrepareMerge(
+    const firstResult = await runPrFinalize(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
@@ -59,10 +59,10 @@ describe('runPrPrepareMerge', () => {
     );
 
     assert.equal(firstResult.status, 'accepted');
-    assert.deepEqual(firstResult.prPrepareMerge, {
+    assert.deepEqual(firstResult.prFinalize, {
       waiting: true,
-      stage: 'prepared-head',
-      checkedRef: readMarker(github.updatedBodies[0].body, 'Prepared head:'),
+      stage: 'finalized-head',
+      checkedRef: readMarker(github.updatedBodies[0].body, 'Finalized head:'),
       checks: 0,
     });
     assert.equal(await countCommitsSinceBase(repository.workDir), 1);
@@ -71,31 +71,31 @@ describe('runPrPrepareMerge', () => {
       [
         'feat(issue): implement #42',
         '',
-        'Prepare standalone Concrete Issue #42 for rebase merge.',
+        'Finalize standalone Concrete Issue #42 for rebase merge.',
         '',
         'Closes #42',
       ].join('\n'),
     ]);
 
-    const preparedBody = github.updatedBodies[0].body;
-    const preparedHead = readMarker(preparedBody, 'Prepared head:');
-    assert.equal(readMarker(preparedBody, 'Prepared tree:'), reviewedTree);
-    assert.equal(readMarker(preparedBody, 'Merge method:'), 'rebase');
-    assert.match(preparedBody, /Status: Prepared for rebase merge/);
-    assert.match(preparedBody, /Closes #42/);
+    const finalizedBody = github.updatedBodies[0].body;
+    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
+    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
+    assert.equal(readMarker(finalizedBody, 'Merge method:'), 'rebase');
+    assert.match(finalizedBody, /Status: Finalized for rebase merge/);
+    assert.match(finalizedBody, /Closes #42/);
     assert.equal(github.readyPullRequests.length, 0);
     assert.equal(github.comments.length, 0);
     assert.equal(github.pullRequestLabelsRemoved.length, 0);
 
     github.setPullRequest(
       createPullRequest({
-        headSha: preparedHead,
-        body: preparedBody,
+        headSha: finalizedHead,
+        body: finalizedBody,
       }),
     );
-    github.setChecksForRef(preparedHead, [createCheck({ name: 'test' })]);
+    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
 
-    const secondResult = await runPrPrepareMerge(
+    const secondResult = await runPrFinalize(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
@@ -109,7 +109,7 @@ describe('runPrPrepareMerge', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
       },
     ]);
     assert.equal(github.pullRequestLabelsAdded.length, 0);
@@ -140,7 +140,7 @@ describe('runPrPrepareMerge', () => {
       checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
     });
 
-    const firstResult = await runPrPrepareMerge(
+    const firstResult = await runPrFinalize(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
@@ -155,33 +155,33 @@ describe('runPrPrepareMerge', () => {
       [
         'feat(issue): implement #42',
         '',
-        'Prepare Child Issue #42 for rebase merge into PRD #7.',
+        'Finalize Child Issue #42 for rebase merge into PRD #7.',
         '',
         'Refs: #42',
         'PRD: #7',
       ].join('\n'),
     ]);
 
-    const preparedBody = github.updatedBodies[0].body;
-    const preparedHead = readMarker(preparedBody, 'Prepared head:');
-    assert.equal(readMarker(preparedBody, 'Prepared tree:'), reviewedTree);
-    assert.match(preparedBody, /Refs #42/);
-    assert.match(preparedBody, /Part of #7/);
-    assert.doesNotMatch(preparedBody, /Closes #42/);
+    const finalizedBody = github.updatedBodies[0].body;
+    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
+    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
+    assert.match(finalizedBody, /Refs #42/);
+    assert.match(finalizedBody, /Part of #7/);
+    assert.doesNotMatch(finalizedBody, /Closes #42/);
     assert.equal(github.readyPullRequests.length, 0);
     assert.equal(github.comments.length, 0);
 
     github.setPullRequest(
       createPullRequest({
         headRefName: 'pullops/prd-7-issue-42',
-        headSha: preparedHead,
+        headSha: finalizedHead,
         baseRefName: 'pullops/prd-7',
-        body: preparedBody,
+        body: finalizedBody,
       }),
     );
-    github.setChecksForRef(preparedHead, [createCheck({ name: 'test' })]);
+    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
 
-    const secondResult = await runPrPrepareMerge(
+    const secondResult = await runPrFinalize(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
@@ -195,7 +195,7 @@ describe('runPrPrepareMerge', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
       },
     ]);
     assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
@@ -217,7 +217,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const childDefaultResult = await runPrPrepareMerge(
+    const childDefaultResult = await runPrFinalize(
       createContext({
         githubClient: childDefault.client,
       }),
@@ -241,7 +241,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const nonChildPrdResult = await runPrPrepareMerge(
+    const nonChildPrdResult = await runPrFinalize(
       createContext({
         githubClient: nonChildPrd.client,
       }),
@@ -257,10 +257,10 @@ describe('runPrPrepareMerge', () => {
       checks: [createCheck({ state: 'in_progress', conclusion: undefined, bucket: undefined })],
     });
 
-    const pendingResult = await runPrPrepareMerge(pending.context);
+    const pendingResult = await runPrFinalize(pending.context);
 
     assert.equal(pendingResult.status, 'accepted');
-    assert.deepEqual(pendingResult.prPrepareMerge, {
+    assert.deepEqual(pendingResult.prFinalize, {
       waiting: true,
       stage: 'reviewed-head',
       checkedRef: pending.reviewedHead,
@@ -278,7 +278,7 @@ describe('runPrPrepareMerge', () => {
       ],
     });
 
-    const failingResult = await runPrPrepareMerge(failing.context);
+    const failingResult = await runPrFinalize(failing.context);
 
     assert.equal(failingResult.status, 'accepted');
     assert.deepEqual(failing.github.pullRequestLabelsAdded, [
@@ -292,7 +292,7 @@ describe('runPrPrepareMerge', () => {
 
     const absent = await createReviewedScenario({ checks: [] });
 
-    const absentResult = await runPrPrepareMerge(absent.context);
+    const absentResult = await runPrFinalize(absent.context);
 
     assert.equal(absentResult.status, 'blocked');
     assert.match(absent.github.comments[0].body, /no checks on reviewed head/);
@@ -307,7 +307,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const routeResult = await runPrPrepareMerge(route.context);
+    const routeResult = await runPrFinalize(route.context);
 
     assert.equal(routeResult.status, 'accepted');
     assert.deepEqual(route.github.pullRequestLabelsAdded, [
@@ -326,7 +326,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const blockResult = await runPrPrepareMerge(block.context);
+    const blockResult = await runPrFinalize(block.context);
 
     assert.equal(blockResult.status, 'blocked');
     assert.match(block.github.comments[0].body, /Review Cycles are exhausted \(3 \/ 3\)/);
@@ -358,7 +358,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const unresolvedResult = await runPrPrepareMerge(unresolvedThread.context);
+    const unresolvedResult = await runPrFinalize(unresolvedThread.context);
 
     assert.equal(unresolvedResult.status, 'blocked');
     assert.match(unresolvedThread.github.comments[0].body, /unresolved file review thread/);
@@ -389,7 +389,7 @@ describe('runPrPrepareMerge', () => {
       }),
     });
 
-    const requestedChangesResult = await runPrPrepareMerge(requestedChanges.context);
+    const requestedChangesResult = await runPrFinalize(requestedChanges.context);
 
     assert.equal(requestedChangesResult.status, 'blocked');
     assert.match(
@@ -404,7 +404,7 @@ describe('runPrPrepareMerge', () => {
       body: '## Summary\n\nHuman PR.\n',
     });
 
-    const nonManagedResult = await runPrPrepareMerge(nonManaged.context);
+    const nonManagedResult = await runPrFinalize(nonManaged.context);
 
     assert.equal(nonManagedResult.status, 'refused');
     assert.match(String(nonManagedResult.summary), /not a PullOps-managed PR/);
@@ -414,7 +414,7 @@ describe('runPrPrepareMerge', () => {
       body: createPullRequestBody({ reviewedTree: null }),
     });
 
-    const missingReviewedTreeResult = await runPrPrepareMerge(missingReviewedTree.context);
+    const missingReviewedTreeResult = await runPrFinalize(missingReviewedTree.context);
 
     assert.equal(missingReviewedTreeResult.status, 'refused');
     assert.match(String(missingReviewedTreeResult.summary), /Reviewed tree marker/);
@@ -428,7 +428,7 @@ describe('runPrPrepareMerge', () => {
  */
 function createContext(overrides = {}) {
   return {
-    operation: 'pr-prepare-merge',
+    operation: 'pr-finalize',
     phase: 'run',
     runnerAdapter: 'codex-cli',
     target: {
@@ -495,7 +495,7 @@ async function createReviewedScenario({ checks, body, reviewContext } = {}) {
 function createPullRequest(overrides = {}) {
   return {
     number: 100,
-    title: 'Implement #42: Add prepare merge',
+    title: 'Implement #42: Add PR finalize',
     url: 'https://github.com/acme/widgets/pull/100',
     headRefName: 'pullops/issue-42',
     headSha: 'reviewed-head',
@@ -503,7 +503,7 @@ function createPullRequest(overrides = {}) {
     body: createPullRequestBody(),
     isDraft: true,
     isCrossRepository: false,
-    labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge],
+    labels: [PULL_OPS_OPERATION_LABELS.prFinalize],
     ...overrides,
   };
 }
@@ -564,8 +564,8 @@ function createPullRequestBody({
 function createIssue(overrides = {}) {
   return {
     number: 42,
-    title: 'Add prepare merge',
-    body: '## What to build\n\nPrepare a PR for merge.',
+    title: 'Add PR finalize',
+    body: '## What to build\n\nFinalize a PR before merge.',
     state: 'OPEN',
     url: 'https://github.com/acme/widgets/issues/42',
     authorLogin: 'maintainer',
@@ -779,7 +779,7 @@ function createGitClientFor(cwd) {
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
 async function createTemporaryRepository() {
-  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-prepare-merge-'));
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
 
@@ -814,7 +814,7 @@ async function createTemporaryRepository() {
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
 async function createTemporaryChildRepository() {
-  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-prepare-merge-child-'));
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-child-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
 

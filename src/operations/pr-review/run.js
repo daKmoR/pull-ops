@@ -423,10 +423,10 @@ async function transitionPullRequestLabels(context, pullRequest, status) {
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
     labels: [
-      status === 'approved' && state.lastOperation === PULL_OPS_OPERATION_LABELS.prPrepareMerge
+      status === 'approved' && state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize
         ? PULL_OPS_STATUS_LABELS.done
         : status === 'approved'
-          ? PULL_OPS_OPERATION_LABELS.prPrepareMerge
+          ? PULL_OPS_OPERATION_LABELS.prFinalize
           : PULL_OPS_OPERATION_LABELS.prAddressReview,
     ],
   });

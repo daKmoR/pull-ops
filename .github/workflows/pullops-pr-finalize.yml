@@ -1,4 +1,4 @@
-name: PullOps PR Prepare Merge
+name: PullOps PR Finalize
 
 on:
   workflow_dispatch:
@@ -21,11 +21,11 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pullops-pr-prepare-merge-${{ inputs.pr }}
+  group: pullops-pr-finalize-${{ inputs.pr }}
   cancel-in-progress: false
 
 jobs:
-  pr-prepare-merge:
+  pr-finalize:
     runs-on: ubuntu-latest
 
     steps:
@@ -45,7 +45,7 @@ jobs:
             });
 
             if (pullRequest.head.repo?.full_name !== `${owner}/${repo}`) {
-              core.setFailed('PullOps only prepares same-repository PRs for merge.');
+              core.setFailed('PullOps only finalizes same-repository PRs for merge.');
               return;
             }
 
@@ -70,12 +70,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare PullOps prepare merge
+      - name: Prepare PullOps PR Finalize
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-prepare-merge \
+          node src/cli/cli.js run pr-finalize \
             --phase prepare \
             --runner codex-action \
             --pr "${{ inputs.pr }}"
@@ -124,11 +124,11 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Finalize PullOps prepare merge
+      - name: Finalize PullOps PR Finalize
         if: always()
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-prepare-merge \
+          node src/cli/cli.js run pr-finalize \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \

@@ -1,11 +1,11 @@
 ---
-name: pullops-pr-prepare-merge
-description: Propose a Commit Plan and PR body cleanup for preparing a PullOps-managed PR for human review and merge.
+name: pullops-pr-finalize
+description: Propose a Commit Plan and PR body cleanup for finalizing a PullOps-managed PR for human review and merge.
 ---
 
-# PullOps Prepare Merge
+# PullOps PR Finalize
 
-Prepare the pull request for human review and merge by proposing history cleanup
+Finalize the pull request for human review and merge by proposing history cleanup
 and PR-body cleanup only.
 
 Responsibilities:
@@ -33,7 +33,7 @@ Final response must be only JSON:
 ```json
 {
   "status": "planned",
-  "summary": "One sentence summary of the prepared merge plan.",
+  "summary": "One sentence summary of the PR finalization plan.",
   "commitPlan": {
     "justification": "Required only when a Concrete Issue PR needs multiple commits.",
     "commits": [

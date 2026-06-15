@@ -1,7 +1,7 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 
 /**
- * @typedef {'prepared' | 'ready'} PrPrepareMergeBodyStatus
+ * @typedef {'finalized' | 'ready'} PrFinalizeBodyStatus
  */
 
 /**
@@ -9,18 +9,18 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
  * @param {string} options.body
  * @param {number} options.sourceIssueNumber
  * @param {number | undefined} options.parentIssueNumber
- * @param {string} options.preparedTreeHash
- * @param {string} options.preparedHeadSha
- * @param {PrPrepareMergeBodyStatus} [options.status]
+ * @param {string} options.finalizedTreeHash
+ * @param {string} options.finalizedHeadSha
+ * @param {PrFinalizeBodyStatus} [options.status]
  * @returns {string}
  */
-export function updatePullRequestBodyForPrPrepareMerge({
+export function updatePullRequestBodyForPrFinalize({
   body,
   sourceIssueNumber,
   parentIssueNumber,
-  preparedTreeHash,
-  preparedHeadSha,
-  status = 'prepared',
+  finalizedTreeHash,
+  finalizedHeadSha,
+  status = 'finalized',
 }) {
   let updated = body.trimEnd();
   updated = upsertSection(
@@ -28,11 +28,11 @@ export function updatePullRequestBodyForPrPrepareMerge({
     'Traceability',
     formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }).join('\n'),
   );
-  updated = upsertLine(updated, 'Status:', formatPrepareMergeStatus(status));
-  updated = upsertLine(updated, 'Prepared tree:', preparedTreeHash);
-  updated = upsertLine(updated, 'Prepared head:', preparedHeadSha);
+  updated = upsertLine(updated, 'Status:', formatPrFinalizeStatus(status));
+  updated = upsertLine(updated, 'Finalized tree:', finalizedTreeHash);
+  updated = upsertLine(updated, 'Finalized head:', finalizedHeadSha);
   updated = upsertLine(updated, 'Merge method:', 'rebase');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prPrepareMerge);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
   return `${updated}\n`;
 }
 
@@ -53,10 +53,10 @@ function formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }) {
  * @param {string} options.body
  * @returns {string}
  */
-export function updatePullRequestBodyForPrPrepareMergeFailure({ body }) {
+export function updatePullRequestBodyForPrFinalizeFailure({ body }) {
   let updated = body.trimEnd();
   updated = upsertLine(updated, 'Status:', 'Blocked');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prPrepareMerge);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
   return `${updated}\n`;
 }
 
@@ -65,23 +65,23 @@ export function updatePullRequestBodyForPrPrepareMergeFailure({ body }) {
  * @param {string} options.body
  * @returns {string}
  */
-export function updatePullRequestBodyForPrPrepareMergeReroute({ body }) {
+export function updatePullRequestBodyForPrFinalizeReroute({ body }) {
   let updated = removeMergePreparationMarkers(body.trimEnd());
   updated = upsertLine(updated, 'Status:', 'Review required');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prPrepareMerge);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
   return `${updated}\n`;
 }
 
 /**
- * @param {PrPrepareMergeBodyStatus} status
+ * @param {PrFinalizeBodyStatus} status
  * @returns {string}
  */
-function formatPrepareMergeStatus(status) {
+function formatPrFinalizeStatus(status) {
   if (status === 'ready') {
     return 'Ready for human rebase merge';
   }
 
-  return 'Prepared for rebase merge';
+  return 'Finalized for rebase merge';
 }
 
 /**
@@ -131,7 +131,7 @@ function upsertLine(body, prefix, value) {
  */
 function removeMergePreparationMarkers(body) {
   let updated = body;
-  for (const prefix of ['Reviewed tree:', 'Prepared tree:', 'Prepared head:', 'Merge method:']) {
+  for (const prefix of ['Reviewed tree:', 'Finalized tree:', 'Finalized head:', 'Merge method:']) {
     updated = removeLine(updated, prefix);
   }
   return updated.trimEnd();

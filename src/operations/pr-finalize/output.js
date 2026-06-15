@@ -4,14 +4,14 @@ import { validateOperationOutput } from '../../operation-output/OperationOutput.
  * @typedef {import('./output.types.js').PlannedCommit} PlannedCommit
  * @typedef {import('./output.types.js').CommitPlan} CommitPlan
  * @typedef {import('./output.types.js').PreparedPullRequestSections} PreparedPullRequestSections
- * @typedef {import('./output.types.js').PlannedPrPrepareMergeOutput} PlannedPrPrepareMergeOutput
- * @typedef {import('./output.types.js').BlockedPrPrepareMergeOutput} BlockedPrPrepareMergeOutput
- * @typedef {import('./output.types.js').PrPrepareMergeOutput} PrPrepareMergeOutput
- * @typedef {import('./output.types.js').PrPrepareMergeOutputValidationResult} PrPrepareMergeOutputValidationResult
+ * @typedef {import('./output.types.js').PlannedPrFinalizeOutput} PlannedPrFinalizeOutput
+ * @typedef {import('./output.types.js').BlockedPrFinalizeOutput} BlockedPrFinalizeOutput
+ * @typedef {import('./output.types.js').PrFinalizeOutput} PrFinalizeOutput
+ * @typedef {import('./output.types.js').PrFinalizeOutputValidationResult} PrFinalizeOutputValidationResult
  */
 
 /** @type {import('../../operation-output/types.js').OperationOutputContract} */
-const PREPARE_MERGE_OUTPUT_CONTRACT = {
+const PR_FINALIZE_OUTPUT_CONTRACT = {
   required: {
     status: ['planned', 'blocked'],
     summary: 'string',
@@ -20,10 +20,10 @@ const PREPARE_MERGE_OUTPUT_CONTRACT = {
 
 /**
  * @param {unknown} input
- * @returns {PrPrepareMergeOutputValidationResult}
+ * @returns {PrFinalizeOutputValidationResult}
  */
-export function validatePrPrepareMergeOutput(input) {
-  const result = validateOperationOutput(input, PREPARE_MERGE_OUTPUT_CONTRACT);
+export function validatePrFinalizeOutput(input) {
+  const result = validateOperationOutput(input, PR_FINALIZE_OUTPUT_CONTRACT);
   if (!result.valid) {
     return result;
   }
