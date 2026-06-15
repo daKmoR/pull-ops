@@ -47,7 +47,7 @@ export class PullOpsCli {
     stdout = process.stdout,
     stderr = process.stderr,
     githubClient = createGitHubClient(),
-    gitClient = createGitClient(),
+    gitClient,
     codexRunner = createCodexRunner(),
     operationRunner = runWorkflowOperation,
     env = process.env,
@@ -56,7 +56,7 @@ export class PullOpsCli {
     this.stdout = stdout;
     this.stderr = stderr;
     this.githubClient = githubClient;
-    this.gitClient = gitClient;
+    this.gitClient = gitClient ?? createGitClient({ env });
     this.codexRunner = codexRunner;
     this.operationRunner = operationRunner;
     this.env = env;

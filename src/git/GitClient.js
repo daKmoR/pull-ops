@@ -16,16 +16,17 @@ const execFileAsync = promisify(nodeExecFile);
  */
 
 /**
- * @param {{ execFile?: ExecFile }} [options]
+ * @param {{ execFile?: ExecFile, env?: NodeJS.ProcessEnv }} [options]
  * @returns {GitClient}
  */
-export function createGitClient({ execFile = execFileAsync } = {}) {
+export function createGitClient({ execFile = execFileAsync, env = process.env } = {}) {
   return {
     /**
      * @param {CreateBranchOptions} options
      * @returns {Promise<void>}
      */
     async createBranch({ branchName, baseBranch }) {
+      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       await runGit(
         execFile,
@@ -89,6 +90,7 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<void>}
      */
     async pushBranch({ branchName }) {
+      await configureAuthenticatedOrigin(execFile, env);
       await runGit(
         execFile,
         ['push', '--set-upstream', 'origin', branchName],
@@ -115,6 +117,7 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
      * @returns {Promise<string[]>}
      */
     async getChangedFilesSinceBase({ baseBranch }) {
+      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       const result = await runGit(
         execFile,
@@ -162,6 +165,7 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
         );
       }
 
+      await configureAuthenticatedOrigin(execFile, env);
       await runGit(
         execFile,
         ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
@@ -174,6 +178,64 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
       };
     },
   };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<void>}
+ */
+async function configureAuthenticatedOrigin(execFile, env) {
+  const remoteUrl = createAuthenticatedGitHubRemoteUrl(env);
+  if (remoteUrl === undefined) {
+    return;
+  }
+
+  await runGit(
+    execFile,
+    ['remote', 'set-url', 'origin', remoteUrl],
+    'configure authenticated git origin',
+  );
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string | undefined}
+ */
+function createAuthenticatedGitHubRemoteUrl(env) {
+  const token = readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN);
+  const repository = readNonEmptyEnv(env.GITHUB_REPOSITORY);
+
+  if (token === undefined && repository === undefined) {
+    return undefined;
+  }
+
+  if (token === undefined) {
+    throw new Error('PULLOPS_GITHUB_TOKEN must be set to authenticate PullOps git pushes.');
+  }
+
+  if (repository === undefined) {
+    throw new Error('GITHUB_REPOSITORY must be set to authenticate PullOps git pushes.');
+  }
+
+  if (!/^[^/\s]+\/[^/\s]+$/.test(repository)) {
+    throw new Error(`Invalid GITHUB_REPOSITORY "${repository}". Expected "OWNER/REPO".`);
+  }
+
+  return `https://x-access-token:${encodeURIComponent(token)}@github.com/${repository}.git`;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string | undefined}
+ */
+function readNonEmptyEnv(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 /**
