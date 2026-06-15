@@ -616,12 +616,42 @@ async function addLabels(octokit, repository, number, labels) {
  */
 async function removeLabels(octokit, repository, number, labels) {
   for (const label of labels) {
-    await octokit.rest.issues.removeLabel({
-      ...repository,
-      issue_number: number,
-      name: label,
-    });
+    try {
+      await octokit.rest.issues.removeLabel({
+        ...repository,
+        issue_number: number,
+        name: label,
+      });
+    } catch (error) {
+      if (!isMissingLabelRemovalError(error)) {
+        throw error;
+      }
+    }
   }
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isMissingLabelRemovalError(error) {
+  if (!isPlainObject(error)) {
+    return false;
+  }
+
+  const response = isPlainObject(error.response) ? error.response : undefined;
+  const status =
+    typeof error.status === 'number'
+      ? error.status
+      : response !== undefined && typeof response.status === 'number'
+        ? response.status
+        : undefined;
+  const message = getGitHubErrorMessage(error).toLowerCase();
+
+  return (
+    status === 404 &&
+    (message === 'label does not exist' || message.startsWith('label does not exist - '))
+  );
 }
 
 /**

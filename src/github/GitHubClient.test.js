@@ -435,7 +435,44 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('10: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
+  it('10: ignores missing labels while removing issue labels', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      missingLabels: ['pullops:status:blocked'],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    await client.removeLabelsFromIssue({
+      number: 42,
+      labels: ['pullops:issue:implement', 'pullops:status:blocked'],
+    });
+
+    assert.deepEqual(
+      calls.map(call => call.name),
+      ['issues.removeLabel', 'issues.removeLabel'],
+    );
+    assert.deepEqual(calls[1].params, {
+      ...TEST_REPOSITORY,
+      issue_number: 42,
+      name: 'pullops:status:blocked',
+    });
+  });
+
+  it('11: reports non-missing label removal failures', async () => {
+    const { octokit } = createFakeOctokit({
+      failOn: call => call.name === 'issues.removeLabel',
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    await assert.rejects(
+      client.removeLabelsFromIssue({
+        number: 42,
+        labels: ['pullops:issue:implement'],
+      }),
+      /GitHub API failed/,
+    );
+  });
+
+  it('12: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
@@ -475,6 +512,7 @@ const TEST_REPOSITORY = {
  * @param {string} [options.diff]
  * @param {Record<string, unknown>[]} [options.checkRuns]
  * @param {Record<string, unknown>[]} [options.statuses]
+ * @param {string[]} [options.missingLabels]
  * @param {(call: OctokitCall) => boolean} [options.failOn]
  * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.types.js').GitHubApiClient }}
  */
@@ -487,6 +525,7 @@ function createFakeOctokit({
   diff = '',
   checkRuns = [],
   statuses = [],
+  missingLabels = [],
   failOn = () => false,
 } = {}) {
   /** @type {OctokitCall[]} */
@@ -582,7 +621,23 @@ function createFakeOctokit({
         createComment: endpoint('issues.createComment', () => ({})),
         createLabel: endpoint('issues.createLabel', () => ({})),
         listLabelsForRepo: endpoint('issues.listLabelsForRepo', () => labels),
-        removeLabel: endpoint('issues.removeLabel', () => ({})),
+        removeLabel: endpoint('issues.removeLabel', params => {
+          if (missingLabels.includes(requireStringParam(params.name))) {
+            const error = new Error('Label does not exist');
+            Object.assign(error, {
+              status: 404,
+              response: {
+                status: 404,
+                data: {
+                  message: 'Label does not exist',
+                },
+              },
+            });
+            throw error;
+          }
+
+          return {};
+        }),
         update: endpoint('issues.update', () => ({})),
         updateLabel: endpoint('issues.updateLabel', () => ({})),
       },
