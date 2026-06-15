@@ -480,11 +480,16 @@ describe('createGitHubClient', () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
+    let readGitHubCliToken = false;
     const client = createGitHubClient({
       env: {
         PULLOPS_GITHUB_TOKEN: 'pullops-token',
         GITHUB_TOKEN: 'github-token',
         GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      readGitHubCliToken() {
+        readGitHubCliToken = true;
+        return 'gh-token';
       },
       createOctokit(options) {
         auth = options.auth;
@@ -495,12 +500,35 @@ describe('createGitHubClient', () => {
     await client.ensureLabels([]);
 
     assert.equal(auth, 'pullops-token');
+    assert.equal(readGitHubCliToken, false);
     assert.deepEqual(parseGitHubRepository('acme/widgets'), TEST_REPOSITORY);
     assert.throws(() => parseGitHubRepository(undefined), /GITHUB_REPOSITORY/);
     assert.throws(() => parseGitHubRepository('acme/widgets/extra'), /Invalid GITHUB_REPOSITORY/);
   });
 
-  it('13: infers the GitHub repository from common origin formats', async () => {
+  it('13: falls back to the GitHub CLI token for local API authentication', async () => {
+    const { octokit } = createFakeOctokit({ labels: [] });
+    /** @type {string | undefined} */
+    let auth;
+    const client = createGitHubClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      readGitHubCliToken() {
+        return 'gh-token';
+      },
+      createOctokit(options) {
+        auth = options.auth;
+        return octokit;
+      },
+    });
+
+    await client.ensureLabels([]);
+
+    assert.equal(auth, 'gh-token');
+  });
+
+  it('14: infers the GitHub repository from common origin formats', async () => {
     for (const origin of [
       'git@github.com:acme/widgets.git\n',
       'https://github.com/acme/widgets.git\n',
@@ -526,7 +554,7 @@ describe('createGitHubClient', () => {
     }
   });
 
-  it('14: lets GITHUB_REPOSITORY override the origin fallback', async () => {
+  it('15: lets GITHUB_REPOSITORY override the origin fallback', async () => {
     const { calls, octokit } = createFakeOctokit({ labels: [] });
     let readOrigin = false;
     const client = createGitHubClient({
@@ -549,7 +577,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('15: reports local repository context setup when no repository can be inferred', async () => {
+  it('16: reports local repository context setup when no repository can be inferred', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     const client = createGitHubClient({
       octokit,

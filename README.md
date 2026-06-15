@@ -45,8 +45,13 @@ comments on and closes the child issue explicitly after the merge.
 
 PullOps requires a repository secret named `PULLOPS_GITHUB_TOKEN`. The PullOps
 CLI reads GitHub API auth from `PULLOPS_GITHUB_TOKEN` first, then
-`GITHUB_TOKEN`. The workflows expose the install-facing secret under both names
-so PullOps and GitHub-aware tools use the same credential.
+`GITHUB_TOKEN`, then the local GitHub CLI via `gh auth token`. The workflows
+expose the install-facing secret under both names so PullOps and GitHub-aware
+tools use the same credential.
+
+For local commands such as `pullops labels ensure`, you can either export
+`PULLOPS_GITHUB_TOKEN` or run `gh auth login` once and let PullOps reuse that
+stored GitHub CLI authentication.
 
 Prefer a fine-grained personal access token:
 

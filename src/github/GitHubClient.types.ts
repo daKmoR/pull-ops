@@ -4,6 +4,7 @@ export interface GitHubRepository {
 }
 
 export type ReadRemoteOriginUrl = () => string | undefined;
+export type ReadGitHubCliToken = () => string | undefined;
 
 export type OctokitEndpoint = (parameters: Record<string, unknown>) => Promise<{ data: unknown }>;
 

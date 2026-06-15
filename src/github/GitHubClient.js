@@ -31,6 +31,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
  * @typedef {import('./GitHubClient.types.js').CreateOctokit} CreateOctokit
  * @typedef {import('./GitHubClient.types.js').ReadRemoteOriginUrl} ReadRemoteOriginUrl
+ * @typedef {import('./GitHubClient.types.js').ReadGitHubCliToken} ReadGitHubCliToken
  */
 
 const ISSUE_RELATIONSHIPS_QUERY = `
@@ -167,6 +168,7 @@ mutation($threadId: ID!) {
  * @param {GitHubRepository} [options.repository]
  * @param {CreateOctokit} [options.createOctokit]
  * @param {ReadRemoteOriginUrl} [options.readRemoteOriginUrl]
+ * @param {ReadGitHubCliToken} [options.readGitHubCliToken]
  * @returns {GitHubClient}
  */
 export function createGitHubClient({
@@ -175,8 +177,9 @@ export function createGitHubClient({
   repository,
   createOctokit = createOctokitClient,
   readRemoteOriginUrl = readGitRemoteOriginUrl,
+  readGitHubCliToken = readLocalGitHubCliToken,
 } = {}) {
-  const api = octokit ?? createOctokit({ auth: readGitHubToken(env) });
+  const api = octokit ?? createOctokit({ auth: readGitHubToken({ env, readGitHubCliToken }) });
   const getRepository = createRepositoryResolver({ repository, env, readRemoteOriginUrl });
 
   return {
@@ -451,11 +454,37 @@ function createOctokitClient({ auth }) {
 }
 
 /**
- * @param {NodeJS.ProcessEnv} env
+ * @param {object} options
+ * @param {NodeJS.ProcessEnv} options.env
+ * @param {ReadGitHubCliToken} options.readGitHubCliToken
  * @returns {string | undefined}
  */
-function readGitHubToken(env) {
-  return readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN) ?? readNonEmptyEnv(env.GITHUB_TOKEN);
+function readGitHubToken({ env, readGitHubCliToken }) {
+  return (
+    readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN) ??
+    readNonEmptyEnv(env.GITHUB_TOKEN) ??
+    readGitHubCliToken()
+  );
+}
+
+/**
+ * @returns {string | undefined}
+ */
+function readLocalGitHubCliToken() {
+  try {
+    return readNonEmptyEnv(
+      execFileSync('gh', ['auth', 'token'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GH_PROMPT_DISABLED: '1',
+        },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /**
