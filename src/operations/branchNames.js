@@ -14,10 +14,28 @@ export function createIssueBranchName({ branchPrefix, issueNumber, parentNumber 
   const prefix = normalizeBranchPrefix(branchPrefix);
 
   if (parentNumber !== undefined) {
-    return `${prefix}/prd-${parentNumber}/issue-${issueNumber}`;
+    return `${prefix}/prd-${parentNumber}-issue-${issueNumber}`;
   }
 
   return `${prefix}/issue-${issueNumber}`;
+}
+
+/**
+ * @param {{ branchPrefix: string, branchName: string }} options
+ * @returns {{ parentNumber: number } | undefined}
+ */
+export function parseParentBranchName({ branchPrefix, branchName }) {
+  const prefix = normalizeBranchPrefix(branchPrefix);
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}/prd-(\\d+)$`);
+  const match = pattern.exec(branchName);
+
+  if (match === null) {
+    return undefined;
+  }
+
+  return {
+    parentNumber: Number(match[1]),
+  };
 }
 
 /**
@@ -26,7 +44,7 @@ export function createIssueBranchName({ branchPrefix, issueNumber, parentNumber 
  */
 export function parseChildIssueBranchName({ branchPrefix, branchName }) {
   const prefix = normalizeBranchPrefix(branchPrefix);
-  const pattern = new RegExp(`^${escapeRegExp(prefix)}/prd-(\\d+)/issue-(\\d+)$`);
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}/prd-(\\d+)-issue-(\\d+)$`);
   const match = pattern.exec(branchName);
 
   if (match === null) {

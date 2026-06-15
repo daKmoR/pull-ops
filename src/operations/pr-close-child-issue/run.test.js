@@ -24,7 +24,7 @@ describe('runPrCloseChildIssue', () => {
     });
     const pullRequest = createPullRequest({
       number: 100,
-      headRefName: 'pullops/prd-1/issue-42',
+      headRefName: 'pullops/prd-1-issue-42',
       baseRefName: 'pullops/prd-1',
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
@@ -92,7 +92,7 @@ describe('runPrCloseChildIssue', () => {
     const issue = createIssue({ number: 42 });
     const pullRequest = createPullRequest({
       number: 100,
-      headRefName: 'pullops/prd-1/issue-42',
+      headRefName: 'pullops/prd-1-issue-42',
       baseRefName: 'pullops/prd-1',
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
@@ -115,7 +115,7 @@ describe('runPrCloseChildIssue', () => {
     const issue = createIssue({ number: 42 });
     const pullRequest = createPullRequest({
       number: 100,
-      headRefName: 'pullops/prd-1/issue-42',
+      headRefName: 'pullops/prd-1-issue-42',
       baseRefName: 'main',
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
@@ -144,7 +144,7 @@ describe('runPrCloseChildIssue', () => {
     });
     const pullRequest = createPullRequest({
       number: 100,
-      headRefName: 'pullops/prd-1/issue-42',
+      headRefName: 'pullops/prd-1-issue-42',
       baseRefName: 'pullops/prd-1',
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
@@ -174,7 +174,7 @@ describe('runPrCloseChildIssue', () => {
     });
     const pullRequest = createPullRequest({
       number: 100,
-      headRefName: 'pullops/prd-1/issue-42',
+      headRefName: 'pullops/prd-1-issue-42',
       baseRefName: 'pullops/prd-1',
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
@@ -287,7 +287,7 @@ function createIssue({ number = 42, state = 'OPEN', parent = null } = {}) {
  */
 function createPullRequest({
   number = 100,
-  headRefName = 'pullops/prd-1/issue-42',
+  headRefName = 'pullops/prd-1-issue-42',
   baseRefName = 'pullops/prd-1',
   state = 'MERGED',
   mergedAt = '2026-06-14T10:00:00Z',

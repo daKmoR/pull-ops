@@ -218,7 +218,7 @@ describe('runIssueImplement', () => {
     assert.match(codex.calls[0].prompt, /Implement only the selected Child Issue/);
     assert.deepEqual(git.branches, [
       {
-        branchName: 'pullops/prd-1/issue-42',
+        branchName: 'pullops/prd-1-issue-42',
         baseBranch: 'pullops/prd-1',
       },
     ]);
@@ -237,7 +237,7 @@ describe('runIssueImplement', () => {
     ]);
     assert.equal(github.createdPullRequests.length, 1);
     assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/prd-1');
-    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1/issue-42');
+    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1-issue-42');
     assert.doesNotMatch(github.createdPullRequests[0].body, /Closes #42/);
     assert.match(github.createdPullRequests[0].body, /Refs #42/);
     assert.match(github.createdPullRequests[0].body, /Part of #1/);
@@ -545,7 +545,7 @@ describe('runIssueImplement', () => {
         parentNumber: 10,
         issueNumber: 123,
       }),
-      'automation/pullops/prd-10/issue-123',
+      'automation/pullops/prd-10-issue-123',
     );
   });
 

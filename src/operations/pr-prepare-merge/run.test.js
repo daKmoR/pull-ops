@@ -20,6 +20,7 @@ const execFile = promisify(nodeExecFile);
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
@@ -116,7 +117,142 @@ describe('runPrPrepareMerge', () => {
     assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
   });
 
-  it('02: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
+  it('02: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
+    const repository = await createTemporaryChildRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const childIssue = createIssue({
+      parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
+      body: '## Parent\n\nPart of: #999\n\n## What to build\n\nDo child work.',
+    });
+    const github = createFakeGitHub({
+      issue: childIssue,
+      pullRequest: createPullRequest({
+        headRefName: 'pullops/prd-7-issue-42',
+        headSha: reviewedHead,
+        baseRefName: 'pullops/prd-7',
+        body: createPullRequestBody({
+          reviewedTree,
+          branchName: 'pullops/prd-7-issue-42',
+          parentIssueNumber: 7,
+        }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const firstResult = await runPrPrepareMerge(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(firstResult.status, 'accepted');
+    assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/prd-7'), 1);
+    assert.equal(await readTreeHash(repository.workDir), reviewedTree);
+    assert.deepEqual(await readCommitMessages(repository.workDir, 'origin/pullops/prd-7'), [
+      [
+        'feat(issue): implement #42',
+        '',
+        'Prepare Child Issue #42 for rebase merge into PRD #7.',
+        '',
+        'Refs: #42',
+        'PRD: #7',
+      ].join('\n'),
+    ]);
+
+    const preparedBody = github.updatedBodies[0].body;
+    const preparedHead = readMarker(preparedBody, 'Prepared head:');
+    assert.equal(readMarker(preparedBody, 'Prepared tree:'), reviewedTree);
+    assert.match(preparedBody, /Refs #42/);
+    assert.match(preparedBody, /Part of #7/);
+    assert.doesNotMatch(preparedBody, /Closes #42/);
+    assert.equal(github.readyPullRequests.length, 0);
+    assert.equal(github.comments.length, 0);
+
+    github.setPullRequest(
+      createPullRequest({
+        headRefName: 'pullops/prd-7-issue-42',
+        headSha: preparedHead,
+        baseRefName: 'pullops/prd-7',
+        body: preparedBody,
+      }),
+    );
+    github.setChecksForRef(preparedHead, [createCheck({ name: 'test' })]);
+
+    const secondResult = await runPrPrepareMerge(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(secondResult.status, 'accepted');
+    assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/prd-7'), 1);
+    assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
+      {
+        number: 100,
+        labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+      },
+    ]);
+    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
+    assert.doesNotMatch(github.updatedBodies[1].body, /Closes #42/);
+  });
+
+  it('03: blocks child PRs targeting default and non-child PRs targeting PRD branches', async () => {
+    const childDefault = createFakeGitHub({
+      issue: createIssue({
+        parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
+      }),
+      pullRequest: createPullRequest({
+        headRefName: 'pullops/prd-7-issue-42',
+        baseRefName: 'main',
+        body: createPullRequestBody({
+          branchName: 'pullops/prd-7-issue-42',
+          parentIssueNumber: 7,
+        }),
+      }),
+    });
+
+    const childDefaultResult = await runPrPrepareMerge(
+      createContext({
+        githubClient: childDefault.client,
+      }),
+    );
+
+    assert.equal(childDefaultResult.status, 'blocked');
+    assert.match(childDefault.comments[0].body, /targets default branch/);
+    assert.match(childDefault.comments[0].body, /pullops\/prd-7/);
+
+    const nonChildPrd = createFakeGitHub({
+      issue: createIssue({
+        body: '## Parent\n\nPart of: #7\n\n## What to build\n\nPretend to be a child.',
+      }),
+      pullRequest: createPullRequest({
+        headRefName: 'pullops/prd-7-issue-42',
+        baseRefName: 'pullops/prd-7',
+        body: createPullRequestBody({
+          branchName: 'pullops/prd-7-issue-42',
+          parentIssueNumber: 7,
+        }),
+      }),
+    });
+
+    const nonChildPrdResult = await runPrPrepareMerge(
+      createContext({
+        githubClient: nonChildPrd.client,
+      }),
+    );
+
+    assert.equal(nonChildPrdResult.status, 'blocked');
+    assert.match(nonChildPrd.comments[0].body, /not a native child/);
+    assert.match(nonChildPrd.comments[0].body, /PRD issue #7/);
+  });
+
+  it('04: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
     const pending = await createReviewedScenario({
       checks: [createCheck({ state: 'in_progress', conclusion: undefined, bucket: undefined })],
     });
@@ -163,7 +299,7 @@ describe('runPrPrepareMerge', () => {
     assert.equal(await countCommitsSinceBase(absent.repository.workDir), 2);
   });
 
-  it('03: routes changed reviewed trees back to review while cycles remain and blocks when exhausted', async () => {
+  it('05: routes changed reviewed trees back to review while cycles remain and blocks when exhausted', async () => {
     const route = await createReviewedScenario({
       body: createPullRequestBody({
         reviewedTree: 'stale-reviewed-tree',
@@ -202,7 +338,7 @@ describe('runPrPrepareMerge', () => {
     ]);
   });
 
-  it('04: blocks unresolved file review threads and unsuperseded requested-change reviews', async () => {
+  it('06: blocks unresolved file review threads and unsuperseded requested-change reviews', async () => {
     const unresolvedThread = await createReviewedScenario({
       reviewContext: createReviewContext({
         unresolvedThreads: [
@@ -263,7 +399,7 @@ describe('runPrPrepareMerge', () => {
     assert.doesNotMatch(requestedChanges.github.comments[0].body, /@reviewer/);
   });
 
-  it('05: refuses non-managed PRs and managed PRs without a reviewed tree', async () => {
+  it('07: refuses non-managed PRs and managed PRs without a reviewed tree', async () => {
     const nonManaged = await createReviewedScenario({
       body: '## Summary\n\nHuman PR.\n',
     });
@@ -373,10 +509,24 @@ function createPullRequest(overrides = {}) {
 }
 
 /**
- * @param {{ reviewedTree?: string | null, reviewCycles?: string }} [options]
+ * @param {object} [options]
+ * @param {string | null} [options.reviewedTree]
+ * @param {string} [options.reviewCycles]
+ * @param {string} [options.branchName]
+ * @param {number} [options.parentIssueNumber]
  * @returns {string}
  */
-function createPullRequestBody({ reviewedTree = 'reviewed-tree', reviewCycles = '1 / 3' } = {}) {
+function createPullRequestBody({
+  reviewedTree = 'reviewed-tree',
+  reviewCycles = '1 / 3',
+  branchName = 'pullops/issue-42',
+  parentIssueNumber,
+} = {}) {
+  const traceability =
+    parentIssueNumber === undefined
+      ? ['Closes #42']
+      : ['Refs #42', `Part of #${parentIssueNumber}`];
+
   return [
     '## Summary',
     '',
@@ -392,7 +542,7 @@ function createPullRequestBody({ reviewedTree = 'reviewed-tree', reviewCycles = 
     '',
     '## Traceability',
     '',
-    'Closes #42',
+    ...traceability,
     '',
     '## PullOps',
     '',
@@ -401,7 +551,7 @@ function createPullRequestBody({ reviewedTree = 'reviewed-tree', reviewCycles = 
     `Review cycles: ${reviewCycles}`,
     'CI fix cycles: 0 / 2',
     'Source: Issue #42',
-    'Branch: pullops/issue-42',
+    `Branch: ${branchName}`,
     ...(reviewedTree === null ? [] : [`Reviewed tree: ${reviewedTree}`]),
     'Last operation: pullops:pr:review',
   ].join('\n');
@@ -422,6 +572,21 @@ function createIssue(overrides = {}) {
     labels: [],
     parent: null,
     subIssues: [],
+    ...overrides,
+  };
+}
+
+/**
+ * @param {Partial<GitHubIssueReference>} [overrides]
+ * @returns {GitHubIssueReference}
+ */
+function createIssueReference(overrides = {}) {
+  return {
+    number: 7,
+    title: 'PRD: Parent workflow',
+    url: 'https://github.com/acme/widgets/issues/7',
+    state: 'OPEN',
+    relationshipSource: 'native',
     ...overrides,
   };
 }
@@ -465,6 +630,7 @@ function createCheck(overrides = {}) {
 /**
  * @param {object} options
  * @param {GitHubPullRequest} options.pullRequest
+ * @param {GitHubIssue} [options.issue]
  * @param {GitHubPullRequestReviewContext} [options.reviewContext]
  * @param {Map<string, GitHubCheckRun[]>} [options.checksByRef]
  * @returns {{
@@ -480,6 +646,7 @@ function createCheck(overrides = {}) {
  */
 function createFakeGitHub({
   pullRequest,
+  issue = createIssue(),
   reviewContext = createReviewContext(),
   checksByRef = new Map(),
 }) {
@@ -517,7 +684,7 @@ function createFakeGitHub({
         };
       },
       async getIssue() {
-        return createIssue();
+        return issue;
       },
       async getPullRequest() {
         return currentPullRequest;
@@ -644,23 +811,65 @@ async function createTemporaryRepository() {
 }
 
 /**
- * @param {string} workDir
- * @returns {Promise<number>}
+ * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
-async function countCommitsSinceBase(workDir) {
-  return Number(await gitOutput(workDir, ['rev-list', '--count', 'origin/main..HEAD']));
+async function createTemporaryChildRepository() {
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-prepare-merge-child-'));
+  const originDir = join(root, 'origin.git');
+  const workDir = join(root, 'work');
+
+  await mkdir(originDir, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await git(originDir, ['init', '--bare']);
+  await git(workDir, ['init', '--initial-branch=main']);
+  await git(workDir, ['config', 'user.name', 'Test User']);
+  await git(workDir, ['config', 'user.email', 'test@example.com']);
+  await mkdir(join(workDir, 'src'), { recursive: true });
+  await writeFile(join(workDir, 'README.md'), '# Test\n');
+  await writeFile(join(workDir, 'src/feature.js'), 'export const value = 1;\n');
+  await writeFile(join(workDir, 'src/old.js'), 'export const old = true;\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'chore: initial commit']);
+  await git(workDir, ['remote', 'add', 'origin', originDir]);
+  await git(workDir, ['push', '-u', 'origin', 'main']);
+  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
+  await writeFile(join(workDir, 'PRD.md'), '# Parent workflow\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'chore(prd): prepare #7']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
+  await git(workDir, ['checkout', '-b', 'pullops/prd-7-issue-42']);
+  await writeFile(join(workDir, 'src/feature.js'), 'export const value = 42;\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'wip: update child feature']);
+  await writeFile(join(workDir, 'src/feature.test.js'), 'assert.equal(value, 42);\n');
+  await git(workDir, ['rm', 'src/old.js']);
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'wip: add child coverage']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7-issue-42']);
+
+  return { root, originDir, workDir };
 }
 
 /**
  * @param {string} workDir
+ * @param {string} [baseRef]
+ * @returns {Promise<number>}
+ */
+async function countCommitsSinceBase(workDir, baseRef = 'origin/main') {
+  return Number(await gitOutput(workDir, ['rev-list', '--count', `${baseRef}..HEAD`]));
+}
+
+/**
+ * @param {string} workDir
+ * @param {string} [baseRef]
  * @returns {Promise<string[]>}
  */
-async function readCommitMessages(workDir) {
+async function readCommitMessages(workDir, baseRef = 'origin/main') {
   const stdout = await gitOutput(workDir, [
     'log',
     '--format=%B%x00',
     '--reverse',
-    'origin/main..HEAD',
+    `${baseRef}..HEAD`,
   ]);
   return stdout
     .split('\0')

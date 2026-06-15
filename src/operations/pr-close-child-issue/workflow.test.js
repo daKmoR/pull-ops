@@ -35,7 +35,7 @@ describe('pullops-pr-close-child-issue workflow', () => {
       true,
     );
     assert.equal(workflow.includes("base_pattern='^pullops/prd-([0-9]+)$'"), true);
-    assert.equal(workflow.includes("head_pattern='^pullops/prd-([0-9]+)/issue-([0-9]+)$'"), true);
+    assert.equal(workflow.includes("head_pattern='^pullops/prd-([0-9]+)-issue-([0-9]+)$'"), true);
     assert.match(
       workflow,
       /node src\/cli\/cli\.js run pr-close-child-issue --pr "\$\{\{ github\.event\.pull_request\.number \}\}"/,

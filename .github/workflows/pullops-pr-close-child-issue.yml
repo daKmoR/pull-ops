@@ -28,7 +28,7 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           base_pattern='^pullops/prd-([0-9]+)$'
-          head_pattern='^pullops/prd-([0-9]+)/issue-([0-9]+)$'
+          head_pattern='^pullops/prd-([0-9]+)-issue-([0-9]+)$'
 
           if [[ "$BASE_REF" =~ $base_pattern ]]; then
             base_prd="${BASH_REMATCH[1]}"

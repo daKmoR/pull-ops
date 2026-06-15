@@ -8,6 +8,7 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
  * @param {object} options
  * @param {string} options.body
  * @param {number} options.sourceIssueNumber
+ * @param {number | undefined} options.parentIssueNumber
  * @param {string} options.preparedTreeHash
  * @param {string} options.preparedHeadSha
  * @param {PrPrepareMergeBodyStatus} [options.status]
@@ -16,18 +17,35 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 export function updatePullRequestBodyForPrPrepareMerge({
   body,
   sourceIssueNumber,
+  parentIssueNumber,
   preparedTreeHash,
   preparedHeadSha,
   status = 'prepared',
 }) {
   let updated = body.trimEnd();
-  updated = upsertSection(updated, 'Traceability', `Closes #${sourceIssueNumber}`);
+  updated = upsertSection(
+    updated,
+    'Traceability',
+    formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }).join('\n'),
+  );
   updated = upsertLine(updated, 'Status:', formatPrepareMergeStatus(status));
   updated = upsertLine(updated, 'Prepared tree:', preparedTreeHash);
   updated = upsertLine(updated, 'Prepared head:', preparedHeadSha);
   updated = upsertLine(updated, 'Merge method:', 'rebase');
   updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prPrepareMerge);
   return `${updated}\n`;
+}
+
+/**
+ * @param {{ sourceIssueNumber: number, parentIssueNumber: number | undefined }} options
+ * @returns {string[]}
+ */
+function formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }) {
+  if (parentIssueNumber === undefined) {
+    return [`Closes #${sourceIssueNumber}`];
+  }
+
+  return [`Refs #${sourceIssueNumber}`, `Part of #${parentIssueNumber}`];
 }
 
 /**

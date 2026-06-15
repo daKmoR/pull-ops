@@ -6,6 +6,12 @@ import {
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
+import {
+  createIssueBranchName,
+  createParentBranchName,
+  parseChildIssueBranchName,
+  parseParentBranchName,
+} from '../branchNames.js';
 import { createSkippedCodexActionOutput } from '../codexAction.js';
 import { readPullOpsPullRequestState } from '../pr-review/prBody.js';
 import {
@@ -17,9 +23,12 @@ import {
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
+ * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./run.types.js').PrPrepareMergePreparation} PrPrepareMergePreparation
+ * @typedef {import('./run.types.js').PrPrepareMergeSource} PrPrepareMergeSource
+ * @typedef {import('./run.types.js').PrPrepareMergeSourceKind} PrPrepareMergeSourceKind
  */
 
 export const GITHUB_ACTIONS_BOT_AUTHOR = {
@@ -122,20 +131,13 @@ async function preparePrPrepareMerge(context) {
   }
 
   const baseBranch = pullRequest.baseRefName ?? context.config.baseBranch;
-  if (state.sourceKind !== 'issue' || baseBranch !== context.config.baseBranch) {
-    return {
-      ready: false,
-      output: await refusePullRequest(
-        context,
-        pullRequest,
-        [
-          `PR #${pullRequest.number} is not a standalone Concrete Issue PR targeting`,
-          `the default branch "${context.config.baseBranch}".`,
-          `Source kind: ${state.sourceKind}; base branch: ${baseBranch}.`,
-        ].join(' '),
-        { updateBody: true },
-      ),
-    };
+  const source = await preparePrPrepareMergeSource(context, pullRequest, {
+    baseBranch,
+    sourceIssueNumber: state.sourceIssueNumber,
+    sourceKind: state.sourceKind,
+  });
+  if (!source.ready) {
+    return source;
   }
 
   const currentTreeHash = await readCurrentTreeHash(context, pullRequest);
@@ -158,8 +160,12 @@ async function preparePrPrepareMerge(context) {
       ready: true,
       mode: 'prepared',
       pullRequest,
-      sourceIssueNumber: state.sourceIssueNumber,
-      baseBranch,
+      sourceKind: source.sourceKind,
+      sourceIssueNumber: source.sourceIssueNumber,
+      ...(source.sourceKind === 'childIssue'
+        ? { parentIssueNumber: source.parentIssueNumber }
+        : {}),
+      baseBranch: source.baseBranch,
       currentTreeHash,
       preparedTreeHash: state.preparedTreeHash,
       preparedHeadSha: currentHeadSha,
@@ -258,11 +264,212 @@ async function preparePrPrepareMerge(context) {
     ready: true,
     mode: 'rewrite',
     pullRequest,
-    sourceIssueNumber: state.sourceIssueNumber,
-    baseBranch,
+    sourceKind: source.sourceKind,
+    sourceIssueNumber: source.sourceIssueNumber,
+    ...(source.sourceKind === 'childIssue' ? { parentIssueNumber: source.parentIssueNumber } : {}),
+    baseBranch: source.baseBranch,
     currentTreeHash,
     reviewedTreeHash: state.reviewedTreeHash,
     changedFiles,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {object} options
+ * @param {string} options.baseBranch
+ * @param {number} options.sourceIssueNumber
+ * @param {'issue' | 'parentIssue'} options.sourceKind
+ * @returns {Promise<PrPrepareMergeSource>}
+ */
+async function preparePrPrepareMergeSource(
+  context,
+  pullRequest,
+  { baseBranch, sourceIssueNumber, sourceKind },
+) {
+  if (sourceKind !== 'issue') {
+    return {
+      ready: false,
+      output: await refusePullRequest(
+        context,
+        pullRequest,
+        [
+          `PR #${pullRequest.number} is not a Concrete Issue PR that Prepare Merge can rewrite.`,
+          `Source kind: ${sourceKind}; base branch: ${baseBranch}.`,
+        ].join(' '),
+        { updateBody: true },
+      ),
+    };
+  }
+
+  const sourceIssue = await context.githubClient.getIssue(sourceIssueNumber);
+  const nativeParentIssueNumber = sourceIssue.parent?.number;
+  const childBranch = parseChildIssueBranchName({
+    branchPrefix: context.config.branchPrefix,
+    branchName: pullRequest.headRefName,
+  });
+  const targetPrdBranch = parseParentBranchName({
+    branchPrefix: context.config.branchPrefix,
+    branchName: baseBranch,
+  });
+
+  if (nativeParentIssueNumber !== undefined) {
+    return await prepareChildIssueSource(context, pullRequest, {
+      baseBranch,
+      childBranch,
+      nativeParentIssueNumber,
+      sourceIssue,
+    });
+  }
+
+  if (targetPrdBranch !== undefined) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `PR #${pullRequest.number} targets PRD branch "${baseBranch}",`,
+          `but source issue #${sourceIssue.number} is not a native child of`,
+          `PRD issue #${targetPrdBranch.parentNumber}.`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (childBranch !== undefined) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `PR #${pullRequest.number} uses Child Issue branch "${pullRequest.headRefName}",`,
+          `but source issue #${sourceIssue.number} has no native parent issue.`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (baseBranch !== context.config.baseBranch) {
+    return {
+      ready: false,
+      output: await refusePullRequest(
+        context,
+        pullRequest,
+        [
+          `PR #${pullRequest.number} is not a standalone Concrete Issue PR targeting`,
+          `the default branch "${context.config.baseBranch}".`,
+          `Base branch: ${baseBranch}.`,
+        ].join(' '),
+        { updateBody: true },
+      ),
+    };
+  }
+
+  return {
+    ready: true,
+    sourceKind: 'standalone',
+    sourceIssueNumber: sourceIssue.number,
+    baseBranch,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {object} options
+ * @param {string} options.baseBranch
+ * @param {{ parentNumber: number, issueNumber: number } | undefined} options.childBranch
+ * @param {number} options.nativeParentIssueNumber
+ * @param {GitHubIssue} options.sourceIssue
+ * @returns {Promise<PrPrepareMergeSource>}
+ */
+async function prepareChildIssueSource(
+  context,
+  pullRequest,
+  { baseBranch, childBranch, nativeParentIssueNumber, sourceIssue },
+) {
+  const expectedBaseBranch = createParentBranchName({
+    branchPrefix: context.config.branchPrefix,
+    parentNumber: nativeParentIssueNumber,
+  });
+  const expectedChildBranch = createIssueBranchName({
+    branchPrefix: context.config.branchPrefix,
+    parentNumber: nativeParentIssueNumber,
+    issueNumber: sourceIssue.number,
+  });
+
+  if (baseBranch === context.config.baseBranch) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Child Issue #${sourceIssue.number} belongs to PRD issue #${nativeParentIssueNumber},`,
+          `but PR #${pullRequest.number} targets default branch "${context.config.baseBranch}".`,
+          `It must target PRD branch "${expectedBaseBranch}".`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (childBranch === undefined) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Child Issue PR #${pullRequest.number} uses head branch "${pullRequest.headRefName}",`,
+          `but native Child Issue #${sourceIssue.number} in PRD issue #${nativeParentIssueNumber}`,
+          `must use "${expectedChildBranch}".`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (
+    childBranch.issueNumber !== sourceIssue.number ||
+    childBranch.parentNumber !== nativeParentIssueNumber
+  ) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Child Issue PR #${pullRequest.number} head branch "${pullRequest.headRefName}"`,
+          `does not match native Child Issue #${sourceIssue.number} in`,
+          `PRD issue #${nativeParentIssueNumber}.`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (baseBranch !== expectedBaseBranch) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Child Issue PR #${pullRequest.number} targets "${baseBranch}",`,
+          `but native Child Issue #${sourceIssue.number} must target`,
+          `PRD branch "${expectedBaseBranch}".`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  return {
+    ready: true,
+    sourceKind: 'childIssue',
+    sourceIssueNumber: sourceIssue.number,
+    parentIssueNumber: nativeParentIssueNumber,
+    baseBranch,
   };
 }
 
@@ -275,6 +482,7 @@ async function completePrPrepareMerge(context, preparation) {
   if (preparation.mode === 'prepared') {
     return await completePreparedHeadChecks(context, preparation.pullRequest, {
       sourceIssueNumber: preparation.sourceIssueNumber,
+      parentIssueNumber: preparation.parentIssueNumber,
       preparedTreeHash: preparation.preparedTreeHash,
       preparedHeadSha: preparation.preparedHeadSha,
       body: preparation.pullRequest.body,
@@ -286,7 +494,10 @@ async function completePrPrepareMerge(context, preparation) {
     branchName: preparation.pullRequest.headRefName,
     commits: [
       {
-        message: createPrPrepareMergeCommitMessage(preparation.sourceIssueNumber),
+        message: createPrPrepareMergeCommitMessage(
+          preparation.sourceIssueNumber,
+          preparation.parentIssueNumber,
+        ),
         files: preparation.changedFiles,
       },
     ],
@@ -305,6 +516,7 @@ async function completePrPrepareMerge(context, preparation) {
   const preparedBody = updatePullRequestBodyForPrPrepareMerge({
     body: preparation.pullRequest.body,
     sourceIssueNumber: preparation.sourceIssueNumber,
+    parentIssueNumber: preparation.parentIssueNumber,
     preparedTreeHash: rewriteResult.treeHash,
     preparedHeadSha: rewriteResult.headSha,
   });
@@ -315,6 +527,7 @@ async function completePrPrepareMerge(context, preparation) {
 
   return await completePreparedHeadChecks(context, preparation.pullRequest, {
     sourceIssueNumber: preparation.sourceIssueNumber,
+    parentIssueNumber: preparation.parentIssueNumber,
     preparedTreeHash: rewriteResult.treeHash,
     preparedHeadSha: rewriteResult.headSha,
     body: preparedBody,
@@ -323,9 +536,21 @@ async function completePrPrepareMerge(context, preparation) {
 
 /**
  * @param {number} sourceIssueNumber
+ * @param {number | undefined} parentIssueNumber
  * @returns {string}
  */
-export function createPrPrepareMergeCommitMessage(sourceIssueNumber) {
+export function createPrPrepareMergeCommitMessage(sourceIssueNumber, parentIssueNumber) {
+  if (parentIssueNumber !== undefined) {
+    return [
+      `feat(issue): implement #${sourceIssueNumber}`,
+      '',
+      `Prepare Child Issue #${sourceIssueNumber} for rebase merge into PRD #${parentIssueNumber}.`,
+      '',
+      `Refs: #${sourceIssueNumber}`,
+      `PRD: #${parentIssueNumber}`,
+    ].join('\n');
+  }
+
   return [
     `feat(issue): implement #${sourceIssueNumber}`,
     '',
@@ -340,6 +565,7 @@ export function createPrPrepareMergeCommitMessage(sourceIssueNumber) {
  * @param {GitHubPullRequest} pullRequest
  * @param {object} options
  * @param {number} options.sourceIssueNumber
+ * @param {number | undefined} options.parentIssueNumber
  * @param {string} options.preparedTreeHash
  * @param {string} options.preparedHeadSha
  * @param {string} options.body
@@ -348,7 +574,7 @@ export function createPrPrepareMergeCommitMessage(sourceIssueNumber) {
 async function completePreparedHeadChecks(
   context,
   pullRequest,
-  { sourceIssueNumber, preparedTreeHash, preparedHeadSha, body },
+  { sourceIssueNumber, parentIssueNumber, preparedTreeHash, preparedHeadSha, body },
 ) {
   const checks = await context.githubClient.getPullRequestChecksForRef(preparedHeadSha);
   const checkState = classifyChecks(checks);
@@ -374,6 +600,7 @@ async function completePreparedHeadChecks(
     body: updatePullRequestBodyForPrPrepareMerge({
       body,
       sourceIssueNumber,
+      parentIssueNumber,
       preparedTreeHash,
       preparedHeadSha,
       status: 'ready',
