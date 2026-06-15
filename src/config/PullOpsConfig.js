@@ -40,7 +40,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prAddressReview: { modelTier: 'mid' },
     prFixCi: { modelTier: 'mid' },
     prUpdateBranch: { modelTier: 'low' },
-    prResolveConflicts: { modelTier: 'high' },
+    prResolveConflicts: { modelTier: 'high', maxConflictResolutionPasses: 3 },
     prFinalize: { modelTier: 'high', aiHistoryCleanup: true },
     prCloseChildIssue: { modelTier: 'low' },
   },
@@ -217,6 +217,18 @@ function validateOperationOverrides(userConfig) {
         )}.`,
       );
     }
+
+    if (
+      operation === 'prResolveConflicts' &&
+      settings.maxConflictResolutionPasses !== undefined &&
+      !isPositiveInteger(settings.maxConflictResolutionPasses)
+    ) {
+      throw new PullOpsConfigError(
+        `PullOps Config operations.prResolveConflicts.maxConflictResolutionPasses must be a positive integer. Received ${JSON.stringify(
+          settings.maxConflictResolutionPasses,
+        )}.`,
+      );
+    }
   }
 }
 
@@ -303,6 +315,14 @@ function cloneConfig(config) {
  */
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is number}
+ */
+function isPositiveInteger(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**

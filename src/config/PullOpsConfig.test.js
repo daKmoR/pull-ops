@@ -25,6 +25,8 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
   assert.equal(config.operations.prdCoordinate.modelTier, 'low');
   assert.equal(config.operations.prFixCi.modelTier, 'mid');
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
+  assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
+  assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
 });
 
@@ -47,6 +49,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
         },
         operations: {
           prReview: { modelTier: 'low' },
+          prResolveConflicts: { maxConflictResolutionPasses: 5 },
           prFinalize: { aiHistoryCleanup: false },
         },
       };
@@ -65,6 +68,8 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
     low: 'model-low',
   });
   assert.equal(config.operations.prReview.modelTier, 'low');
+  assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
+  assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 5);
   assert.equal(config.operations.prFinalize.modelTier, 'high');
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
   assert.equal(config.operations.issueImplement.modelTier, 'high');
@@ -146,5 +151,24 @@ test('loadPullOpsConfig rejects non-boolean pr-finalize AI history cleanup confi
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
     /operations\.prFinalize\.aiHistoryCleanup must be a boolean/,
+  );
+});
+
+test('loadPullOpsConfig rejects invalid pr-resolve-conflicts pass budget config', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-pr-resolve-conflicts-budget-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          prResolveConflicts: { maxConflictResolutionPasses: 0 },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations\.prResolveConflicts\.maxConflictResolutionPasses must be a positive integer/,
   );
 });

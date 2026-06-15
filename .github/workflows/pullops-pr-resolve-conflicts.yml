@@ -1,0 +1,226 @@
+name: PullOps PR Resolve Conflicts
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      head_ref:
+        description: Same-repository pull request head branch
+        required: true
+        type: string
+      trigger_actor:
+        description: GitHub actor that requested the operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pullops-pr-resolve-conflicts-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  pr-resolve-conflicts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify same-repository pull request
+        uses: actions/github-script@v8
+        env:
+          PR: ${{ inputs.pr }}
+          HEAD_REF: ${{ inputs.head_ref }}
+        with:
+          github-token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: Number(process.env.PR),
+            });
+
+            if (pullRequest.head.repo?.full_name !== `${owner}/${repo}`) {
+              core.setFailed('PullOps only resolves conflicts on same-repository PRs.');
+              return;
+            }
+
+            if (pullRequest.head.ref !== process.env.HEAD_REF) {
+              core.setFailed('Dispatched head_ref does not match PR head branch.');
+            }
+
+      - name: Check out pull request branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_ref }}
+          persist-credentials: false
+          token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare PullOps resolve conflicts
+        id: prepare
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          node src/cli/cli.js run pr-resolve-conflicts \
+            --phase prepare \
+            --runner codex-action \
+            --pr "${{ inputs.pr }}"
+
+          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+            echo "run_runner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_runner=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+
+      - name: Verify OpenAI API key
+        if: steps.prepare.outputs.run_runner == 'true'
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
+            exit 1
+          fi
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Run Codex conflict pass 1
+        if: steps.prepare.outputs.run_runner == 'true'
+        id: codex_1
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          model: gpt-5.5
+          sandbox: workspace-write
+          codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
+          allow-bots: true
+
+      - name: Restore Node after conflict pass 1
+        if: always()
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Finalize PullOps resolve conflicts pass 1
+        if: always()
+        id: finalize_1
+        run: |
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          node src/cli/cli.js run pr-resolve-conflicts \
+            --phase finalize \
+            --runner codex-action \
+            --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
+            --pr "${{ inputs.pr }}"
+
+          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+            echo "run_runner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_runner=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_1.outcome }}
+
+      - name: Run Codex conflict pass 2
+        if: steps.finalize_1.outputs.run_runner == 'true'
+        id: codex_2
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          model: gpt-5.5
+          sandbox: workspace-write
+          codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
+          allow-bots: true
+
+      - name: Restore Node after conflict pass 2
+        if: always() && steps.finalize_1.outputs.run_runner == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Finalize PullOps resolve conflicts pass 2
+        if: always() && steps.finalize_1.outputs.run_runner == 'true'
+        id: finalize_2
+        run: |
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          node src/cli/cli.js run pr-resolve-conflicts \
+            --phase finalize \
+            --runner codex-action \
+            --runner-ran "true" \
+            --pr "${{ inputs.pr }}"
+
+          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+            echo "run_runner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_runner=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_2.outcome }}
+
+      - name: Run Codex conflict pass 3
+        if: steps.finalize_2.outputs.run_runner == 'true'
+        id: codex_3
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          model: gpt-5.5
+          sandbox: workspace-write
+          codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
+          allow-bots: true
+
+      - name: Restore Node after conflict pass 3
+        if: always() && steps.finalize_2.outputs.run_runner == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Finalize PullOps resolve conflicts pass 3
+        if: always() && steps.finalize_2.outputs.run_runner == 'true'
+        run: |
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          node src/cli/cli.js run pr-resolve-conflicts \
+            --phase finalize \
+            --runner codex-action \
+            --runner-ran "true" \
+            --pr "${{ inputs.pr }}"
+        env:
+          OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_3.outcome }}

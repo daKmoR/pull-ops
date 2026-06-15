@@ -584,6 +584,12 @@ function createFakeGit({ hasChanges }) {
       async pushBranch(options) {
         pushes.push(options);
       },
+      async rebaseBranchOntoBase() {
+        throw new Error('rebaseBranchOntoBase was not expected in this test.');
+      },
+      async pushBranchWithLease() {
+        throw new Error('pushBranchWithLease was not expected in this test.');
+      },
       async getCurrentHeadSha() {
         throw new Error('getCurrentHeadSha was not expected in this test.');
       },

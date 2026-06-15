@@ -1,0 +1,80 @@
+name: PullOps PR Update Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      head_ref:
+        description: Same-repository pull request head branch
+        required: true
+        type: string
+      trigger_actor:
+        description: GitHub actor that requested the operation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pullops-pr-update-branch-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  pr-update-branch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify same-repository pull request
+        uses: actions/github-script@v8
+        env:
+          PR: ${{ inputs.pr }}
+          HEAD_REF: ${{ inputs.head_ref }}
+        with:
+          github-token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: Number(process.env.PR),
+            });
+
+            if (pullRequest.head.repo?.full_name !== `${owner}/${repo}`) {
+              core.setFailed('PullOps only updates same-repository PR branches.');
+              return;
+            }
+
+            if (pullRequest.head.ref !== process.env.HEAD_REF) {
+              core.setFailed('Dispatched head_ref does not match PR head branch.');
+            }
+
+      - name: Check out pull request branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head_ref }}
+          persist-credentials: false
+          token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run PullOps update branch
+        run: |
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          node src/cli/cli.js run pr-update-branch --pr "${{ inputs.pr }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ inputs.trigger_actor }}

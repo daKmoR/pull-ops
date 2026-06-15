@@ -11,6 +11,12 @@ import {
   runPrFixCiCodexActionPrepare,
 } from './pr-fix-ci/run.js';
 import {
+  runPrResolveConflicts,
+  runPrResolveConflictsCodexActionFinalize,
+  runPrResolveConflictsCodexActionPrepare,
+} from './pr-resolve-conflicts/run.js';
+import { runPrUpdateBranch } from './pr-update-branch/run.js';
+import {
   runIssueImplement,
   runIssueImplementCodexActionFinalize,
   runIssueImplementCodexActionPrepare,
@@ -156,6 +162,22 @@ export async function runWorkflowOperation(context) {
       run: runPrFixCi,
       prepare: runPrFixCiCodexActionPrepare,
       finalize: runPrFixCiCodexActionFinalize,
+    });
+  }
+
+  if (context.operation === 'pr-update-branch') {
+    if (context.runnerAdapter === 'codex-action') {
+      throw new Error('pr-update-branch does not support the codex-action runner adapter.');
+    }
+
+    return await runPrUpdateBranch(context);
+  }
+
+  if (context.operation === 'pr-resolve-conflicts') {
+    return await runCodexBackedOperation(context, {
+      run: runPrResolveConflicts,
+      prepare: runPrResolveConflictsCodexActionPrepare,
+      finalize: runPrResolveConflictsCodexActionFinalize,
     });
   }
 

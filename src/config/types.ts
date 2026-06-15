@@ -17,10 +17,16 @@ export interface PrFinalizeOperationConfig extends OperationConfig {
   aiHistoryCleanup: boolean;
 }
 
+export interface PrResolveConflictsOperationConfig extends OperationConfig {
+  maxConflictResolutionPasses: number;
+}
+
 export type OperationsConfig = {
   [Key in WorkflowOperationConfigKey]: Key extends 'prFinalize'
     ? PrFinalizeOperationConfig
-    : OperationConfig;
+    : Key extends 'prResolveConflicts'
+      ? PrResolveConflictsOperationConfig
+      : OperationConfig;
 };
 
 export interface PullOpsConfig {
@@ -44,10 +50,16 @@ export interface UserPrFinalizeOperationConfig extends UserOperationConfig {
   aiHistoryCleanup?: unknown;
 }
 
+export interface UserPrResolveConflictsOperationConfig extends UserOperationConfig {
+  maxConflictResolutionPasses?: unknown;
+}
+
 export type UserOperationsConfig = Partial<{
   [Key in WorkflowOperationConfigKey]: Key extends 'prFinalize'
     ? UserPrFinalizeOperationConfig
-    : UserOperationConfig;
+    : Key extends 'prResolveConflicts'
+      ? UserPrResolveConflictsOperationConfig
+      : UserOperationConfig;
 }>;
 
 export interface UserPullOpsConfig {

@@ -22,6 +22,81 @@ export interface PushBranchOptions {
   branchName: string;
 }
 
+export interface RebaseBranchOntoBaseOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
+export interface StartRebaseBranchOntoBaseOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
+export interface ContinueRebaseOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
+export interface ReadRebaseConflictContextOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
+export interface GitConflictFile {
+  path: string;
+  exists: boolean;
+  content?: string;
+  baseContent?: string;
+  oursContent?: string;
+  theirsContent?: string;
+}
+
+export interface GitConflictContext {
+  branchName: string;
+  baseBranch: string;
+  conflictedFiles: GitConflictFile[];
+  baseHeadSha?: string;
+  originalHeadSha?: string;
+  currentHeadSha: string;
+  rebaseHeadSha?: string;
+}
+
+export type GitRebaseResult =
+  | {
+      status: 'rebased';
+      headSha: string;
+      treeHash: string;
+    }
+  | {
+      status: 'conflicts';
+      conflictedFiles: string[];
+    };
+
+export type GitRebaseStepResult =
+  | {
+      status: 'complete';
+      headSha: string;
+      treeHash: string;
+    }
+  | {
+      status: 'conflicts';
+      conflictContext: GitConflictContext;
+    };
+
+export interface PushBranchWithLeaseOptions {
+  branchName: string;
+}
+
+export type GitPushWithLeaseResult =
+  | {
+      status: 'pushed';
+      headSha: string;
+      treeHash: string;
+    }
+  | {
+      status: 'stale-lease';
+    };
+
 export interface GetChangedFilesSinceBaseOptions {
   baseBranch: string;
 }
@@ -60,6 +135,15 @@ export interface GitClient {
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;
   pushBranch(options: PushBranchOptions): Promise<void>;
+  rebaseBranchOntoBase(options: RebaseBranchOntoBaseOptions): Promise<GitRebaseResult>;
+  startRebaseBranchOntoBase?(
+    options: StartRebaseBranchOntoBaseOptions,
+  ): Promise<GitRebaseStepResult>;
+  continueRebase?(options: ContinueRebaseOptions): Promise<GitRebaseStepResult>;
+  readRebaseConflictContext?(
+    options: ReadRebaseConflictContextOptions,
+  ): Promise<GitConflictContext | undefined>;
+  pushBranchWithLease(options: PushBranchWithLeaseOptions): Promise<GitPushWithLeaseResult>;
   getCurrentHeadSha(): Promise<string>;
   getCurrentTreeHash(): Promise<string>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;

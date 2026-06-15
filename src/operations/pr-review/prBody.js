@@ -100,6 +100,34 @@ export function updatePullRequestBodyForPrFixCi({ body, ciFixStatus, ciFixCycle,
 }
 
 /**
+ * @param {object} options
+ * @param {string} options.body
+ * @param {'updated' | 'conflicts' | 'blocked'} options.updateStatus
+ * @returns {string}
+ */
+export function updatePullRequestBodyForPrUpdateBranch({ body, updateStatus }) {
+  let updated = body.trimEnd();
+  updated = upsertLine(updated, 'Status:', formatPrUpdateBranchStatus(updateStatus));
+  updated = removeMergePreparationMarkers(updated);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prUpdateBranch);
+  return `${updated}\n`;
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.body
+ * @param {'resolved' | 'blocked'} options.resolveStatus
+ * @returns {string}
+ */
+export function updatePullRequestBodyForPrResolveConflicts({ body, resolveStatus }) {
+  let updated = body.trimEnd();
+  updated = upsertLine(updated, 'Status:', formatPrResolveConflictsStatus(resolveStatus));
+  updated = removeMergePreparationMarkers(updated);
+  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prResolveConflicts);
+  return `${updated}\n`;
+}
+
+/**
  * @param {ReviewResultStatus} status
  * @returns {string}
  */
@@ -134,6 +162,34 @@ function formatAddressReviewStatus(status) {
 function formatPrFixCiStatus(status) {
   if (status === 'fixed') {
     return 'CI fixed';
+  }
+
+  return 'Blocked';
+}
+
+/**
+ * @param {'updated' | 'conflicts' | 'blocked'} status
+ * @returns {string}
+ */
+function formatPrUpdateBranchStatus(status) {
+  if (status === 'updated') {
+    return 'Branch updated';
+  }
+
+  if (status === 'conflicts') {
+    return 'Rebase conflicts';
+  }
+
+  return 'Blocked';
+}
+
+/**
+ * @param {'resolved' | 'blocked'} status
+ * @returns {string}
+ */
+function formatPrResolveConflictsStatus(status) {
+  if (status === 'resolved') {
+    return 'Rebase conflicts resolved';
   }
 
   return 'Blocked';

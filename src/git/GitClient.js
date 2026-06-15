@@ -1,4 +1,6 @@
 import { execFile as nodeExecFile } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(nodeExecFile);
@@ -9,6 +11,16 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
+ * @typedef {import('./types.js').RebaseBranchOntoBaseOptions} RebaseBranchOntoBaseOptions
+ * @typedef {import('./types.js').GitRebaseResult} GitRebaseResult
+ * @typedef {import('./types.js').StartRebaseBranchOntoBaseOptions} StartRebaseBranchOntoBaseOptions
+ * @typedef {import('./types.js').ContinueRebaseOptions} ContinueRebaseOptions
+ * @typedef {import('./types.js').ReadRebaseConflictContextOptions} ReadRebaseConflictContextOptions
+ * @typedef {import('./types.js').GitRebaseStepResult} GitRebaseStepResult
+ * @typedef {import('./types.js').GitConflictContext} GitConflictContext
+ * @typedef {import('./types.js').GitConflictFile} GitConflictFile
+ * @typedef {import('./types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
+ * @typedef {import('./types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
  * @typedef {import('./types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
  * @typedef {import('./types.js').GitCommit} GitCommit
@@ -98,6 +110,165 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         ['push', '--set-upstream', 'origin', branchName],
         `push branch ${branchName}`,
       );
+    },
+
+    /**
+     * @param {RebaseBranchOntoBaseOptions} options
+     * @returns {Promise<GitRebaseResult>}
+     */
+    async rebaseBranchOntoBase({ branchName, baseBranch }) {
+      await configureAuthenticatedOrigin(execFile, env);
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      await runGit(
+        execFile,
+        ['fetch', 'origin', `+refs/heads/${branchName}:refs/remotes/origin/${branchName}`],
+        `fetch branch ${branchName}`,
+      );
+      await runGit(
+        execFile,
+        ['checkout', '-B', branchName, `origin/${branchName}`],
+        `check out branch ${branchName}`,
+      );
+
+      try {
+        await runGit(
+          execFile,
+          ['rebase', `origin/${baseBranch}`],
+          `rebase branch ${branchName} onto ${baseBranch}`,
+        );
+      } catch (error) {
+        const conflictedFiles = await readConflictedFiles(execFile);
+        if (conflictedFiles.length === 0) {
+          throw error;
+        }
+
+        await runGit(
+          execFile,
+          ['rebase', '--abort'],
+          `abort conflicted rebase of branch ${branchName}`,
+        );
+        return {
+          status: 'conflicts',
+          conflictedFiles,
+        };
+      }
+
+      return {
+        status: 'rebased',
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
+    },
+
+    /**
+     * @param {StartRebaseBranchOntoBaseOptions} options
+     * @returns {Promise<GitRebaseStepResult>}
+     */
+    async startRebaseBranchOntoBase({ branchName, baseBranch }) {
+      await configureAuthenticatedOrigin(execFile, env);
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      await runGit(
+        execFile,
+        ['fetch', 'origin', `+refs/heads/${branchName}:refs/remotes/origin/${branchName}`],
+        `fetch branch ${branchName}`,
+      );
+      await runGit(
+        execFile,
+        ['checkout', '-B', branchName, `origin/${branchName}`],
+        `check out branch ${branchName}`,
+      );
+
+      try {
+        await runGit(
+          execFile,
+          ['rebase', `origin/${baseBranch}`],
+          `start conflictable rebase of branch ${branchName} onto ${baseBranch}`,
+        );
+      } catch (error) {
+        const conflictContext = await readRebaseConflictContext(execFile, {
+          branchName,
+          baseBranch,
+        });
+        if (conflictContext === undefined) {
+          throw error;
+        }
+
+        return {
+          status: 'conflicts',
+          conflictContext,
+        };
+      }
+
+      return await readCompletedRebaseStep(execFile);
+    },
+
+    /**
+     * @param {ContinueRebaseOptions} options
+     * @returns {Promise<GitRebaseStepResult>}
+     */
+    async continueRebase({ branchName, baseBranch }) {
+      await runGit(execFile, ['add', '--all'], 'stage resolved rebase conflicts');
+
+      try {
+        await runGit(
+          execFile,
+          ['-c', 'core.editor=true', 'rebase', '--continue'],
+          `continue rebase of branch ${branchName}`,
+        );
+      } catch (error) {
+        const conflictContext = await readRebaseConflictContext(execFile, {
+          branchName,
+          baseBranch,
+        });
+        if (conflictContext === undefined) {
+          throw error;
+        }
+
+        return {
+          status: 'conflicts',
+          conflictContext,
+        };
+      }
+
+      return await readCompletedRebaseStep(execFile);
+    },
+
+    /**
+     * @param {ReadRebaseConflictContextOptions} options
+     * @returns {Promise<GitConflictContext | undefined>}
+     */
+    async readRebaseConflictContext({ branchName, baseBranch }) {
+      return await readRebaseConflictContext(execFile, { branchName, baseBranch });
+    },
+
+    /**
+     * @param {PushBranchWithLeaseOptions} options
+     * @returns {Promise<GitPushWithLeaseResult>}
+     */
+    async pushBranchWithLease({ branchName }) {
+      await configureAuthenticatedOrigin(execFile, env);
+
+      try {
+        await runGit(
+          execFile,
+          ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
+          `force-with-lease push branch ${branchName}`,
+        );
+      } catch (error) {
+        if (isStaleLeaseError(error)) {
+          return {
+            status: 'stale-lease',
+          };
+        }
+
+        throw error;
+      }
+
+      return {
+        status: 'pushed',
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
     },
 
     /**
@@ -371,6 +542,141 @@ async function hasStagedChanges(execFile) {
 }
 
 /**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string[]>}
+ */
+async function readConflictedFiles(execFile) {
+  const result = await runGit(
+    execFile,
+    ['diff', '--name-only', '--diff-filter=U', '-z'],
+    'inspect rebase conflicts',
+  );
+  return parseNullSeparatedFiles(result.stdout);
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<GitRebaseStepResult & { status: 'complete' }>}
+ */
+async function readCompletedRebaseStep(execFile) {
+  return {
+    status: 'complete',
+    headSha: await getCurrentHeadSha(execFile),
+    treeHash: await getCurrentTreeHash(execFile),
+  };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {ReadRebaseConflictContextOptions} options
+ * @returns {Promise<GitConflictContext | undefined>}
+ */
+async function readRebaseConflictContext(execFile, { branchName, baseBranch }) {
+  const conflictedFilePaths = await readConflictedFiles(execFile);
+  if (conflictedFilePaths.length === 0) {
+    return undefined;
+  }
+
+  const repositoryRoot = await getRepositoryRoot(execFile);
+  /** @type {GitConflictFile[]} */
+  const conflictedFiles = [];
+  for (const path of conflictedFilePaths) {
+    conflictedFiles.push(await readConflictFile(execFile, repositoryRoot, path));
+  }
+  const baseHeadSha = await readOptionalGitRevision(execFile, `origin/${baseBranch}`);
+  const originalHeadSha = await readOptionalGitRevision(execFile, 'ORIG_HEAD');
+  const rebaseHeadSha = await readOptionalGitRevision(execFile, 'REBASE_HEAD');
+
+  return {
+    branchName,
+    baseBranch,
+    conflictedFiles,
+    ...(baseHeadSha === undefined ? {} : { baseHeadSha }),
+    ...(originalHeadSha === undefined ? {} : { originalHeadSha }),
+    currentHeadSha: await getCurrentHeadSha(execFile),
+    ...(rebaseHeadSha === undefined ? {} : { rebaseHeadSha }),
+  };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} repositoryRoot
+ * @param {string} path
+ * @returns {Promise<GitConflictFile>}
+ */
+async function readConflictFile(execFile, repositoryRoot, path) {
+  const content = await readWorkingTreeFile(repositoryRoot, path);
+  return {
+    path,
+    exists: content !== undefined,
+    ...(content === undefined ? {} : { content }),
+    ...optionalProperty('baseContent', await readConflictStage(execFile, 1, path)),
+    ...optionalProperty('oursContent', await readConflictStage(execFile, 2, path)),
+    ...optionalProperty('theirsContent', await readConflictStage(execFile, 3, path)),
+  };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {number} stage
+ * @param {string} path
+ * @returns {Promise<string | undefined>}
+ */
+async function readConflictStage(execFile, stage, path) {
+  try {
+    const result = await execFile('git', ['show', `:${stage}:${path}`]);
+    return result.stdout.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string} repositoryRoot
+ * @param {string} path
+ * @returns {Promise<string | undefined>}
+ */
+async function readWorkingTreeFile(repositoryRoot, path) {
+  try {
+    return await readFile(join(repositoryRoot, path), 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string>}
+ */
+async function getRepositoryRoot(execFile) {
+  return (await runGit(execFile, ['rev-parse', '--show-toplevel'], 'read repository root')).stdout
+    .toString()
+    .trim();
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} revision
+ * @returns {Promise<string | undefined>}
+ */
+async function readOptionalGitRevision(execFile, revision) {
+  try {
+    return (await execFile('git', ['rev-parse', '--verify', revision])).stdout.toString().trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string} name
+ * @param {string | undefined} value
+ * @returns {Record<string, string>}
+ */
+function optionalProperty(name, value) {
+  return value === undefined ? {} : { [name]: value };
+}
+
+/**
  * @param {string | Buffer} stdout
  * @returns {string[]}
  */
@@ -411,6 +717,20 @@ function getCommandErrorMessage(error) {
   }
 
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isStaleLeaseError(error) {
+  const message = getCommandErrorMessage(error);
+  return (
+    /\bstale info\b/i.test(message) ||
+    /\[rejected\].*\(stale info\)/i.test(message) ||
+    /fetch first/i.test(message) ||
+    (/failed to push some refs/i.test(message) && /stale|remote contains work/i.test(message))
+  );
 }
 
 /**
