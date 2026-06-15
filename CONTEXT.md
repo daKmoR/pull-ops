@@ -169,16 +169,12 @@ The PullOps Operation that uses the AI runner to resolve merge conflicts between
 _Avoid_: Update branch with conflicts, merge fix
 
 **PR Finalize**:
-The PullOps Operation that cleans up a PullOps-Managed PR's commit history and PR description before human review and merge.
+The PullOps Operation that prepares a PullOps-Managed PR for human rebase merge.
 _Avoid_: Auto-merge, merge preflight
 
 **Logical Commit Stack**:
-The final commit history shape for a PR: one commit for the main issue by default, or a small set of focused commits when the work naturally spans separable changes.
+The final commit history shape for a PullOps-Managed PR, such as one traceable commit for an issue PR or one Child Issue Commit per merged Child Issue PR in an Umbrella Branch.
 _Avoid_: Squash, cleanup commits
-
-**Commit Plan**:
-The structured `pr-finalize` output that proposes how the current PR diff should be grouped into a Logical Commit Stack.
-_Avoid_: Rebase script, squash plan
 
 **Child Issue Commit**:
 A logical commit in an Umbrella Branch history that corresponds to one merged Child Issue PR.

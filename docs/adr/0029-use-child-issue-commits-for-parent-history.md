@@ -1,5 +1,3 @@
 # Use child issue commits for parent history
 
-PullOps parent/child workflows should preserve one Child Issue Commit per merged Child Issue PR by default once child work is integrated into the umbrella branch. pr-finalize may fold review and CI noise into the relevant Child Issue commit, but should not squash an entire parent issue into one commit unless the parent scope is genuinely tiny.
-
-ADR-0041 changes the integration unit to Child Issue PRs targeting the Umbrella Branch; this ADR now applies to the resulting Umbrella Branch history, not to direct child commits on the PRD branch.
+PullOps parent/child workflows implement each Child Issue through a Child Issue PR targeting the Parent Issue's Umbrella Branch. Once Child Issue PRs are integrated into the Umbrella Branch, the umbrella history should preserve one Child Issue Commit per merged Child Issue PR by default, so the final parent history remains traceable to the child work instead of collapsing the whole Parent Issue into one commit.
