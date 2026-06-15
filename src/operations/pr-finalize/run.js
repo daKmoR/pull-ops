@@ -22,8 +22,11 @@ import {
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../../git/types.js').GitCommit} GitCommit
+ * @typedef {import('../../git/types.js').PlannedRewriteCommit} PlannedRewriteCommit
  * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./run.types.js').PrFinalizePreparation} PrFinalizePreparation
@@ -165,10 +168,12 @@ async function preparePrFinalize(context) {
       ...(source.sourceKind === 'childIssue'
         ? { parentIssueNumber: source.parentIssueNumber }
         : {}),
+      ...(source.sourceKind === 'parentIssue' ? { childIssues: source.childIssues } : {}),
       baseBranch: source.baseBranch,
       currentTreeHash,
       finalizedTreeHash: state.finalizedTreeHash,
       finalizedHeadSha: currentHeadSha,
+      commitCount: countExpectedFinalizedCommits(source),
     };
   }
 
@@ -247,17 +252,9 @@ async function preparePrFinalize(context) {
     };
   }
 
-  const changedFiles = await readChangedFiles(context, pullRequest, { baseBranch });
-  if (changedFiles.length === 0) {
-    return {
-      ready: false,
-      output: await refusePullRequest(
-        context,
-        pullRequest,
-        `PR #${pullRequest.number} has no changed files to finalize.`,
-        { updateBody: true },
-      ),
-    };
+  const commitPlan = await createPrFinalizeCommitPlan(context, pullRequest, source);
+  if (!commitPlan.ready) {
+    return commitPlan;
   }
 
   return {
@@ -267,10 +264,11 @@ async function preparePrFinalize(context) {
     sourceKind: source.sourceKind,
     sourceIssueNumber: source.sourceIssueNumber,
     ...(source.sourceKind === 'childIssue' ? { parentIssueNumber: source.parentIssueNumber } : {}),
+    ...(source.sourceKind === 'parentIssue' ? { childIssues: source.childIssues } : {}),
     baseBranch: source.baseBranch,
     currentTreeHash,
     reviewedTreeHash: state.reviewedTreeHash,
-    changedFiles,
+    commitPlan: commitPlan.commits,
   };
 }
 
@@ -288,6 +286,13 @@ async function preparePrFinalizeSource(
   pullRequest,
   { baseBranch, sourceIssueNumber, sourceKind },
 ) {
+  if (sourceKind === 'parentIssue') {
+    return await prepareParentIssueSource(context, pullRequest, {
+      baseBranch,
+      sourceIssueNumber,
+    });
+  }
+
   if (sourceKind !== 'issue') {
     return {
       ready: false,
@@ -373,6 +378,95 @@ async function preparePrFinalizeSource(
     sourceKind: 'standalone',
     sourceIssueNumber: sourceIssue.number,
     baseBranch,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {object} options
+ * @param {string} options.baseBranch
+ * @param {number} options.sourceIssueNumber
+ * @returns {Promise<PrFinalizeSource>}
+ */
+async function prepareParentIssueSource(context, pullRequest, { baseBranch, sourceIssueNumber }) {
+  const sourceIssue = await context.githubClient.getIssue(sourceIssueNumber);
+  const parentBranch = parseParentBranchName({
+    branchPrefix: context.config.branchPrefix,
+    branchName: pullRequest.headRefName,
+  });
+
+  if (sourceIssue.parent !== null) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `PR #${pullRequest.number} uses Parent Issue source #${sourceIssue.number},`,
+          `but that issue is a native child of issue #${sourceIssue.parent.number}.`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (parentBranch?.parentNumber !== sourceIssue.number) {
+    const expectedBranch = createParentBranchName({
+      branchPrefix: context.config.branchPrefix,
+      parentNumber: sourceIssue.number,
+    });
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Umbrella PRD PR #${pullRequest.number} uses head branch`,
+          `"${pullRequest.headRefName}", but Parent Issue #${sourceIssue.number}`,
+          `must use "${expectedBranch}".`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  if (baseBranch !== context.config.baseBranch) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Umbrella PRD PR #${pullRequest.number} targets "${baseBranch}",`,
+          `but Parent Issue #${sourceIssue.number} must target default branch`,
+          `"${context.config.baseBranch}".`,
+        ].join(' '),
+      ),
+    };
+  }
+
+  const openChildIssues = sourceIssue.subIssues.filter(childIssue => !isClosedIssue(childIssue));
+  if (openChildIssues.length > 0) {
+    return {
+      ready: false,
+      output: await blockPullRequest(
+        context,
+        pullRequest,
+        [
+          `Umbrella PRD PR #${pullRequest.number} is incomplete because native Child Issues`,
+          `${formatIssueList(openChildIssues)} remain open.`,
+          'Incomplete PRDs cannot become merge-ready.',
+        ].join(' '),
+      ),
+    };
+  }
+
+  return {
+    ready: true,
+    sourceKind: 'parentIssue',
+    sourceIssueNumber: sourceIssue.number,
+    baseBranch,
+    childIssues: sourceIssue.subIssues,
+    closedChildIssues: sourceIssue.subIssues.filter(isClosedIssue),
   };
 }
 
@@ -475,6 +569,176 @@ async function prepareChildIssueSource(
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {PrFinalizeSource & { ready: true }} source
+ * @returns {Promise<
+ *   | { ready: false; output: Record<string, unknown> }
+ *   | { ready: true; commits: PlannedRewriteCommit[] }
+ * >}
+ */
+async function createPrFinalizeCommitPlan(context, pullRequest, source) {
+  if (source.sourceKind === 'parentIssue') {
+    return await createParentIssueCommitPlan(context, pullRequest, source);
+  }
+
+  const changedFiles = await readChangedFiles(context, pullRequest, {
+    baseBranch: source.baseBranch,
+  });
+  if (changedFiles.length === 0) {
+    return {
+      ready: false,
+      output: await refusePullRequest(
+        context,
+        pullRequest,
+        `PR #${pullRequest.number} has no changed files to finalize.`,
+        { updateBody: true },
+      ),
+    };
+  }
+
+  return {
+    ready: true,
+    commits: [
+      {
+        message: createPrFinalizeCommitMessage(
+          source.sourceIssueNumber,
+          source.sourceKind === 'childIssue' ? source.parentIssueNumber : undefined,
+        ),
+        files: changedFiles,
+      },
+    ],
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {PrFinalizeSource & { ready: true, sourceKind: 'parentIssue' }} source
+ * @returns {Promise<
+ *   | { ready: false; output: Record<string, unknown> }
+ *   | { ready: true; commits: PlannedRewriteCommit[] }
+ * >}
+ */
+async function createParentIssueCommitPlan(context, pullRequest, source) {
+  let history;
+
+  try {
+    history = await readCommitsSinceBase(context, pullRequest, {
+      baseBranch: source.baseBranch,
+    });
+  } catch (error) {
+    await recordPullRequestFailure(context, pullRequest, getErrorMessage(error));
+    throw error;
+  }
+
+  const analysis = analyzeParentIssueHistory({
+    commits: history,
+    parentIssueNumber: source.sourceIssueNumber,
+    closedChildIssues: source.closedChildIssues,
+  });
+
+  if (!analysis.valid) {
+    return {
+      ready: false,
+      output: await blockPullRequest(context, pullRequest, analysis.reason),
+    };
+  }
+
+  if (analysis.commits.length === 0) {
+    return {
+      ready: false,
+      output: await refusePullRequest(
+        context,
+        pullRequest,
+        `Umbrella PRD PR #${pullRequest.number} has no child issue work to finalize.`,
+        { updateBody: true },
+      ),
+    };
+  }
+
+  return {
+    ready: true,
+    commits: analysis.commits,
+  };
+}
+
+/**
+ * @param {object} options
+ * @param {GitCommit[]} options.commits
+ * @param {number} options.parentIssueNumber
+ * @param {GitHubIssueReference[]} options.closedChildIssues
+ * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string }}
+ */
+function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssues }) {
+  const closedChildNumbers = new Set(closedChildIssues.map(childIssue => childIssue.number));
+  /** @type {Map<number, Set<string>>} */
+  const filesByChildIssue = new Map();
+  /** @type {PlannedRewriteCommit[]} */
+  const parentLevelCommits = [];
+
+  for (const commit of commits) {
+    const childIssueNumber = readChildIssueNumberFromCommit({
+      commit,
+      parentIssueNumber,
+      closedChildNumbers,
+    });
+
+    if (childIssueNumber !== undefined) {
+      const files = filesByChildIssue.get(childIssueNumber) ?? new Set();
+      for (const file of commit.files) {
+        files.add(file);
+      }
+      filesByChildIssue.set(childIssueNumber, files);
+      continue;
+    }
+
+    if (isParentLevelCommit(commit, parentIssueNumber)) {
+      if (commit.files.length > 0) {
+        parentLevelCommits.push({
+          message: commit.body,
+          files: commit.files,
+        });
+      }
+      continue;
+    }
+
+    return {
+      valid: false,
+      reason: [
+        `Umbrella PRD history contains commit ${commit.sha} that is not traceable to`,
+        `a closed native Child Issue of PRD #${parentIssueNumber} or explicit PRD-level work.`,
+      ].join(' '),
+    };
+  }
+
+  const missingChildIssues = closedChildIssues.filter(
+    childIssue => !filesByChildIssue.has(childIssue.number),
+  );
+  if (missingChildIssues.length > 0) {
+    return {
+      valid: false,
+      reason: [
+        `Umbrella PRD history is missing closed native Child Issues`,
+        `${formatIssueList(missingChildIssues)}.`,
+        'Closed child work cannot be omitted from the finalized PRD branch.',
+      ].join(' '),
+    };
+  }
+
+  return {
+    valid: true,
+    commits: [
+      ...parentLevelCommits,
+      ...closedChildIssues.map(childIssue => ({
+        message: createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue),
+        files: [...(filesByChildIssue.get(childIssue.number) ?? [])],
+      })),
+    ],
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @param {PrFinalizePreparation & { ready: true }} preparation
  * @returns {Promise<Record<string, unknown>>}
  */
@@ -483,26 +747,27 @@ async function completePrFinalize(context, preparation) {
     return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
       sourceIssueNumber: preparation.sourceIssueNumber,
       parentIssueNumber: preparation.parentIssueNumber,
+      childIssues: preparation.childIssues,
       finalizedTreeHash: preparation.finalizedTreeHash,
       finalizedHeadSha: preparation.finalizedHeadSha,
       body: preparation.pullRequest.body,
+      commitCount: preparation.commitCount,
     });
   }
 
-  const rewriteResult = await context.gitClient.rewriteBranchWithCommitPlan({
-    baseBranch: preparation.baseBranch,
-    branchName: preparation.pullRequest.headRefName,
-    commits: [
-      {
-        message: createPrFinalizeCommitMessage(
-          preparation.sourceIssueNumber,
-          preparation.parentIssueNumber,
-        ),
-        files: preparation.changedFiles,
-      },
-    ],
-    author: GITHUB_ACTIONS_BOT_AUTHOR,
-  });
+  let rewriteResult;
+
+  try {
+    rewriteResult = await context.gitClient.rewriteBranchWithCommitPlan({
+      baseBranch: preparation.baseBranch,
+      branchName: preparation.pullRequest.headRefName,
+      commits: preparation.commitPlan,
+      author: GITHUB_ACTIONS_BOT_AUTHOR,
+    });
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+    throw error;
+  }
 
   if (rewriteResult.treeHash !== preparation.reviewedTreeHash) {
     const reason = [
@@ -517,6 +782,7 @@ async function completePrFinalize(context, preparation) {
     body: preparation.pullRequest.body,
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
+    childIssues: preparation.childIssues,
     finalizedTreeHash: rewriteResult.treeHash,
     finalizedHeadSha: rewriteResult.headSha,
   });
@@ -528,9 +794,11 @@ async function completePrFinalize(context, preparation) {
   return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
+    childIssues: preparation.childIssues,
     finalizedTreeHash: rewriteResult.treeHash,
     finalizedHeadSha: rewriteResult.headSha,
     body: finalizedBody,
+    commitCount: preparation.commitPlan.length,
   });
 }
 
@@ -561,20 +829,144 @@ export function createPrFinalizeCommitMessage(sourceIssueNumber, parentIssueNumb
 }
 
 /**
+ * @param {number} parentIssueNumber
+ * @param {GitHubIssueReference} childIssue
+ * @returns {string}
+ */
+export function createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue) {
+  return [
+    `feat(issue): implement #${childIssue.number}`,
+    '',
+    `Finalize Child Issue #${childIssue.number} for rebase merge into PRD #${parentIssueNumber}.`,
+    '',
+    `Refs: #${childIssue.number}`,
+    `PRD: #${parentIssueNumber}`,
+  ].join('\n');
+}
+
+/**
+ * @param {PrFinalizeSource & { ready: true }} source
+ * @returns {number}
+ */
+function countExpectedFinalizedCommits(source) {
+  if (source.sourceKind === 'parentIssue') {
+    return source.closedChildIssues.length;
+  }
+
+  return 1;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ baseBranch: string }} options
+ * @returns {Promise<GitCommit[]>}
+ */
+async function readCommitsSinceBase(context, pullRequest, { baseBranch }) {
+  if (context.gitClient.getCommitsSinceBase === undefined) {
+    throw new Error(
+      `Git client cannot inspect commits since ${baseBranch} for PR #${pullRequest.number}.`,
+    );
+  }
+
+  return await context.gitClient.getCommitsSinceBase({ baseBranch });
+}
+
+/**
+ * @param {object} options
+ * @param {GitCommit} options.commit
+ * @param {number} options.parentIssueNumber
+ * @param {Set<number>} options.closedChildNumbers
+ * @returns {number | undefined}
+ */
+function readChildIssueNumberFromCommit({ commit, parentIssueNumber, closedChildNumbers }) {
+  if (!commitReferencesPrd(commit, parentIssueNumber)) {
+    return undefined;
+  }
+
+  const refs = readReferencedIssueNumbers(commit.body);
+  return refs.find(issueNumber => closedChildNumbers.has(issueNumber));
+}
+
+/**
+ * @param {GitCommit} commit
+ * @param {number} parentIssueNumber
+ * @returns {boolean}
+ */
+function isParentLevelCommit(commit, parentIssueNumber) {
+  const refs = readReferencedIssueNumbers(commit.body);
+  return refs.includes(parentIssueNumber) && !commit.body.includes(`PRD: #${parentIssueNumber}`);
+}
+
+/**
+ * @param {GitCommit} commit
+ * @param {number} parentIssueNumber
+ * @returns {boolean}
+ */
+function commitReferencesPrd(commit, parentIssueNumber) {
+  return new RegExp(`^PRD:\\s+#${parentIssueNumber}\\s*$`, 'im').test(commit.body);
+}
+
+/**
+ * @param {string} commitBody
+ * @returns {number[]}
+ */
+function readReferencedIssueNumbers(commitBody) {
+  /** @type {number[]} */
+  const numbers = [];
+  const pattern = /^Refs:\s+#(\d+)\s*$/gim;
+  let match;
+
+  while ((match = pattern.exec(commitBody)) !== null) {
+    if (match[1] !== undefined) {
+      numbers.push(Number(match[1]));
+    }
+  }
+
+  return numbers;
+}
+
+/**
+ * @param {GitHubIssueReference} issue
+ * @returns {boolean}
+ */
+function isClosedIssue(issue) {
+  return issue.state?.toUpperCase() === 'CLOSED';
+}
+
+/**
+ * @param {GitHubIssueReference[]} issues
+ * @returns {string}
+ */
+function formatIssueList(issues) {
+  return issues.map(issue => `#${issue.number}`).join(', ');
+}
+
+/**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
  * @param {object} options
  * @param {number} options.sourceIssueNumber
  * @param {number | undefined} options.parentIssueNumber
+ * @param {GitHubIssueReference[] | undefined} options.childIssues
  * @param {string} options.finalizedTreeHash
  * @param {string} options.finalizedHeadSha
  * @param {string} options.body
+ * @param {number} options.commitCount
  * @returns {Promise<Record<string, unknown>>}
  */
 async function completeFinalizedHeadChecks(
   context,
   pullRequest,
-  { sourceIssueNumber, parentIssueNumber, finalizedTreeHash, finalizedHeadSha, body },
+  {
+    sourceIssueNumber,
+    parentIssueNumber,
+    childIssues,
+    finalizedTreeHash,
+    finalizedHeadSha,
+    body,
+    commitCount,
+  },
 ) {
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyChecks(checks);
@@ -601,6 +993,7 @@ async function completeFinalizedHeadChecks(
       body,
       sourceIssueNumber,
       parentIssueNumber,
+      childIssues,
       finalizedTreeHash,
       finalizedHeadSha,
       status: 'ready',
@@ -624,7 +1017,7 @@ async function completeFinalizedHeadChecks(
       url: pullRequest.url,
     },
     prFinalize: {
-      commits: 1,
+      commits: commitCount,
       finalizedTree: finalizedTreeHash,
       finalizedHead: finalizedHeadSha,
       mergeMethod: 'rebase',

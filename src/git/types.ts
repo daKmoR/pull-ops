@@ -26,6 +26,17 @@ export interface GetChangedFilesSinceBaseOptions {
   baseBranch: string;
 }
 
+export interface GetCommitsSinceBaseOptions {
+  baseBranch: string;
+}
+
+export interface GitCommit {
+  sha: string;
+  subject: string;
+  body: string;
+  files: string[];
+}
+
 export interface PlannedRewriteCommit {
   message: string;
   files: string[];
@@ -52,6 +63,7 @@ export interface GitClient {
   getCurrentHeadSha(): Promise<string>;
   getCurrentTreeHash(): Promise<string>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
+  getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
   rewriteBranchWithCommitPlan(
     options: RewriteBranchWithCommitPlanOptions,
   ): Promise<GitRewriteResult>;

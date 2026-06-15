@@ -10,6 +10,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
+ * @typedef {import('./types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
+ * @typedef {import('./types.js').GitCommit} GitCommit
  * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
  * @typedef {import('./types.js').GitRewriteResult} GitRewriteResult
  * @typedef {import('../github/types.js').ExecFile} ExecFile
@@ -125,6 +127,34 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         `inspect changed files since ${baseBranch}`,
       );
       return parseNullSeparatedFiles(result.stdout);
+    },
+
+    /**
+     * @param {GetCommitsSinceBaseOptions} options
+     * @returns {Promise<GitCommit[]>}
+     */
+    async getCommitsSinceBase({ baseBranch }) {
+      await configureAuthenticatedOrigin(execFile, env);
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      const baseRef = `origin/${baseBranch}`;
+      const result = await runGit(
+        execFile,
+        ['rev-list', '--reverse', `${baseRef}..HEAD`],
+        `list commits since ${baseBranch}`,
+      );
+      const shas = result.stdout
+        .toString()
+        .split('\n')
+        .map(sha => sha.trim())
+        .filter(Boolean);
+      /** @type {GitCommit[]} */
+      const commits = [];
+
+      for (const sha of shas) {
+        commits.push(await readCommit(execFile, sha));
+      }
+
+      return commits;
     },
 
     /**
@@ -256,6 +286,34 @@ async function getCurrentTreeHash(execFile) {
   return (await runGit(execFile, ['rev-parse', 'HEAD^{tree}'], 'read the current tree hash')).stdout
     .toString()
     .trim();
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} sha
+ * @returns {Promise<GitCommit>}
+ */
+async function readCommit(execFile, sha) {
+  const body = (
+    await runGit(execFile, ['show', '-s', '--format=%B', sha], `read commit ${sha} message`)
+  ).stdout.toString();
+  const files = parseNullSeparatedFiles(
+    (
+      await runGit(
+        execFile,
+        ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', sha],
+        `read commit ${sha} files`,
+      )
+    ).stdout,
+  );
+  const subject = body.split('\n')[0]?.trim() ?? '';
+
+  return {
+    sha,
+    subject,
+    body: body.trimEnd(),
+    files,
+  };
 }
 
 /**

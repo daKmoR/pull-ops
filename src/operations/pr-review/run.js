@@ -203,6 +203,25 @@ async function preparePrReview(context) {
   }
 
   const issue = await context.githubClient.getIssue(state.sourceIssueNumber);
+  if (state.sourceKind === 'parentIssue') {
+    const openChildIssues = issue.subIssues.filter(childIssue => !isClosedIssue(childIssue));
+    if (openChildIssues.length > 0) {
+      return {
+        ready: false,
+        output: await refusePullRequest(context, pullRequest, {
+          reason: [
+            `Umbrella PRD PR #${pullRequest.number} is incomplete because native Child Issues`,
+            `${formatIssueList(openChildIssues)} remain open.`,
+            'Incomplete PRDs cannot be approved.',
+          ].join(' '),
+          updateBody: true,
+          reviewCycle: state.reviewCycles.current,
+          maxReviewCycles: state.reviewCycles.max,
+        }),
+      };
+    }
+  }
+
   const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
   const diff = await context.githubClient.getPullRequestDiff(pullRequest.number);
 
@@ -548,6 +567,22 @@ function hasPullOpsBranchPrefix(branchName, branchPrefix) {
       .filter(Boolean)
       .join('/') || 'pullops';
   return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubIssueReference} issue
+ * @returns {boolean}
+ */
+function isClosedIssue(issue) {
+  return issue.state?.toUpperCase() === 'CLOSED';
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubIssueReference[]} issues
+ * @returns {string}
+ */
+function formatIssueList(issues) {
+  return issues.map(issue => `#${issue.number}`).join(', ');
 }
 
 /**

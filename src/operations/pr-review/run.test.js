@@ -537,6 +537,66 @@ describe('runPrReview', () => {
       },
     ]);
   });
+
+  it('12: refuses incomplete Umbrella PRD PRs before Codex can approve them', async () => {
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 7,
+        title: 'PRD: Parent workflow',
+        subIssues: [
+          {
+            number: 42,
+            title: 'Implement child workflow',
+            state: 'OPEN',
+            relationshipSource: 'native',
+          },
+        ],
+      }),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        baseRefName: 'main',
+        body: [
+          '## Summary',
+          '',
+          'Prepared an umbrella branch.',
+          '',
+          '## PullOps',
+          '',
+          'Managed PR: yes',
+          'Status: Draft parent preparation',
+          'Review cycles: 0 / 3',
+          'Source: Parent Issue #7',
+          'Branch: pullops/prd-7',
+          'Last operation: pullops:prd:prepare',
+        ].join('\n'),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'This should not run.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'refused');
+    assert.equal(codex.calls.length, 0);
+    assert.equal(github.publishedReviews.length, 0);
+    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.comments[0].body, /native Child Issues #42 remain open/);
+    assert.match(github.comments[0].body, /Incomplete PRDs cannot be approved/);
+  });
 });
 
 /**
@@ -599,9 +659,10 @@ function createPullRequest(overrides = {}) {
 }
 
 /**
+ * @param {Partial<GitHubIssue>} [overrides]
  * @returns {GitHubIssue}
  */
-function createIssue() {
+function createIssue(overrides = {}) {
   return {
     number: 42,
     title: 'Add review automation',
@@ -612,6 +673,7 @@ function createIssue() {
     labels: [],
     parent: null,
     subIssues: [],
+    ...overrides,
   };
 }
 
@@ -679,6 +741,7 @@ function createDiff() {
 /**
  * @param {object} options
  * @param {GitHubPullRequest} options.pullRequest
+ * @param {GitHubIssue} [options.issue]
  * @param {GitHubPullRequestReviewContext} options.reviewContext
  * @param {GitHubPullRequestDiff} options.diff
  * @param {boolean} [options.rejectFormalReviewEvents]
@@ -692,7 +755,13 @@ function createDiff() {
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReviewEvents = false }) {
+function createFakeGitHub({
+  pullRequest,
+  issue = createIssue(),
+  reviewContext,
+  diff,
+  rejectFormalReviewEvents = false,
+}) {
   /** @type {PublishPullRequestReviewOptions[]} */
   const publishedReviews = [];
   /** @type {ReplyToPullRequestReviewCommentOptions[]} */
@@ -722,7 +791,7 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
         };
       },
       async getIssue() {
-        return createIssue();
+        return issue;
       },
       async getPullRequest() {
         return pullRequest;

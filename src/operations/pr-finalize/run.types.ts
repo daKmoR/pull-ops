@@ -1,6 +1,7 @@
-import type { GitHubPullRequest } from '../../github/types.js';
+import type { PlannedRewriteCommit } from '../../git/types.js';
+import type { GitHubIssueReference, GitHubPullRequest } from '../../github/types.js';
 
-export type PrFinalizeSourceKind = 'standalone' | 'childIssue';
+export type PrFinalizeSourceKind = 'standalone' | 'childIssue' | 'parentIssue';
 
 export type PrFinalizeSource =
   | {
@@ -19,6 +20,14 @@ export type PrFinalizeSource =
       sourceIssueNumber: number;
       parentIssueNumber: number;
       baseBranch: string;
+    }
+  | {
+      ready: true;
+      sourceKind: 'parentIssue';
+      sourceIssueNumber: number;
+      baseBranch: string;
+      childIssues: GitHubIssueReference[];
+      closedChildIssues: GitHubIssueReference[];
     };
 
 export type PrFinalizePreparation =
@@ -30,10 +39,11 @@ export type PrFinalizePreparation =
       sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
+      childIssues?: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
-      changedFiles: string[];
+      commitPlan: PlannedRewriteCommit[];
     }
   | {
       ready: true;
@@ -42,8 +52,10 @@ export type PrFinalizePreparation =
       sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
+      childIssues?: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       finalizedTreeHash: string;
       finalizedHeadSha: string;
+      commitCount: number;
     };

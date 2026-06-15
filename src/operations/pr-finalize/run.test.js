@@ -12,7 +12,7 @@ import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_STATUS_LABEL_NAMES,
 } from '../../labels/pullOpsLabels.js';
-import { runPrFinalize } from './run.js';
+import { createPrFinalizeCommitMessage, runPrFinalize } from './run.js';
 
 const execFile = promisify(nodeExecFile);
 
@@ -420,6 +420,174 @@ describe('runPrFinalize', () => {
     assert.match(String(missingReviewedTreeResult.summary), /Reviewed tree marker/);
     assert.match(missingReviewedTree.github.comments[0].body, /Reviewed tree marker/);
   });
+
+  it('08: blocks incomplete Umbrella PRD PRs while native child issues remain open', async () => {
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 7,
+        title: 'PRD: Parent workflow',
+        subIssues: [
+          createIssueReference({
+            number: 21,
+            title: 'First child',
+            state: 'OPEN',
+          }),
+        ],
+      }),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        baseRefName: 'main',
+        body: createParentPullRequestBody(),
+      }),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        githubClient: github.client,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(github.comments[0].body, /native Child Issues #21 remain open/);
+    assert.match(github.comments[0].body, /Incomplete PRDs cannot become merge-ready/);
+  });
+
+  it('09: blocks Umbrella PRD PRs when closed native child issues are missing from history', async () => {
+    const repository = await createTemporaryParentRepository({ childOrder: [21] });
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 7,
+        title: 'PRD: Parent workflow',
+        subIssues: [
+          createIssueReference({
+            number: 21,
+            title: 'First child',
+            state: 'CLOSED',
+          }),
+          createIssueReference({
+            number: 22,
+            title: 'Second child',
+            state: 'CLOSED',
+          }),
+        ],
+      }),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(github.comments[0].body, /missing closed native Child Issues #22/);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+  });
+
+  it('10: finalizes Umbrella PRD PR commits in native child issue order and marks ready on rerun', async () => {
+    const repository = await createTemporaryParentRepository({ childOrder: [22, 21] });
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 7,
+        title: 'PRD: Parent workflow',
+        subIssues: [
+          createIssueReference({
+            number: 21,
+            title: 'First child',
+            state: 'CLOSED',
+          }),
+          createIssueReference({
+            number: 22,
+            title: 'Second child',
+            state: 'CLOSED',
+          }),
+        ],
+      }),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const firstResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(firstResult.status, 'accepted');
+    assert.deepEqual(await readCommitMessages(repository.workDir), [
+      createPrFinalizeCommitMessage(21, 7),
+      createPrFinalizeCommitMessage(22, 7),
+    ]);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+    assert.equal(await readTreeHash(repository.workDir), reviewedTree);
+
+    const finalizedBody = github.updatedBodies[0].body;
+    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
+    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
+    assert.equal(readMarker(finalizedBody, 'Merge method:'), 'rebase');
+    assert.match(finalizedBody, /Status: Finalized for rebase merge/);
+    assert.match(finalizedBody, /Closes #7/);
+    assert.doesNotMatch(finalizedBody, /#999 stale child/);
+    assert.match(finalizedBody, /#21 First child \(closed\)/);
+    assert.match(finalizedBody, /#22 Second child \(closed\)/);
+    assert.equal(
+      finalizedBody.indexOf('#21 First child') < finalizedBody.indexOf('#22 Second child'),
+      true,
+    );
+    assert.equal(github.readyPullRequests.length, 0);
+
+    github.setPullRequest(
+      createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: finalizedHead,
+        baseRefName: 'main',
+        body: finalizedBody,
+      }),
+    );
+    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
+
+    const secondResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(secondResult.status, 'accepted');
+    const prFinalize = /** @type {{ commits: number }} */ (secondResult.prFinalize);
+    assert.equal(prFinalize.commits, 2);
+    assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(github.pullRequestLabelsRemoved.at(-1), {
+      number: 100,
+      labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+    });
+    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
+  });
 });
 
 /**
@@ -553,6 +721,42 @@ function createPullRequestBody({
     'Source: Issue #42',
     `Branch: ${branchName}`,
     ...(reviewedTree === null ? [] : [`Reviewed tree: ${reviewedTree}`]),
+    'Last operation: pullops:pr:review',
+  ].join('\n');
+}
+
+/**
+ * @param {object} [options]
+ * @param {string} [options.reviewedTree]
+ * @param {string} [options.reviewCycles]
+ * @returns {string}
+ */
+function createParentPullRequestBody({
+  reviewedTree = 'reviewed-tree',
+  reviewCycles = '1 / 3',
+} = {}) {
+  return [
+    '## Summary',
+    '',
+    'Prepared an umbrella branch and draft PR for parent issue #7.',
+    '',
+    '## Child Issues',
+    '',
+    '- #999 stale child from a previous body (open)',
+    '',
+    '## Traceability',
+    '',
+    'Closes #7',
+    '',
+    '## PullOps',
+    '',
+    'Managed PR: yes',
+    'Status: Review approved',
+    `Review cycles: ${reviewCycles}`,
+    'CI fix cycles: 0 / 2',
+    'Source: Parent Issue #7',
+    'Branch: pullops/prd-7',
+    `Reviewed tree: ${reviewedTree}`,
     'Last operation: pullops:pr:review',
   ].join('\n');
 }
@@ -846,6 +1050,49 @@ async function createTemporaryChildRepository() {
   await git(workDir, ['add', '--all']);
   await git(workDir, ['commit', '-m', 'wip: add child coverage']);
   await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7-issue-42']);
+
+  return { root, originDir, workDir };
+}
+
+/**
+ * @param {{ childOrder: number[] }} options
+ * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
+ */
+async function createTemporaryParentRepository({ childOrder }) {
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-parent-'));
+  const originDir = join(root, 'origin.git');
+  const workDir = join(root, 'work');
+
+  await mkdir(originDir, { recursive: true });
+  await mkdir(workDir, { recursive: true });
+  await git(originDir, ['init', '--bare']);
+  await git(workDir, ['init', '--initial-branch=main']);
+  await git(workDir, ['config', 'user.name', 'Test User']);
+  await git(workDir, ['config', 'user.email', 'test@example.com']);
+  await mkdir(join(workDir, 'src'), { recursive: true });
+  await writeFile(join(workDir, 'README.md'), '# Test\n');
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'chore: initial commit']);
+  await git(workDir, ['remote', 'add', 'origin', originDir]);
+  await git(workDir, ['push', '-u', 'origin', 'main']);
+  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
+  await git(workDir, [
+    'commit',
+    '--allow-empty',
+    '-m',
+    ['chore(prd): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
+  ]);
+
+  for (const childIssueNumber of childOrder) {
+    await writeFile(
+      join(workDir, 'src', `child-${childIssueNumber}.js`),
+      `export const child${childIssueNumber} = true;\n`,
+    );
+    await git(workDir, ['add', '--all']);
+    await git(workDir, ['commit', '-m', createPrFinalizeCommitMessage(childIssueNumber, 7)]);
+  }
+
+  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
 
   return { root, originDir, workDir };
 }

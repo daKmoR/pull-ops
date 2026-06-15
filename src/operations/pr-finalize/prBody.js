@@ -1,6 +1,10 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 
 /**
+ * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
+ */
+
+/**
  * @typedef {'finalized' | 'ready'} PrFinalizeBodyStatus
  */
 
@@ -11,6 +15,7 @@ import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
  * @param {number | undefined} options.parentIssueNumber
  * @param {string} options.finalizedTreeHash
  * @param {string} options.finalizedHeadSha
+ * @param {GitHubIssueReference[]} [options.childIssues]
  * @param {PrFinalizeBodyStatus} [options.status]
  * @returns {string}
  */
@@ -20,9 +25,13 @@ export function updatePullRequestBodyForPrFinalize({
   parentIssueNumber,
   finalizedTreeHash,
   finalizedHeadSha,
+  childIssues,
   status = 'finalized',
 }) {
   let updated = body.trimEnd();
+  if (childIssues !== undefined) {
+    updated = upsertSection(updated, 'Child Issues', formatChildIssues(childIssues));
+  }
   updated = upsertSection(
     updated,
     'Traceability',
@@ -34,6 +43,25 @@ export function updatePullRequestBodyForPrFinalize({
   updated = upsertLine(updated, 'Merge method:', 'rebase');
   updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
   return `${updated}\n`;
+}
+
+/**
+ * @param {GitHubIssueReference[]} childIssues
+ * @returns {string}
+ */
+function formatChildIssues(childIssues) {
+  if (childIssues.length === 0) {
+    return '(none discovered)';
+  }
+
+  return childIssues
+    .map(childIssue => {
+      const title = childIssue.title === undefined ? '(title unavailable)' : childIssue.title;
+      const state =
+        childIssue.state === undefined ? 'state unknown' : childIssue.state.toLowerCase();
+      return `- #${childIssue.number} ${title} (${state})`;
+    })
+    .join('\n');
 }
 
 /**
