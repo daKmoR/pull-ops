@@ -74,6 +74,7 @@ jobs:
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
+          git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           node src/cli/cli.js run pr-prepare-merge \
             --phase prepare \
             --runner codex-action \
