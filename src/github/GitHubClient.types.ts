@@ -3,6 +3,8 @@ export interface GitHubRepository {
   repo: string;
 }
 
+export type ReadRemoteOriginUrl = () => string | undefined;
+
 export type OctokitEndpoint = (parameters: Record<string, unknown>) => Promise<{ data: unknown }>;
 
 export interface GitHubApiClient {

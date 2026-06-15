@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+
 import { Octokit } from 'octokit';
 
 export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
@@ -28,6 +30,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./GitHubClient.types.js').GitHubRepository} GitHubRepository
  * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
  * @typedef {import('./GitHubClient.types.js').CreateOctokit} CreateOctokit
+ * @typedef {import('./GitHubClient.types.js').ReadRemoteOriginUrl} ReadRemoteOriginUrl
  */
 
 const ISSUE_RELATIONSHIPS_QUERY = `
@@ -163,6 +166,7 @@ mutation($threadId: ID!) {
  * @param {NodeJS.ProcessEnv} [options.env]
  * @param {GitHubRepository} [options.repository]
  * @param {CreateOctokit} [options.createOctokit]
+ * @param {ReadRemoteOriginUrl} [options.readRemoteOriginUrl]
  * @returns {GitHubClient}
  */
 export function createGitHubClient({
@@ -170,9 +174,10 @@ export function createGitHubClient({
   env = process.env,
   repository,
   createOctokit = createOctokitClient,
+  readRemoteOriginUrl = readGitRemoteOriginUrl,
 } = {}) {
   const api = octokit ?? createOctokit({ auth: readGitHubToken(env) });
-  const getRepository = createRepositoryResolver(repository, env);
+  const getRepository = createRepositoryResolver({ repository, env, readRemoteOriginUrl });
 
   return {
     /**
@@ -466,16 +471,34 @@ function readNonEmptyEnv(value) {
 }
 
 /**
- * @param {GitHubRepository | undefined} repository
- * @param {NodeJS.ProcessEnv} env
+ * @param {object} options
+ * @param {GitHubRepository | undefined} options.repository
+ * @param {NodeJS.ProcessEnv} options.env
+ * @param {ReadRemoteOriginUrl} options.readRemoteOriginUrl
  * @returns {() => GitHubRepository}
  */
-function createRepositoryResolver(repository, env) {
+function createRepositoryResolver({ repository, env, readRemoteOriginUrl }) {
   /** @type {GitHubRepository | undefined} */
   let cachedRepository = repository;
 
   return () => {
-    cachedRepository ??= parseGitHubRepository(env.GITHUB_REPOSITORY);
+    if (cachedRepository !== undefined) {
+      return cachedRepository;
+    }
+
+    const envRepository = readNonEmptyEnv(env.GITHUB_REPOSITORY);
+    if (envRepository !== undefined) {
+      cachedRepository = parseGitHubRepository(envRepository);
+      return cachedRepository;
+    }
+
+    cachedRepository = parseGitHubRemoteUrl(readRemoteOriginUrl());
+    if (cachedRepository === undefined) {
+      throw new Error(
+        'GITHUB_REPOSITORY must be set to "OWNER/REPO", or remote.origin.url must point at a GitHub repository.',
+      );
+    }
+
     return cachedRepository;
   };
 }
@@ -485,10 +508,74 @@ function createRepositoryResolver(repository, env) {
  * @returns {GitHubRepository}
  */
 export function parseGitHubRepository(value) {
-  if (value === undefined || value.trim() === '') {
+  const trimmedValue = readNonEmptyEnv(value);
+  if (trimmedValue === undefined) {
     throw new Error('GITHUB_REPOSITORY must be set to "OWNER/REPO".');
   }
 
+  const repository = parseRepositoryPath(trimmedValue);
+  if (repository === undefined) {
+    throw new Error(`Invalid GITHUB_REPOSITORY "${value}". Expected "OWNER/REPO".`);
+  }
+
+  return repository;
+}
+
+/**
+ * @returns {string | undefined}
+ */
+function readGitRemoteOriginUrl() {
+  try {
+    return execFileSync('git', ['config', '--get', 'remote.origin.url'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {GitHubRepository | undefined}
+ */
+function parseGitHubRemoteUrl(value) {
+  const remoteUrl = value?.trim();
+  if (remoteUrl === undefined || remoteUrl === '') {
+    return undefined;
+  }
+
+  const scpLikeMatch = remoteUrl.match(/^(?:[^@\s]+@)?github\.com:([^/]+)\/(.+)$/i);
+  if (scpLikeMatch !== null) {
+    return parseRepositoryPath(stripGitSuffix(`${scpLikeMatch[1]}/${scpLikeMatch[2]}`));
+  }
+
+  try {
+    const url = new URL(remoteUrl);
+    if (url.hostname.toLowerCase() !== 'github.com') {
+      return undefined;
+    }
+
+    const path = stripGitSuffix(url.pathname.replace(/^\/+/, ''));
+    return parseRepositoryPath(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function stripGitSuffix(value) {
+  return value.endsWith('.git') ? value.slice(0, -4) : value;
+}
+
+/**
+ * @param {string} value
+ * @returns {GitHubRepository | undefined}
+ */
+function parseRepositoryPath(value) {
   const [owner, repo, ...extra] = value.split('/');
   if (
     owner === undefined ||
@@ -497,10 +584,10 @@ export function parseGitHubRepository(value) {
     repo.trim() === '' ||
     extra.length > 0
   ) {
-    throw new Error(`Invalid GITHUB_REPOSITORY "${value}". Expected "OWNER/REPO".`);
+    return undefined;
   }
 
-  return { owner, repo };
+  return { owner: owner.trim(), repo: repo.trim() };
 }
 
 /**

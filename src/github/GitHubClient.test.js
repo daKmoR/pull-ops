@@ -499,6 +499,71 @@ describe('createGitHubClient', () => {
     assert.throws(() => parseGitHubRepository(undefined), /GITHUB_REPOSITORY/);
     assert.throws(() => parseGitHubRepository('acme/widgets/extra'), /Invalid GITHUB_REPOSITORY/);
   });
+
+  it('13: infers the GitHub repository from common origin formats', async () => {
+    for (const origin of [
+      'git@github.com:acme/widgets.git\n',
+      'https://github.com/acme/widgets.git\n',
+    ]) {
+      const { calls, octokit } = createFakeOctokit({ labels: [] });
+      const client = createGitHubClient({
+        octokit,
+        env: {},
+        readRemoteOriginUrl() {
+          return origin;
+        },
+      });
+
+      await client.ensureLabels([]);
+
+      assert.deepEqual(calls[0], {
+        name: 'issues.listLabelsForRepo',
+        params: {
+          ...TEST_REPOSITORY,
+          per_page: 100,
+        },
+      });
+    }
+  });
+
+  it('14: lets GITHUB_REPOSITORY override the origin fallback', async () => {
+    const { calls, octokit } = createFakeOctokit({ labels: [] });
+    let readOrigin = false;
+    const client = createGitHubClient({
+      octokit,
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      readRemoteOriginUrl() {
+        readOrigin = true;
+        return 'git@github.com:other/project.git';
+      },
+    });
+
+    await client.ensureLabels([]);
+
+    assert.equal(readOrigin, false);
+    assert.deepEqual(calls[0].params, {
+      ...TEST_REPOSITORY,
+      per_page: 100,
+    });
+  });
+
+  it('15: reports local repository context setup when no repository can be inferred', async () => {
+    const { octokit } = createFakeOctokit({ labels: [] });
+    const client = createGitHubClient({
+      octokit,
+      env: {},
+      readRemoteOriginUrl() {
+        return undefined;
+      },
+    });
+
+    await assert.rejects(
+      client.ensureLabels([]),
+      /GITHUB_REPOSITORY must be set to "OWNER\/REPO", or remote\.origin\.url must point at a GitHub repository\./,
+    );
+  });
 });
 
 const TEST_REPOSITORY = {
