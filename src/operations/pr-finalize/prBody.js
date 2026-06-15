@@ -120,8 +120,9 @@ function formatPrFinalizeStatus(status) {
  */
 function upsertSection(body, title, content) {
   const heading = `## ${title}`;
+  const endOfInput = '(?![\\s\\S])';
   const sectionPattern = new RegExp(
-    `(^${escapeRegExp(heading)}\\s*\\n)([\\s\\S]*?)(?=^##\\s+|\\s*$)`,
+    `(^${escapeRegExp(heading)}\\s*\\n)([\\s\\S]*?)(?=^##\\s+|${endOfInput})`,
     'im',
   );
 
