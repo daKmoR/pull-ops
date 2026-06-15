@@ -30,7 +30,7 @@ const execFile = promisify(nodeExecFile);
  */
 
 describe('runPrFinalize', () => {
-  it('01: rewrites a standalone Concrete Issue PR once, records finalized markers, waits, and then marks it ready', async () => {
+  it('01: rewrites a standalone Concrete Issue PR once and marks it ready when finalized-head checks are absent', async () => {
     const repository = await createTemporaryRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -62,12 +62,11 @@ describe('runPrFinalize', () => {
 
     assert.equal(firstResult.status, 'accepted');
     assert.equal(codex.calls.length, 0);
-    assert.deepEqual(firstResult.prFinalize, {
-      waiting: true,
-      stage: 'finalized-head',
-      checkedRef: readMarker(github.updatedBodies[0].body, 'Finalized head:'),
-      checks: 0,
-    });
+    const prFinalize = /** @type {{ commits: number, readyForReview: boolean }} */ (
+      firstResult.prFinalize
+    );
+    assert.equal(prFinalize.commits, 1);
+    assert.equal(prFinalize.readyForReview, true);
     assert.equal(await countCommitsSinceBase(repository.workDir), 1);
     assert.equal(await readTreeHash(repository.workDir), reviewedTree);
     assert.deepEqual(await readCommitMessages(repository.workDir), [
@@ -80,25 +79,52 @@ describe('runPrFinalize', () => {
       ].join('\n'),
     ]);
 
+    assert.equal(github.updatedBodies.length, 2);
     const finalizedBody = github.updatedBodies[0].body;
-    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
-    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
-    assert.equal(readMarker(finalizedBody, 'Merge method:'), 'rebase');
-    assert.match(finalizedBody, /Status: Finalized for rebase merge/);
-    assert.match(finalizedBody, /Closes #42/);
-    assert.equal(github.readyPullRequests.length, 0);
-    assert.equal(github.comments.length, 0);
-    assert.equal(github.pullRequestLabelsRemoved.length, 0);
-
-    github.setPullRequest(
-      createPullRequest({
-        headSha: finalizedHead,
-        body: finalizedBody,
-      }),
+    const readyBody = github.updatedBodies[1].body;
+    assert.equal(
+      readMarker(readyBody, 'Finalized head:'),
+      readMarker(finalizedBody, 'Finalized head:'),
     );
-    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
+    assert.equal(readMarker(readyBody, 'Finalized tree:'), reviewedTree);
+    assert.equal(readMarker(readyBody, 'Merge method:'), 'rebase');
+    assert.match(readyBody, /Status: Ready for human rebase merge/);
+    assert.match(readyBody, /Closes #42/);
+    assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
+      {
+        number: 100,
+        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+      },
+    ]);
+    assert.equal(github.comments.length, 0);
+    assert.equal(github.pullRequestLabelsAdded.length, 0);
+  });
 
-    const secondResult = await runPrFinalize(
+  it('02: waits for pending finalized-head checks before marking a finalized PR ready', async () => {
+    const repository = await createTemporaryRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const finalizedHead = await readHeadSha(repository.workDir);
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        headSha: finalizedHead,
+        body: createPullRequestBody({
+          reviewedTree,
+          finalizedTree: reviewedTree,
+          finalizedHead,
+          status: 'Finalized for rebase merge',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        }),
+      }),
+      checksByRef: new Map([
+        [
+          finalizedHead,
+          [createCheck({ state: 'in_progress', conclusion: undefined, bucket: undefined })],
+        ],
+      ]),
+    });
+
+    const pendingResult = await runPrFinalize(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
@@ -106,8 +132,27 @@ describe('runPrFinalize', () => {
       }),
     );
 
-    assert.equal(secondResult.status, 'accepted');
-    assert.equal(await countCommitsSinceBase(repository.workDir), 1);
+    assert.equal(pendingResult.status, 'accepted');
+    assert.deepEqual(pendingResult.prFinalize, {
+      waiting: true,
+      stage: 'finalized-head',
+      checkedRef: finalizedHead,
+      checks: 1,
+    });
+    assert.equal(github.readyPullRequests.length, 0);
+    assert.equal(github.pullRequestLabelsRemoved.length, 0);
+
+    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
+
+    const readyResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(readyResult.status, 'accepted');
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
@@ -117,10 +162,10 @@ describe('runPrFinalize', () => {
     ]);
     assert.equal(github.pullRequestLabelsAdded.length, 0);
     assert.equal(github.comments.length, 0);
-    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
+    assert.match(github.updatedBodies[0].body, /Status: Ready for human rebase merge/);
   });
 
-  it('02: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
+  it('03: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
     const repository = await createTemporaryChildRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -168,35 +213,17 @@ describe('runPrFinalize', () => {
       ].join('\n'),
     ]);
 
+    assert.equal(github.updatedBodies.length, 2);
     const finalizedBody = github.updatedBodies[0].body;
-    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
-    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
-    assert.match(finalizedBody, /Refs #42/);
-    assert.match(finalizedBody, /Part of #7/);
-    assert.doesNotMatch(finalizedBody, /Closes #42/);
-    assert.equal(github.readyPullRequests.length, 0);
-    assert.equal(github.comments.length, 0);
-
-    github.setPullRequest(
-      createPullRequest({
-        headRefName: 'pullops/prd-7-issue-42',
-        headSha: finalizedHead,
-        baseRefName: 'pullops/prd-7',
-        body: finalizedBody,
-      }),
+    const readyBody = github.updatedBodies[1].body;
+    assert.equal(
+      readMarker(readyBody, 'Finalized head:'),
+      readMarker(finalizedBody, 'Finalized head:'),
     );
-    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
-
-    const secondResult = await runPrFinalize(
-      createContext({
-        cwd: repository.workDir,
-        githubClient: github.client,
-        gitClient: createGitClientFor(repository.workDir),
-      }),
-    );
-
-    assert.equal(secondResult.status, 'accepted');
-    assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/prd-7'), 1);
+    assert.equal(readMarker(readyBody, 'Finalized tree:'), reviewedTree);
+    assert.match(readyBody, /Refs #42/);
+    assert.match(readyBody, /Part of #7/);
+    assert.doesNotMatch(readyBody, /Closes #42/);
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
@@ -204,11 +231,11 @@ describe('runPrFinalize', () => {
         labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
       },
     ]);
-    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
-    assert.doesNotMatch(github.updatedBodies[1].body, /Closes #42/);
+    assert.equal(github.comments.length, 0);
+    assert.match(readyBody, /Status: Ready for human rebase merge/);
   });
 
-  it('03: blocks child PRs targeting default and non-child PRs targeting PRD branches', async () => {
+  it('04: blocks child PRs targeting default and non-child PRs targeting PRD branches', async () => {
     const childDefault = createFakeGitHub({
       issue: createIssue({
         parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
@@ -258,7 +285,7 @@ describe('runPrFinalize', () => {
     assert.match(nonChildPrd.comments[0].body, /PRD issue #7/);
   });
 
-  it('04: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
+  it('05: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
     const pending = await createReviewedScenario({
       checks: [createCheck({ state: 'in_progress', conclusion: undefined, bucket: undefined })],
     });
@@ -305,7 +332,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(absent.repository.workDir), 2);
   });
 
-  it('05: routes changed reviewed trees back to review while cycles remain and blocks when exhausted', async () => {
+  it('06: routes changed reviewed trees back to review while cycles remain and blocks when exhausted', async () => {
     const route = await createReviewedScenario({
       body: createPullRequestBody({
         reviewedTree: 'stale-reviewed-tree',
@@ -344,7 +371,7 @@ describe('runPrFinalize', () => {
     ]);
   });
 
-  it('06: blocks unresolved file review threads and unsuperseded requested-change reviews', async () => {
+  it('07: blocks unresolved file review threads and unsuperseded requested-change reviews', async () => {
     const unresolvedThread = await createReviewedScenario({
       reviewContext: createReviewContext({
         unresolvedThreads: [
@@ -405,7 +432,7 @@ describe('runPrFinalize', () => {
     assert.doesNotMatch(requestedChanges.github.comments[0].body, /@reviewer/);
   });
 
-  it('07: refuses non-managed PRs and managed PRs without a reviewed tree', async () => {
+  it('08: refuses non-managed PRs and managed PRs without a reviewed tree', async () => {
     const nonManaged = await createReviewedScenario({
       body: '## Summary\n\nHuman PR.\n',
     });
@@ -427,7 +454,7 @@ describe('runPrFinalize', () => {
     assert.match(missingReviewedTree.github.comments[0].body, /Reviewed tree marker/);
   });
 
-  it('08: blocks incomplete Umbrella PRD PRs while native child issues remain open', async () => {
+  it('09: blocks incomplete Umbrella PRD PRs while native child issues remain open', async () => {
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
@@ -459,7 +486,7 @@ describe('runPrFinalize', () => {
     assert.match(github.comments[0].body, /Incomplete PRDs cannot become merge-ready/);
   });
 
-  it('09: blocks Umbrella PRD PRs when closed native child issues are missing from history', async () => {
+  it('10: blocks Umbrella PRD PRs when closed native child issues are missing from history', async () => {
     const repository = await createTemporaryParentRepository({ childOrder: [21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -503,7 +530,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('10: finalizes Umbrella PRD PR commits in native child issue order and marks ready on rerun', async () => {
+  it('11: finalizes Umbrella PRD PR commits in native child issue order and marks ready when finalized-head checks are absent', async () => {
     const repository = await createTemporaryParentRepository({ childOrder: [22, 21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -553,52 +580,34 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
     assert.equal(await readTreeHash(repository.workDir), reviewedTree);
 
+    assert.equal(github.updatedBodies.length, 2);
     const finalizedBody = github.updatedBodies[0].body;
-    const finalizedHead = readMarker(finalizedBody, 'Finalized head:');
-    assert.equal(readMarker(finalizedBody, 'Finalized tree:'), reviewedTree);
-    assert.equal(readMarker(finalizedBody, 'Merge method:'), 'rebase');
-    assert.match(finalizedBody, /Status: Finalized for rebase merge/);
-    assert.match(finalizedBody, /Closes #7/);
-    assert.doesNotMatch(finalizedBody, /#999 stale child/);
-    assert.match(finalizedBody, /#21 First child \(closed\)/);
-    assert.match(finalizedBody, /#22 Second child \(closed\)/);
+    const readyBody = github.updatedBodies[1].body;
     assert.equal(
-      finalizedBody.indexOf('#21 First child') < finalizedBody.indexOf('#22 Second child'),
+      readMarker(readyBody, 'Finalized head:'),
+      readMarker(finalizedBody, 'Finalized head:'),
+    );
+    assert.equal(readMarker(readyBody, 'Finalized tree:'), reviewedTree);
+    assert.equal(readMarker(readyBody, 'Merge method:'), 'rebase');
+    assert.match(readyBody, /Status: Ready for human rebase merge/);
+    assert.match(readyBody, /Closes #7/);
+    assert.doesNotMatch(readyBody, /#999 stale child/);
+    assert.match(readyBody, /#21 First child \(closed\)/);
+    assert.match(readyBody, /#22 Second child \(closed\)/);
+    assert.equal(
+      readyBody.indexOf('#21 First child') < readyBody.indexOf('#22 Second child'),
       true,
     );
-    assert.equal(github.readyPullRequests.length, 0);
-
-    github.setPullRequest(
-      createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
-        headSha: finalizedHead,
-        baseRefName: 'main',
-        body: finalizedBody,
-      }),
-    );
-    github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
-
-    const secondResult = await runPrFinalize(
-      createContext({
-        cwd: repository.workDir,
-        githubClient: github.client,
-        gitClient: createGitClientFor(repository.workDir),
-      }),
-    );
-
-    assert.equal(secondResult.status, 'accepted');
-    const prFinalize = /** @type {{ commits: number }} */ (secondResult.prFinalize);
+    const prFinalize = /** @type {{ commits: number }} */ (firstResult.prFinalize);
     assert.equal(prFinalize.commits, 2);
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabelsRemoved.at(-1), {
       number: 100,
       labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
     });
-    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
   });
 
-  it('11: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
+  it('12: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -638,7 +647,7 @@ describe('runPrFinalize', () => {
     assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
   });
 
-  it('12: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
+  it('13: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -675,7 +684,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('13: rejects invalid fallback planner output before rewriting history', async () => {
+  it('14: rejects invalid fallback planner output before rewriting history', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -716,7 +725,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('14: rejects AI-proposed rewrites whose final tree differs from the reviewed tree', async () => {
+  it('15: rejects AI-proposed rewrites whose final tree differs from the reviewed tree', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -899,16 +908,24 @@ function createPullRequest(overrides = {}) {
 /**
  * @param {object} [options]
  * @param {string | null} [options.reviewedTree]
+ * @param {string} [options.finalizedTree]
+ * @param {string} [options.finalizedHead]
  * @param {string} [options.reviewCycles]
  * @param {string} [options.branchName]
  * @param {number} [options.parentIssueNumber]
+ * @param {string} [options.status]
+ * @param {string} [options.lastOperation]
  * @returns {string}
  */
 function createPullRequestBody({
   reviewedTree = 'reviewed-tree',
+  finalizedTree,
+  finalizedHead,
   reviewCycles = '1 / 3',
   branchName = 'pullops/issue-42',
   parentIssueNumber,
+  status = 'Review approved',
+  lastOperation = PULL_OPS_OPERATION_LABELS.prReview,
 } = {}) {
   const traceability =
     parentIssueNumber === undefined
@@ -935,13 +952,16 @@ function createPullRequestBody({
     '## PullOps',
     '',
     'Managed PR: yes',
-    'Status: Review approved',
+    `Status: ${status}`,
     `Review cycles: ${reviewCycles}`,
     'CI fix cycles: 0 / 2',
     'Source: Issue #42',
     `Branch: ${branchName}`,
     ...(reviewedTree === null ? [] : [`Reviewed tree: ${reviewedTree}`]),
-    'Last operation: pullops:pr:review',
+    ...(finalizedTree === undefined ? [] : [`Finalized tree: ${finalizedTree}`]),
+    ...(finalizedHead === undefined ? [] : [`Finalized head: ${finalizedHead}`]),
+    ...(finalizedTree === undefined && finalizedHead === undefined ? [] : ['Merge method: rebase']),
+    `Last operation: ${lastOperation}`,
   ].join('\n');
 }
 

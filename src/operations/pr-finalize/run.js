@@ -1252,7 +1252,7 @@ async function completeFinalizedHeadChecks(
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyChecks(checks);
 
-  if (checkState === 'absent' || checkState === 'pending') {
+  if (checkState === 'pending') {
     return waitForChecks(pullRequest, {
       checkedRef: finalizedHeadSha,
       stage: 'finalized-head',
