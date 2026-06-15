@@ -335,6 +335,7 @@ describe('createGitHubClient', () => {
       },
     ]);
     assert.deepEqual(checksByRef, checks);
+    assert.equal(reviewContext.unresolvedThreads[0].id, 'PRRT_1');
     assert.deepEqual(
       calls.map(call => call.name),
       [
@@ -381,6 +382,7 @@ describe('createGitHubClient', () => {
       number: 42,
       comment: 'Child PR merged into the PRD branch.',
     });
+    await client.resolvePullRequestReviewThread('PRRT_1');
     await client.removeLabelsFromPullRequest({
       number: 100,
       labels: ['pullops:pr:review'],
@@ -421,12 +423,14 @@ describe('createGitHubClient', () => {
         'graphql',
         'issues.createComment',
         'issues.update',
+        'graphql',
         'issues.removeLabel',
         'issues.addLabels',
         'issues.createComment',
       ],
     );
     assert.deepEqual(calls[5].params, { pullRequestId: 'PR_100' });
+    assert.deepEqual(calls[8].params, { threadId: 'PRRT_1' });
     assert.deepEqual(calls[2].params, {
       ...TEST_REPOSITORY,
       pull_number: 100,
@@ -598,6 +602,17 @@ function createFakeOctokit({
           markPullRequestReadyForReview: {
             pullRequest: {
               number: 100,
+            },
+          },
+        };
+      }
+
+      if (query.includes('resolveReviewThread')) {
+        return {
+          resolveReviewThread: {
+            thread: {
+              id: variables.threadId,
+              isResolved: true,
             },
           },
         };
@@ -800,6 +815,7 @@ function createReviewContext() {
     reviewThreads: {
       nodes: [
         {
+          id: 'PRRT_1',
           isResolved: false,
           comments: {
             nodes: [

@@ -299,6 +299,7 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
       validatedOutput.value,
     );
     await postPrAddressReviewResponses(context, pullRequest, feedbackItems, validatedOutput.value);
+    await resolveAddressedReviewThreads(context, feedbackItems, validatedOutput.value);
     await context.githubClient.updatePullRequestBody({
       number: pullRequest.number,
       body: updatePullRequestBodyForPrAddressReview({
@@ -486,6 +487,34 @@ async function postFeedbackResponse(context, pullRequest, feedback, response) {
       response.body,
     ].join('\n'),
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {PrAddressReviewFeedbackItem[]} feedbackItems
+ * @param {CompletedPrAddressReviewOutput} output
+ * @returns {Promise<void>}
+ */
+async function resolveAddressedReviewThreads(context, feedbackItems, output) {
+  const addressedIds = new Set(output.addressed.map(feedback => feedback.feedbackId));
+  /** @type {Map<string, PrAddressReviewFeedbackItem[]>} */
+  const feedbackItemsByThread = new Map();
+
+  for (const feedback of feedbackItems) {
+    if (feedback.reviewThreadId === undefined) {
+      continue;
+    }
+
+    const threadFeedback = feedbackItemsByThread.get(feedback.reviewThreadId) ?? [];
+    threadFeedback.push(feedback);
+    feedbackItemsByThread.set(feedback.reviewThreadId, threadFeedback);
+  }
+
+  for (const [threadId, threadFeedback] of feedbackItemsByThread) {
+    if (threadFeedback.every(feedback => addressedIds.has(feedback.id))) {
+      await context.githubClient.resolvePullRequestReviewThread(threadId);
+    }
+  }
 }
 
 /**

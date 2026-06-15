@@ -782,6 +782,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
       async replyToPullRequestReviewComment(options) {
         replies.push(options);
       },
+      async resolvePullRequestReviewThread() {
+        throw new Error('resolvePullRequestReviewThread was not expected in this test.');
+      },
     },
   };
 }

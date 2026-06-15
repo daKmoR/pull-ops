@@ -97,6 +97,7 @@ describe('runPrAddressReview', () => {
         ].join('\n'),
       },
     ]);
+    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
     assert.equal(github.comments.length, 3);
     assert.match(github.comments[0].body, /PullOps addressed feedback `review:PRR_requested`/);
     assert.match(
@@ -207,6 +208,7 @@ describe('runPrAddressReview', () => {
     assert.equal(github.comments.length, 1);
     assert.match(github.comments[0].body, /PullOps declined feedback `comment:7001`/);
     assert.doesNotMatch(github.comments[0].body, /7002/);
+    assert.deepEqual(github.resolvedReviewThreads, []);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -421,6 +423,7 @@ function createReviewContext(overrides = {}) {
     ],
     unresolvedThreads: [
       {
+        id: 'PRRT_1',
         isResolved: false,
         comments: [
           {
@@ -473,6 +476,7 @@ function createDiff() {
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsRemoved: EditLabelsOptions[];
  *   comments: CommentOnPullRequestOptions[];
+ *   resolvedReviewThreads: string[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
@@ -487,6 +491,8 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
   const pullRequestLabelsRemoved = [];
   /** @type {CommentOnPullRequestOptions[]} */
   const comments = [];
+  /** @type {string[]} */
+  const resolvedReviewThreads = [];
 
   return {
     replies,
@@ -494,6 +500,7 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
     pullRequestLabelsAdded,
     pullRequestLabelsRemoved,
     comments,
+    resolvedReviewThreads,
     client: {
       async ensureLabels() {
         return {
@@ -558,6 +565,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
       },
       async replyToPullRequestReviewComment(options) {
         replies.push(options);
+      },
+      async resolvePullRequestReviewThread(threadId) {
+        resolvedReviewThreads.push(threadId);
       },
     },
   };

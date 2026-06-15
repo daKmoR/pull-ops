@@ -96,6 +96,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       }
       reviewThreads(first: 100) {
         nodes {
+          id
           isResolved
           comments(first: 100) {
             nodes {
@@ -140,6 +141,17 @@ mutation($pullRequestId: ID!) {
   markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
     pullRequest {
       number
+    }
+  }
+}
+`;
+
+const RESOLVE_REVIEW_THREAD_MUTATION = `
+mutation($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) {
+    thread {
+      id
+      isResolved
     }
   }
 }
@@ -412,6 +424,14 @@ export function createGitHubClient({
         comment_id: commentId,
         body,
       });
+    },
+
+    /**
+     * @param {string} threadId
+     * @returns {Promise<void>}
+     */
+    async resolvePullRequestReviewThread(threadId) {
+      await api.graphql(RESOLVE_REVIEW_THREAD_MUTATION, { threadId });
     },
   };
 }
@@ -1146,6 +1166,7 @@ function parseReviewThreads(threads) {
     }
 
     return {
+      ...optionalProperty('id', readOptionalString(thread.id)),
       isResolved: Boolean(thread.isResolved),
       comments: parsePullRequestComments(thread.comments),
     };

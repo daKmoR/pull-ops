@@ -10,6 +10,7 @@ export interface PrAddressReviewFeedbackItem {
   body: string;
   authorLogin: string | null;
   replyCommentId?: number;
+  reviewThreadId?: string;
   location?: string;
   url?: string;
 }

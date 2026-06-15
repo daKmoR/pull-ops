@@ -129,6 +129,7 @@ export interface GitHubPullRequestReviewSummary {
 }
 
 export interface GitHubPullRequestReviewThread {
+  id?: string;
   isResolved: boolean;
   comments: GitHubPullRequestComment[];
 }
@@ -185,4 +186,5 @@ export interface GitHubClient {
   markPullRequestReadyForReview(number: number): Promise<void>;
   publishPullRequestReview(options: PublishPullRequestReviewOptions): Promise<void>;
   replyToPullRequestReviewComment(options: ReplyToPullRequestReviewCommentOptions): Promise<void>;
+  resolvePullRequestReviewThread(threadId: string): Promise<void>;
 }

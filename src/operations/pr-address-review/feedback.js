@@ -45,6 +45,7 @@ function collectUnresolvedThreadFeedback(reviewContext) {
         body,
         authorLogin: comment.authorLogin,
         ...(comment.databaseId === undefined ? {} : { replyCommentId: comment.databaseId }),
+        ...(thread.id === undefined ? {} : { reviewThreadId: thread.id }),
         ...(location === undefined ? {} : { location }),
         ...(comment.url === undefined ? {} : { url: comment.url }),
       });

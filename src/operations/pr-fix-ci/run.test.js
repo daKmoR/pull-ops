@@ -544,6 +544,9 @@ function createFakeGitHub({ pullRequest, checks, reviewContext, diff }) {
       async replyToPullRequestReviewComment() {
         throw new Error('replyToPullRequestReviewComment was not expected in this test.');
       },
+      async resolvePullRequestReviewThread() {
+        throw new Error('resolvePullRequestReviewThread was not expected in this test.');
+      },
     },
   };
 }
