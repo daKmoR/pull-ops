@@ -1,6 +1,17 @@
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_PR_OPERATION_LABELS,
+  PULL_OPS_STATUS_LABEL_NAMES,
+  PULL_OPS_STATUS_LABELS,
+} from '../../labels/pullOpsLabels.js';
 import { createParentBranchName, parseChildIssueBranchName } from '../branchNames.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
+
+/** @type {ReadonlySet<string>} */
+const ACTIVE_PULL_OPS_PR_LABELS = new Set([
+  ...PULL_OPS_PR_OPERATION_LABELS,
+  ...PULL_OPS_STATUS_LABEL_NAMES,
+]);
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -57,49 +68,103 @@ export async function runPrCloseChildIssue(context) {
     );
   }
 
-  if (issue.state === 'CLOSED') {
-    return {
-      status: 'accepted',
-      summary: `Child issue #${issue.number} is already closed.`,
-      issue: {
-        number: issue.number,
-        url: issue.url,
-      },
-      pullRequest: formatPullRequestResult(pullRequest),
-    };
+  const alreadyClosed = issue.state === 'CLOSED';
+  if (!alreadyClosed) {
+    await context.githubClient.closeIssue({
+      number: issue.number,
+      comment: [
+        `PullOps closed this Child Issue because PR #${pullRequest.number} merged into`,
+        `the PRD branch \`${expectedBaseBranch}\`.`,
+      ].join(' '),
+    });
+    await context.githubClient.removeLabelsFromIssue({
+      number: issue.number,
+      labels: [
+        PULL_OPS_OPERATION_LABELS.issueImplement,
+        PULL_OPS_STATUS_LABELS.inProgress,
+        PULL_OPS_STATUS_LABELS.blocked,
+        PULL_OPS_STATUS_LABELS.prepared,
+        PULL_OPS_STATUS_LABELS.failed,
+      ],
+    });
+    await context.githubClient.addLabelsToIssue({
+      number: issue.number,
+      labels: [PULL_OPS_STATUS_LABELS.done],
+    });
   }
 
-  await context.githubClient.closeIssue({
-    number: issue.number,
-    comment: [
-      `PullOps closed this Child Issue because PR #${pullRequest.number} merged into`,
-      `the PRD branch \`${expectedBaseBranch}\`.`,
-    ].join(' '),
-  });
-  await context.githubClient.removeLabelsFromIssue({
-    number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.issueImplement,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.failed,
-    ],
-  });
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.done],
+  const parentPullRequest = await requestParentReviewIfComplete(context, {
+    parentIssueNumber: childBranch.parentNumber,
+    parentBranchName: expectedBaseBranch,
   });
 
   return {
     status: 'accepted',
-    summary: `Closed child issue #${issue.number} after PR #${pullRequest.number} merged into ${expectedBaseBranch}.`,
+    summary: alreadyClosed
+      ? `Child issue #${issue.number} is already closed.`
+      : `Closed child issue #${issue.number} after PR #${pullRequest.number} merged into ${expectedBaseBranch}.`,
     issue: {
       number: issue.number,
       url: issue.url,
     },
     pullRequest: formatPullRequestResult(pullRequest),
+    parentPullRequest,
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ parentIssueNumber: number, parentBranchName: string }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function requestParentReviewIfComplete(context, { parentIssueNumber, parentBranchName }) {
+  const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
+  const openChildIssues = parentIssue.subIssues.filter(childIssue => childIssue.state !== 'CLOSED');
+
+  if (openChildIssues.length > 0) {
+    return {
+      status: 'waiting',
+      issue: {
+        number: parentIssue.number,
+        url: parentIssue.url,
+      },
+      openChildIssues: openChildIssues.map(childIssue => childIssue.number),
+    };
+  }
+
+  const pullRequest = await context.githubClient.findOpenPullRequestByHead(parentBranchName);
+  if (pullRequest === undefined) {
+    return {
+      status: 'missing',
+      branch: parentBranchName,
+    };
+  }
+
+  if (hasActivePullOpsPrState(pullRequest.labels ?? [])) {
+    return {
+      status: 'already-active',
+      pullRequest: formatPullRequestResult(pullRequest),
+      labels: pullRequest.labels ?? [],
+    };
+  }
+
+  await context.githubClient.addLabelsToPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+  });
+
+  return {
+    status: 'review-requested',
+    pullRequest: formatPullRequestResult(pullRequest),
+  };
+}
+
+/**
+ * @param {string[]} labels
+ * @returns {boolean}
+ */
+function hasActivePullOpsPrState(labels) {
+  return labels.some(label => ACTIVE_PULL_OPS_PR_LABELS.has(label));
 }
 
 /**

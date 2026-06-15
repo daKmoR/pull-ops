@@ -29,7 +29,18 @@ describe('runPrCloseChildIssue', () => {
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
     });
-    const github = createFakeGitHub({ issue, pullRequest });
+    const parentIssue = createIssue({
+      number: 1,
+      subIssues: [
+        {
+          number: 42,
+          title: 'Implement child behavior',
+          state: 'CLOSED',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const github = createFakeGitHub({ issues: [issue, parentIssue], pullRequest });
 
     const result = await runPrCloseChildIssue(
       createContext({
@@ -179,7 +190,18 @@ describe('runPrCloseChildIssue', () => {
       state: 'MERGED',
       mergedAt: '2026-06-14T10:00:00Z',
     });
-    const github = createFakeGitHub({ issue, pullRequest });
+    const parentIssue = createIssue({
+      number: 1,
+      subIssues: [
+        {
+          number: 42,
+          title: 'Implement child behavior',
+          state: 'CLOSED',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const github = createFakeGitHub({ issues: [issue, parentIssue], pullRequest });
 
     const result = await runPrCloseChildIssue(
       createContext({
@@ -192,6 +214,123 @@ describe('runPrCloseChildIssue', () => {
     assert.equal(github.closedIssues.length, 0);
     assert.equal(github.issueLabelsRemoved.length, 0);
     assert.equal(github.issueLabelsAdded.length, 0);
+  });
+
+  it('07: requests Umbrella PR review when the final Child Issue is closed', async () => {
+    const childIssue = createIssue({
+      number: 42,
+      state: 'CLOSED',
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const parentIssue = createIssue({
+      number: 1,
+      subIssues: [
+        {
+          number: 42,
+          title: 'Implement child behavior',
+          state: 'CLOSED',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const childPullRequest = createPullRequest({
+      number: 100,
+      headRefName: 'pullops/prd-1-issue-42',
+      baseRefName: 'pullops/prd-1',
+      state: 'MERGED',
+      mergedAt: '2026-06-14T10:00:00Z',
+    });
+    const parentPullRequest = createPullRequest({
+      number: 200,
+      title: 'Prepare #1: PRD',
+      headRefName: 'pullops/prd-1',
+      baseRefName: 'main',
+      state: 'OPEN',
+      mergedAt: undefined,
+      isDraft: true,
+    });
+    const github = createFakeGitHub({
+      issues: [childIssue, parentIssue],
+      pullRequest: childPullRequest,
+      openPullRequestsByHead: new Map([['pullops/prd-1', parentPullRequest]]),
+    });
+
+    const result = await runPrCloseChildIssue(
+      createContext({
+        githubClient: github.client,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 200,
+        labels: ['pullops:pr:review'],
+      },
+    ]);
+  });
+
+  it('08: leaves Umbrella PR review unrequested while sibling Child Issues remain open', async () => {
+    const childIssue = createIssue({
+      number: 42,
+      state: 'CLOSED',
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const parentIssue = createIssue({
+      number: 1,
+      subIssues: [
+        {
+          number: 42,
+          title: 'Implement child behavior',
+          state: 'CLOSED',
+          relationshipSource: 'native',
+        },
+        {
+          number: 43,
+          title: 'Implement remaining behavior',
+          state: 'OPEN',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const childPullRequest = createPullRequest({
+      number: 100,
+      headRefName: 'pullops/prd-1-issue-42',
+      baseRefName: 'pullops/prd-1',
+      state: 'MERGED',
+      mergedAt: '2026-06-14T10:00:00Z',
+    });
+    const parentPullRequest = createPullRequest({
+      number: 200,
+      title: 'Prepare #1: PRD',
+      headRefName: 'pullops/prd-1',
+      baseRefName: 'main',
+      state: 'OPEN',
+      mergedAt: undefined,
+      isDraft: true,
+    });
+    const github = createFakeGitHub({
+      issues: [childIssue, parentIssue],
+      pullRequest: childPullRequest,
+      openPullRequestsByHead: new Map([['pullops/prd-1', parentPullRequest]]),
+    });
+
+    const result = await runPrCloseChildIssue(
+      createContext({
+        githubClient: github.client,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(github.pullRequestLabelsAdded.length, 0);
   });
 });
 
@@ -265,9 +404,10 @@ function createContext(overrides = {}) {
  * @param {number} [options.number]
  * @param {string} [options.state]
  * @param {import('../../github/types.js').GitHubIssueReference | null} [options.parent]
+ * @param {import('../../github/types.js').GitHubIssueReference[]} [options.subIssues]
  * @returns {GitHubIssue}
  */
-function createIssue({ number = 42, state = 'OPEN', parent = null } = {}) {
+function createIssue({ number = 42, state = 'OPEN', parent = null, subIssues = [] } = {}) {
   return {
     number,
     title: 'Implement child behavior',
@@ -277,7 +417,7 @@ function createIssue({ number = 42, state = 'OPEN', parent = null } = {}) {
     authorLogin: 'maintainer',
     labels: ['pullops:issue:implement'],
     parent,
-    subIssues: [],
+    subIssues,
   };
 }
 
@@ -287,54 +427,68 @@ function createIssue({ number = 42, state = 'OPEN', parent = null } = {}) {
  * @param {string} [options.headRefName]
  * @param {string} [options.baseRefName]
  * @param {string} [options.state]
- * @param {string} [options.mergedAt]
+ * @param {string | undefined} [options.mergedAt]
  * @param {boolean} [options.isCrossRepository]
+ * @param {boolean} [options.isDraft]
+ * @param {string} [options.title]
  * @returns {GitHubPullRequest}
  */
 function createPullRequest({
   number = 100,
+  title = 'Implement #42',
   headRefName = 'pullops/prd-1-issue-42',
   baseRefName = 'pullops/prd-1',
   state = 'MERGED',
   mergedAt = '2026-06-14T10:00:00Z',
   isCrossRepository = false,
+  isDraft = false,
 } = {}) {
   return {
     number,
-    title: 'Implement #42',
+    title,
     url: `https://github.com/acme/widgets/pull/${number}`,
     headRefName,
     baseRefName,
     state,
     mergedAt,
     body: 'Managed PR: yes',
-    isDraft: false,
+    isDraft,
     isCrossRepository,
     labels: [],
   };
 }
 
 /**
- * @param {{ issue: GitHubIssue, pullRequest: GitHubPullRequest }} options
+ * @param {object} options
+ * @param {GitHubIssue} [options.issue]
+ * @param {GitHubIssue[]} [options.issues]
+ * @param {GitHubPullRequest} options.pullRequest
+ * @param {Map<string, GitHubPullRequest>} [options.openPullRequestsByHead]
  * @returns {{
  *   closedIssues: CloseIssueOptions[];
  *   issueLabelsAdded: EditLabelsOptions[];
  *   issueLabelsRemoved: EditLabelsOptions[];
+ *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ issue, pullRequest }) {
+function createFakeGitHub({ issue, issues, pullRequest, openPullRequestsByHead = new Map() }) {
+  const issueList = issues ?? (issue === undefined ? [] : [issue]);
+  const issuesByNumber = new Map(issueList.map(githubIssue => [githubIssue.number, githubIssue]));
   /** @type {CloseIssueOptions[]} */
   const closedIssues = [];
   /** @type {EditLabelsOptions[]} */
   const issueLabelsAdded = [];
   /** @type {EditLabelsOptions[]} */
   const issueLabelsRemoved = [];
+  /** @type {EditLabelsOptions[]} */
+  const pullRequestLabelsAdded = [];
 
   return {
     closedIssues,
     issueLabelsAdded,
     issueLabelsRemoved,
+    pullRequestLabelsAdded,
     client: {
       async ensureLabels() {
         return {
@@ -343,8 +497,13 @@ function createFakeGitHub({ issue, pullRequest }) {
           alreadyCorrect: [],
         };
       },
-      async getIssue() {
-        return issue;
+      async getIssue(number) {
+        const requestedIssue = issuesByNumber.get(number);
+        if (requestedIssue === undefined) {
+          throw new Error(`Unexpected issue lookup: #${number}`);
+        }
+
+        return requestedIssue;
       },
       async getPullRequest() {
         return pullRequest;
@@ -361,8 +520,8 @@ function createFakeGitHub({ issue, pullRequest }) {
       async getPullRequestDiff() {
         throw new Error('getPullRequestDiff was not expected in this test.');
       },
-      async findOpenPullRequestByHead() {
-        throw new Error('findOpenPullRequestByHead was not expected in this test.');
+      async findOpenPullRequestByHead(headBranch) {
+        return openPullRequestsByHead.get(headBranch);
       },
       async createDraftPullRequest() {
         throw new Error('createDraftPullRequest was not expected in this test.');
@@ -373,8 +532,8 @@ function createFakeGitHub({ issue, pullRequest }) {
       async removeLabelsFromIssue(options) {
         issueLabelsRemoved.push(options);
       },
-      async addLabelsToPullRequest() {
-        throw new Error('addLabelsToPullRequest was not expected in this test.');
+      async addLabelsToPullRequest(options) {
+        pullRequestLabelsAdded.push(options);
       },
       async removeLabelsFromPullRequest() {
         throw new Error('removeLabelsFromPullRequest was not expected in this test.');

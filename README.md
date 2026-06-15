@@ -28,6 +28,9 @@ For the current parent/child workflow:
 4. PullOps opens each child PR from
    `pullops/prd-<prd-number>-issue-<issue-number>` to the PRD branch.
 5. PullOps closes the child issue when its child PR merges into the PRD branch.
+6. When every native child issue is closed, PullOps labels the umbrella PR with
+   `pullops:pr:review`; an approved review then hands off to
+   `pullops:pr:finalize`.
 
 `Blocked by: #<issue>` dependencies are satisfied only by closed issues, so one
 child issue can unblock another as soon as the blocking child PR has merged into
@@ -39,7 +42,8 @@ runs only for merged same-repository PRs whose base branch is
 `pullops/prd-<number>` and whose head branch is
 `pullops/prd-<prd-number>-issue-<issue-number>`. Child PR bodies use
 non-closing references such as `Refs #<issue>` and `Part of #<prd>`; PullOps
-comments on and closes the child issue explicitly after the merge.
+comments on and closes the child issue explicitly after the merge. After the
+final native child issue closes, PullOps requests review on the umbrella PR.
 
 ## GitHub Token Setup
 
@@ -104,9 +108,10 @@ dispatch for repository checkout, pushes, labels, and pull request updates. Code
 runner steps do not receive this token; PullOps prepare and finalize steps
 receive it, the workflow's built-in token remains read-only on Codex jobs, and
 finalize sets the authenticated `origin` URL immediately before pushing. The
-automatic pr-close-child-issue synchronization workflow is deterministic and uses
-the built-in `GITHUB_TOKEN` with `contents: read`, `pull-requests: read`, and
-`issues: write`.
+automatic pr-close-child-issue synchronization workflow is deterministic, but it
+also receives `PULLOPS_GITHUB_TOKEN` because final-child closure applies an
+operation label to the umbrella PR and that label must dispatch the next
+workflow.
 
 ## OpenAI Codex Setup
 
