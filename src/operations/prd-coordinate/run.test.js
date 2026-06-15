@@ -73,6 +73,12 @@ function createContext(overrides = {}) {
       async pushBranch() {
         throw new Error('pushBranch was not expected in this test.');
       },
+      async getCurrentHeadSha() {
+        throw new Error('getCurrentHeadSha was not expected in this test.');
+      },
+      async getCurrentTreeHash() {
+        throw new Error('getCurrentTreeHash was not expected in this test.');
+      },
       async getChangedFilesSinceBase() {
         throw new Error('getChangedFilesSinceBase was not expected in this test.');
       },
@@ -141,6 +147,9 @@ function createFakeGitHub({ issue }) {
       async getPullRequestChecks() {
         throw new Error('getPullRequestChecks was not expected in this test.');
       },
+      async getPullRequestChecksForRef() {
+        throw new Error('getPullRequestChecksForRef was not expected in this test.');
+      },
       async getPullRequestReviewContext() {
         throw new Error('getPullRequestReviewContext was not expected in this test.');
       },
@@ -176,6 +185,9 @@ function createFakeGitHub({ issue }) {
       },
       async updatePullRequestBody() {
         throw new Error('updatePullRequestBody was not expected in this test.');
+      },
+      async markPullRequestReadyForReview() {
+        throw new Error('markPullRequestReadyForReview was not expected in this test.');
       },
       async publishPullRequestReview() {
         throw new Error('publishPullRequestReview was not expected in this test.');

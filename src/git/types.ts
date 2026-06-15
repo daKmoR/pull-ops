@@ -31,6 +31,11 @@ export interface PlannedRewriteCommit {
   files: string[];
 }
 
+export interface GitRewriteResult {
+  headSha: string;
+  treeHash: string;
+}
+
 export interface RewriteBranchWithCommitPlanOptions {
   baseBranch: string;
   branchName: string;
@@ -44,6 +49,10 @@ export interface GitClient {
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;
   pushBranch(options: PushBranchOptions): Promise<void>;
+  getCurrentHeadSha(): Promise<string>;
+  getCurrentTreeHash(): Promise<string>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
-  rewriteBranchWithCommitPlan(options: RewriteBranchWithCommitPlanOptions): Promise<void>;
+  rewriteBranchWithCommitPlan(
+    options: RewriteBranchWithCommitPlanOptions,
+  ): Promise<GitRewriteResult>;
 }

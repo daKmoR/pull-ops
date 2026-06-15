@@ -25,6 +25,10 @@ export function readPullOpsPullRequestState(body) {
           sourceKind: source.kind,
         }),
     lastOperation: readLastOperation(body),
+    reviewedTreeHash: readMarker(body, 'Reviewed tree:'),
+    preparedTreeHash: readMarker(body, 'Prepared tree:'),
+    preparedHeadSha: readMarker(body, 'Prepared head:'),
+    mergeMethod: readMarker(body, 'Merge method:'),
     reviewCycles: readReviewCycles(body),
     ciFixCycles: readCiFixCycles(body),
   };
@@ -36,6 +40,7 @@ export function readPullOpsPullRequestState(body) {
  * @param {ReviewResultStatus} options.reviewStatus
  * @param {number} options.reviewCycle
  * @param {number} options.maxReviewCycles
+ * @param {string} [options.reviewedTreeHash]
  * @returns {string}
  */
 export function updatePullRequestBodyForReview({
@@ -43,10 +48,16 @@ export function updatePullRequestBodyForReview({
   reviewStatus,
   reviewCycle,
   maxReviewCycles,
+  reviewedTreeHash,
 }) {
   let updated = body.trimEnd();
   updated = upsertLine(updated, 'Status:', formatReviewStatus(reviewStatus));
   updated = upsertLine(updated, 'Review cycles:', `${reviewCycle} / ${maxReviewCycles}`);
+  if (reviewStatus === 'approved' && reviewedTreeHash !== undefined) {
+    updated = upsertLine(updated, 'Reviewed tree:', reviewedTreeHash);
+  } else if (reviewStatus !== 'approved') {
+    updated = removeMergePreparationMarkers(updated);
+  }
   updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prReview);
   return `${updated}\n`;
 }
@@ -157,7 +168,17 @@ function readSource(body) {
  * @returns {string | undefined}
  */
 function readLastOperation(body) {
-  const match = body.match(/^Last operation:\s*(.+?)\s*$/im);
+  return readMarker(body, 'Last operation:');
+}
+
+/**
+ * @param {string} body
+ * @param {string} prefix
+ * @returns {string | undefined}
+ */
+function readMarker(body, prefix) {
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*(.+?)\\s*$`, 'im');
+  const match = body.match(pattern);
   return match?.[1]?.trim();
 }
 
@@ -213,6 +234,28 @@ function upsertLine(body, prefix, value) {
   }
 
   return `${body}\n${replacement}`;
+}
+
+/**
+ * @param {string} body
+ * @returns {string}
+ */
+function removeMergePreparationMarkers(body) {
+  let updated = body;
+  for (const prefix of ['Reviewed tree:', 'Prepared tree:', 'Prepared head:', 'Merge method:']) {
+    updated = removeLine(updated, prefix);
+  }
+  return updated.trimEnd();
+}
+
+/**
+ * @param {string} body
+ * @param {string} prefix
+ * @returns {string}
+ */
+function removeLine(body, prefix) {
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*.*\\n?`, 'im');
+  return body.replace(pattern, '');
 }
 
 /**

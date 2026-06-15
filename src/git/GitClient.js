@@ -11,6 +11,7 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
  * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
+ * @typedef {import('./types.js').GitRewriteResult} GitRewriteResult
  * @typedef {import('../github/types.js').ExecFile} ExecFile
  */
 
@@ -96,6 +97,20 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
     },
 
     /**
+     * @returns {Promise<string>}
+     */
+    async getCurrentHeadSha() {
+      return await getCurrentHeadSha(execFile);
+    },
+
+    /**
+     * @returns {Promise<string>}
+     */
+    async getCurrentTreeHash() {
+      return await getCurrentTreeHash(execFile);
+    },
+
+    /**
      * @param {GetChangedFilesSinceBaseOptions} options
      * @returns {Promise<string[]>}
      */
@@ -111,7 +126,7 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
 
     /**
      * @param {RewriteBranchWithCommitPlanOptions} options
-     * @returns {Promise<void>}
+     * @returns {Promise<GitRewriteResult>}
      */
     async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author }) {
       const originalHead = (
@@ -152,8 +167,33 @@ export function createGitClient({ execFile = execFileAsync } = {}) {
         ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
         `force-with-lease push branch ${branchName}`,
       );
+
+      return {
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
     },
   };
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string>}
+ */
+async function getCurrentHeadSha(execFile) {
+  return (await runGit(execFile, ['rev-parse', 'HEAD'], 'read the current branch head')).stdout
+    .toString()
+    .trim();
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string>}
+ */
+async function getCurrentTreeHash(execFile) {
+  return (await runGit(execFile, ['rev-parse', 'HEAD^{tree}'], 'read the current tree hash')).stdout
+    .toString()
+    .trim();
 }
 
 /**

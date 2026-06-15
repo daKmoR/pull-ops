@@ -272,6 +272,8 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       pullRequest,
       reviewResult,
     );
+    const reviewedTreeHash =
+      reviewResult.status === 'approved' ? await context.gitClient.getCurrentTreeHash() : undefined;
 
     for (const reply of replies.publishable) {
       await context.githubClient.replyToPullRequestReviewComment({
@@ -296,6 +298,7 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
         reviewStatus: reviewResult.status,
         reviewCycle: nextReviewCycle,
         maxReviewCycles,
+        reviewedTreeHash,
       }),
     });
     await transitionPullRequestLabels(context, pullRequest, reviewResult.status);

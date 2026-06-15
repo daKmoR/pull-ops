@@ -125,6 +125,7 @@ export interface GitHubPullRequestReviewSummary {
   body: string;
   authorLogin: string | null;
   url?: string;
+  submittedAt?: string;
 }
 
 export interface GitHubPullRequestReviewThread {
@@ -168,6 +169,7 @@ export interface GitHubClient {
   getIssue(number: number): Promise<GitHubIssue>;
   getPullRequest(number: number): Promise<GitHubPullRequest>;
   getPullRequestChecks(number: number): Promise<GitHubCheckRun[]>;
+  getPullRequestChecksForRef(ref: string): Promise<GitHubCheckRun[]>;
   getPullRequestReviewContext(number: number): Promise<GitHubPullRequestReviewContext>;
   getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
@@ -180,6 +182,7 @@ export interface GitHubClient {
   closeIssue(options: CloseIssueOptions): Promise<void>;
   commentOnPullRequest(options: CommentOnPullRequestOptions): Promise<void>;
   updatePullRequestBody(options: UpdatePullRequestBodyOptions): Promise<void>;
+  markPullRequestReadyForReview(number: number): Promise<void>;
   publishPullRequestReview(options: PublishPullRequestReviewOptions): Promise<void>;
   replyToPullRequestReviewComment(options: ReplyToPullRequestReviewCommentOptions): Promise<void>;
 }

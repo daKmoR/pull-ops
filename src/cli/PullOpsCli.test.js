@@ -375,6 +375,9 @@ function createFakeGitHubClient(overrides = {}) {
     async getPullRequestChecks() {
       throw new Error('getPullRequestChecks was not expected in this test.');
     },
+    async getPullRequestChecksForRef() {
+      throw new Error('getPullRequestChecksForRef was not expected in this test.');
+    },
     async getPullRequestReviewContext() {
       throw new Error('getPullRequestReviewContext was not expected in this test.');
     },
@@ -410,6 +413,9 @@ function createFakeGitHubClient(overrides = {}) {
     },
     async updatePullRequestBody() {
       throw new Error('updatePullRequestBody was not expected in this test.');
+    },
+    async markPullRequestReadyForReview() {
+      throw new Error('markPullRequestReadyForReview was not expected in this test.');
     },
     async publishPullRequestReview() {
       throw new Error('publishPullRequestReview was not expected in this test.');

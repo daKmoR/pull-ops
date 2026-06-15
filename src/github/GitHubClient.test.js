@@ -297,6 +297,7 @@ describe('createGitHubClient', () => {
       headBranch: 'pullops/issue-42',
     });
     const checks = await client.getPullRequestChecks(100);
+    const checksByRef = await client.getPullRequestChecksForRef('def456');
 
     assert.equal(pullRequest.number, 100);
     assert.equal(pullRequest.state, 'MERGED');
@@ -311,6 +312,7 @@ describe('createGitHubClient', () => {
       },
     ]);
     assert.deepEqual(reviewContext.unresolvedThreads[0].comments[0].databaseId, 9001);
+    assert.equal(reviewContext.reviews[0].submittedAt, '2026-06-14T09:00:00Z');
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
     assert.equal(existingPullRequest?.number, 100);
     assert.equal(createdPullRequest.headRefName, 'pullops/issue-42');
@@ -332,6 +334,7 @@ describe('createGitHubClient', () => {
         summary: 'Waiting for coverage.',
       },
     ]);
+    assert.deepEqual(checksByRef, checks);
     assert.deepEqual(
       calls.map(call => call.name),
       [
@@ -341,6 +344,8 @@ describe('createGitHubClient', () => {
         'pulls.list',
         'pulls.create',
         'pulls.get',
+        'checks.listForRef',
+        'repos.getCombinedStatusForRef',
         'checks.listForRef',
         'repos.getCombinedStatusForRef',
       ],
@@ -371,6 +376,7 @@ describe('createGitHubClient', () => {
       number: 100,
       body: 'Updated body.',
     });
+    await client.markPullRequestReadyForReview(100);
     await client.closeIssue({
       number: 42,
       comment: 'Child PR merged into the PRD branch.',
@@ -411,6 +417,8 @@ describe('createGitHubClient', () => {
         'pulls.getReviewComment',
         'pulls.createReplyForReviewComment',
         'pulls.update',
+        'graphql',
+        'graphql',
         'issues.createComment',
         'issues.update',
         'issues.removeLabel',
@@ -418,6 +426,7 @@ describe('createGitHubClient', () => {
         'issues.createComment',
       ],
     );
+    assert.deepEqual(calls[5].params, { pullRequestId: 'PR_100' });
     assert.deepEqual(calls[2].params, {
       ...TEST_REPOSITORY,
       pull_number: 100,
@@ -531,6 +540,26 @@ function createFakeOctokit({
         return {
           repository: {
             issue,
+          },
+        };
+      }
+
+      if (query.includes('pullRequest(number: $number)') && !query.includes('reviewThreads')) {
+        return {
+          repository: {
+            pullRequest: {
+              id: 'PR_100',
+            },
+          },
+        };
+      }
+
+      if (query.includes('markPullRequestReadyForReview')) {
+        return {
+          markPullRequestReadyForReview: {
+            pullRequest: {
+              number: 100,
+            },
           },
         };
       }
@@ -706,6 +735,7 @@ function createReviewContext() {
           state: 'COMMENTED',
           body: 'Review summary.',
           url: 'https://github.com/acme/widgets/pull/100#pullrequestreview-1',
+          submittedAt: '2026-06-14T09:00:00Z',
           author: {
             login: 'reviewer',
           },

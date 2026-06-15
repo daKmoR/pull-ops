@@ -14,6 +14,10 @@ export interface PullOpsPullRequestState {
   sourceIssueNumber?: number;
   sourceKind?: 'issue' | 'parentIssue';
   lastOperation?: string;
+  reviewedTreeHash?: string;
+  preparedTreeHash?: string;
+  preparedHeadSha?: string;
+  mergeMethod?: string;
   reviewCycles: PullOpsCycleState;
   ciFixCycles: PullOpsCycleState;
 }

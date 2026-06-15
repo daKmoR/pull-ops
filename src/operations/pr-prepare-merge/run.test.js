@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,16 +8,20 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createGitClient } from '../../git/GitClient.js';
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_STATUS_LABEL_NAMES,
+} from '../../labels/pullOpsLabels.js';
 import { runPrPrepareMerge } from './run.js';
 
 const execFile = promisify(nodeExecFile);
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
- * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
@@ -25,239 +29,260 @@ const execFile = promisify(nodeExecFile);
  */
 
 describe('runPrPrepareMerge', () => {
-  it('01: rewrites a Concrete Issue PR into one logical commit, updates PR body state, and hands off to final review', async () => {
-    const repository = await createTemporaryRepository({
-      branchName: 'pullops/issue-42',
-      changes: async workDir => {
-        await writeFile(join(workDir, 'src/feature.js'), 'export const value = 42;\n');
-        await writeFile(join(workDir, 'src/feature.test.js'), 'assert.equal(value, 42);\n');
-        await unlink(join(workDir, 'src/old.js'));
-      },
-    });
+  it('01: rewrites a standalone Concrete Issue PR once, records prepared markers, waits, and then marks it ready', async () => {
+    const repository = await createTemporaryRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
     const github = createFakeGitHub({
-      pullRequest: createPullRequest(),
-      issue: createIssue(),
-      reviewContext: createReviewContext(),
-      diff: await createDiff(repository.workDir),
-    });
-    const codex = createFakeCodexRunner({
-      output: JSON.stringify({
-        status: 'planned',
-        summary: 'Prepared a one-commit issue history.',
-        commitPlan: {
-          commits: [
-            {
-              header: 'feat(issue): implement #42',
-              body: ['Implement the feature and focused regression coverage.'],
-              footers: ['Refs: #42'],
-              files: ['src/feature.js', 'src/feature.test.js', 'src/old.js'],
-            },
-          ],
-        },
-        pullRequest: {
-          summary: 'Implemented the feature behind issue #42.',
-          changes: ['Added the feature module.', 'Covered the feature behavior.'],
-          testPlan: ['node --test src/feature.test.js'],
-          traceability: ['Closes #42'],
-        },
+      pullRequest: createPullRequest({
+        headSha: reviewedHead,
+        body: createPullRequestBody({ reviewedTree }),
       }),
+      reviewContext: createReviewContext({
+        comments: [
+          {
+            body: 'A regular PR-level comment must not block prepare merge.',
+            authorLogin: 'maintainer',
+          },
+        ],
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
     });
 
-    const result = await runPrPrepareMerge(
+    const firstResult = await runPrPrepareMerge(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
       }),
     );
 
-    assert.equal(result.status, 'accepted');
-    assert.match(codex.calls[0].prompt, /Use the pullops-pr-prepare-merge skill/);
-    assert.match(codex.calls[0].prompt, /src\/feature\.test\.js/);
+    assert.equal(firstResult.status, 'accepted');
+    assert.deepEqual(firstResult.prPrepareMerge, {
+      waiting: true,
+      stage: 'prepared-head',
+      checkedRef: readMarker(github.updatedBodies[0].body, 'Prepared head:'),
+      checks: 0,
+    });
     assert.equal(await countCommitsSinceBase(repository.workDir), 1);
+    assert.equal(await readTreeHash(repository.workDir), reviewedTree);
     assert.deepEqual(await readCommitMessages(repository.workDir), [
       [
         'feat(issue): implement #42',
         '',
-        'Implement the feature and focused regression coverage.',
+        'Prepare standalone Concrete Issue #42 for rebase merge.',
         '',
-        'Refs: #42',
+        'Closes #42',
       ].join('\n'),
     ]);
-    assert.equal(
-      await readFile(join(repository.workDir, 'src/feature.js'), 'utf8'),
-      'export const value = 42;\n',
+
+    const preparedBody = github.updatedBodies[0].body;
+    const preparedHead = readMarker(preparedBody, 'Prepared head:');
+    assert.equal(readMarker(preparedBody, 'Prepared tree:'), reviewedTree);
+    assert.equal(readMarker(preparedBody, 'Merge method:'), 'rebase');
+    assert.match(preparedBody, /Status: Prepared for rebase merge/);
+    assert.match(preparedBody, /Closes #42/);
+    assert.equal(github.readyPullRequests.length, 0);
+    assert.equal(github.comments.length, 0);
+    assert.equal(github.pullRequestLabelsRemoved.length, 0);
+
+    github.setPullRequest(
+      createPullRequest({
+        headSha: preparedHead,
+        body: preparedBody,
+      }),
     );
-    await assert.rejects(readFile(join(repository.workDir, 'src/old.js'), 'utf8'));
-    assert.match(github.updatedBodies[0].body, /Implemented the feature behind issue #42/);
-    assert.match(github.updatedBodies[0].body, /- Added the feature module\./);
-    assert.match(github.updatedBodies[0].body, /node --test src\/feature\.test\.js/);
-    assert.match(github.updatedBodies[0].body, /Closes #42/);
-    assert.match(github.updatedBodies[0].body, /Status: Prepared for final review/);
-    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:prepare-merge/);
-    assert.deepEqual(github.pullRequestLabelsRemoved, [
-      {
-        number: 100,
-        labels: [
-          'pullops:pr:prepare-merge',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
-      },
-    ]);
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 100,
-        labels: ['pullops:pr:review'],
-      },
-    ]);
-  });
+    github.setChecksForRef(preparedHead, [createCheck({ name: 'test' })]);
 
-  it('02: rewrites a Parent Issue PR into Child Issue Commits with PRD closing traceability', async () => {
-    const repository = await createTemporaryRepository({
-      branchName: 'pullops/prd-1',
-      changes: async workDir => {
-        await writeFile(join(workDir, 'src/child-6.js'), 'export const child6 = true;\n');
-        await writeFile(join(workDir, 'src/child-7.js'), 'export const child7 = true;\n');
-      },
-    });
-    const github = createFakeGitHub({
-      pullRequest: createPullRequest({
-        title: 'Prepare #1: Dogfood workflow kit',
-        headRefName: 'pullops/prd-1',
-        body: createPullRequestBody({
-          source: 'Source: Parent Issue #1',
-          traceability: 'Closes #1',
-          lastOperation: 'Last operation: pullops:pr:review',
-        }),
-      }),
-      issue: createIssue({
-        number: 1,
-        title: 'PRD: Dogfood workflow kit',
-        body: '## Problem Statement\n\nBuild the dogfood Workflow Kit.',
-      }),
-      reviewContext: createReviewContext(),
-      diff: await createDiff(repository.workDir),
-    });
-    const codex = createFakeCodexRunner({
-      output: JSON.stringify({
-        status: 'planned',
-        summary: 'Prepared a parent issue child commit stack.',
-        commitPlan: {
-          commits: [
-            {
-              header: 'feat(issue): implement #6',
-              body: ['Add pr-address-review workflow behavior.'],
-              footers: ['Refs: #6', 'PRD: #1'],
-              files: ['src/child-6.js'],
-            },
-            {
-              header: 'feat(issue): implement #7',
-              body: ['Add pr-fix-ci workflow behavior.'],
-              footers: ['Refs: #7', 'PRD: #1'],
-              files: ['src/child-7.js'],
-            },
-          ],
-        },
-        pullRequest: {
-          summary: 'Prepared the parent PR for final review.',
-          changes: ['Completed child issue #6.', 'Completed child issue #7.'],
-          testPlan: ['npm test'],
-          traceability: ['Closes #1'],
-        },
-      }),
-    });
-
-    const result = await runPrPrepareMerge(
+    const secondResult = await runPrPrepareMerge(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
       }),
     );
 
-    assert.equal(result.status, 'accepted');
-    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
-    assert.deepEqual(await readCommitMessages(repository.workDir), [
-      [
-        'feat(issue): implement #6',
-        '',
-        'Add pr-address-review workflow behavior.',
-        '',
-        'Refs: #6',
-        'PRD: #1',
-      ].join('\n'),
-      [
-        'feat(issue): implement #7',
-        '',
-        'Add pr-fix-ci workflow behavior.',
-        '',
-        'Refs: #7',
-        'PRD: #1',
-      ].join('\n'),
+    assert.equal(secondResult.status, 'accepted');
+    assert.equal(await countCommitsSinceBase(repository.workDir), 1);
+    assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
+      {
+        number: 100,
+        labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge, ...PULL_OPS_STATUS_LABEL_NAMES],
+      },
     ]);
-    assert.match(github.updatedBodies[0].body, /Closes #1/);
-    assert.match(github.updatedBodies[0].body, /Status: Prepared for final review/);
+    assert.equal(github.pullRequestLabelsAdded.length, 0);
+    assert.equal(github.comments.length, 0);
+    assert.match(github.updatedBodies[1].body, /Status: Ready for human rebase merge/);
   });
 
-  it('03: rejects an invalid Commit Plan before rewriting branch history', async () => {
-    const repository = await createTemporaryRepository({
-      branchName: 'pullops/issue-42',
-      changes: async workDir => {
-        await writeFile(join(workDir, 'src/feature.js'), 'export const value = 42;\n');
-        await writeFile(join(workDir, 'src/feature.test.js'), 'assert.equal(value, 42);\n');
+  it('02: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
+    const pending = await createReviewedScenario({
+      checks: [createCheck({ state: 'in_progress', conclusion: undefined, bucket: undefined })],
+    });
+
+    const pendingResult = await runPrPrepareMerge(pending.context);
+
+    assert.equal(pendingResult.status, 'accepted');
+    assert.deepEqual(pendingResult.prPrepareMerge, {
+      waiting: true,
+      stage: 'reviewed-head',
+      checkedRef: pending.reviewedHead,
+      checks: 1,
+    });
+    assert.equal(await countCommitsSinceBase(pending.repository.workDir), 2);
+
+    const failing = await createReviewedScenario({
+      checks: [
+        createCheck({
+          name: 'test',
+          conclusion: 'failure',
+          bucket: 'fail',
+        }),
+      ],
+    });
+
+    const failingResult = await runPrPrepareMerge(failing.context);
+
+    assert.equal(failingResult.status, 'accepted');
+    assert.deepEqual(failing.github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
       },
-    });
-    const originalHead = await gitOutput(repository.workDir, ['rev-parse', 'HEAD']);
-    const github = createFakeGitHub({
-      pullRequest: createPullRequest(),
-      issue: createIssue(),
-      reviewContext: createReviewContext(),
-      diff: await createDiff(repository.workDir),
-    });
-    const codex = createFakeCodexRunner({
-      output: JSON.stringify({
-        status: 'planned',
-        summary: 'This plan omits a changed file.',
-        commitPlan: {
-          commits: [
-            {
-              header: 'feat(issue): implement #42',
-              body: ['Implement only part of the diff.'],
-              footers: ['Refs: #42'],
-              files: ['src/feature.js'],
-            },
-          ],
-        },
-        pullRequest: {
-          summary: 'Incomplete summary.',
-          changes: ['Updated the feature module.'],
-          testPlan: ['Not run.'],
-          traceability: ['Closes #42'],
-        },
+    ]);
+    assert.match(failing.github.comments[0].body, /Reviewed-head checks failed/);
+    assert.equal(await countCommitsSinceBase(failing.repository.workDir), 2);
+
+    const absent = await createReviewedScenario({ checks: [] });
+
+    const absentResult = await runPrPrepareMerge(absent.context);
+
+    assert.equal(absentResult.status, 'blocked');
+    assert.match(absent.github.comments[0].body, /no checks on reviewed head/);
+    assert.equal(await countCommitsSinceBase(absent.repository.workDir), 2);
+  });
+
+  it('03: routes changed reviewed trees back to review while cycles remain and blocks when exhausted', async () => {
+    const route = await createReviewedScenario({
+      body: createPullRequestBody({
+        reviewedTree: 'stale-reviewed-tree',
+        reviewCycles: '1 / 3',
       }),
     });
 
-    await assert.rejects(
-      runPrPrepareMerge(
-        createContext({
-          cwd: repository.workDir,
-          githubClient: github.client,
-          gitClient: createGitClientFor(repository.workDir),
-          codexRunner: codex.runner,
-        }),
-      ),
-      /Invalid Commit Plan: Commit Plan does not assign every changed file: src\/feature\.test\.js/,
-    );
+    const routeResult = await runPrPrepareMerge(route.context);
 
-    assert.equal(await gitOutput(repository.workDir, ['rev-parse', 'HEAD']), originalHead);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
-    assert.match(github.comments[0].body, /Invalid Commit Plan/);
+    assert.equal(routeResult.status, 'accepted');
+    assert.deepEqual(route.github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: [PULL_OPS_OPERATION_LABELS.prReview],
+      },
+    ]);
+    assert.doesNotMatch(route.github.updatedBodies[0].body, /Reviewed tree:/);
+    assert.match(route.github.comments[0].body, /tree changed after approval/);
+
+    const block = await createReviewedScenario({
+      body: createPullRequestBody({
+        reviewedTree: 'stale-reviewed-tree',
+        reviewCycles: '3 / 3',
+      }),
+    });
+
+    const blockResult = await runPrPrepareMerge(block.context);
+
+    assert.equal(blockResult.status, 'blocked');
+    assert.match(block.github.comments[0].body, /Review Cycles are exhausted \(3 \/ 3\)/);
+    assert.deepEqual(block.github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:status:blocked'],
+      },
+    ]);
+  });
+
+  it('04: blocks unresolved file review threads and unsuperseded requested-change reviews', async () => {
+    const unresolvedThread = await createReviewedScenario({
+      reviewContext: createReviewContext({
+        unresolvedThreads: [
+          {
+            isResolved: false,
+            comments: [
+              {
+                databaseId: 1,
+                body: 'Please update this line.',
+                authorLogin: 'reviewer',
+                path: 'src/feature.js',
+                line: 1,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const unresolvedResult = await runPrPrepareMerge(unresolvedThread.context);
+
+    assert.equal(unresolvedResult.status, 'blocked');
+    assert.match(unresolvedThread.github.comments[0].body, /unresolved file review thread/);
+    assert.equal(await countCommitsSinceBase(unresolvedThread.repository.workDir), 2);
+
+    const requestedChanges = await createReviewedScenario({
+      reviewContext: createReviewContext({
+        reviews: [
+          {
+            state: 'CHANGES_REQUESTED',
+            body: 'Needs an explanation.',
+            authorLogin: 'reviewer',
+            submittedAt: '2026-06-14T10:00:00Z',
+          },
+          {
+            state: 'APPROVED',
+            body: 'The explanation is fine.',
+            authorLogin: 'reviewer',
+            submittedAt: '2026-06-14T10:05:00Z',
+          },
+          {
+            state: 'CHANGES_REQUESTED',
+            body: 'This reviewer is still waiting.',
+            authorLogin: 'maintainer',
+            submittedAt: '2026-06-14T10:10:00Z',
+          },
+        ],
+      }),
+    });
+
+    const requestedChangesResult = await runPrPrepareMerge(requestedChanges.context);
+
+    assert.equal(requestedChangesResult.status, 'blocked');
+    assert.match(
+      requestedChanges.github.comments[0].body,
+      /requested-change review by @maintainer/,
+    );
+    assert.doesNotMatch(requestedChanges.github.comments[0].body, /@reviewer/);
+  });
+
+  it('05: refuses non-managed PRs and managed PRs without a reviewed tree', async () => {
+    const nonManaged = await createReviewedScenario({
+      body: '## Summary\n\nHuman PR.\n',
+    });
+
+    const nonManagedResult = await runPrPrepareMerge(nonManaged.context);
+
+    assert.equal(nonManagedResult.status, 'refused');
+    assert.match(String(nonManagedResult.summary), /not a PullOps-managed PR/);
+    assert.equal(nonManaged.github.updatedBodies.length, 0);
+
+    const missingReviewedTree = await createReviewedScenario({
+      body: createPullRequestBody({ reviewedTree: null }),
+    });
+
+    const missingReviewedTreeResult = await runPrPrepareMerge(missingReviewedTree.context);
+
+    assert.equal(missingReviewedTreeResult.status, 'refused');
+    assert.match(String(missingReviewedTreeResult.summary), /Reviewed tree marker/);
+    assert.match(missingReviewedTree.github.comments[0].body, /Reviewed tree marker/);
   });
 });
 
@@ -280,13 +305,50 @@ function createContext(overrides = {}) {
     model: 'gpt-5.5',
     githubClient: createFakeGitHub({
       pullRequest: createPullRequest(),
-      issue: createIssue(),
-      reviewContext: createReviewContext(),
-      diff: { patch: '' },
     }).client,
     gitClient: createGitClientFor('/workspace'),
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    codexRunner: createFakeCodexRunner().runner,
     ...overrides,
+  };
+}
+
+/**
+ * @param {object} options
+ * @param {GitHubCheckRun[]} [options.checks]
+ * @param {string} [options.body]
+ * @param {GitHubPullRequestReviewContext} [options.reviewContext]
+ * @returns {Promise<{
+ *   repository: { root: string, originDir: string, workDir: string };
+ *   reviewedTree: string;
+ *   reviewedHead: string;
+ *   github: ReturnType<typeof createFakeGitHub>;
+ *   context: OperationRunnerContext;
+ * }>}
+ */
+async function createReviewedScenario({ checks, body, reviewContext } = {}) {
+  const repository = await createTemporaryRepository();
+  const reviewedTree = await readTreeHash(repository.workDir);
+  const reviewedHead = await readHeadSha(repository.workDir);
+  const pullRequest = createPullRequest({
+    headSha: reviewedHead,
+    body: body ?? createPullRequestBody({ reviewedTree }),
+  });
+  const github = createFakeGitHub({
+    pullRequest,
+    reviewContext,
+    checksByRef: new Map([[reviewedHead, checks ?? [createCheck({ name: 'test' })]]]),
+  });
+
+  return {
+    repository,
+    reviewedTree,
+    reviewedHead,
+    github,
+    context: createContext({
+      cwd: repository.workDir,
+      githubClient: github.client,
+      gitClient: createGitClientFor(repository.workDir),
+    }),
   };
 }
 
@@ -300,24 +362,21 @@ function createPullRequest(overrides = {}) {
     title: 'Implement #42: Add prepare merge',
     url: 'https://github.com/acme/widgets/pull/100',
     headRefName: 'pullops/issue-42',
+    headSha: 'reviewed-head',
     baseRefName: 'main',
     body: createPullRequestBody(),
     isDraft: true,
     isCrossRepository: false,
-    labels: ['pullops:pr:prepare-merge'],
+    labels: [PULL_OPS_OPERATION_LABELS.prPrepareMerge],
     ...overrides,
   };
 }
 
 /**
- * @param {{ source?: string, traceability?: string, lastOperation?: string }} [options]
+ * @param {{ reviewedTree?: string | null, reviewCycles?: string }} [options]
  * @returns {string}
  */
-function createPullRequestBody({
-  source = 'Source: Issue #42',
-  traceability = 'Closes #42',
-  lastOperation = 'Last operation: pullops:pr:review',
-} = {}) {
+function createPullRequestBody({ reviewedTree = 'reviewed-tree', reviewCycles = '1 / 3' } = {}) {
   return [
     '## Summary',
     '',
@@ -333,17 +392,18 @@ function createPullRequestBody({
     '',
     '## Traceability',
     '',
-    traceability,
+    'Closes #42',
     '',
     '## PullOps',
     '',
     'Managed PR: yes',
     'Status: Review approved',
-    'Review cycles: 1 / 3',
+    `Review cycles: ${reviewCycles}`,
     'CI fix cycles: 0 / 2',
-    source,
+    'Source: Issue #42',
     'Branch: pullops/issue-42',
-    lastOperation,
+    ...(reviewedTree === null ? [] : [`Reviewed tree: ${reviewedTree}`]),
+    'Last operation: pullops:pr:review',
   ].join('\n');
 }
 
@@ -367,13 +427,17 @@ function createIssue(overrides = {}) {
 }
 
 /**
+ * @param {object} [options]
+ * @param {import('../../github/types.js').GitHubPullRequestComment[]} [options.comments]
+ * @param {import('../../github/types.js').GitHubPullRequestReviewSummary[]} [options.reviews]
+ * @param {import('../../github/types.js').GitHubPullRequestReviewThread[]} [options.unresolvedThreads]
  * @returns {GitHubPullRequestReviewContext}
  */
-function createReviewContext() {
+function createReviewContext({ comments = [], reviews = [], unresolvedThreads = [] } = {}) {
   return {
-    comments: [],
-    reviews: [],
-    unresolvedThreads: [],
+    comments,
+    reviews,
+    unresolvedThreads,
     files: [
       {
         path: 'src/feature.js',
@@ -385,20 +449,42 @@ function createReviewContext() {
 }
 
 /**
+ * @param {Partial<GitHubCheckRun>} [overrides]
+ * @returns {GitHubCheckRun}
+ */
+function createCheck(overrides = {}) {
+  return {
+    name: 'test',
+    state: 'completed',
+    conclusion: 'success',
+    bucket: 'pass',
+    ...overrides,
+  };
+}
+
+/**
  * @param {object} options
  * @param {GitHubPullRequest} options.pullRequest
- * @param {GitHubIssue} options.issue
- * @param {GitHubPullRequestReviewContext} options.reviewContext
- * @param {GitHubPullRequestDiff} options.diff
+ * @param {GitHubPullRequestReviewContext} [options.reviewContext]
+ * @param {Map<string, GitHubCheckRun[]>} [options.checksByRef]
  * @returns {{
  *   updatedBodies: UpdatePullRequestBodyOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsRemoved: EditLabelsOptions[];
  *   comments: CommentOnPullRequestOptions[];
+ *   readyPullRequests: number[];
+ *   setPullRequest: (pullRequest: GitHubPullRequest) => void;
+ *   setChecksForRef: (ref: string, checks: GitHubCheckRun[]) => void;
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
+function createFakeGitHub({
+  pullRequest,
+  reviewContext = createReviewContext(),
+  checksByRef = new Map(),
+}) {
+  let currentPullRequest = pullRequest;
+  const currentChecksByRef = new Map(checksByRef);
   /** @type {UpdatePullRequestBodyOptions[]} */
   const updatedBodies = [];
   /** @type {EditLabelsOptions[]} */
@@ -407,12 +493,21 @@ function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
   const pullRequestLabelsRemoved = [];
   /** @type {CommentOnPullRequestOptions[]} */
   const comments = [];
+  /** @type {number[]} */
+  const readyPullRequests = [];
 
   return {
     updatedBodies,
     pullRequestLabelsAdded,
     pullRequestLabelsRemoved,
     comments,
+    readyPullRequests,
+    setPullRequest(nextPullRequest) {
+      currentPullRequest = nextPullRequest;
+    },
+    setChecksForRef(ref, checks) {
+      currentChecksByRef.set(ref, checks);
+    },
     client: {
       async ensureLabels() {
         return {
@@ -422,19 +517,22 @@ function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
         };
       },
       async getIssue() {
-        return issue;
+        return createIssue();
       },
       async getPullRequest() {
-        return pullRequest;
+        return currentPullRequest;
       },
       async getPullRequestChecks() {
         throw new Error('getPullRequestChecks was not expected in this test.');
+      },
+      async getPullRequestChecksForRef(ref) {
+        return currentChecksByRef.get(ref) ?? [];
       },
       async getPullRequestReviewContext() {
         return reviewContext;
       },
       async getPullRequestDiff() {
-        return diff;
+        throw new Error('getPullRequestDiff was not expected in this test.');
       },
       async findOpenPullRequestByHead() {
         throw new Error('findOpenPullRequestByHead was not expected in this test.');
@@ -466,6 +564,9 @@ function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
       async updatePullRequestBody(options) {
         updatedBodies.push(options);
       },
+      async markPullRequestReadyForReview(number) {
+        readyPullRequests.push(number);
+      },
       async publishPullRequestReview() {
         throw new Error('publishPullRequestReview was not expected in this test.');
       },
@@ -477,10 +578,9 @@ function createFakeGitHub({ pullRequest, issue, reviewContext, diff }) {
 }
 
 /**
- * @param {{ output: unknown }} options
  * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
  */
-function createFakeCodexRunner({ output }) {
+function createFakeCodexRunner() {
   /** @type {CodexRunOptions[]} */
   const calls = [];
 
@@ -489,7 +589,7 @@ function createFakeCodexRunner({ output }) {
     runner: {
       async run(options) {
         calls.push(options);
-        return output;
+        throw new Error('codexRunner.run was not expected in this test.');
       },
     },
   };
@@ -506,12 +606,9 @@ function createGitClientFor(cwd) {
 }
 
 /**
- * @param {object} options
- * @param {string} options.branchName
- * @param {(workDir: string) => Promise<void>} options.changes
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
-async function createTemporaryRepository({ branchName, changes }) {
+async function createTemporaryRepository() {
   const root = await mkdtemp(join(tmpdir(), 'pullops-pr-prepare-merge-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
@@ -530,23 +627,17 @@ async function createTemporaryRepository({ branchName, changes }) {
   await git(workDir, ['commit', '-m', 'chore: initial commit']);
   await git(workDir, ['remote', 'add', 'origin', originDir]);
   await git(workDir, ['push', '-u', 'origin', 'main']);
-  await git(workDir, ['checkout', '-b', branchName]);
-  await changes(workDir);
+  await git(workDir, ['checkout', '-b', 'pullops/issue-42']);
+  await writeFile(join(workDir, 'src/feature.js'), 'export const value = 42;\n');
   await git(workDir, ['add', '--all']);
-  await git(workDir, ['commit', '-m', 'wip: noisy automation commit']);
-  await git(workDir, ['push', '-u', 'origin', branchName]);
+  await git(workDir, ['commit', '-m', 'wip: update feature']);
+  await writeFile(join(workDir, 'src/feature.test.js'), 'assert.equal(value, 42);\n');
+  await git(workDir, ['rm', 'src/old.js']);
+  await git(workDir, ['add', '--all']);
+  await git(workDir, ['commit', '-m', 'wip: add coverage']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/issue-42']);
 
   return { root, originDir, workDir };
-}
-
-/**
- * @param {string} workDir
- * @returns {Promise<GitHubPullRequestDiff>}
- */
-async function createDiff(workDir) {
-  return {
-    patch: await gitOutput(workDir, ['diff', 'origin/main...HEAD', '--patch']),
-  };
 }
 
 /**
@@ -572,6 +663,42 @@ async function readCommitMessages(workDir) {
     .split('\0')
     .map(message => message.trim())
     .filter(Boolean);
+}
+
+/**
+ * @param {string} workDir
+ * @returns {Promise<string>}
+ */
+async function readTreeHash(workDir) {
+  return await gitOutput(workDir, ['rev-parse', 'HEAD^{tree}']);
+}
+
+/**
+ * @param {string} workDir
+ * @returns {Promise<string>}
+ */
+async function readHeadSha(workDir) {
+  return await gitOutput(workDir, ['rev-parse', 'HEAD']);
+}
+
+/**
+ * @param {string} body
+ * @param {string} prefix
+ * @returns {string}
+ */
+function readMarker(body, prefix) {
+  const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*(.+?)\\s*$`, 'im');
+  const value = body.match(pattern)?.[1]?.trim();
+  assert.ok(value !== undefined, `Expected body to include ${prefix}`);
+  return value;
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**

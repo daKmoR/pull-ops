@@ -88,6 +88,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
           state
           body
           url
+          submittedAt
           author {
             login
           }
@@ -119,6 +120,26 @@ query($owner: String!, $repo: String!, $number: Int!) {
           deletions
         }
       }
+    }
+  }
+}
+`;
+
+const PULL_REQUEST_ID_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      id
+    }
+  }
+}
+`;
+
+const MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION = `
+mutation($pullRequestId: ID!) {
+  markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
+    pullRequest {
+      number
     }
   }
 }
@@ -202,9 +223,15 @@ export function createGitHubClient({
       const repository = getRepository();
       const pullRequest = await getPullRequest(api, repository, number);
       const ref = pullRequest.headSha ?? pullRequest.headRefName;
-      const checkRuns = await listCheckRunsForRef(api, repository, ref);
-      const statuses = await listStatusesForRef(api, repository, ref);
-      return [...checkRuns, ...statuses];
+      return await getPullRequestChecksForRef(api, repository, ref);
+    },
+
+    /**
+     * @param {string} ref
+     * @returns {Promise<GitHubCheckRun[]>}
+     */
+    async getPullRequestChecksForRef(ref) {
+      return await getPullRequestChecksForRef(api, getRepository(), ref);
     },
 
     /**
@@ -340,6 +367,16 @@ export function createGitHubClient({
         pull_number: number,
         body,
       });
+    },
+
+    /**
+     * @param {number} number
+     * @returns {Promise<void>}
+     */
+    async markPullRequestReadyForReview(number) {
+      const repository = getRepository();
+      const pullRequestId = await getPullRequestNodeId(api, repository, number);
+      await api.graphql(MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION, { pullRequestId });
     },
 
     /**
@@ -608,6 +645,18 @@ async function createIssueComment(octokit, repository, number, body) {
  * @param {string} ref
  * @returns {Promise<GitHubCheckRun[]>}
  */
+async function getPullRequestChecksForRef(octokit, repository, ref) {
+  const checkRuns = await listCheckRunsForRef(octokit, repository, ref);
+  const statuses = await listStatusesForRef(octokit, repository, ref);
+  return [...checkRuns, ...statuses];
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {string} ref
+ * @returns {Promise<GitHubCheckRun[]>}
+ */
 async function listCheckRunsForRef(octokit, repository, ref) {
   const response = await octokit.rest.checks.listForRef({
     ...repository,
@@ -653,6 +702,29 @@ async function getPullRequestNumberForReviewComment(octokit, repository, comment
     'pull request review comment.pull_request_url',
   );
   return parsePullRequestNumberFromApiUrl(pullRequestUrl);
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @returns {Promise<string>}
+ */
+async function getPullRequestNodeId(octokit, repository, number) {
+  const result = await octokit.graphql(PULL_REQUEST_ID_QUERY, {
+    ...repository,
+    number,
+  });
+  const root = requirePlainObject(result, 'GitHub GraphQL pull request response');
+  const resultRepository = requirePlainObject(
+    root.repository,
+    'GitHub GraphQL pull request response.repository',
+  );
+  const pullRequest = requirePlainObject(
+    resultRepository.pullRequest,
+    'GitHub GraphQL pull request response.repository.pullRequest',
+  );
+  return requireString(pullRequest.id, 'pull request.id');
 }
 
 /**
@@ -1024,6 +1096,7 @@ function parseReviewSummaries(reviews) {
       body: typeof review.body === 'string' ? review.body : '',
       authorLogin: parseAuthorLogin(review.author),
       url: typeof review.url === 'string' ? review.url : undefined,
+      ...optionalProperty('submittedAt', readOptionalString(review.submittedAt)),
     };
   });
 }

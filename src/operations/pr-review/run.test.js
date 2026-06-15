@@ -105,6 +105,7 @@ describe('runPrReview', () => {
     ]);
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 2 \/ 3/);
+    assert.match(github.updatedBodies[0].body, /Reviewed tree: reviewed-tree-123/);
     assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:review/);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
@@ -144,8 +145,17 @@ describe('runPrReview', () => {
   });
 
   it('02: requests changes, commits direct review improvements, pushes the PR branch, and hands off to pr-address-review', async () => {
+    const pullRequestWithStaleMarkers = createPullRequest({
+      body: [
+        createPullRequest().body,
+        'Reviewed tree: stale-reviewed-tree',
+        'Prepared tree: stale-prepared-tree',
+        'Prepared head: stale-prepared-head',
+        'Merge method: rebase',
+      ].join('\n'),
+    });
     const github = createFakeGitHub({
-      pullRequest: createPullRequest(),
+      pullRequest: pullRequestWithStaleMarkers,
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
@@ -183,6 +193,10 @@ describe('runPrReview', () => {
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
     assert.equal(github.publishedReviews[0].event, 'COMMENT');
     assert.match(github.updatedBodies[0].body, /Status: Changes requested/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Reviewed tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Prepared tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Prepared head:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Merge method:/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -716,6 +730,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
       async getPullRequestChecks() {
         throw new Error('getPullRequestChecks was not expected in this test.');
       },
+      async getPullRequestChecksForRef() {
+        throw new Error('getPullRequestChecksForRef was not expected in this test.');
+      },
       async getPullRequestReviewContext() {
         return reviewContext;
       },
@@ -752,6 +769,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
       async updatePullRequestBody(options) {
         updatedBodies.push(options);
       },
+      async markPullRequestReadyForReview() {
+        throw new Error('markPullRequestReadyForReview was not expected in this test.');
+      },
       async publishPullRequestReview(options) {
         if (rejectFormalReviewEvents && options.event !== 'COMMENT') {
           throw new Error(`GitHub rejected formal review event ${options.event}.`);
@@ -767,14 +787,18 @@ function createFakeGitHub({ pullRequest, reviewContext, diff, rejectFormalReview
 }
 
 /**
- * @param {{ hasChanges: boolean }} options
+ * @param {{ hasChanges: boolean, headSha?: string, treeHash?: string }} options
  * @returns {{
  *   commits: CommitAllOptions[];
  *   pushes: PushBranchOptions[];
  *   client: import('../../git/types.js').GitClient;
  * }}
  */
-function createFakeGit({ hasChanges }) {
+function createFakeGit({
+  hasChanges,
+  headSha = 'reviewed-head-123',
+  treeHash = 'reviewed-tree-123',
+}) {
   /** @type {CommitAllOptions[]} */
   const commits = [];
   /** @type {PushBranchOptions[]} */
@@ -798,6 +822,12 @@ function createFakeGit({ hasChanges }) {
       },
       async pushBranch(options) {
         pushes.push(options);
+      },
+      async getCurrentHeadSha() {
+        return headSha;
+      },
+      async getCurrentTreeHash() {
+        return treeHash;
       },
       async getChangedFilesSinceBase() {
         throw new Error('getChangedFilesSinceBase was not expected in this test.');
