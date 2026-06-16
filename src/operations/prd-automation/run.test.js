@@ -30,7 +30,7 @@ describe('runPrdAutoAdvance', () => {
         createIssue({ number: 34, parent: issueReference(12) }),
         createIssue({
           number: 35,
-          body: 'Part of: #12\nBlocked by: #34',
+          body: 'Part of: #12\n\n## Blocked by\n\n#34',
           parent: issueReference(12),
         }),
         createIssue({ number: 36, state: 'CLOSED', parent: issueReference(12) }),

@@ -23,7 +23,31 @@ describe('issueDependencies', () => {
     );
   });
 
-  it('02: uses native parent metadata as the only parent identity source', () => {
+  it('02: parses blocking issue references from markdown sections', () => {
+    assert.deepEqual(
+      parseIssueDependencies(
+        [
+          'Part of: #12',
+          '',
+          '## Blocked by',
+          '',
+          '#3',
+          '- #4',
+          '- #3',
+          '',
+          '## Notes',
+          '',
+          'Related to #99.',
+        ].join('\n'),
+      ),
+      {
+        partOf: 12,
+        blockedBy: [3, 4],
+      },
+    );
+  });
+
+  it('03: uses native parent metadata as the only parent identity source', () => {
     assert.equal(
       getParentIssueNumber({
         number: 34,
@@ -59,7 +83,7 @@ describe('issueDependencies', () => {
     );
   });
 
-  it('03: treats only closed dependency issues as done', () => {
+  it('04: treats only closed dependency issues as done', () => {
     assert.equal(createDoneState({ state: 'CLOSED', labels: [] }), true);
     assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:status:done'] }), false);
     assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:status:prepared'] }), false);
