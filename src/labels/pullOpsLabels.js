@@ -4,7 +4,6 @@
 
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: 'pullops:prd:prepare',
-  prdCoordinate: 'pullops:prd:coordinate',
   prdAutoAdvance: 'pullops:prd:auto-advance',
   prdAutoComplete: 'pullops:prd:auto-complete',
   issueImplement: 'pullops:issue:implement',
@@ -26,7 +25,6 @@ export const PULL_OPS_STATUS_LABELS = Object.freeze({
 
 export const PULL_OPS_PRD_OPERATION_LABELS = Object.freeze([
   PULL_OPS_OPERATION_LABELS.prdPrepare,
-  PULL_OPS_OPERATION_LABELS.prdCoordinate,
   PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
   PULL_OPS_OPERATION_LABELS.prdAutoComplete,
 ]);
@@ -58,11 +56,6 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_OPERATION_LABELS.prdPrepare,
     color: '5319E7',
     description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
-  },
-  {
-    name: PULL_OPS_OPERATION_LABELS.prdCoordinate,
-    color: '5319E7',
-    description: 'Reserved for future automatic PRD child issue orchestration.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,

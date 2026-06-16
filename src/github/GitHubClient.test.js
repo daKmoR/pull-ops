@@ -19,11 +19,6 @@ describe('createGitHubClient', () => {
           'Prepare an umbrella branch and draft PR for a PRD issue.',
         ],
         [
-          'pullops:prd:coordinate',
-          '5319E7',
-          'Reserved for future automatic PRD child issue orchestration.',
-        ],
-        [
           'pullops:prd:auto-advance',
           '5319E7',
           'Prepare a PRD and keep starting unblocked child issues.',

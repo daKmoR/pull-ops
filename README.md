@@ -9,8 +9,6 @@ Operation Labels request work and are namespaced by target kind:
 
 - `pullops:prd:prepare` creates or updates an umbrella branch and draft PR for a
   PRD issue.
-- `pullops:prd:coordinate` is reserved for a later automatic parent/child
-  orchestration slice and currently only reports that it is not implemented.
 - `pullops:prd:auto-advance` prepares a PRD issue if needed and keeps starting
   currently unblocked child issues.
 - `pullops:prd:auto-complete` does the same work as auto-advance and also

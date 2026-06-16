@@ -22,7 +22,6 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
   });
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
-  assert.equal(config.operations.prdCoordinate.modelTier, 'low');
   assert.equal(config.operations.prdAutoAdvance.modelTier, 'low');
   assert.equal(config.operations.prdAutoComplete.modelTier, 'low');
   assert.equal(config.operations.prFixCi.modelTier, 'mid');

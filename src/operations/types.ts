@@ -5,7 +5,6 @@ export type WorkflowTargetOption = 'issue' | 'pr';
 export type WorkflowOperationConfigKey =
   | 'prdPrepare'
   | 'issueImplement'
-  | 'prdCoordinate'
   | 'prdAutoAdvance'
   | 'prdAutoComplete'
   | 'prReview'

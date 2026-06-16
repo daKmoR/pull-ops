@@ -5,7 +5,6 @@ import {
 } from './pr-address-review/run.js';
 import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
 import { runPrdAutoAdvance, runPrdAutoComplete } from './prd-automation/run.js';
-import { runPrdCoordinate } from './prd-coordinate/run.js';
 import {
   runPrFixCi,
   runPrFixCiCodexActionFinalize,
@@ -53,12 +52,6 @@ export const WORKFLOW_OPERATIONS = [
     target: 'issue',
     option: 'issue',
     configKey: 'issueImplement',
-  },
-  {
-    name: 'prd-coordinate',
-    target: 'issue',
-    option: 'issue',
-    configKey: 'prdCoordinate',
   },
   {
     name: 'prd-auto-advance',
@@ -148,10 +141,6 @@ export async function runWorkflowOperation(context) {
       prepare: runIssueImplementCodexActionPrepare,
       finalize: runIssueImplementCodexActionFinalize,
     });
-  }
-
-  if (context.operation === 'prd-coordinate') {
-    return await runPrdCoordinate(context);
   }
 
   if (context.operation === 'prd-auto-advance') {

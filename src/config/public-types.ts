@@ -27,7 +27,8 @@ export interface PullOpsConfig {
   operations: {
     prdPrepare: OperationConfig;
     issueImplement: OperationConfig;
-    prdCoordinate: OperationConfig;
+    prdAutoAdvance: OperationConfig;
+    prdAutoComplete: OperationConfig;
     prReview: OperationConfig;
     prAddressReview: OperationConfig;
     prFixCi: OperationConfig;
