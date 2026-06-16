@@ -318,6 +318,7 @@ describe('runIssueImplement', () => {
   it('07: refuses closed issues before creating a branch', async () => {
     const issue = createIssue({
       number: 42,
+      body: 'Blocked by: #999',
       state: 'CLOSED',
     });
     const github = createFakeGitHub({ issue });

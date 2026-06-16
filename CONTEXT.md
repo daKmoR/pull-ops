@@ -100,6 +100,10 @@ _Avoid_: Parent auto-run, auto-coordinate
 A PRD automation mode that includes PRD Auto-Advance and also merges finalized Child Issue PRs into the Umbrella Branch. The Umbrella PR still remains human-controlled.
 _Avoid_: PRD auto-merge, full auto-merge
 
+**PRD Child Coordination**:
+The deterministic PullOps behavior that moves a Parent Issue's Child Issues and Child Issue PRs toward an Umbrella PR through PRD automation.
+_Avoid_: PRD child orchestration, parent orchestration
+
 **Umbrella Branch**:
 The branch for a PRD Issue that receives merged Child Issue PRs before the PRD's Umbrella PR merges to the Target Repository's default branch.
 _Avoid_: Parent branch, PRD work branch
@@ -109,8 +113,8 @@ The PullOps-Managed PR from a PRD Issue's Umbrella Branch to the Target Reposito
 _Avoid_: Parent PR, PRD implementation PR
 
 **Child Issue**:
-A Concrete Issue that belongs to a Parent Issue.
-_Avoid_: Subtask, sub-issue when not referring to GitHub's native feature
+A Concrete Issue that belongs to a Parent Issue through GitHub's native sub-issue relationship.
+_Avoid_: Subtask, body-linked child issue
 
 **Child Issue PR**:
 A PullOps-Managed PR for one Child Issue whose branch targets the Parent Issue's Umbrella Branch.

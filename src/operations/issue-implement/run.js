@@ -3,13 +3,17 @@ import { join } from 'node:path';
 
 import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import {
+  readBlockingDependencies,
+  readIssueWorkTarget,
+} from '../../prd-automation/childCoordination.js';
+import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
-import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
-import { getParentIssueNumber, isIssueDone, parseIssueDependencies } from '../issueDependencies.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
+import { getParentIssueNumber } from '../issueDependencies.js';
 import { validateIssueImplementOutput } from './output.js';
 import { buildIssueImplementPrompt } from './prompt.js';
 import { createIssueImplementPullRequestBody } from './prBody.js';
@@ -21,10 +25,7 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
  * @typedef {import('./run.types.js').IssueImplementPreparation} IssueImplementPreparation
  */
 
-export const GITHUB_ACTIONS_BOT_AUTHOR = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
+export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
  * @param {OperationRunnerContext} context
@@ -125,7 +126,10 @@ export async function runIssueImplementCodexActionFinalize(context) {
 async function prepareIssueImplement(context) {
   assertIssueTarget(context);
 
-  const issue = await context.githubClient.getIssue(context.target.number);
+  const workTarget = await readIssueWorkTarget(context, {
+    issueNumber: context.target.number,
+  });
+  const { issue } = workTarget;
 
   if (issue.state !== 'OPEN') {
     return {
@@ -167,7 +171,7 @@ async function prepareIssueImplement(context) {
     };
   }
 
-  const blockingDependencies = await findBlockingDependencies(context, issue);
+  const blockingDependencies = await readBlockingDependencies(context, { issue });
   if (blockingDependencies.length > 0) {
     return {
       ready: false,
@@ -180,7 +184,7 @@ async function prepareIssueImplement(context) {
     };
   }
 
-  const prepared = buildPreparedIssueImplement(context, issue);
+  const prepared = buildPreparedIssueImplement(workTarget);
 
   const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(
     prepared.branchName,
@@ -220,36 +224,24 @@ async function prepareIssueImplement(context) {
  */
 async function readPreparedIssueImplement(context) {
   assertIssueTarget(context);
-  const issue = await context.githubClient.getIssue(context.target.number);
-  return buildPreparedIssueImplement(context, issue);
+  return buildPreparedIssueImplement(
+    await readIssueWorkTarget(context, {
+      issueNumber: context.target.number,
+    }),
+  );
 }
 
 /**
- * @param {OperationRunnerContext} context
- * @param {GitHubIssue} issue
+ * @param {import('../../prd-automation/childCoordination.types.js').IssueWorkTarget} workTarget
  * @returns {IssueImplementPreparation & { ready: true }}
  */
-function buildPreparedIssueImplement(context, issue) {
-  const parentIssueNumber = getParentIssueNumber(issue);
-  const branchName = createIssueBranchName({
-    branchPrefix: context.config.branchPrefix,
-    issueNumber: issue.number,
-    parentNumber: parentIssueNumber,
-  });
-  const baseBranch =
-    parentIssueNumber === undefined
-      ? context.config.baseBranch
-      : createParentBranchName({
-          branchPrefix: context.config.branchPrefix,
-          parentNumber: parentIssueNumber,
-        });
-
+function buildPreparedIssueImplement(workTarget) {
   return {
     ready: true,
-    issue,
-    parentIssueNumber,
-    branchName,
-    baseBranch,
+    issue: workTarget.issue,
+    parentIssueNumber: workTarget.parentIssueNumber,
+    branchName: workTarget.branchName,
+    baseBranch: workTarget.baseBranch,
   };
 }
 
@@ -374,26 +366,6 @@ export function createIssueImplementCommitMessage(
     '',
     ...footers,
   ].join('\n');
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {GitHubIssue} issue
- * @returns {Promise<GitHubIssue[]>}
- */
-async function findBlockingDependencies(context, issue) {
-  const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
-  /** @type {GitHubIssue[]} */
-  const blockingDependencies = [];
-
-  for (const dependencyNumber of dependencyNumbers) {
-    const dependency = await context.githubClient.getIssue(dependencyNumber);
-    if (!isIssueDone(dependency)) {
-      blockingDependencies.push(dependency);
-    }
-  }
-
-  return blockingDependencies;
 }
 
 /**

@@ -23,7 +23,7 @@ describe('issueDependencies', () => {
     );
   });
 
-  it('02: prefers native parent metadata over body dependency text', () => {
+  it('02: uses native parent metadata as the only parent identity source', () => {
     assert.equal(
       getParentIssueNumber({
         number: 34,
@@ -41,6 +41,21 @@ describe('issueDependencies', () => {
         subIssues: [],
       }),
       99,
+    );
+
+    assert.equal(
+      getParentIssueNumber({
+        number: 35,
+        title: 'Body-linked issue',
+        body: 'Part of: #12',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/issues/35',
+        authorLogin: 'maintainer',
+        labels: [],
+        parent: null,
+        subIssues: [],
+      }),
+      undefined,
     );
   });
 

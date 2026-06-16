@@ -1,3 +1,4 @@
+import { classifyCheckState } from '../../checks/checkState.js';
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
@@ -5,7 +6,10 @@ import {
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import {
-  createIssueBranchName,
+  readChildIssuePrFacts,
+  readParentIssueFacts,
+} from '../../prd-automation/childCoordination.js';
+import {
   createParentBranchName,
   hasPullOpsBranchPrefix,
   parseChildIssueBranchName,
@@ -17,6 +21,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { validatePrFinalizeOutput } from './output.js';
 import { updatePullRequestBodyForPrFinalize } from './prBody.js';
 import { buildPrFinalizePrompt } from './prompt.js';
@@ -37,10 +42,7 @@ import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
  * @typedef {import('./run.types.js').PrFinalizeSourceKind} PrFinalizeSourceKind
  */
 
-export const GITHUB_ACTIONS_BOT_AUTHOR = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
+export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
  * @param {OperationRunnerContext} context
@@ -277,7 +279,7 @@ async function preparePrFinalize(context) {
   }
 
   const reviewedHeadChecks = await context.githubClient.getPullRequestChecksForRef(currentHeadSha);
-  const reviewedHeadCheckState = classifyChecks(reviewedHeadChecks);
+  const reviewedHeadCheckState = classifyCheckState(reviewedHeadChecks);
   if (reviewedHeadCheckState === 'absent') {
     return {
       ready: false,
@@ -403,8 +405,11 @@ async function preparePrFinalizeSource(
     };
   }
 
-  const sourceIssue = await context.githubClient.getIssue(sourceIssueNumber);
-  const nativeParentIssueNumber = sourceIssue.parent?.number;
+  const childFacts = await readChildIssuePrFacts(context, {
+    sourceIssueNumber,
+  });
+  const sourceIssue =
+    childFacts?.sourceIssue ?? (await context.githubClient.getIssue(sourceIssueNumber));
   const childBranch = parseChildIssueBranchName({
     branchPrefix: context.config.branchPrefix,
     branchName: pullRequest.headRefName,
@@ -414,12 +419,11 @@ async function preparePrFinalizeSource(
     branchName: baseBranch,
   });
 
-  if (nativeParentIssueNumber !== undefined) {
+  if (childFacts !== undefined) {
     return await prepareChildIssueSource(context, pullRequest, {
       baseBranch,
       childBranch,
-      nativeParentIssueNumber,
-      sourceIssue,
+      childFacts,
     });
   }
 
@@ -485,7 +489,10 @@ async function preparePrFinalizeSource(
  * @returns {Promise<PrFinalizeSource>}
  */
 async function prepareParentIssueSource(context, pullRequest, { baseBranch, sourceIssueNumber }) {
-  const sourceIssue = await context.githubClient.getIssue(sourceIssueNumber);
+  const parentFacts = await readParentIssueFacts(context, {
+    parentIssueNumber: sourceIssueNumber,
+  });
+  const sourceIssue = parentFacts.parentIssue;
   const parentBranch = parseParentBranchName({
     branchPrefix: context.config.branchPrefix,
     branchName: pullRequest.headRefName,
@@ -539,7 +546,7 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
     };
   }
 
-  const openChildIssues = sourceIssue.subIssues.filter(childIssue => !isClosedIssue(childIssue));
+  const openChildIssues = parentFacts.openChildIssues;
   if (openChildIssues.length > 0) {
     return {
       ready: false,
@@ -561,8 +568,8 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
     sourceIssueNumber: sourceIssue.number,
     baseBranch,
     parentIssue: sourceIssue,
-    childIssues: sourceIssue.subIssues,
-    closedChildIssues: sourceIssue.subIssues.filter(isClosedIssue),
+    childIssues: parentFacts.childIssues,
+    closedChildIssues: parentFacts.closedChildIssues,
   };
 }
 
@@ -572,24 +579,15 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
  * @param {object} options
  * @param {string} options.baseBranch
  * @param {{ parentNumber: number, issueNumber: number } | undefined} options.childBranch
- * @param {number} options.nativeParentIssueNumber
- * @param {GitHubIssue} options.sourceIssue
+ * @param {import('../../prd-automation/childCoordination.types.js').ChildIssuePrFacts} options.childFacts
  * @returns {Promise<PrFinalizeSource>}
  */
 async function prepareChildIssueSource(
   context,
   pullRequest,
-  { baseBranch, childBranch, nativeParentIssueNumber, sourceIssue },
+  { baseBranch, childBranch, childFacts },
 ) {
-  const expectedBaseBranch = createParentBranchName({
-    branchPrefix: context.config.branchPrefix,
-    parentNumber: nativeParentIssueNumber,
-  });
-  const expectedChildBranch = createIssueBranchName({
-    branchPrefix: context.config.branchPrefix,
-    parentNumber: nativeParentIssueNumber,
-    issueNumber: sourceIssue.number,
-  });
+  const { expectedBaseBranch, expectedChildBranch, parentIssueNumber, sourceIssue } = childFacts;
 
   if (baseBranch === context.config.baseBranch) {
     return {
@@ -598,7 +596,7 @@ async function prepareChildIssueSource(
         context,
         pullRequest,
         [
-          `Child Issue #${sourceIssue.number} belongs to PRD issue #${nativeParentIssueNumber},`,
+          `Child Issue #${sourceIssue.number} belongs to PRD issue #${parentIssueNumber},`,
           `but PR #${pullRequest.number} targets default branch "${context.config.baseBranch}".`,
           `It must target PRD branch "${expectedBaseBranch}".`,
         ].join(' '),
@@ -614,7 +612,7 @@ async function prepareChildIssueSource(
         pullRequest,
         [
           `Child Issue PR #${pullRequest.number} uses head branch "${pullRequest.headRefName}",`,
-          `but native Child Issue #${sourceIssue.number} in PRD issue #${nativeParentIssueNumber}`,
+          `but native Child Issue #${sourceIssue.number} in PRD issue #${parentIssueNumber}`,
           `must use "${expectedChildBranch}".`,
         ].join(' '),
       ),
@@ -623,7 +621,7 @@ async function prepareChildIssueSource(
 
   if (
     childBranch.issueNumber !== sourceIssue.number ||
-    childBranch.parentNumber !== nativeParentIssueNumber
+    childBranch.parentNumber !== parentIssueNumber
   ) {
     return {
       ready: false,
@@ -633,7 +631,7 @@ async function prepareChildIssueSource(
         [
           `Child Issue PR #${pullRequest.number} head branch "${pullRequest.headRefName}"`,
           `does not match native Child Issue #${sourceIssue.number} in`,
-          `PRD issue #${nativeParentIssueNumber}.`,
+          `PRD issue #${parentIssueNumber}.`,
         ].join(' '),
       ),
     };
@@ -658,7 +656,7 @@ async function prepareChildIssueSource(
     ready: true,
     sourceKind: 'childIssue',
     sourceIssueNumber: sourceIssue.number,
-    parentIssueNumber: nativeParentIssueNumber,
+    parentIssueNumber,
     baseBranch,
   };
 }
@@ -1208,14 +1206,6 @@ function readReferencedIssueNumbers(commitBody) {
 }
 
 /**
- * @param {GitHubIssueReference} issue
- * @returns {boolean}
- */
-function isClosedIssue(issue) {
-  return issue.state?.toUpperCase() === 'CLOSED';
-}
-
-/**
  * @param {GitHubIssueReference[]} issues
  * @returns {string}
  */
@@ -1250,7 +1240,7 @@ async function completeFinalizedHeadChecks(
   },
 ) {
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
-  const checkState = classifyChecks(checks);
+  const checkState = classifyCheckState(checks);
 
   if (checkState === 'pending') {
     return waitForChecks(pullRequest, {
@@ -1364,80 +1354,6 @@ async function readChangedFiles(context, pullRequest, { baseBranch }) {
     await recordPullRequestFailure(context, pullRequest, getErrorMessage(error));
     throw error;
   }
-}
-
-/**
- * @param {GitHubCheckRun[]} checks
- * @returns {'absent' | 'pending' | 'failed' | 'passed'}
- */
-function classifyChecks(checks) {
-  if (checks.length === 0) {
-    return 'absent';
-  }
-
-  if (checks.some(isFailedCheck)) {
-    return 'failed';
-  }
-
-  if (checks.some(isPendingCheck)) {
-    return 'pending';
-  }
-
-  return 'passed';
-}
-
-/**
- * @param {GitHubCheckRun} check
- * @returns {boolean}
- */
-function isFailedCheck(check) {
-  const bucket = normalize(check.bucket);
-  const conclusion = normalize(check.conclusion);
-  const state = normalize(check.state);
-  return (
-    bucket === 'fail' ||
-    ['failure', 'timed_out', 'action_required', 'startup_failure', 'cancelled'].includes(
-      conclusion,
-    ) ||
-    ['failure', 'failed', 'error', 'timed_out', 'cancelled'].includes(state)
-  );
-}
-
-/**
- * @param {GitHubCheckRun} check
- * @returns {boolean}
- */
-function isPendingCheck(check) {
-  const bucket = normalize(check.bucket);
-  const state = normalize(check.state);
-  return (
-    bucket === 'pending' ||
-    ['pending', 'queued', 'requested', 'waiting', 'in_progress'].includes(state) ||
-    (!isPassingCheck(check) && !isFailedCheck(check))
-  );
-}
-
-/**
- * @param {GitHubCheckRun} check
- * @returns {boolean}
- */
-function isPassingCheck(check) {
-  const bucket = normalize(check.bucket);
-  const conclusion = normalize(check.conclusion);
-  const state = normalize(check.state);
-  return (
-    bucket === 'pass' ||
-    ['success', 'neutral', 'skipped'].includes(conclusion) ||
-    state === 'success'
-  );
-}
-
-/**
- * @param {string | undefined} value
- * @returns {string}
- */
-function normalize(value) {
-  return value === undefined ? '' : value.toLowerCase();
 }
 
 /**

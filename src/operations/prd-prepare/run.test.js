@@ -110,7 +110,11 @@ describe('runPrdPrepare', () => {
   it('03: blocks prepare when applied to a known child issue', async () => {
     const issue = createIssue({
       number: 34,
-      body: 'Part of: #12',
+      parent: {
+        number: 12,
+        title: 'PRD: Parent workflow',
+        relationshipSource: 'native',
+      },
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();

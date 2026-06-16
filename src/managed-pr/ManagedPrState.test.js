@@ -9,6 +9,8 @@ import {
   applyManagedPrTransition,
   createManagedPrStateSection,
   readManagedPrState,
+  requestManagedPrReview,
+  resumeManagedPrWorkflow,
   refusePrOperationTarget,
 } from './ManagedPrState.js';
 
@@ -149,13 +151,93 @@ describe('ManagedPrState', () => {
       'PR #100 is not a PullOps-managed PR.\n',
     );
   });
+
+  it('05: resumes a managed PR from approved review to finalize', async () => {
+    const github = createFakeGitHub();
+
+    const result = await resumeManagedPrWorkflow({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Review approved',
+          reviewedTreeHash: 'tree-reviewed',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+        }),
+      }),
+    });
+
+    assert.equal(result.status, 'resumed');
+    assert.equal(result.nextOperation, PULL_OPS_OPERATION_LABELS.prFinalize);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:finalize'],
+      },
+    ]);
+  });
+
+  it('06: leaves finalized managed PRs waiting for integration', async () => {
+    const github = createFakeGitHub();
+
+    const result = await resumeManagedPrWorkflow({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Ready for human rebase merge',
+          finalizedTreeHash: 'tree-finalized',
+          finalizedHeadSha: 'head-finalized',
+          mergeMethod: 'rebase',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        }),
+      }),
+    });
+
+    assert.equal(result.status, 'finalized');
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+  });
+
+  it('07: requests managed PR review when no PR workflow is active', async () => {
+    const github = createFakeGitHub();
+
+    const result = await requestManagedPrReview({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Draft parent preparation',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prdPrepare,
+        }),
+      }),
+    });
+
+    assert.equal(result.status, 'review-requested');
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:review'],
+      },
+    ]);
+  });
+
+  it('08: does not route managed PRs that already have active workflow labels', async () => {
+    const github = createFakeGitHub();
+
+    const result = await requestManagedPrReview({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        labels: ['pullops:status:blocked'],
+      }),
+    });
+
+    assert.equal(result.status, 'already-active');
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+  });
 });
 
 /**
- * @param {{ body?: string, lastOperation?: string }} [options]
+ * @param {{ body?: string, lastOperation?: string, labels?: string[] }} [options]
  * @returns {GitHubPullRequest}
  */
-function createPullRequest({ body = createManagedBody(), lastOperation } = {}) {
+function createPullRequest({ body = createManagedBody(), lastOperation, labels = [] } = {}) {
   return {
     number: 100,
     title: 'Example PR',
@@ -163,14 +245,29 @@ function createPullRequest({ body = createManagedBody(), lastOperation } = {}) {
     headRefName: 'pullops/issue-42',
     body: lastOperation === undefined ? body : createManagedBody({ lastOperation }),
     isDraft: true,
+    labels,
   };
 }
 
 /**
- * @param {{ lastOperation?: string }} [options]
+ * @param {{
+ *   status?: string,
+ *   lastOperation?: string,
+ *   reviewedTreeHash?: string,
+ *   finalizedTreeHash?: string,
+ *   finalizedHeadSha?: string,
+ *   mergeMethod?: string,
+ * }} [options]
  * @returns {string}
  */
-function createManagedBody({ lastOperation = PULL_OPS_OPERATION_LABELS.issueImplement } = {}) {
+function createManagedBody({
+  status = 'Draft automation',
+  lastOperation = PULL_OPS_OPERATION_LABELS.issueImplement,
+  reviewedTreeHash,
+  finalizedTreeHash,
+  finalizedHeadSha,
+  mergeMethod,
+} = {}) {
   return [
     '## Summary',
     '',
@@ -179,7 +276,7 @@ function createManagedBody({ lastOperation = PULL_OPS_OPERATION_LABELS.issueImpl
     '## PullOps',
     '',
     'Managed PR: yes',
-    'Status: Draft automation',
+    `Status: ${status}`,
     'Review cycles: 1 / 3',
     'CI fix cycles: 0 / 2',
     'Source: Issue #42',
@@ -188,6 +285,10 @@ function createManagedBody({ lastOperation = PULL_OPS_OPERATION_LABELS.issueImpl
     'Runner task: pullops-issue-implement',
     'Model tier: high',
     'Model: gpt-test',
+    ...(reviewedTreeHash === undefined ? [] : [`Reviewed tree: ${reviewedTreeHash}`]),
+    ...(finalizedTreeHash === undefined ? [] : [`Finalized tree: ${finalizedTreeHash}`]),
+    ...(finalizedHeadSha === undefined ? [] : [`Finalized head: ${finalizedHeadSha}`]),
+    ...(mergeMethod === undefined ? [] : [`Merge method: ${mergeMethod}`]),
     `Last operation: ${lastOperation}`,
   ].join('\n');
 }

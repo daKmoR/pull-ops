@@ -18,7 +18,7 @@ export function parseIssueDependencies(body) {
  * @returns {number | undefined}
  */
 export function getParentIssueNumber(issue) {
-  return issue.parent?.number ?? parseIssueDependencies(issue.body).partOf;
+  return issue.parent?.number;
 }
 
 /**

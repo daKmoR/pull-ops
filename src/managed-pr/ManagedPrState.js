@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import {
   PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_PR_OPERATION_LABELS,
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../labels/pullOpsLabels.js';
@@ -14,6 +15,8 @@ import {
  * @typedef {import('./ManagedPrState.types.js').ManagedPrStateSectionOptions} ManagedPrStateSectionOptions
  * @typedef {import('./ManagedPrState.types.js').ManagedPrTransitionOutcome} ManagedPrTransitionOutcome
  * @typedef {import('./ManagedPrState.types.js').ManagedPrTransitionResult} ManagedPrTransitionResult
+ * @typedef {import('./ManagedPrState.types.js').ManagedPrWorkflowOptions} ManagedPrWorkflowOptions
+ * @typedef {import('./ManagedPrState.types.js').ManagedPrWorkflowResult} ManagedPrWorkflowResult
  * @typedef {import('./ManagedPrState.types.js').RefusePrOperationTargetOptions} RefusePrOperationTargetOptions
  * @typedef {import('./ManagedPrState.types.js').UpdateManagedPrStateOptions} UpdateManagedPrStateOptions
  */
@@ -29,6 +32,12 @@ const PR_OPERATION_LABELS = new Set([
   PULL_OPS_OPERATION_LABELS.prUpdateBranch,
   PULL_OPS_OPERATION_LABELS.prResolveConflicts,
   PULL_OPS_OPERATION_LABELS.prFinalize,
+]);
+
+/** @type {ReadonlySet<string>} */
+const ACTIVE_PULL_OPS_PR_LABELS = new Set([
+  ...PULL_OPS_PR_OPERATION_LABELS,
+  ...PULL_OPS_STATUS_LABEL_NAMES,
 ]);
 
 const FAILURE_STATUS_LABELS_TO_REMOVE = [
@@ -60,6 +69,110 @@ export function readManagedPrState(body) {
     mergeMethod: readMarker(body, 'Merge method:'),
     reviewCycles: readReviewCycles(body),
     ciFixCycles: readCiFixCycles(body),
+  };
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @returns {state is ManagedPrState & { finalizedHeadSha: string, finalizedTreeHash: string }}
+ */
+export function isFinalizedForRebase(state) {
+  return (
+    state.finalizedHeadSha !== undefined &&
+    state.finalizedTreeHash !== undefined &&
+    state.mergeMethod === 'rebase'
+  );
+}
+
+/**
+ * @param {string[] | undefined} labels
+ * @returns {boolean}
+ */
+export function hasActiveManagedPrWorkflow(labels) {
+  return labels?.some(label => ACTIVE_PULL_OPS_PR_LABELS.has(label)) ?? false;
+}
+
+/**
+ * @param {ManagedPrWorkflowOptions} options
+ * @returns {Promise<ManagedPrWorkflowResult>}
+ */
+export async function requestManagedPrReview({ githubClient, pullRequest }) {
+  if (hasActiveManagedPrWorkflow(pullRequest.labels)) {
+    return {
+      status: 'already-active',
+      pullRequest: formatPullRequest(pullRequest),
+      labels: pullRequest.labels ?? [],
+    };
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if (!state.managed) {
+    return {
+      status: 'not-managed',
+      pullRequest: formatPullRequest(pullRequest),
+    };
+  }
+
+  await githubClient.addLabelsToPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+  });
+
+  return {
+    status: 'review-requested',
+    pullRequest: formatPullRequest(pullRequest),
+    nextOperation: PULL_OPS_OPERATION_LABELS.prReview,
+  };
+}
+
+/**
+ * @param {ManagedPrWorkflowOptions} options
+ * @returns {Promise<ManagedPrWorkflowResult>}
+ */
+export async function resumeManagedPrWorkflow({ githubClient, pullRequest }) {
+  if (hasActiveManagedPrWorkflow(pullRequest.labels)) {
+    return {
+      status: 'already-active',
+      pullRequest: formatPullRequest(pullRequest),
+      labels: pullRequest.labels ?? [],
+    };
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if (!state.managed) {
+    return {
+      status: 'not-managed',
+      pullRequest: formatPullRequest(pullRequest),
+    };
+  }
+
+  if (isFinalizedForRebase(state)) {
+    return {
+      status: 'finalized',
+      pullRequest: formatPullRequest(pullRequest),
+    };
+  }
+
+  const nextOperation = chooseNextManagedPrOperation({
+    body: pullRequest.body,
+    state,
+  });
+  if (nextOperation === undefined) {
+    return {
+      status: 'waiting',
+      pullRequest: formatPullRequest(pullRequest),
+    };
+  }
+
+  await githubClient.addLabelsToPullRequest({
+    number: pullRequest.number,
+    labels: [nextOperation],
+  });
+
+  return {
+    status: 'resumed',
+    pullRequest: formatPullRequest(pullRequest),
+    nextOperation,
   };
 }
 
@@ -740,6 +853,50 @@ function getAllowedOutcomes(operation) {
   }
 
   return ['ready', 'route-to-review', 'route-to-ci-fix', 'blocked'];
+}
+
+/**
+ * @param {{ body: string, state: ManagedPrState }} options
+ * @returns {string | undefined}
+ */
+function chooseNextManagedPrOperation({ body, state }) {
+  const status = readMarker(body, 'Status:');
+
+  if (isFinalizedForRebase(state)) {
+    return undefined;
+  }
+
+  if (state.reviewedTreeHash !== undefined || status === 'Review approved') {
+    return PULL_OPS_OPERATION_LABELS.prFinalize;
+  }
+
+  if (status === 'Changes requested') {
+    return PULL_OPS_OPERATION_LABELS.prAddressReview;
+  }
+
+  if (
+    status === 'Review feedback addressed' ||
+    status === 'Draft automation' ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.issueImplement ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+  ) {
+    return PULL_OPS_OPERATION_LABELS.prReview;
+  }
+
+  return undefined;
+}
+
+/**
+ * @param {import('../github/types.js').GitHubPullRequest} pullRequest
+ * @returns {{ number: number, url: string, baseBranch: string | undefined, headBranch: string }}
+ */
+function formatPullRequest(pullRequest) {
+  return {
+    number: pullRequest.number,
+    url: pullRequest.url,
+    baseBranch: pullRequest.baseRefName,
+    headBranch: pullRequest.headRefName,
+  };
 }
 
 /**

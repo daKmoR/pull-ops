@@ -132,6 +132,29 @@ export interface ManagedPrTransitionResult {
   statusLabel?: string;
 }
 
+export interface ManagedPrWorkflowResult {
+  status:
+    | 'already-active'
+    | 'finalized'
+    | 'not-managed'
+    | 'review-requested'
+    | 'resumed'
+    | 'waiting';
+  pullRequest: {
+    number: number;
+    url: string;
+    baseBranch?: string;
+    headBranch: string;
+  };
+  labels?: string[];
+  nextOperation?: string;
+}
+
+export interface ManagedPrWorkflowOptions {
+  githubClient: GitHubClient;
+  pullRequest: GitHubPullRequest;
+}
+
 export interface InternalTransition {
   body?: string;
   failureReason?: string;

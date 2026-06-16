@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import { createParentBranchName } from '../branchNames.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR } from '../issue-implement/run.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
 import { createPrdPreparePullRequestBody } from './prBody.js';
 

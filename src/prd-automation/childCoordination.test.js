@@ -1,24 +1,28 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
-import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplete } from './run.js';
+import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
+import {
+  closeMergedChildIssuePullRequest,
+  coordinatePrdAutomation,
+  readBlockingDependencies,
+  readIssueWorkTarget,
+} from './childCoordination.js';
 
 /**
- * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
- * @typedef {import('../../github/types.js').GitHubCheckRun} GitHubCheckRun
- * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
- * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
- * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
- * @typedef {import('../../github/types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
- * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
- * @typedef {import('../../github/types.js').MergePullRequestOptions} MergePullRequestOptions
+ * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../github/types.js').GitHubCheckRun} GitHubCheckRun
+ * @typedef {import('../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../github/types.js').GitHubIssueReference} GitHubIssueReference
+ * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('../github/types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
+ * @typedef {import('../github/types.js').EditLabelsOptions} EditLabelsOptions
+ * @typedef {import('../github/types.js').CloseIssueOptions} CloseIssueOptions
+ * @typedef {import('../github/types.js').MergePullRequestOptions} MergePullRequestOptions
  */
 
-/** @typedef {{ issue: { number: number }, status: string }} ChildAutomationResult */
-
-describe('runPrdAutoAdvance', () => {
-  it('01: prepares the PRD and starts currently unblocked open child issues only', async () => {
+describe('PRD Child Coordination', () => {
+  it('01: auto-advance starts native unblocked Child Issues only', async () => {
     const parent = createIssue({
       number: 12,
       labels: ['pullops:prd:auto-advance'],
@@ -30,7 +34,7 @@ describe('runPrdAutoAdvance', () => {
         createIssue({ number: 34, parent: issueReference(12) }),
         createIssue({
           number: 35,
-          body: 'Part of: #12\nBlocked by: #34',
+          body: 'Blocked by: #34',
           parent: issueReference(12),
         }),
         createIssue({ number: 36, state: 'CLOSED', parent: issueReference(12) }),
@@ -39,15 +43,20 @@ describe('runPrdAutoAdvance', () => {
           labels: ['pullops:issue:implement'],
           parent: issueReference(12),
         }),
+        createIssue({ number: 99, body: 'Part of: #12' }),
       ],
     });
     const git = createFakeGit();
 
-    const result = await runPrdAutoAdvance(
+    const result = await coordinatePrdAutomation(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
       }),
+      {
+        parentIssueNumber: 12,
+        mode: 'auto-advance',
+      },
     );
 
     assert.equal(result.status, 'accepted');
@@ -58,39 +67,16 @@ describe('runPrdAutoAdvance', () => {
       },
     ]);
     assert.deepEqual(
-      github.createdPullRequests.map(pullRequest => ({
-        baseBranch: pullRequest.baseBranch,
-        headBranch: pullRequest.headBranch,
-      })),
+      github.issueLabelsAdded.filter(edit => edit.number === 34),
       [
         {
-          baseBranch: 'main',
-          headBranch: 'pullops/prd-12',
+          number: 34,
+          labels: ['pullops:issue:implement'],
         },
       ],
     );
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:in-progress'],
-      },
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-      {
-        number: 34,
-        labels: ['pullops:issue:implement'],
-      },
-    ]);
-    assert.equal(
-      github.issueLabelsAdded.some(
-        edit => edit.number === 12 && edit.labels.includes('pullops:issue:implement'),
-      ),
-      false,
-    );
     assert.deepEqual(
-      readChildResults(result).map(child => [child.issue.number, child.status]),
+      result.children?.map(child => [child.issue.number, child.status]),
       [
         [34, 'started'],
         [35, 'blocked'],
@@ -100,100 +86,7 @@ describe('runPrdAutoAdvance', () => {
     );
   });
 
-  it('02: ignores Part of body references that are not native Child Issues', async () => {
-    const parent = createIssue({
-      number: 12,
-      labels: ['pullops:prd:auto-advance'],
-      subIssues: [],
-    });
-    const github = createFakeGitHub({
-      issues: [
-        parent,
-        createIssue({ number: 34, body: 'Part of: #12' }),
-        createIssue({ number: 35, body: 'Part of: #99' }),
-      ],
-      bodyReferences: [issueReference(34), issueReference(35)],
-      pullRequests: [
-        createPullRequest({
-          number: 200,
-          headRefName: 'pullops/prd-12',
-          baseRefName: 'main',
-          body: parentPullRequestBody(12),
-        }),
-      ],
-    });
-
-    const result = await runPrdAutoAdvance(
-      createContext({
-        githubClient: github.client,
-      }),
-    );
-
-    assert.equal(result.status, 'accepted');
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-    ]);
-    assert.deepEqual(
-      readChildResults(result).map(child => child.issue.number),
-      [],
-    );
-  });
-});
-
-describe('resumePrdAutomationForParentIssue', () => {
-  it('01: starts newly unblocked child issues after a blocking issue closes', async () => {
-    const parent = createIssue({
-      number: 12,
-      labels: ['pullops:prd:auto-advance'],
-      subIssues: [issueReference(35)],
-    });
-    const github = createFakeGitHub({
-      issues: [
-        parent,
-        createIssue({ number: 34, state: 'CLOSED', parent: issueReference(12) }),
-        createIssue({
-          number: 35,
-          body: 'Part of: #12\nBlocked by: #34',
-          parent: issueReference(12),
-        }),
-      ],
-      pullRequests: [
-        createPullRequest({
-          number: 200,
-          headRefName: 'pullops/prd-12',
-          baseRefName: 'main',
-          body: parentPullRequestBody(12),
-        }),
-      ],
-    });
-
-    const result = await resumePrdAutomationForParentIssue(
-      createContext({
-        target: { type: 'pr', number: 101 },
-        githubClient: github.client,
-      }),
-      12,
-    );
-
-    assert.equal(result.status, 'accepted');
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-      {
-        number: 35,
-        labels: ['pullops:issue:implement'],
-      },
-    ]);
-  });
-});
-
-describe('runPrdAutoComplete', () => {
-  it('01: rebase-merges finalized child PRs and leaves child issue closure to pr-close-child-issue', async () => {
+  it('02: auto-complete merges finalized Child Issue PRs when finalized-head checks are absent', async () => {
     const parent = createIssue({
       number: 12,
       labels: ['pullops:prd:auto-complete'],
@@ -213,30 +106,19 @@ describe('runPrdAutoComplete', () => {
           headRefName: 'pullops/prd-12-issue-34',
           baseRefName: 'pullops/prd-12',
           body: finalizedChildPullRequestBody(34),
-          labels: [],
           isDraft: false,
         }),
       ],
-      checksByRef: new Map([
-        [
-          'head-finalized',
-          [
-            {
-              name: 'CI',
-              state: 'success',
-              conclusion: 'success',
-              bucket: 'pass',
-            },
-          ],
-        ],
-      ]),
     });
 
-    const result = await runPrdAutoComplete(
+    const result = await coordinatePrdAutomation(
       createContext({
-        operation: 'prd-auto-complete',
         githubClient: github.client,
       }),
+      {
+        parentIssueNumber: 12,
+        mode: 'auto-complete',
+      },
     );
 
     assert.equal(result.status, 'accepted');
@@ -246,57 +128,108 @@ describe('runPrdAutoComplete', () => {
         method: 'rebase',
       },
     ]);
-    assert.deepEqual(github.closedIssues, []);
     assert.deepEqual(
-      readChildResults(result).map(child => [child.issue.number, child.status]),
-      [[34, 'merged']],
+      result.children?.map(child => child.status),
+      ['merged'],
     );
   });
 
-  it('02: does not start duplicate work for active child PRs', async () => {
-    const parent = createIssue({
-      number: 12,
-      labels: ['pullops:prd:auto-complete'],
-      subIssues: [issueReference(34)],
+  it('03: close-child requests Umbrella PR review even without an active automation mode', async () => {
+    const childIssue = createIssue({
+      number: 42,
+      state: 'CLOSED',
+      parent: issueReference(1),
     });
-    const github = createFakeGitHub({
-      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
-      pullRequests: [
-        createPullRequest({
-          number: 200,
-          headRefName: 'pullops/prd-12',
-          baseRefName: 'main',
-          body: parentPullRequestBody(12),
-        }),
-        createPullRequest({
-          number: 101,
-          headRefName: 'pullops/prd-12-issue-34',
-          baseRefName: 'pullops/prd-12',
-          body: childPullRequestBody(34),
-          labels: ['pullops:pr:review'],
-        }),
+    const parentIssue = createIssue({
+      number: 1,
+      labels: [],
+      subIssues: [
+        {
+          ...issueReference(42),
+          state: 'CLOSED',
+        },
       ],
     });
+    const childPullRequest = createPullRequest({
+      number: 100,
+      headRefName: 'pullops/prd-1-issue-42',
+      baseRefName: 'pullops/prd-1',
+      state: 'MERGED',
+      mergedAt: '2026-06-14T10:00:00Z',
+    });
+    const parentPullRequest = createPullRequest({
+      number: 200,
+      headRefName: 'pullops/prd-1',
+      baseRefName: 'main',
+      body: parentPullRequestBody(1),
+    });
+    const github = createFakeGitHub({
+      issues: [childIssue, parentIssue],
+      targetPullRequest: childPullRequest,
+      pullRequests: [parentPullRequest],
+    });
 
-    const result = await runPrdAutoComplete(
+    const result = await closeMergedChildIssuePullRequest(
       createContext({
-        operation: 'prd-auto-complete',
+        target: { type: 'pr', number: 100 },
+        operation: 'pr-close-child-issue',
         githubClient: github.client,
       }),
+      {
+        pullRequestNumber: 100,
+      },
     );
 
     assert.equal(result.status, 'accepted');
-    assert.deepEqual(github.issueLabelsAdded, [
+    assert.equal(result.prdAutomation?.status, 'skipped');
+    assert.equal(result.parentPullRequest?.status, 'review-requested');
+    assert.deepEqual(github.pullRequestLabelsAdded, [
       {
-        number: 12,
-        labels: ['pullops:status:prepared'],
+        number: 200,
+        labels: ['pullops:pr:review'],
       },
     ]);
-    assert.deepEqual(github.pullRequestLabelsAdded, []);
-    assert.deepEqual(github.mergedPullRequests, []);
+  });
+
+  it('04: reads Child Issue work targets from native parent identity and body dependencies', async () => {
+    const github = createFakeGitHub({
+      issues: [
+        createIssue({
+          number: 42,
+          body: 'Blocked by: #41',
+          parent: issueReference(7),
+        }),
+        createIssue({ number: 41 }),
+      ],
+    });
+
+    const target = await readIssueWorkTarget(
+      createContext({
+        target: { type: 'issue', number: 42 },
+        githubClient: github.client,
+      }),
+      {
+        issueNumber: 42,
+      },
+    );
+
+    assert.equal(target.parentIssueNumber, 7);
+    assert.equal(target.branchName, 'pullops/prd-7-issue-42');
+    assert.equal(target.baseBranch, 'pullops/prd-7');
+
+    const blockingDependencies = await readBlockingDependencies(
+      createContext({
+        target: { type: 'issue', number: 42 },
+        githubClient: github.client,
+      }),
+      {
+        issue: target.issue,
+      },
+    );
+
     assert.deepEqual(
-      readChildResults(result).map(child => child.status),
-      ['already-active'],
+      blockingDependencies.map(issue => issue.number),
+      [41],
     );
   });
 });
@@ -384,6 +317,8 @@ function issueReference(number) {
  * @param {string} [options.body]
  * @param {string[]} [options.labels]
  * @param {boolean} [options.isDraft]
+ * @param {string} [options.state]
+ * @param {string | undefined} [options.mergedAt]
  * @returns {GitHubPullRequest}
  */
 function createPullRequest({
@@ -393,6 +328,8 @@ function createPullRequest({
   body = childPullRequestBody(34),
   labels = [],
   isDraft = true,
+  state = 'OPEN',
+  mergedAt,
 } = {}) {
   return {
     number,
@@ -401,7 +338,8 @@ function createPullRequest({
     headRefName,
     headSha: `sha-${number}`,
     baseRefName,
-    state: 'OPEN',
+    state,
+    mergedAt,
     body,
     isDraft,
     isCrossRepository: false,
@@ -462,32 +400,24 @@ function parentPullRequestBody(issueNumber) {
 }
 
 /**
- * @param {Record<string, unknown>} result
- * @returns {ChildAutomationResult[]}
- */
-function readChildResults(result) {
-  return /** @type {ChildAutomationResult[]} */ (result.children);
-}
-
-/**
  * @param {object} options
  * @param {GitHubIssue[]} options.issues
- * @param {GitHubIssueReference[]} [options.bodyReferences]
  * @param {GitHubPullRequest[]} [options.pullRequests]
+ * @param {GitHubPullRequest} [options.targetPullRequest]
  * @param {Map<string, GitHubCheckRun[]>} [options.checksByRef]
  * @returns {{
- *   client: import('../../github/types.js').GitHubClient;
+ *   client: import('../github/types.js').GitHubClient;
  *   issueLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   createdPullRequests: CreateDraftPullRequestOptions[];
  *   mergedPullRequests: MergePullRequestOptions[];
- *   closedIssues: number[];
+ *   closedIssues: CloseIssueOptions[];
  * }}
  */
 function createFakeGitHub({
   issues,
-  bodyReferences = [],
   pullRequests = [],
+  targetPullRequest,
   checksByRef = new Map(),
 }) {
   const issuesByNumber = new Map(issues.map(issue => [issue.number, issue]));
@@ -504,7 +434,7 @@ function createFakeGitHub({
   const createdPullRequests = [];
   /** @type {MergePullRequestOptions[]} */
   const mergedPullRequests = [];
-  /** @type {number[]} */
+  /** @type {CloseIssueOptions[]} */
   const closedIssues = [];
 
   return {
@@ -529,7 +459,10 @@ function createFakeGitHub({
         return issue;
       },
       async getPullRequest() {
-        throw new Error('getPullRequest was not expected in this test.');
+        if (targetPullRequest === undefined) {
+          throw new Error('getPullRequest was not expected in this test.');
+        }
+        return targetPullRequest;
       },
       async getPullRequestChecks() {
         throw new Error('getPullRequestChecks was not expected in this test.');
@@ -547,7 +480,7 @@ function createFakeGitHub({
         return pullRequestsByHead.get(headBranch);
       },
       async findIssuesByBodyReference() {
-        return bodyReferences;
+        throw new Error('findIssuesByBodyReference should not drive PRD Child Coordination.');
       },
       async createDraftPullRequest(options) {
         createdPullRequests.push(options);
@@ -587,7 +520,7 @@ function createFakeGitHub({
         throw new Error('commentOnIssue was not expected in this test.');
       },
       async closeIssue(options) {
-        closedIssues.push(options.number);
+        closedIssues.push(options);
       },
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');
@@ -611,7 +544,7 @@ function createFakeGitHub({
 
 /**
  * @returns {{
- *   client: import('../../git/types.js').GitClient;
+ *   client: import('../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
  * }}
  */
