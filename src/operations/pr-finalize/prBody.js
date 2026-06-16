@@ -1,4 +1,5 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+import { updateManagedPrState } from '../../managed-pr/ManagedPrState.js';
 
 /**
  * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
@@ -37,12 +38,14 @@ export function updatePullRequestBodyForPrFinalize({
     'Traceability',
     formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }).join('\n'),
   );
-  updated = upsertLine(updated, 'Status:', formatPrFinalizeStatus(status));
-  updated = upsertLine(updated, 'Finalized tree:', finalizedTreeHash);
-  updated = upsertLine(updated, 'Finalized head:', finalizedHeadSha);
-  updated = upsertLine(updated, 'Merge method:', 'rebase');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
-  return `${updated}\n`;
+  return updateManagedPrState({
+    body: updated,
+    status: formatPrFinalizeStatus(status),
+    finalizedTreeHash,
+    finalizedHeadSha,
+    mergeMethod: 'rebase',
+    lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+  });
 }
 
 /**
@@ -74,30 +77,6 @@ function formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }) {
   }
 
   return [`Refs #${sourceIssueNumber}`, `Part of #${parentIssueNumber}`];
-}
-
-/**
- * @param {object} options
- * @param {string} options.body
- * @returns {string}
- */
-export function updatePullRequestBodyForPrFinalizeFailure({ body }) {
-  let updated = body.trimEnd();
-  updated = upsertLine(updated, 'Status:', 'Blocked');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
-  return `${updated}\n`;
-}
-
-/**
- * @param {object} options
- * @param {string} options.body
- * @returns {string}
- */
-export function updatePullRequestBodyForPrFinalizeReroute({ body }) {
-  let updated = removeMergePreparationMarkers(body.trimEnd());
-  updated = upsertLine(updated, 'Status:', 'Review required');
-  updated = upsertLine(updated, 'Last operation:', PULL_OPS_OPERATION_LABELS.prFinalize);
-  return `${updated}\n`;
 }
 
 /**
@@ -136,44 +115,6 @@ function upsertSection(body, title, content) {
   }
 
   return `${body}\n\n${heading}\n\n${content.trim()}`;
-}
-
-/**
- * @param {string} body
- * @param {string} prefix
- * @param {string} value
- * @returns {string}
- */
-function upsertLine(body, prefix, value) {
-  const replacement = `${prefix} ${value}`;
-  const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*.*$`, 'im');
-  if (pattern.test(body)) {
-    return body.replace(pattern, replacement);
-  }
-
-  return `${body}\n${replacement}`;
-}
-
-/**
- * @param {string} body
- * @returns {string}
- */
-function removeMergePreparationMarkers(body) {
-  let updated = body;
-  for (const prefix of ['Reviewed tree:', 'Finalized tree:', 'Finalized head:', 'Merge method:']) {
-    updated = removeLine(updated, prefix);
-  }
-  return updated.trimEnd();
-}
-
-/**
- * @param {string} body
- * @param {string} prefix
- * @returns {string}
- */
-function removeLine(body, prefix) {
-  const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*.*\\n?`, 'im');
-  return body.replace(pattern, '');
 }
 
 /**

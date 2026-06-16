@@ -1,24 +1,19 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../../labels/pullOpsLabels.js';
+  applyManagedPrTransition,
+  readManagedPrState,
+  refusePrOperationTarget,
+} from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { collectPrAddressReviewFeedback } from './feedback.js';
 import { validatePrAddressReviewOutput } from './output.js';
 import { buildAddressPrReviewompt } from './prompt.js';
-import {
-  readPullOpsPullRequestState,
-  updatePullRequestBodyForPrAddressReview,
-} from '../pr-review/prBody.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -163,16 +158,13 @@ async function preparePrAddressReview(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
 
   if (pullRequest.isCrossRepository === true) {
     return {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PullOps v1 only addresses review feedback on same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
-        updateBody: state.managed,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -182,21 +174,20 @@ async function preparePrAddressReview(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} is not a PullOps-managed PR.`,
-        updateBody: false,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
 
-  if (!hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)) {
+  if (
+    !hasPullOpsBranchPrefix({
+      branchName: pullRequest.headRefName,
+      branchPrefix: context.config.branchPrefix,
+    })
+  ) {
     return {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
-        updateBody: true,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -206,9 +197,6 @@ async function preparePrAddressReview(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
-        updateBody: true,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -300,16 +288,17 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
     );
     await postPrAddressReviewResponses(context, pullRequest, feedbackItems, validatedOutput.value);
     await resolveAddressedReviewThreads(context, feedbackItems, validatedOutput.value);
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForPrAddressReview({
-        body: pullRequest.body,
-        addressReviewStatus: 'addressed',
+    await applyManagedPrTransition({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      outcome: {
+        kind: 'addressed',
         reviewCycle,
         maxReviewCycles,
-      }),
+      },
     });
-    await transitionPullRequestLabelsToReview(context, pullRequest);
 
     return {
       status: 'accepted',
@@ -540,23 +529,6 @@ function formatFeedbackSurface(surface) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
- * @returns {Promise<void>}
- */
-async function transitionPullRequestLabelsToReview(context, pullRequest) {
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prAddressReview, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
-
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {GitHubPullRequest} pullRequest
  * @param {{ reviewCycle: number, maxReviewCycles: number }} options
  * @returns {Promise<Record<string, unknown>>}
  */
@@ -566,10 +538,17 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
     `${reviewCycle} / ${maxReviewCycles} Review Cycles have already run.`,
   ].join(' ');
 
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody: true,
-    reviewCycle,
-    maxReviewCycles,
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle,
+      maxReviewCycles,
+    },
   });
 
   return {
@@ -585,18 +564,16 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
- * @param {{ reason: string, updateBody: boolean, reviewCycle: number, maxReviewCycles: number }} options
+ * @param {{ reason: string }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function refusePullRequest(
-  context,
-  pullRequest,
-  { reason, updateBody, reviewCycle, maxReviewCycles },
-) {
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody,
-    reviewCycle,
-    maxReviewCycles,
+async function refusePullRequest(context, pullRequest, { reason }) {
+  await refusePrOperationTarget({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    reason,
   });
 
   return {
@@ -622,72 +599,29 @@ async function recordPullRequestFailure(
   reason,
   { updateBody, reviewCycle, maxReviewCycles },
 ) {
-  await writeFailureReason(context, reason);
-
-  if (updateBody) {
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForPrAddressReview({
-        body: pullRequest.body,
-        addressReviewStatus: 'blocked',
-        reviewCycle,
-        maxReviewCycles,
-      }),
+  if (!updateBody) {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      reason,
     });
-  }
-
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prAddressReview,
-      PULL_OPS_OPERATION_LABELS.prReview,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: [
-      'PullOps could not complete `pullops run pr-address-review`.',
-      '',
-      `Reason: ${reason}`,
-    ].join('\n'),
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {string} reason
- * @returns {Promise<void>}
- */
-async function writeFailureReason(context, reason) {
-  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
     return;
   }
 
-  await mkdir(context.outputDirectory, { recursive: true });
-  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
-}
-
-/**
- * @param {string} branchName
- * @param {string} branchPrefix
- * @returns {boolean}
- */
-function hasPullOpsBranchPrefix(branchName, branchPrefix) {
-  const normalizedPrefix =
-    branchPrefix
-      .split('/')
-      .map(part => part.trim())
-      .filter(Boolean)
-      .join('/') || 'pullops';
-  return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle,
+      maxReviewCycles,
+    },
+  });
 }
 
 /**

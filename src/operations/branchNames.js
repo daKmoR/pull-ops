@@ -58,6 +58,15 @@ export function parseChildIssueBranchName({ branchPrefix, branchName }) {
 }
 
 /**
+ * @param {{ branchPrefix: string, branchName: string }} options
+ * @returns {boolean}
+ */
+export function hasPullOpsBranchPrefix({ branchPrefix, branchName }) {
+  const prefix = normalizeBranchPrefix(branchPrefix);
+  return branchName === prefix || branchName.startsWith(`${prefix}/`);
+}
+
+/**
  * @param {string} branchPrefix
  * @returns {string}
  */

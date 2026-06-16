@@ -1,21 +1,19 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../../labels/pullOpsLabels.js';
+  applyManagedPrTransition,
+  readManagedPrState,
+  refusePrOperationTarget,
+} from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
-import { readPullOpsPullRequestState, updatePullRequestBodyForReview } from './prBody.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -152,16 +150,13 @@ async function preparePrReview(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
 
   if (pullRequest.isCrossRepository === true) {
     return {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PullOps v1 only reviews same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
-        updateBody: state.managed,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -171,21 +166,20 @@ async function preparePrReview(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} is not a PullOps-managed PR.`,
-        updateBody: false,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
 
-  if (!hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)) {
+  if (
+    !hasPullOpsBranchPrefix({
+      branchName: pullRequest.headRefName,
+      branchPrefix: context.config.branchPrefix,
+    })
+  ) {
     return {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
-        updateBody: true,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -195,9 +189,6 @@ async function preparePrReview(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
-        updateBody: true,
-        reviewCycle: state.reviewCycles.current,
-        maxReviewCycles: state.reviewCycles.max,
       }),
     };
   }
@@ -214,9 +205,6 @@ async function preparePrReview(context) {
             `${formatIssueList(openChildIssues)} remain open.`,
             'Incomplete PRDs cannot be approved.',
           ].join(' '),
-          updateBody: true,
-          reviewCycle: state.reviewCycles.current,
-          maxReviewCycles: state.reviewCycles.max,
         }),
       };
     }
@@ -310,17 +298,25 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       comments: comments.publishable,
     });
 
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForReview({
-        body: pullRequest.body,
-        reviewStatus: reviewResult.status,
-        reviewCycle: nextReviewCycle,
-        maxReviewCycles,
-        reviewedTreeHash,
-      }),
+    await applyManagedPrTransition({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      outcome:
+        reviewResult.status === 'approved'
+          ? {
+              kind: 'approved',
+              reviewCycle: nextReviewCycle,
+              maxReviewCycles,
+              reviewedTreeHash,
+            }
+          : {
+              kind: 'changes-requested',
+              reviewCycle: nextReviewCycle,
+              maxReviewCycles,
+            },
     });
-    await transitionPullRequestLabels(context, pullRequest, reviewResult.status);
 
     return {
       status: 'accepted',
@@ -429,43 +425,16 @@ function filterRepliesToUnresolvedThreads({ replies, reviewContext }) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
- * @param {ReviewResultStatus} status
- * @returns {Promise<void>}
- */
-async function transitionPullRequestLabels(context, pullRequest, status) {
-  const state = readPullOpsPullRequestState(pullRequest.body);
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
-
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [
-      status === 'approved' && state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize
-        ? PULL_OPS_STATUS_LABELS.done
-        : status === 'approved'
-          ? PULL_OPS_OPERATION_LABELS.prFinalize
-          : PULL_OPS_OPERATION_LABELS.prAddressReview,
-    ],
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {GitHubPullRequest} pullRequest
- * @param {{ reason: string, updateBody: boolean, reviewCycle: number, maxReviewCycles: number }} options
+ * @param {{ reason: string }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function refusePullRequest(
-  context,
-  pullRequest,
-  { reason, updateBody, reviewCycle, maxReviewCycles },
-) {
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody,
-    reviewCycle,
-    maxReviewCycles,
+async function refusePullRequest(context, pullRequest, { reason }) {
+  await refusePrOperationTarget({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    reason,
   });
 
   return {
@@ -491,54 +460,29 @@ async function recordPullRequestFailure(
   reason,
   { updateBody, reviewCycle, maxReviewCycles },
 ) {
-  await writeFailureReason(context, reason);
-
-  if (updateBody) {
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForReview({
-        body: pullRequest.body,
-        reviewStatus: 'blocked',
-        reviewCycle,
-        maxReviewCycles,
-      }),
+  if (!updateBody) {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      reason,
     });
-  }
-
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prReview,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: ['PullOps could not complete `pullops run pr-review`.', '', `Reason: ${reason}`].join(
-      '\n',
-    ),
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {string} reason
- * @returns {Promise<void>}
- */
-async function writeFailureReason(context, reason) {
-  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
     return;
   }
 
-  await mkdir(context.outputDirectory, { recursive: true });
-  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle,
+      maxReviewCycles,
+    },
+  });
 }
 
 /**
@@ -552,21 +496,6 @@ function summarizeReviewResult(pullRequest, status) {
   }
 
   return `Requested changes on PullOps-managed PR #${pullRequest.number}.`;
-}
-
-/**
- * @param {string} branchName
- * @param {string} branchPrefix
- * @returns {boolean}
- */
-function hasPullOpsBranchPrefix(branchName, branchPrefix) {
-  const normalizedPrefix =
-    branchPrefix
-      .split('/')
-      .map(part => part.trim())
-      .filter(Boolean)
-      .join('/') || 'pullops';
-  return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
 }
 
 /**

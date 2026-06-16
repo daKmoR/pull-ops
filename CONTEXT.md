@@ -196,6 +196,14 @@ _Avoid_: Commit author, audit log
 A visible section in a pull request body where PullOps records operation state that is useful to humans, such as the number of Review Cycles.
 _Avoid_: Hidden marker, metadata comment
 
+**PullOps-Managed PR Transition**:
+A single PullOps-owned change to a PullOps-Managed PR's automated workflow state, derived from a PullOps Operation outcome. It may advance, block, reroute, or complete the PR's pre-human review workflow.
+_Avoid_: PR body update, label cleanup
+
+**PR Operation Refusal**:
+A PullOps Operation outcome where PullOps declines a pull request target before treating it as an active PullOps-Managed PR workflow participant. Refusals cover guardrail failures such as unsupported pull request shape or missing PullOps-managed state.
+_Avoid_: Managed PR transition, failure
+
 **Branch Prefix**:
 The configured prefix used for branches created by PullOps.
 _Avoid_: Namespace, branch namespace

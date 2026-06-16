@@ -1,4 +1,5 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js';
 
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
@@ -34,17 +35,19 @@ export function createPrdPreparePullRequestBody({
     '',
     `Closes #${issue.number}`,
     '',
-    '## PullOps',
-    '',
-    'Managed PR: yes',
-    'Status: Draft parent preparation',
-    `Source: Parent Issue #${issue.number}`,
-    `Branch: ${branchName}`,
-    `Triggered by: ${formatActor(triggerActor)}`,
-    'Runner task: pullops-prd-prepare',
-    `Model tier: ${modelTier}`,
-    `Model: ${model}`,
-    `Last operation: ${PULL_OPS_OPERATION_LABELS.prdPrepare}`,
+    createManagedPrStateSection({
+      status: 'Draft parent preparation',
+      source: {
+        kind: 'parentIssue',
+        number: issue.number,
+      },
+      branchName,
+      triggerActor,
+      runnerTask: 'pullops-prd-prepare',
+      modelTier,
+      model,
+      lastOperation: PULL_OPS_OPERATION_LABELS.prdPrepare,
+    }),
   ].join('\n');
 }
 
@@ -65,16 +68,4 @@ function formatChildIssues(issue) {
       return `- #${childIssue.number} ${title} (${state})`;
     })
     .join('\n');
-}
-
-/**
- * @param {string | undefined} actor
- * @returns {string}
- */
-function formatActor(actor) {
-  if (actor === undefined || actor.trim() === '') {
-    return 'unknown';
-  }
-
-  return actor.startsWith('@') ? actor : `@${actor}`;
 }

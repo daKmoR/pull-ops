@@ -1,14 +1,13 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
+import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../../labels/pullOpsLabels.js';
+  applyManagedPrTransition,
+  readManagedPrState,
+  refusePrOperationTarget,
+} from '../../managed-pr/ManagedPrState.js';
 import {
   createIssueBranchName,
   createParentBranchName,
+  hasPullOpsBranchPrefix,
   parseChildIssueBranchName,
   parseParentBranchName,
 } from '../branchNames.js';
@@ -18,13 +17,8 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
-import { readPullOpsPullRequestState } from '../pr-review/prBody.js';
 import { validatePrFinalizeOutput } from './output.js';
-import {
-  updatePullRequestBodyForPrFinalize,
-  updatePullRequestBodyForPrFinalizeFailure,
-  updatePullRequestBodyForPrFinalizeReroute,
-} from './prBody.js';
+import { updatePullRequestBodyForPrFinalize } from './prBody.js';
 import { buildPrFinalizePrompt } from './prompt.js';
 import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
 
@@ -159,7 +153,7 @@ async function preparePrFinalize(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
 
   if (pullRequest.isCrossRepository === true) {
     return {
@@ -185,7 +179,12 @@ async function preparePrFinalize(context) {
     };
   }
 
-  if (!hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)) {
+  if (
+    !hasPullOpsBranchPrefix({
+      branchName: pullRequest.headRefName,
+      branchPrefix: context.config.branchPrefix,
+    })
+  ) {
     return {
       ready: false,
       output: await refusePullRequest(
@@ -1269,27 +1268,33 @@ async function completeFinalizedHeadChecks(
     );
   }
 
-  await context.githubClient.updatePullRequestBody({
-    number: pullRequest.number,
-    body: updatePullRequestBodyForPrFinalize({
-      body,
-      sourceIssueNumber,
-      parentIssueNumber,
-      childIssues,
+  const readyBody = updatePullRequestBodyForPrFinalize({
+    body,
+    sourceIssueNumber,
+    parentIssueNumber,
+    childIssues,
+    finalizedTreeHash,
+    finalizedHeadSha,
+    status: 'ready',
+  });
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest: {
+      ...pullRequest,
+      body: readyBody,
+    },
+    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    outcome: {
+      kind: 'ready',
       finalizedTreeHash,
       finalizedHeadSha,
-      status: 'ready',
-    }),
+    },
   });
 
   if (pullRequest.isDraft) {
     await context.githubClient.markPullRequestReadyForReview(pullRequest.number);
   }
-
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
 
   const prdAutomation =
     parentIssueNumber === undefined
@@ -1553,28 +1558,15 @@ async function routeOrBlockChangedTree(
  * @returns {Promise<Record<string, unknown>>}
  */
 async function routePullRequestToReview(context, pullRequest, reason) {
-  await writeFailureReason(context, reason);
-  await context.githubClient.updatePullRequestBody({
-    number: pullRequest.number,
-    body: updatePullRequestBodyForPrFinalizeReroute({
-      body: pullRequest.body,
-    }),
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: [
-      'PullOps routed `pullops run pr-finalize` back to review.',
-      '',
-      `Reason: ${reason}`,
-    ].join('\n'),
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    outcome: {
+      kind: 'route-to-review',
+      reason,
+    },
   });
 
   return {
@@ -1598,20 +1590,15 @@ async function routePullRequestToReview(context, pullRequest, reason) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function routePullRequestToPrFixCi(context, pullRequest, reason) {
-  await writeFailureReason(context, reason);
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: ['PullOps routed `pullops run pr-finalize` to CI repair.', '', `Reason: ${reason}`].join(
-      '\n',
-    ),
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    outcome: {
+      kind: 'route-to-ci-fix',
+      reason,
+    },
   });
 
   return {
@@ -1655,7 +1642,17 @@ async function blockPullRequest(context, pullRequest, reason) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
-  await recordPullRequestFailure(context, pullRequest, reason, { updateBody });
+  if (updateBody) {
+    await recordPullRequestFailure(context, pullRequest, reason, { updateBody });
+  } else {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      reason,
+    });
+  }
 
   return {
     status: 'refused',
@@ -1675,66 +1672,27 @@ async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
  * @returns {Promise<void>}
  */
 async function recordPullRequestFailure(context, pullRequest, reason, { updateBody = true } = {}) {
-  await writeFailureReason(context, reason);
-
-  if (updateBody) {
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForPrFinalizeFailure({
-        body: pullRequest.body,
-      }),
+  if (!updateBody) {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      reason,
     });
-  }
-
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prFinalize,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: ['PullOps could not complete `pullops run pr-finalize`.', '', `Reason: ${reason}`].join(
-      '\n',
-    ),
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {string} reason
- * @returns {Promise<void>}
- */
-async function writeFailureReason(context, reason) {
-  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
     return;
   }
 
-  await mkdir(context.outputDirectory, { recursive: true });
-  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
-}
-
-/**
- * @param {string} branchName
- * @param {string} branchPrefix
- * @returns {boolean}
- */
-function hasPullOpsBranchPrefix(branchName, branchPrefix) {
-  const normalizedPrefix =
-    branchPrefix
-      .split('/')
-      .map(part => part.trim())
-      .filter(Boolean)
-      .join('/') || 'pullops';
-  return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    outcome: {
+      kind: 'blocked',
+      reason,
+    },
+  });
 }
 
 /**

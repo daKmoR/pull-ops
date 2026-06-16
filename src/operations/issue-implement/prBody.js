@@ -1,4 +1,5 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js';
 
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
@@ -44,19 +45,27 @@ export function createIssueImplementPullRequestBody({
     ...formatIssueTraceability({ issue, parentIssueNumber }),
     ...formatParentTraceability({ issue, parentIssueNumber }),
     '',
-    '## PullOps',
-    '',
-    'Managed PR: yes',
-    'Status: Draft automation',
-    'Review cycles: 0 / 3',
-    'CI fix cycles: 0 / 2',
-    `Source: Issue #${issue.number}`,
-    `Branch: ${branchName}`,
-    `Triggered by: ${formatActor(triggerActor)}`,
-    'Runner task: pullops-issue-implement',
-    `Model tier: ${modelTier}`,
-    `Model: ${model}`,
-    `Last operation: ${PULL_OPS_OPERATION_LABELS.issueImplement}`,
+    createManagedPrStateSection({
+      status: 'Draft automation',
+      source: {
+        kind: 'issue',
+        number: issue.number,
+      },
+      branchName,
+      triggerActor,
+      runnerTask: 'pullops-issue-implement',
+      modelTier,
+      model,
+      lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      reviewCycles: {
+        current: 0,
+        max: 3,
+      },
+      ciFixCycles: {
+        current: 0,
+        max: 2,
+      },
+    }),
   ].join('\n');
 }
 
@@ -91,16 +100,4 @@ function formatParentTraceability({ issue, parentIssueNumber }) {
  */
 function formatList(items) {
   return items.map(item => `- ${item}`).join('\n');
-}
-
-/**
- * @param {string | undefined} actor
- * @returns {string}
- */
-function formatActor(actor) {
-  if (actor === undefined || actor.trim() === '') {
-    return 'unknown';
-  }
-
-  return actor.startsWith('@') ? actor : `@${actor}`;
 }

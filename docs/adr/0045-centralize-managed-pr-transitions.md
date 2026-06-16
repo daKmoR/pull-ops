@@ -1,0 +1,3 @@
+# Centralize managed PR transitions
+
+PullOps will keep PR Operation orchestration in Operation Modules, but centralize PullOps-Managed PR state mechanics in `src/managed-pr/`. Operation Modules decide outcomes, while the managed-pr module owns PR State Marker creation, parsing, and updates; Operation Label and Status Label routing; failure comments; and failure output for PullOps-Managed PR Transitions and PR Operation Refusals. This preserves operation ownership from ADR-0027 while giving PR workflow state a shared seam instead of spreading body and label mechanics across sibling Operation Modules.

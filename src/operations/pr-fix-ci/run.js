@@ -1,21 +1,19 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
 import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
+import {
+  applyManagedPrTransition,
+  readManagedPrState,
+  refusePrOperationTarget,
+} from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
-import {
-  readPullOpsPullRequestState,
-  updatePullRequestBodyForPrFixCi,
-} from '../pr-review/prBody.js';
+import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { classifyCheckFailures } from './classification.js';
 import { validatePrFixCiOutput } from './output.js';
 import { buildPrFixCiPrompt } from './prompt.js';
@@ -162,7 +160,7 @@ async function preparePrFixCi(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
   const manual = pullRequest.labels?.includes(PULL_OPS_OPERATION_LABELS.prFixCi) === true;
 
   if (pullRequest.isCrossRepository === true) {
@@ -170,9 +168,6 @@ async function preparePrFixCi(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PullOps v1 only fixes CI on same-repository PRs. PR #${pullRequest.number} comes from a fork.`,
-        updateBody: state.managed,
-        ciFixCycle: state.ciFixCycles.current,
-        maxCiFixCycles: state.ciFixCycles.max,
       }),
     };
   }
@@ -199,15 +194,15 @@ async function preparePrFixCi(context) {
 
   if (
     state.managed &&
-    !hasPullOpsBranchPrefix(pullRequest.headRefName, context.config.branchPrefix)
+    !hasPullOpsBranchPrefix({
+      branchName: pullRequest.headRefName,
+      branchPrefix: context.config.branchPrefix,
+    })
   ) {
     return {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} head branch "${pullRequest.headRefName}" does not use the configured PullOps branch prefix.`,
-        updateBody: true,
-        ciFixCycle: state.ciFixCycles.current,
-        maxCiFixCycles: state.ciFixCycles.max,
       }),
     };
   }
@@ -217,9 +212,6 @@ async function preparePrFixCi(context) {
       ready: false,
       output: await refusePullRequest(context, pullRequest, {
         reason: `PR #${pullRequest.number} does not include a structured Source: Issue #<number> line.`,
-        updateBody: true,
-        ciFixCycle: state.ciFixCycles.current,
-        maxCiFixCycles: state.ciFixCycles.max,
       }),
     };
   }
@@ -370,18 +362,20 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
     });
 
     if (managed) {
-      await context.githubClient.updatePullRequestBody({
-        number: pullRequest.number,
-        body: updatePullRequestBodyForPrFixCi({
-          body: pullRequest.body,
-          ciFixStatus: 'fixed',
+      await applyManagedPrTransition({
+        githubClient: context.githubClient,
+        outputDirectory: context.outputDirectory,
+        pullRequest,
+        operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+        outcome: {
+          kind: 'fixed',
           ciFixCycle,
           maxCiFixCycles,
-        }),
+        },
       });
+    } else {
+      await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
     }
-
-    await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
 
     return {
       status: 'accepted',
@@ -533,7 +527,19 @@ async function transitionPullRequestLabelsAfterFix(context, pullRequest, { manag
  * @returns {Promise<Record<string, unknown>>}
  */
 async function completeNoFailedChecks(context, pullRequest, { managed }) {
-  await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
+  if (managed) {
+    await applyManagedPrTransition({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      outcome: {
+        kind: 'no-failed-checks',
+      },
+    });
+  } else {
+    await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
+  }
 
   return {
     status: 'accepted',
@@ -584,10 +590,17 @@ async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFi
     `${ciFixCycle} / ${maxCiFixCycles} CI Fix Cycles have already run.`,
   ].join(' ');
 
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody: true,
-    ciFixCycle,
-    maxCiFixCycles,
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      ciFixCycle,
+      maxCiFixCycles,
+    },
   });
 
   return {
@@ -645,18 +658,16 @@ function formatNonActionableFailure(failure) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
- * @param {{ reason: string, updateBody: boolean, ciFixCycle: number, maxCiFixCycles: number }} options
+ * @param {{ reason: string }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function refusePullRequest(
-  context,
-  pullRequest,
-  { reason, updateBody, ciFixCycle, maxCiFixCycles },
-) {
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody,
-    ciFixCycle,
-    maxCiFixCycles,
+async function refusePullRequest(context, pullRequest, { reason }) {
+  await refusePrOperationTarget({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    reason,
   });
 
   return {
@@ -682,40 +693,28 @@ async function recordPullRequestFailure(
   reason,
   { updateBody, ciFixCycle, maxCiFixCycles },
 ) {
-  await writeFailureReason(context, reason);
-
-  if (updateBody) {
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForPrFixCi({
-        body: pullRequest.body,
-        ciFixStatus: 'blocked',
-        ciFixCycle,
-        maxCiFixCycles,
-      }),
+  if (!updateBody) {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      reason,
     });
+    return;
   }
 
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prFixCi,
-      PULL_OPS_OPERATION_LABELS.prReview,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: ['PullOps could not complete `pullops run pr-fix-ci`.', '', `Reason: ${reason}`].join(
-      '\n',
-    ),
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      ciFixCycle,
+      maxCiFixCycles,
+    },
   });
 }
 
@@ -730,35 +729,6 @@ function summarizeClassifications(checkFailures) {
     classifications[failure.classification] = (classifications[failure.classification] ?? 0) + 1;
   }
   return classifications;
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {string} reason
- * @returns {Promise<void>}
- */
-async function writeFailureReason(context, reason) {
-  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
-    return;
-  }
-
-  await mkdir(context.outputDirectory, { recursive: true });
-  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
-}
-
-/**
- * @param {string} branchName
- * @param {string} branchPrefix
- * @returns {boolean}
- */
-function hasPullOpsBranchPrefix(branchName, branchPrefix) {
-  const normalizedPrefix =
-    branchPrefix
-      .split('/')
-      .map(part => part.trim())
-      .filter(Boolean)
-      .join('/') || 'pullops';
-  return branchName === normalizedPrefix || branchName.startsWith(`${normalizedPrefix}/`);
 }
 
 /**

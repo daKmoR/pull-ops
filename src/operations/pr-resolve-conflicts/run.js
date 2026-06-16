@@ -4,18 +4,18 @@ import { join } from 'node:path';
 import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
+import {
+  applyManagedPrTransition,
+  readManagedPrState,
+  refusePrOperationTarget,
+} from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
-import {
-  readPullOpsPullRequestState,
-  updatePullRequestBodyForPrResolveConflicts,
-} from '../pr-review/prBody.js';
 import { validatePrResolveConflictsOutput } from './output.js';
 import { buildPrResolveConflictsPrompt } from './prompt.js';
 
@@ -224,7 +224,7 @@ async function preparePrResolveConflicts(context) {
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
 
   if (pullRequest.isCrossRepository === true) {
     return {
@@ -495,23 +495,18 @@ async function completeResolvedRebase(context, preparation, rebaseResult, { conf
   }
 
   if (preparation.managed) {
-    await context.githubClient.updatePullRequestBody({
-      number: preparation.pullRequest.number,
-      body: updatePullRequestBodyForPrResolveConflicts({
-        body: preparation.pullRequest.body,
-        resolveStatus: 'resolved',
-      }),
+    await applyManagedPrTransition({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest: preparation.pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      outcome: {
+        kind: 'resolved',
+      },
     });
+  } else {
+    await transitionNonManagedPullRequestToReview(context, preparation.pullRequest);
   }
-
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: preparation.pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prResolveConflicts, ...PULL_OPS_STATUS_LABEL_NAMES],
-  });
-  await context.githubClient.addLabelsToPullRequest({
-    number: preparation.pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
-  });
 
   return {
     status: 'accepted',
@@ -592,7 +587,17 @@ async function blockConflictResolutionBudget(context, preparation, conflictConte
  * @returns {Promise<Record<string, unknown>>}
  */
 async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
-  await recordPullRequestFailure(context, pullRequest, reason, { updateBody });
+  if (updateBody) {
+    await recordPullRequestFailure(context, pullRequest, reason, { updateBody });
+  } else {
+    await refusePrOperationTarget({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      reason,
+    });
+  }
 
   return {
     status: 'refused',
@@ -612,54 +617,43 @@ async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
  * @returns {Promise<void>}
  */
 async function recordPullRequestFailure(context, pullRequest, reason, { updateBody }) {
-  await writeFailureReason(context, reason);
-
   if (updateBody) {
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: updatePullRequestBodyForPrResolveConflicts({
-        body: pullRequest.body,
-        resolveStatus: 'blocked',
-      }),
+    await applyManagedPrTransition({
+      githubClient: context.githubClient,
+      outputDirectory: context.outputDirectory,
+      pullRequest,
+      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      outcome: {
+        kind: 'blocked',
+        reason,
+      },
     });
+    return;
   }
 
-  await context.githubClient.addLabelsToPullRequest({
-    number: pullRequest.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
-  await context.githubClient.removeLabelsFromPullRequest({
-    number: pullRequest.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prResolveConflicts,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
-  });
-  await context.githubClient.commentOnPullRequest({
-    number: pullRequest.number,
-    body: [
-      'PullOps could not complete `pullops run pr-resolve-conflicts`.',
-      '',
-      `Reason: ${reason}`,
-    ].join('\n'),
+  await refusePrOperationTarget({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+    reason,
   });
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @param {string} reason
+ * @param {GitHubPullRequest} pullRequest
  * @returns {Promise<void>}
  */
-async function writeFailureReason(context, reason) {
-  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
-    return;
-  }
-
-  await mkdir(context.outputDirectory, { recursive: true });
-  await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
+async function transitionNonManagedPullRequestToReview(context, pullRequest) {
+  await context.githubClient.removeLabelsFromPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_OPERATION_LABELS.prResolveConflicts, ...PULL_OPS_STATUS_LABEL_NAMES],
+  });
+  await context.githubClient.addLabelsToPullRequest({
+    number: pullRequest.number,
+    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+  });
 }
 
 /**

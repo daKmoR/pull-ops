@@ -4,9 +4,9 @@ import {
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../../labels/pullOpsLabels.js';
+import { readManagedPrState } from '../../managed-pr/ManagedPrState.js';
 import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { getParentIssueNumber, isIssueDone, parseIssueDependencies } from '../issueDependencies.js';
-import { readPullOpsPullRequestState } from '../pr-review/prBody.js';
 import { runPrdPrepare } from '../prd-prepare/run.js';
 
 /**
@@ -318,7 +318,7 @@ async function coordinateChildPullRequest(
     );
   }
 
-  const state = readPullOpsPullRequestState(pullRequest.body);
+  const state = readManagedPrState(pullRequest.body);
   if (!state.managed || state.sourceIssueNumber !== childIssue.number) {
     return childPullRequestResult(
       childIssue,
@@ -498,7 +498,7 @@ async function findBlockingDependencies(context, issue) {
 }
 
 /**
- * @param {{ body: string, state: import('../pr-review/prBody.types.js').PullOpsPullRequestState }} options
+ * @param {{ body: string, state: import('../../managed-pr/ManagedPrState.types.js').ManagedPrState }} options
  * @returns {string | undefined}
  */
 function chooseNextPullRequestOperation({ body, state }) {
@@ -529,8 +529,8 @@ function chooseNextPullRequestOperation({ body, state }) {
 }
 
 /**
- * @param {import('../pr-review/prBody.types.js').PullOpsPullRequestState} state
- * @returns {state is import('../pr-review/prBody.types.js').PullOpsPullRequestState & { finalizedHeadSha: string, finalizedTreeHash: string }}
+ * @param {import('../../managed-pr/ManagedPrState.types.js').ManagedPrState} state
+ * @returns {state is import('../../managed-pr/ManagedPrState.types.js').ManagedPrState & { finalizedHeadSha: string, finalizedTreeHash: string }}
  */
 function isFinalizedForRebase(state) {
   return (

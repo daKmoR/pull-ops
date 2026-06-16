@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   createIssueBranchName,
   createParentBranchName,
+  hasPullOpsBranchPrefix,
   parseChildIssueBranchName,
   parseParentBranchName,
 } from './branchNames.js';
@@ -88,6 +89,23 @@ describe('branchNames', () => {
         branchName: 'pullops/issue-34',
       }),
       undefined,
+    );
+  });
+
+  it('04: detects branches under the normalized PullOps branch prefix', () => {
+    assert.equal(
+      hasPullOpsBranchPrefix({
+        branchPrefix: ' automation/pullops/ ',
+        branchName: 'automation/pullops/issue-34',
+      }),
+      true,
+    );
+    assert.equal(
+      hasPullOpsBranchPrefix({
+        branchPrefix: ' automation/pullops/ ',
+        branchName: 'automation/pullops-other/issue-34',
+      }),
+      false,
     );
   });
 });
