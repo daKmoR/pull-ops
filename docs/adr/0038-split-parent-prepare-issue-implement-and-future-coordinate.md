@@ -1,3 +1,5 @@
 # Split parent prepare, issue implement, and future coordinate
 
 PullOps separates Parent Issue preparation, Concrete Issue implementation, and future parent/child orchestration into distinct operations: `pullops:prd:prepare` sets up the Parent Issue's umbrella branch and draft Umbrella PR, `pullops:issue:implement` implements exactly one Concrete Issue, and reserved `pullops:prd:coordinate` is the future automatic orchestration path. This staged split keeps the current manual Child Issue workflow explicit while preserving a later automation path without making the current implementation coordinate Child Issues.
+
+ADR-0044 supersedes the reserved coordinate path with explicit `prd-auto-advance` and `prd-auto-complete` automation modes.

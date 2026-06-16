@@ -5,6 +5,8 @@
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: 'pullops:prd:prepare',
   prdCoordinate: 'pullops:prd:coordinate',
+  prdAutoAdvance: 'pullops:prd:auto-advance',
+  prdAutoComplete: 'pullops:prd:auto-complete',
   issueImplement: 'pullops:issue:implement',
   prReview: 'pullops:pr:review',
   prAddressReview: 'pullops:pr:address-review',
@@ -25,6 +27,8 @@ export const PULL_OPS_STATUS_LABELS = Object.freeze({
 export const PULL_OPS_PRD_OPERATION_LABELS = Object.freeze([
   PULL_OPS_OPERATION_LABELS.prdPrepare,
   PULL_OPS_OPERATION_LABELS.prdCoordinate,
+  PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
+  PULL_OPS_OPERATION_LABELS.prdAutoComplete,
 ]);
 
 export const PULL_OPS_ISSUE_OPERATION_LABELS = Object.freeze([
@@ -59,6 +63,16 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_OPERATION_LABELS.prdCoordinate,
     color: '5319E7',
     description: 'Reserved for future automatic PRD child issue orchestration.',
+  },
+  {
+    name: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
+    color: '5319E7',
+    description: 'Prepare a PRD and keep starting unblocked child issues.',
+  },
+  {
+    name: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
+    color: '5319E7',
+    description: 'Auto-advance a PRD and merge finalized child issue PRs.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.issueImplement,

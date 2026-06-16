@@ -24,6 +24,16 @@ describe('createGitHubClient', () => {
           'Reserved for future automatic PRD child issue orchestration.',
         ],
         [
+          'pullops:prd:auto-advance',
+          '5319E7',
+          'Prepare a PRD and keep starting unblocked child issues.',
+        ],
+        [
+          'pullops:prd:auto-complete',
+          '5319E7',
+          'Auto-advance a PRD and merge finalized child issue PRs.',
+        ],
+        [
           'pullops:issue:implement',
           '5319E7',
           'Implement one concrete issue. Does not coordinate child issues.',
@@ -257,6 +267,14 @@ describe('createGitHubClient', () => {
     const { calls, octokit } = createFakeOctokit({
       pullRequest: createPullRequest(),
       openPullRequests: [createPullRequest()],
+      searchIssues: [
+        {
+          number: 43,
+          title: 'Implement follow-up child',
+          state: 'open',
+          html_url: 'https://github.com/acme/widgets/issues/43',
+        },
+      ],
       reviewContext: createReviewContext(),
       diff: 'diff --git a/src/example.js b/src/example.js\n',
       checkRuns: [
@@ -290,6 +308,10 @@ describe('createGitHubClient', () => {
     const reviewContext = await client.getPullRequestReviewContext(100);
     const diff = await client.getPullRequestDiff(100);
     const existingPullRequest = await client.findOpenPullRequestByHead('pullops/issue-42');
+    const bodyReferences = await client.findIssuesByBodyReference?.({
+      fieldName: 'Part of',
+      issueNumber: 1,
+    });
     const createdPullRequest = await client.createDraftPullRequest({
       title: 'Implement #42',
       body: 'Managed PR: yes',
@@ -315,6 +337,15 @@ describe('createGitHubClient', () => {
     assert.equal(reviewContext.reviews[0].submittedAt, '2026-06-14T09:00:00Z');
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
     assert.equal(existingPullRequest?.number, 100);
+    assert.deepEqual(bodyReferences, [
+      {
+        number: 43,
+        title: 'Implement follow-up child',
+        state: 'OPEN',
+        url: 'https://github.com/acme/widgets/issues/43',
+        relationshipSource: 'body',
+      },
+    ]);
     assert.equal(createdPullRequest.headRefName, 'pullops/issue-42');
     assert.deepEqual(checks, [
       {
@@ -343,6 +374,7 @@ describe('createGitHubClient', () => {
         'graphql',
         'pulls.get',
         'pulls.list',
+        'search.issuesAndPullRequests',
         'pulls.create',
         'pulls.get',
         'checks.listForRef',
@@ -381,6 +413,10 @@ describe('createGitHubClient', () => {
     await client.closeIssue({
       number: 42,
       comment: 'Child PR merged into the PRD branch.',
+    });
+    await client.mergePullRequest?.({
+      number: 100,
+      method: 'rebase',
     });
     await client.resolvePullRequestReviewThread('PRRT_1');
     await client.removeLabelsFromPullRequest({
@@ -423,6 +459,7 @@ describe('createGitHubClient', () => {
         'graphql',
         'issues.createComment',
         'issues.update',
+        'pulls.merge',
         'graphql',
         'issues.removeLabel',
         'issues.addLabels',
@@ -430,7 +467,7 @@ describe('createGitHubClient', () => {
       ],
     );
     assert.deepEqual(calls[5].params, { pullRequestId: 'PR_100' });
-    assert.deepEqual(calls[8].params, { threadId: 'PRRT_1' });
+    assert.deepEqual(calls[9].params, { threadId: 'PRRT_1' });
     assert.deepEqual(calls[2].params, {
       ...TEST_REPOSITORY,
       pull_number: 100,
@@ -605,6 +642,7 @@ const TEST_REPOSITORY = {
  * @param {Record<string, unknown>} [options.issue]
  * @param {Record<string, unknown>} [options.pullRequest]
  * @param {Record<string, unknown>[]} [options.openPullRequests]
+ * @param {Record<string, unknown>[]} [options.searchIssues]
  * @param {Record<string, unknown>} [options.reviewContext]
  * @param {string} [options.diff]
  * @param {Record<string, unknown>[]} [options.checkRuns]
@@ -618,6 +656,7 @@ function createFakeOctokit({
   issue = createIssue(),
   pullRequest = createPullRequest(),
   openPullRequests = [],
+  searchIssues = [],
   reviewContext = createReviewContext(),
   diff = '',
   checkRuns = [],
@@ -772,11 +811,18 @@ function createFakeOctokit({
           pull_request_url: 'https://api.github.com/repos/acme/widgets/pulls/100',
         })),
         list: endpoint('pulls.list', () => openPullRequests),
+        merge: endpoint('pulls.merge', () => ({})),
         update: endpoint('pulls.update', () => ({})),
       },
       repos: {
         getCombinedStatusForRef: endpoint('repos.getCombinedStatusForRef', () => ({
           statuses,
+        })),
+      },
+      search: {
+        issuesAndPullRequests: endpoint('search.issuesAndPullRequests', () => ({
+          total_count: searchIssues.length,
+          items: searchIssues,
         })),
       },
     },

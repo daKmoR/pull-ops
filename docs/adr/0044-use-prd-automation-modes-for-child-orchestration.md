@@ -1,0 +1,3 @@
+# Use PRD automation modes for child orchestration
+
+PullOps now uses `pullops:prd:auto-advance` and `pullops:prd:auto-complete` as durable PRD automation mode labels instead of extending the reserved `prd-coordinate` placeholder. Auto-advance prepares the PRD and schedules currently unblocked Child Issues through the existing issue and PR operation labels, while auto-complete additionally rebase-merges finalized Child Issue PRs into the Umbrella Branch after their gates pass. Both modes preserve Child Issue PRs as the implementation unit, keep `pr-close-child-issue` responsible for closing Child Issues after merge, and leave the final Umbrella PR merge to the default branch under human control.

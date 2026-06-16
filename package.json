@@ -47,6 +47,8 @@
     "pullops:prd-prepare": "node src/cli/cli.js run prd-prepare",
     "pullops:issue-implement": "node src/cli/cli.js run issue-implement",
     "pullops:prd-coordinate": "node src/cli/cli.js run prd-coordinate",
+    "pullops:prd-auto-advance": "node src/cli/cli.js run prd-auto-advance",
+    "pullops:prd-auto-complete": "node src/cli/cli.js run prd-auto-complete",
     "pullops:pr-review": "node src/cli/cli.js run pr-review",
     "pullops:pr-address-review": "node src/cli/cli.js run pr-address-review",
     "pullops:pr-fix-ci": "node src/cli/cli.js run pr-fix-ci",

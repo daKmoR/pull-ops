@@ -29,9 +29,11 @@ export interface GitHubApiClient {
       get: OctokitEndpoint;
       getReviewComment: OctokitEndpoint;
       list: OctokitEndpoint;
+      merge: OctokitEndpoint;
       update: OctokitEndpoint;
     };
     repos: { getCombinedStatusForRef: OctokitEndpoint };
+    search: { issuesAndPullRequests: OctokitEndpoint };
   };
 }
 

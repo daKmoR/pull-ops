@@ -6,6 +6,8 @@ export type WorkflowOperationConfigKey =
   | 'prdPrepare'
   | 'issueImplement'
   | 'prdCoordinate'
+  | 'prdAutoAdvance'
+  | 'prdAutoComplete'
   | 'prReview'
   | 'prAddressReview'
   | 'prFixCi'

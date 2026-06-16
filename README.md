@@ -11,6 +11,10 @@ Operation Labels request work and are namespaced by target kind:
   PRD issue.
 - `pullops:prd:coordinate` is reserved for a later automatic parent/child
   orchestration slice and currently only reports that it is not implemented.
+- `pullops:prd:auto-advance` prepares a PRD issue if needed and keeps starting
+  currently unblocked child issues.
+- `pullops:prd:auto-complete` does the same work as auto-advance and also
+  rebase-merges finalized child PRs into the PRD branch after gates pass.
 - `pullops:issue:implement` implements one concrete issue; it does not coordinate
   or implement child issues.
 - `pullops:pr:review` runs automated review for a PullOps-managed PR.
@@ -31,6 +35,15 @@ For the current parent/child workflow:
 6. When every native child issue is closed, PullOps labels the umbrella PR with
    `pullops:pr:review`; an approved review then hands off to
    `pullops:pr:finalize`.
+
+For automated parent/child orchestration, label the parent issue with
+`pullops:prd:auto-advance` or `pullops:prd:auto-complete`. Both modes keep the
+work on child branches targeting `pullops/prd-<prd-number>` and respect child
+issue `Part of: #<prd>` and `Blocked by: #<issue>` lines. Auto-advance leaves
+finalized child PR merging to humans. Auto-complete merges finalized child PRs
+into the PRD branch with the rebase method, then the deterministic
+`pr-close-child-issue` workflow closes the child issue from the merged PR event.
+The final umbrella PR merge into the default branch remains human-controlled.
 
 `Blocked by: #<issue>` dependencies are satisfied only by closed issues, so one
 child issue can unblock another as soon as the blocking child PR has merged into

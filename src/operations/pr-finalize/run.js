@@ -26,6 +26,7 @@ import {
   updatePullRequestBodyForPrFinalizeReroute,
 } from './prBody.js';
 import { buildPrFinalizePrompt } from './prompt.js';
+import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -1290,6 +1291,11 @@ async function completeFinalizedHeadChecks(
     labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
   });
 
+  const prdAutomation =
+    parentIssueNumber === undefined
+      ? undefined
+      : await resumePrdAutomationForParentIssue(context, parentIssueNumber);
+
   return {
     status: 'accepted',
     summary: `Finalized PullOps-managed PR #${pullRequest.number} for human rebase merge.`,
@@ -1304,6 +1310,7 @@ async function completeFinalizedHeadChecks(
       mergeMethod: 'rebase',
       readyForReview: true,
     },
+    ...(prdAutomation === undefined ? {} : { prdAutomation }),
   };
 }
 

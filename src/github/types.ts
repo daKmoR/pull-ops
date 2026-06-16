@@ -23,7 +23,7 @@ export interface ExecFileResult {
 
 export type ExecFile = (file: string, args: string[]) => Promise<ExecFileResult>;
 
-export type IssueRelationshipSource = 'native';
+export type IssueRelationshipSource = 'native' | 'body';
 
 export interface GitHubIssueReference {
   number: number;
@@ -75,6 +75,16 @@ export interface CreateDraftPullRequestOptions {
   body: string;
   baseBranch: string;
   headBranch: string;
+}
+
+export interface FindIssuesByBodyReferenceOptions {
+  fieldName: string;
+  issueNumber: number;
+}
+
+export interface MergePullRequestOptions {
+  number: number;
+  method: 'merge' | 'squash' | 'rebase';
 }
 
 export interface EditLabelsOptions {
@@ -174,7 +184,11 @@ export interface GitHubClient {
   getPullRequestReviewContext(number: number): Promise<GitHubPullRequestReviewContext>;
   getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
+  findIssuesByBodyReference?(
+    options: FindIssuesByBodyReferenceOptions,
+  ): Promise<GitHubIssueReference[]>;
   createDraftPullRequest(options: CreateDraftPullRequestOptions): Promise<GitHubPullRequest>;
+  mergePullRequest?(options: MergePullRequestOptions): Promise<void>;
   addLabelsToIssue(options: EditLabelsOptions): Promise<void>;
   removeLabelsFromIssue(options: EditLabelsOptions): Promise<void>;
   addLabelsToPullRequest(options: EditLabelsOptions): Promise<void>;

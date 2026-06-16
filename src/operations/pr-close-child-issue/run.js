@@ -6,6 +6,7 @@ import {
 } from '../../labels/pullOpsLabels.js';
 import { createParentBranchName, parseChildIssueBranchName } from '../branchNames.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
+import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
 
 /** @type {ReadonlySet<string>} */
 const ACTIVE_PULL_OPS_PR_LABELS = new Set([
@@ -93,6 +94,7 @@ export async function runPrCloseChildIssue(context) {
     });
   }
 
+  const prdAutomation = await resumePrdAutomationForParentIssue(context, childBranch.parentNumber);
   const parentPullRequest = await requestParentReviewIfComplete(context, {
     parentIssueNumber: childBranch.parentNumber,
     parentBranchName: expectedBaseBranch,
@@ -108,6 +110,7 @@ export async function runPrCloseChildIssue(context) {
       url: issue.url,
     },
     pullRequest: formatPullRequestResult(pullRequest),
+    prdAutomation,
     parentPullRequest,
   };
 }

@@ -36,6 +36,8 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prdPrepare: { modelTier: 'low' },
     issueImplement: { modelTier: 'high' },
     prdCoordinate: { modelTier: 'low' },
+    prdAutoAdvance: { modelTier: 'low' },
+    prdAutoComplete: { modelTier: 'low' },
     prReview: { modelTier: 'high' },
     prAddressReview: { modelTier: 'mid' },
     prFixCi: { modelTier: 'mid' },

@@ -20,6 +20,8 @@ jobs:
       (
         github.event.label.name == 'pullops:prd:prepare' ||
         github.event.label.name == 'pullops:prd:coordinate' ||
+        github.event.label.name == 'pullops:prd:auto-advance' ||
+        github.event.label.name == 'pullops:prd:auto-complete' ||
         github.event.label.name == 'pullops:issue:implement'
       )
     runs-on: ubuntu-latest
@@ -56,6 +58,8 @@ jobs:
             const workflows = {
               'pullops:prd:prepare': 'pullops-prd-prepare.yml',
               'pullops:prd:coordinate': 'pullops-prd-coordinate.yml',
+              'pullops:prd:auto-advance': 'pullops-prd-auto-advance.yml',
+              'pullops:prd:auto-complete': 'pullops-prd-auto-complete.yml',
               'pullops:issue:implement': 'pullops-issue-implement.yml',
             };
             const workflow_id = workflows[process.env.LABEL];

@@ -92,6 +92,14 @@ _Avoid_: Epic, parent label target
 A PRD Issue whose umbrella branch and draft PullOps-Managed PR have been created or refreshed. Prepared does not mean the PRD's product work is complete.
 _Avoid_: Done PRD, completed PRD
 
+**PRD Auto-Advance**:
+A PRD automation mode that prepares a PRD Issue and keeps starting unblocked Child Issues while Child Issue PR merges remain human-controlled.
+_Avoid_: Parent auto-run, auto-coordinate
+
+**PRD Auto-Complete**:
+A PRD automation mode that includes PRD Auto-Advance and also merges finalized Child Issue PRs into the Umbrella Branch. The Umbrella PR still remains human-controlled.
+_Avoid_: PRD auto-merge, full auto-merge
+
 **Umbrella Branch**:
 The branch for a PRD Issue that receives merged Child Issue PRs before the PRD's Umbrella PR merges to the Target Repository's default branch.
 _Avoid_: Parent branch, PRD work branch
