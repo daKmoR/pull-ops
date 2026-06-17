@@ -32,9 +32,11 @@ import {
   runPrReviewCodexActionFinalize,
   runPrReviewCodexActionPrepare,
 } from './pr-review/run.js';
+import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
+ * @typedef {import('./types.js').OperationLabelReference} OperationLabelReference
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  */
 
@@ -118,12 +120,78 @@ export const WORKFLOW_OPERATION_CONFIG_KEYS = WORKFLOW_OPERATIONS.map(
   operation => operation.configKey,
 );
 
+/** @type {OperationLabelReference[]} */
+export const OPERATION_LABEL_REFERENCES = [
+  {
+    reference: 'prd:prepare',
+    target: 'issue',
+    label: PULL_OPS_OPERATION_LABELS.prdPrepare,
+  },
+  {
+    reference: 'prd:auto-advance',
+    target: 'issue',
+    label: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
+  },
+  {
+    reference: 'prd:auto-complete',
+    target: 'issue',
+    label: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
+  },
+  {
+    reference: 'issue:implement',
+    target: 'issue',
+    label: PULL_OPS_OPERATION_LABELS.issueImplement,
+  },
+  {
+    reference: 'pr:review',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prReview,
+  },
+  {
+    reference: 'pr:address-review',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prAddressReview,
+  },
+  {
+    reference: 'pr:fix-ci',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prFixCi,
+  },
+  {
+    reference: 'pr:update-branch',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+  },
+  {
+    reference: 'pr:resolve-conflicts',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+  },
+  {
+    reference: 'pr:finalize',
+    target: 'pr',
+    label: PULL_OPS_OPERATION_LABELS.prFinalize,
+  },
+];
+
+export const OPERATION_LABEL_REFERENCE_NAMES = OPERATION_LABEL_REFERENCES.map(
+  operation => operation.reference,
+);
+
 /**
  * @param {string} name
  * @returns {WorkflowOperation | undefined}
  */
 export function getWorkflowOperation(name) {
   return WORKFLOW_OPERATIONS.find(operation => operation.name === name);
+}
+
+/**
+ * @param {string} reference
+ * @returns {OperationLabelReference | undefined}
+ */
+export function getOperationLabelReference(reference) {
+  return OPERATION_LABEL_REFERENCES.find(operation => operation.reference === reference);
 }
 
 /**
