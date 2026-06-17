@@ -48,6 +48,20 @@ export type PrFinalizePreparation =
     }
   | {
       ready: true;
+      mode: 'existing-commits';
+      pullRequest: GitHubPullRequest;
+      sourceKind: 'parentIssue';
+      sourceIssueNumber: number;
+      parentIssueNumber?: number;
+      childIssues: GitHubIssueReference[];
+      baseBranch: string;
+      currentTreeHash: string;
+      reviewedTreeHash: string;
+      commitShas: string[];
+      commitCount: number;
+    }
+  | {
+      ready: true;
       mode: 'planner';
       pullRequest: GitHubPullRequest;
       sourceKind: 'parentIssue';

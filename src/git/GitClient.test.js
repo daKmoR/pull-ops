@@ -176,6 +176,82 @@ describe('createGitClient', () => {
       true,
     );
   });
+
+  it('06: rewrites a branch with existing commits before authenticated force-with-lease push', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {
+        PULLOPS_GITHUB_TOKEN: 'pullops-token',
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    if (gitClient.rewriteBranchWithExistingCommits === undefined) {
+      throw new Error('Expected rewriteBranchWithExistingCommits to be available.');
+    }
+
+    await gitClient.rewriteBranchWithExistingCommits({
+      baseBranch: 'main',
+      branchName: 'pullops/prd-7',
+      commitShas: ['child-21', 'child-22'],
+      committer: {
+        name: 'github-actions[bot]',
+        email: '41898282+github-actions[bot]@users.noreply.github.com',
+      },
+    });
+
+    assert.equal(
+      calls.some(call => isGitCall(call, ['reset', '--hard', 'origin/main'])),
+      true,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          '-c',
+          'user.name=github-actions[bot]',
+          '-c',
+          'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+          'cherry-pick',
+          'child-21',
+        ]),
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          '-c',
+          'user.name=github-actions[bot]',
+          '-c',
+          'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+          'cherry-pick',
+          'child-22',
+        ]),
+      ),
+      true,
+    );
+
+    const setOriginIndex = calls.findIndex(call =>
+      isGitCall(call, [
+        'remote',
+        'set-url',
+        'origin',
+        'https://x-access-token:pullops-token@github.com/acme/widgets.git',
+      ]),
+    );
+    const pushIndex = calls.findIndex(call =>
+      isGitCall(call, ['push', '--force-with-lease', 'origin', 'HEAD:pullops/prd-7']),
+    );
+
+    assert.notEqual(setOriginIndex, -1);
+    assert.notEqual(pushIndex, -1);
+    assert.equal(setOriginIndex < pushIndex, true);
+  });
 });
 
 /**

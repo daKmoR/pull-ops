@@ -354,6 +354,26 @@ async function preparePrFinalize(context) {
     };
   }
 
+  if (commitPlan.mode === 'existing-commits') {
+    if (source.sourceKind !== 'parentIssue') {
+      throw new Error('Existing commit PR Finalize is only supported for Parent Issue PRs.');
+    }
+
+    return {
+      ready: true,
+      mode: 'existing-commits',
+      pullRequest,
+      sourceKind: 'parentIssue',
+      sourceIssueNumber: source.sourceIssueNumber,
+      childIssues: source.childIssues,
+      baseBranch: source.baseBranch,
+      currentTreeHash,
+      reviewedTreeHash: state.reviewedTreeHash,
+      commitShas: commitPlan.commitShas,
+      commitCount: commitPlan.commitCount,
+    };
+  }
+
   return {
     ready: true,
     mode: 'rewrite',
@@ -668,6 +688,7 @@ async function prepareChildIssueSource(
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
  *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'existing-commits'; commitShas: string[]; commitCount: number }
  *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
@@ -713,6 +734,7 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
  *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
+ *   | { ready: true; mode: 'existing-commits'; commitShas: string[]; commitCount: number }
  *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
@@ -791,6 +813,15 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
     };
   }
 
+  if (analysis.existingCommitShas !== undefined) {
+    return {
+      ready: true,
+      mode: 'existing-commits',
+      commitShas: analysis.existingCommitShas,
+      commitCount: analysis.existingCommitShas.length,
+    };
+  }
+
   if (analysis.commits.length === 0) {
     return {
       ready: false,
@@ -815,12 +846,14 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
  * @param {GitCommit[]} options.commits
  * @param {number} options.parentIssueNumber
  * @param {GitHubIssueReference[]} options.closedChildIssues
- * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string, fallbackAllowed?: boolean }}
+ * @returns {{ valid: true, commits: PlannedRewriteCommit[], existingCommitShas?: string[] } | { valid: false, reason: string, fallbackAllowed?: boolean }}
  */
 function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssues }) {
   const closedChildNumbers = new Set(closedChildIssues.map(childIssue => childIssue.number));
   /** @type {Map<number, Set<string>>} */
   const filesByChildIssue = new Map();
+  /** @type {Array<{ childIssueNumber: number, commit: GitCommit }>} */
+  const childCommitEntries = [];
   /** @type {PlannedRewriteCommit[]} */
   const parentLevelCommits = [];
 
@@ -837,6 +870,7 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
         files.add(file);
       }
       filesByChildIssue.set(childIssueNumber, files);
+      childCommitEntries.push({ childIssueNumber, commit });
       continue;
     }
 
@@ -874,6 +908,35 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
     };
   }
 
+  const overlappingChildFiles = findOverlappingChildFiles(filesByChildIssue);
+  if (overlappingChildFiles.length > 0) {
+    const reusableHistory = findReusableExistingChildHistory({
+      childCommitEntries,
+      parentLevelCommits,
+      parentIssueNumber,
+      closedChildIssues,
+    });
+
+    if (reusableHistory.valid) {
+      return {
+        valid: true,
+        commits: [],
+        existingCommitShas: reusableHistory.commitShas,
+      };
+    }
+
+    return {
+      valid: false,
+      reason: [
+        'Umbrella PRD history contains overlapping Child Issue file edits:',
+        `${formatOverlappingChildFiles(overlappingChildFiles)}.`,
+        'PullOps can finalize overlapping child edits only when the existing history',
+        'already contains one deterministic Child Issue Commit per closed native Child Issue',
+        `in native Child Issue order. ${reusableHistory.reason}`,
+      ].join(' '),
+    };
+  }
+
   return {
     valid: true,
     commits: [
@@ -884,6 +947,113 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
       })),
     ],
   };
+}
+
+/**
+ * @param {Map<number, Set<string>>} filesByChildIssue
+ * @returns {Array<{ file: string, childIssueNumbers: number[] }>}
+ */
+function findOverlappingChildFiles(filesByChildIssue) {
+  /** @type {Map<string, number[]>} */
+  const childIssueNumbersByFile = new Map();
+
+  for (const [childIssueNumber, files] of filesByChildIssue.entries()) {
+    for (const file of files) {
+      const childIssueNumbers = childIssueNumbersByFile.get(file) ?? [];
+      childIssueNumbers.push(childIssueNumber);
+      childIssueNumbersByFile.set(file, childIssueNumbers);
+    }
+  }
+
+  return [...childIssueNumbersByFile.entries()]
+    .filter(([, childIssueNumbers]) => childIssueNumbers.length > 1)
+    .map(([file, childIssueNumbers]) => ({ file, childIssueNumbers }));
+}
+
+/**
+ * @param {object} options
+ * @param {Array<{ childIssueNumber: number, commit: GitCommit }>} options.childCommitEntries
+ * @param {PlannedRewriteCommit[]} options.parentLevelCommits
+ * @param {number} options.parentIssueNumber
+ * @param {GitHubIssueReference[]} options.closedChildIssues
+ * @returns {{ valid: true, commitShas: string[] } | { valid: false, reason: string }}
+ */
+function findReusableExistingChildHistory({
+  childCommitEntries,
+  parentLevelCommits,
+  parentIssueNumber,
+  closedChildIssues,
+}) {
+  if (parentLevelCommits.length > 0) {
+    return {
+      valid: false,
+      reason: 'The existing history also contains explicit PRD-level file changes.',
+    };
+  }
+
+  if (childCommitEntries.length !== closedChildIssues.length) {
+    return {
+      valid: false,
+      reason: [
+        `The existing history has ${childCommitEntries.length} Child Issue commits,`,
+        `but PRD #${parentIssueNumber} has ${closedChildIssues.length} closed native Child Issues.`,
+      ].join(' '),
+    };
+  }
+
+  for (const [index, childIssue] of closedChildIssues.entries()) {
+    const entry = childCommitEntries[index];
+    if (entry === undefined || entry.childIssueNumber !== childIssue.number) {
+      return {
+        valid: false,
+        reason: [
+          `The existing Child Issue commit order is ${formatChildCommitOrder(childCommitEntries)},`,
+          `but native Child Issue order is ${formatIssueList(closedChildIssues)}.`,
+        ].join(' '),
+      };
+    }
+
+    const expectedMessage = createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue);
+    if (entry.commit.body !== expectedMessage) {
+      return {
+        valid: false,
+        reason: [
+          `Commit ${entry.commit.sha} for Child Issue #${childIssue.number}`,
+          'does not match the deterministic PR Finalize commit message.',
+        ].join(' '),
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    commitShas: childCommitEntries.map(entry => entry.commit.sha),
+  };
+}
+
+/**
+ * @param {Array<{ file: string, childIssueNumbers: number[] }>} overlappingChildFiles
+ * @returns {string}
+ */
+function formatOverlappingChildFiles(overlappingChildFiles) {
+  return overlappingChildFiles
+    .map(
+      ({ file, childIssueNumbers }) =>
+        `${file} (${childIssueNumbers.map(issueNumber => `#${issueNumber}`).join(', ')})`,
+    )
+    .join('; ');
+}
+
+/**
+ * @param {Array<{ childIssueNumber: number }>} childCommitEntries
+ * @returns {string}
+ */
+function formatChildCommitOrder(childCommitEntries) {
+  if (childCommitEntries.length === 0) {
+    return 'none';
+  }
+
+  return childCommitEntries.map(entry => `#${entry.childIssueNumber}`).join(', ');
 }
 
 /**
@@ -1037,12 +1207,25 @@ async function completePrFinalize(context, preparation) {
   let rewriteResult;
 
   try {
-    rewriteResult = await context.gitClient.rewriteBranchWithCommitPlan({
-      baseBranch: preparation.baseBranch,
-      branchName: preparation.pullRequest.headRefName,
-      commits: preparation.commitPlan,
-      author: GITHUB_ACTIONS_BOT_AUTHOR,
-    });
+    if (preparation.mode === 'existing-commits') {
+      if (context.gitClient.rewriteBranchWithExistingCommits === undefined) {
+        throw new Error('Git client cannot rewrite a branch with existing commits.');
+      }
+
+      rewriteResult = await context.gitClient.rewriteBranchWithExistingCommits({
+        baseBranch: preparation.baseBranch,
+        branchName: preparation.pullRequest.headRefName,
+        commitShas: preparation.commitShas,
+        committer: GITHUB_ACTIONS_BOT_AUTHOR,
+      });
+    } else {
+      rewriteResult = await context.gitClient.rewriteBranchWithCommitPlan({
+        baseBranch: preparation.baseBranch,
+        branchName: preparation.pullRequest.headRefName,
+        commits: preparation.commitPlan,
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      });
+    }
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
     throw error;
@@ -1077,7 +1260,10 @@ async function completePrFinalize(context, preparation) {
     finalizedTreeHash: rewriteResult.treeHash,
     finalizedHeadSha: rewriteResult.headSha,
     body: finalizedBody,
-    commitCount: preparation.commitPlan.length,
+    commitCount:
+      preparation.mode === 'existing-commits'
+        ? preparation.commitCount
+        : preparation.commitPlan.length,
   });
 }
 

@@ -26,6 +26,7 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
  * @typedef {import('./types.js').GitCommit} GitCommit
  * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
+ * @typedef {import('./types.js').RewriteBranchWithExistingCommitsOptions} RewriteBranchWithExistingCommitsOptions
  * @typedef {import('./types.js').GitRewriteResult} GitRewriteResult
  * @typedef {import('../github/types.js').ExecFile} ExecFile
  */
@@ -364,6 +365,36 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
             commit.message,
           ],
           `create planned commit ${index + 1}`,
+        );
+      }
+
+      await configureAuthenticatedOrigin(execFile, env);
+      await runGit(
+        execFile,
+        ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
+        `force-with-lease push branch ${branchName}`,
+      );
+
+      return {
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
+    },
+
+    /**
+     * @param {RewriteBranchWithExistingCommitsOptions} options
+     * @returns {Promise<GitRewriteResult>}
+     */
+    async rewriteBranchWithExistingCommits({ baseBranch, branchName, commitShas, committer }) {
+      const baseRef = `origin/${baseBranch}`;
+
+      await runGit(execFile, ['reset', '--hard', baseRef], `reset branch to ${baseRef}`);
+
+      for (const [index, sha] of commitShas.entries()) {
+        await runGit(
+          execFile,
+          withGitCommitter(['cherry-pick', sha], committer),
+          `cherry-pick existing commit ${index + 1}`,
         );
       }
 

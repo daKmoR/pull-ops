@@ -132,6 +132,13 @@ export interface RewriteBranchWithCommitPlanOptions {
   author: GitCommitAuthor;
 }
 
+export interface RewriteBranchWithExistingCommitsOptions {
+  baseBranch: string;
+  branchName: string;
+  commitShas: string[];
+  committer: GitCommitAuthor;
+}
+
 export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
   hasChanges(): Promise<boolean>;
@@ -153,5 +160,8 @@ export interface GitClient {
   getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
   rewriteBranchWithCommitPlan(
     options: RewriteBranchWithCommitPlanOptions,
+  ): Promise<GitRewriteResult>;
+  rewriteBranchWithExistingCommits?(
+    options: RewriteBranchWithExistingCommitsOptions,
   ): Promise<GitRewriteResult>;
 }

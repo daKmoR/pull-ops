@@ -607,7 +607,87 @@ describe('runPrFinalize', () => {
     });
   });
 
-  it('12: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
+  it('12: finalizes already-ordered Umbrella PRD child commits that edit the same file', async () => {
+    const repository = await createTemporaryParentRepository({
+      childOrder: [21, 22],
+      sharedChildFile: 'src/shared-child-work.js',
+    });
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(await readCommitMessages(repository.workDir), [
+      createPrFinalizeCommitMessage(21, 7),
+      createPrFinalizeCommitMessage(22, 7),
+    ]);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 2);
+    assert.equal(await readTreeHash(repository.workDir), reviewedTree);
+    assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
+  });
+
+  it('13: blocks overlapping Umbrella PRD child file edits that are not in native child issue order', async () => {
+    const repository = await createTemporaryParentRepository({
+      childOrder: [22, 21],
+      sharedChildFile: 'src/shared-child-work.js',
+    });
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(codex.calls.length, 0);
+    assert.match(github.comments[0].body, /overlapping Child Issue file edits/);
+    assert.match(github.comments[0].body, /src\/shared-child-work\.js/);
+    assert.match(github.comments[0].body, /#21/);
+    assert.match(github.comments[0].body, /#22/);
+    assert.match(github.comments[0].body, /native Child Issue order/);
+    assert.doesNotMatch(github.comments[0].body, /Commit Plan commit/);
+    assert.equal(await countCommitsSinceBase(repository.workDir), 3);
+  });
+
+  it('14: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -647,7 +727,7 @@ describe('runPrFinalize', () => {
     assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
   });
 
-  it('13: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
+  it('15: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -684,7 +764,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('14: rejects invalid fallback planner output before rewriting history', async () => {
+  it('16: rejects invalid fallback planner output before rewriting history', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -725,7 +805,7 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('15: rejects AI-proposed rewrites whose final tree differs from the reviewed tree', async () => {
+  it('17: rejects AI-proposed rewrites whose final tree differs from the reviewed tree', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -1323,10 +1403,10 @@ async function createTemporaryChildRepository() {
 }
 
 /**
- * @param {{ childOrder: number[] }} options
+ * @param {{ childOrder: number[], sharedChildFile?: string }} options
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
-async function createTemporaryParentRepository({ childOrder }) {
+async function createTemporaryParentRepository({ childOrder, sharedChildFile }) {
   const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-parent-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
@@ -1351,11 +1431,18 @@ async function createTemporaryParentRepository({ childOrder }) {
     ['chore(prd): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
   ]);
 
-  for (const childIssueNumber of childOrder) {
-    await writeFile(
-      join(workDir, 'src', `child-${childIssueNumber}.js`),
-      `export const child${childIssueNumber} = true;\n`,
-    );
+  for (const [index, childIssueNumber] of childOrder.entries()) {
+    if (sharedChildFile === undefined) {
+      await writeFile(
+        join(workDir, 'src', `child-${childIssueNumber}.js`),
+        `export const child${childIssueNumber} = true;\n`,
+      );
+    } else {
+      await writeFile(
+        join(workDir, sharedChildFile),
+        `export const completedChildren = [${childOrder.slice(0, index + 1).join(', ')}];\n`,
+      );
+    }
     await git(workDir, ['add', '--all']);
     await git(workDir, ['commit', '-m', createPrFinalizeCommitMessage(childIssueNumber, 7)]);
   }
