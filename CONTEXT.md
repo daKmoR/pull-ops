@@ -65,7 +65,7 @@ The place where a PullOps Operation is executed, such as the active local checko
 _Avoid_: Runner adapter, provider
 
 **Publication Mode**:
-The intended visibility and persistence of a PullOps Operation result, such as opening a pull request or producing a dry run for review.
+The intended visibility and persistence of a PullOps Operation result, such as opening a pull request or leaving local changes for review.
 _Avoid_: Output, execution backend
 
 **GitHub State Synchronization**:

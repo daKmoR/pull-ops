@@ -100,7 +100,7 @@ describe('runPrAddressReview', () => {
       {
         reviewId: 'PRR_requested',
         message:
-          'PullOps addressed all actionable feedback associated with this requested-change review.',
+          'PullOps handled all actionable feedback associated with this requested-change review.',
       },
     ]);
     assert.equal(github.comments.length, 4);
@@ -219,12 +219,90 @@ describe('runPrAddressReview', () => {
       {
         reviewId: 'PRR_inline_requested',
         message:
-          'PullOps addressed all actionable feedback associated with this requested-change review.',
+          'PullOps handled all actionable feedback associated with this requested-change review.',
       },
     ]);
   });
 
-  it('03: posts declined feedback responses, defers stale feedback without responding, and returns to review without requiring code changes', async () => {
+  it('03: resolves and dismisses requested-change reviews whose inline feedback was declined', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext({
+        comments: [],
+        reviews: [
+          {
+            id: 'PRR_inline_requested',
+            state: 'CHANGES_REQUESTED',
+            body: '',
+            authorLogin: 'maintainer',
+            comments: [
+              {
+                databaseId: 9001,
+                body: 'Please add a Bible page-word list.',
+                authorLogin: 'maintainer',
+                path: 'README.md',
+              },
+            ],
+          },
+        ],
+        unresolvedThreads: [
+          {
+            id: 'PRRT_1',
+            isResolved: false,
+            comments: [
+              {
+                databaseId: 9001,
+                body: 'Please add a Bible page-word list.',
+                authorLogin: 'maintainer',
+                path: 'README.md',
+              },
+            ],
+          },
+        ],
+      }),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Declined the requested change as non-actionable for this PR.',
+        addressed: [],
+        declined: [
+          {
+            feedbackId: 'thread:9001',
+            reason:
+              'Bible page numbering depends on a specific edition and is unrelated to this PR.',
+          },
+        ],
+        deferred: [],
+        changes: [],
+        testPlan: ['node --test src/operations/pr-address-review/run.test.js'],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(github.replies[0].commentId, 9001);
+    assert.match(github.replies[0].body, /PullOps declined this feedback\./);
+    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
+    assert.deepEqual(github.dismissedReviews, [
+      {
+        reviewId: 'PRR_inline_requested',
+        message:
+          'PullOps handled all actionable feedback associated with this requested-change review.',
+      },
+    ]);
+  });
+
+  it('04: posts declined feedback responses, defers stale feedback without responding, and returns to review without requiring code changes', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext({
@@ -294,7 +372,7 @@ describe('runPrAddressReview', () => {
     assert.match(github.comments[1].body, /PullOps declined feedback `comment:7001`/);
     assert.match(github.comments[1].body, /<summary>PullOps operation audit<\/summary>/);
     assert.doesNotMatch(github.comments[1].body, /7002/);
-    assert.deepEqual(github.resolvedReviewThreads, []);
+    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
     assert.deepEqual(github.dismissedReviews, []);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
@@ -312,7 +390,7 @@ describe('runPrAddressReview', () => {
     });
   });
 
-  it('04: blocks without running Codex when the review cycle budget is exhausted', async () => {
+  it('05: blocks without running Codex when the review cycle budget is exhausted', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         body: createPullRequestBody({ reviewCycles: '3 / 3' }),
@@ -342,7 +420,7 @@ describe('runPrAddressReview', () => {
     ]);
   });
 
-  it('05: records invalid output before posting responses, committing, or pushing', async () => {
+  it('06: records invalid output before posting responses, committing, or pushing', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-address-review-failure-'));
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),

@@ -38,7 +38,7 @@ export const GITHUB_ACTIONS_BOT_AUTHOR = {
 };
 
 const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
-  'PullOps addressed all actionable feedback associated with this requested-change review.';
+  'PullOps handled all actionable feedback associated with this requested-change review.';
 
 /**
  * @param {OperationRunnerContext} context
@@ -299,8 +299,8 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
       validatedOutput.value,
     );
     await postPrAddressReviewResponses(context, pullRequest, feedbackItems, validatedOutput.value);
-    await resolveAddressedReviewThreads(context, feedbackItems, validatedOutput.value);
-    await dismissAddressedRequestedChangeReviews(
+    await resolveHandledReviewThreads(context, feedbackItems, validatedOutput.value);
+    await dismissHandledRequestedChangeReviews(
       context,
       reviewContext,
       feedbackItems,
@@ -512,8 +512,8 @@ async function postFeedbackResponse(context, pullRequest, feedback, response) {
  * @param {CompletedPrAddressReviewOutput} output
  * @returns {Promise<void>}
  */
-async function resolveAddressedReviewThreads(context, feedbackItems, output) {
-  const addressedIds = new Set(output.addressed.map(feedback => feedback.feedbackId));
+async function resolveHandledReviewThreads(context, feedbackItems, output) {
+  const handledIds = collectHandledFeedbackIds(output);
   /** @type {Map<string, PrAddressReviewFeedbackItem[]>} */
   const feedbackItemsByThread = new Map();
 
@@ -528,7 +528,7 @@ async function resolveAddressedReviewThreads(context, feedbackItems, output) {
   }
 
   for (const [threadId, threadFeedback] of feedbackItemsByThread) {
-    if (threadFeedback.every(feedback => addressedIds.has(feedback.id))) {
+    if (threadFeedback.every(feedback => handledIds.has(feedback.id))) {
       await context.githubClient.resolvePullRequestReviewThread(threadId);
     }
   }
@@ -541,13 +541,8 @@ async function resolveAddressedReviewThreads(context, feedbackItems, output) {
  * @param {CompletedPrAddressReviewOutput} output
  * @returns {Promise<void>}
  */
-async function dismissAddressedRequestedChangeReviews(
-  context,
-  reviewContext,
-  feedbackItems,
-  output,
-) {
-  const reviewIds = findAddressedRequestedChangeReviewIds(reviewContext, feedbackItems, output);
+async function dismissHandledRequestedChangeReviews(context, reviewContext, feedbackItems, output) {
+  const reviewIds = findHandledRequestedChangeReviewIds(reviewContext, feedbackItems, output);
   if (reviewIds.length === 0) {
     return;
   }
@@ -570,9 +565,9 @@ async function dismissAddressedRequestedChangeReviews(
  * @param {CompletedPrAddressReviewOutput} output
  * @returns {string[]}
  */
-function findAddressedRequestedChangeReviewIds(reviewContext, feedbackItems, output) {
+function findHandledRequestedChangeReviewIds(reviewContext, feedbackItems, output) {
   const feedbackIds = new Set(feedbackItems.map(feedback => feedback.id));
-  const addressedIds = new Set(output.addressed.map(feedback => feedback.feedbackId));
+  const handledIds = collectHandledFeedbackIds(output);
   /** @type {string[]} */
   const reviewIds = [];
 
@@ -584,13 +579,24 @@ function findAddressedRequestedChangeReviewIds(reviewContext, feedbackItems, out
     const reviewFeedbackIds = collectRequestedChangeReviewFeedbackIds(review, index, feedbackIds);
     if (
       reviewFeedbackIds.length > 0 &&
-      reviewFeedbackIds.every(feedbackId => addressedIds.has(feedbackId))
+      reviewFeedbackIds.every(feedbackId => handledIds.has(feedbackId))
     ) {
       reviewIds.push(review.id);
     }
   }
 
   return reviewIds;
+}
+
+/**
+ * @param {CompletedPrAddressReviewOutput} output
+ * @returns {Set<string>}
+ */
+function collectHandledFeedbackIds(output) {
+  return new Set([
+    ...output.addressed.map(feedback => feedback.feedbackId),
+    ...output.declined.map(feedback => feedback.feedbackId),
+  ]);
 }
 
 /**

@@ -1,0 +1,3 @@
+# Centralize operation identity in the catalog
+
+PullOps operation identity facts are scattered across runtime dispatch, label constants, config defaults, package scripts, and dogfood workflow files. PullOps will centralize canonical facts for the fixed PullOps Operation set in the Operation Catalog, with the catalog importing operation-owned handlers instead of asking Operation Modules to export descriptors. Operation Modules continue to own orchestration code, prompts, extraction instructions, and Operation Output schemas per ADR-0027; the catalog owns cross-operation identity and dispatch facts rather than becoming a plugin registry or Workflow Kit generator.
