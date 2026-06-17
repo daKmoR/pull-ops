@@ -104,9 +104,17 @@ GitHub CLI can store the token as a repository secret, but it does not create a
 fine-grained personal access token for you. Create the token in GitHub, then pass
 the copied token value to `gh secret set`.
 
-If fine-grained tokens are not available for your repository or organization, use
-a classic personal access token only as a fallback. It needs `repo` and
-`workflow` scopes, which are broader than the fine-grained permissions above.
+If you use a machine user that is added as a repository collaborator,
+fine-grained tokens currently cannot target that collaborator repository. Accept
+the invite as the machine user, then create a classic personal access token from
+that account with `repo` and `workflow` scopes, or `public_repo` and `workflow`
+for public-only repositories. Store it as `PULLOPS_GITHUB_TOKEN`; PullOps PRs
+and comments will appear as the machine user.
+
+If fine-grained tokens are otherwise not available for your repository or
+organization, use a classic personal access token only as a fallback. It needs
+`repo` and `workflow` scopes, which are broader than the fine-grained
+permissions above.
 
 The label dispatcher uses the workflow's built-in `GITHUB_TOKEN` with Octokit for
 `workflow_dispatch` calls, so dispatched operation workflows run as
