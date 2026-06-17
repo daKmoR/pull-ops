@@ -1,0 +1,7 @@
+# Auto-address requested-change reviews
+
+PullOps treats a submitted human `CHANGES_REQUESTED` pull request review on a Same-Repository PullOps-Managed PR as new Actionable PR Feedback and automatically runs `pullops:pr:address-review`. The native `pull_request_review` trigger belongs on the address-review operation workflow rather than the label dispatcher, because Operation Labels remain manual/transition requests while requested-change reviews are already GitHub review events. When address-review acts on this feedback, it invalidates stale review/finalize evidence and sends the PR back through automated review before it can become ready for human merge again.
+
+The native review trigger derives the PullOps automation login from `PULLOPS_GITHUB_TOKEN` at runtime and ignores requested-change reviews authored by that account. This prevents PAT-backed machine users from looping through the native review trigger while preserving the managed transition path that intentionally routes PullOps-authored review results to the next Operation Label.
+
+PullOps-authored `changes_requested` Review Results may still be published as GitHub `COMMENT` reviews when the same `PULLOPS_GITHUB_TOKEN` account opened the pull request, because GitHub does not allow a pull request author to request changes on their own pull request. In that case the PullOps Workflow State and Operation Label transition carry the machine verdict, while native `CHANGES_REQUESTED` reviews remain the human-feedback trigger.

@@ -15,24 +15,99 @@ on:
         description: GitHub actor that requested the operation
         required: true
         type: string
+  pull_request_review:
+    types:
+      - submitted
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: pullops-pr-address-review-${{ inputs.pr }}
+  group: pullops-pr-address-review-${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   pr-address-review:
     runs-on: ubuntu-latest
+    env:
+      PR: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number }}
+      HEAD_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event.pull_request.head.ref }}
+      TRIGGER_ACTOR: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_actor || github.event.review.user.login }}
 
     steps:
+      - name: Evaluate PullOps review trigger
+        id: gate
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('run_operation', 'true');
+              return;
+            }
+
+            const review = context.payload.review;
+            const pullRequest = context.payload.pull_request;
+            const reviewState = String(review?.state ?? '').toLowerCase();
+
+            if (reviewState !== 'changes_requested') {
+              core.info(`Ignoring pull_request_review state '${reviewState}'.`);
+              core.setOutput('run_operation', 'false');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            if (pullRequest?.head?.repo?.full_name !== `${owner}/${repo}`) {
+              core.info('Ignoring requested-change review on a cross-repository pull request.');
+              core.setOutput('run_operation', 'false');
+              return;
+            }
+
+            const reviewer = review?.user?.login;
+            if (typeof reviewer !== 'string' || reviewer.trim() === '') {
+              core.info('Ignoring requested-change review without a reviewer login.');
+              core.setOutput('run_operation', 'false');
+              return;
+            }
+
+            const { data: tokenUser } = await github.rest.users.getAuthenticated();
+            if (reviewer === tokenUser.login) {
+              core.info(`Ignoring requested-change review authored by the PullOps token login '${reviewer}'.`);
+              core.setOutput('run_operation', 'false');
+              return;
+            }
+
+            let permission = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner,
+                repo,
+                username: reviewer,
+              });
+              permission = data.permission;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            if (!['admin', 'maintain', 'write'].includes(permission)) {
+              core.info(
+                `Ignoring requested-change review from '${reviewer}' with permission '${permission}'.`,
+              );
+              core.setOutput('run_operation', 'false');
+              return;
+            }
+
+            core.setOutput('run_operation', 'true');
+
       - name: Verify same-repository pull request
+        if: steps.gate.outputs.run_operation == 'true'
         uses: actions/github-script@v8
         env:
-          PR: ${{ inputs.pr }}
-          HEAD_REF: ${{ inputs.head_ref }}
+          PR: ${{ env.PR }}
+          HEAD_REF: ${{ env.HEAD_REF }}
         with:
           github-token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           script: |
@@ -53,30 +128,34 @@ jobs:
             }
 
       - name: Check out pull request branch
+        if: steps.gate.outputs.run_operation == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ inputs.head_ref }}
+          ref: ${{ env.HEAD_REF }}
           persist-credentials: false
           token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
+        if: steps.gate.outputs.run_operation == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
+        if: steps.gate.outputs.run_operation == 'true'
         run: npm ci
 
       - name: Prepare PullOps address review
+        if: steps.gate.outputs.run_operation == 'true'
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
           node src/cli/cli.js run pr-address-review \
             --phase prepare \
             --runner codex-action \
-            --pr "${{ inputs.pr }}"
+            --pr "$PR"
 
           if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
             echo "run_runner=true" >> "$GITHUB_OUTPUT"
@@ -89,10 +168,10 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          GITHUB_ACTOR: ${{ env.TRIGGER_ACTOR }}
 
       - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -102,7 +181,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true
@@ -116,26 +195,26 @@ jobs:
           allow-bots: true
 
       - name: Restore Node for PullOps finalize
-        if: always()
+        if: always() && steps.gate.outputs.run_operation == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
       - name: Finalize PullOps address review
-        if: always()
+        if: always() && steps.gate.outputs.run_operation == 'true'
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           node src/cli/cli.js run pr-address-review \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
-            --pr "${{ inputs.pr }}"
+            --pr "$PR"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ inputs.trigger_actor }}
+          GITHUB_ACTOR: ${{ env.TRIGGER_ACTOR }}
           PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex.outcome }}

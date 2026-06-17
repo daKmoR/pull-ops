@@ -400,6 +400,7 @@ function createTransition({ body, operation, outcome, state }) {
           current: outcome.reviewCycle,
           max: outcome.maxReviewCycles,
         },
+        removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
       removeLabels: labelsForSuccessfulOperation(operation),
