@@ -20,6 +20,7 @@ import {
  * @typedef {import('../../github/types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnIssueOptions} CommentOnIssueOptions
+ * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('../../git/types.js').CreateBranchOptions} CreateBranchOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
@@ -78,25 +79,44 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests[0].title, 'Implement #42: Add the first operation');
     assert.equal(github.createdPullRequests[0].baseBranch, 'main');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/issue-42');
-    assert.match(github.createdPullRequests[0].body, /Managed PR: yes/);
+    assert.match(github.createdPullRequests[0].body, /^## PullOps$/m);
+    assert.match(github.createdPullRequests[0].body, /^Managed: yes$/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Managed PR: yes/);
     assert.match(github.createdPullRequests[0].body, /Status: Draft automation/);
-    assert.match(github.createdPullRequests[0].body, /Review cycles: 0 \/ 3/);
-    assert.match(github.createdPullRequests[0].body, /Closes #42/);
-    assert.match(github.createdPullRequests[0].body, /Triggered by: @octocat/);
-    assert.match(github.createdPullRequests[0].body, /Model tier: high/);
-    assert.match(github.createdPullRequests[0].body, /Model: gpt-5\.5/);
+    assert.match(
+      github.createdPullRequests[0].body,
+      /<summary>PullOps workflow state<\/summary>[\s\S]*Review cycles: 0 \/ 3/,
+    );
+    assert.match(github.createdPullRequests[0].body, /^## PullOps Link Summary$/m);
+    assert.match(github.createdPullRequests[0].body, /^Kind: Concrete Issue PR$/m);
+    assert.match(github.createdPullRequests[0].body, /^Source Issue: #42$/m);
+    assert.match(github.createdPullRequests[0].body, /^Closes: #42$/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /^## Traceability$/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /^Branch:/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Triggered by:/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Model tier:/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Model:/);
+    assert.deepEqual(github.pullRequestComments, [
+      {
+        number: 100,
+        body: [
+          '## PullOps Operation Audit',
+          '',
+          'Operation: pullops:issue:implement',
+          'Trigger actor: @octocat',
+          'Model tier: high',
+          'Model: gpt-5.5',
+          'Context used: unknown',
+        ].join('\n'),
+      },
+    ]);
     assert.deepEqual(github.pullRequestLabels, [
       {
         number: 100,
         labels: ['pullops:pr:review'],
       },
     ]);
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 42,
-        labels: ['pullops:status:in-progress'],
-      },
-    ]);
+    assert.deepEqual(github.issueLabelsAdded, []);
   });
 
   it('02: prepares a Codex Action prompt without invoking the runner', async () => {
@@ -238,12 +258,58 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 1);
     assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/prd-1');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1-issue-42');
+    assert.match(github.createdPullRequests[0].body, /^Kind: Child Issue PR$/m);
+    assert.match(github.createdPullRequests[0].body, /^Source Issue: #42$/m);
+    assert.match(github.createdPullRequests[0].body, /^Umbrella PR: pending$/m);
     assert.doesNotMatch(github.createdPullRequests[0].body, /Closes #42/);
-    assert.match(github.createdPullRequests[0].body, /Refs #42/);
-    assert.match(github.createdPullRequests[0].body, /Part of #1/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Refs #42/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Part of #1/);
   });
 
-  it('05: blocks a PRD-looking issue without native GitHub child issues', async () => {
+  it('05: links an existing umbrella PR from a child issue PR body', async () => {
+    const issue = createIssue({
+      number: 42,
+      title: 'Do one child task',
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequest: {
+        number: 7,
+        title: 'Umbrella PR',
+        url: 'https://github.com/acme/widgets/pull/7',
+        headRefName: 'pullops/prd-1',
+        body: '',
+        isDraft: true,
+      },
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented the selected child issue.',
+        changes: ['Added the selected behavior.'],
+        testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
+      }),
+    });
+
+    await runIssueImplement(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(github.createdPullRequests[0].body, /^Umbrella PR: #7$/m);
+  });
+
+  it('06: blocks a PRD-looking issue without native GitHub child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
@@ -280,7 +346,7 @@ describe('runIssueImplement', () => {
     assert.match(github.comments[0].body, /Use pullops:prd:prepare/);
   });
 
-  it('06: blocks a parent issue with children without implementing child issues', async () => {
+  it('07: blocks a parent issue with children without implementing child issues', async () => {
     const issue = createIssue({
       number: 1,
       title: 'PRD: Dogfood PullOps workflow kit',
@@ -315,7 +381,7 @@ describe('runIssueImplement', () => {
     assert.equal(git.branches.length, 0);
   });
 
-  it('07: refuses closed issues before creating a branch', async () => {
+  it('08: refuses closed issues before creating a branch', async () => {
     const issue = createIssue({
       number: 42,
       body: 'Blocked by: #999',
@@ -339,7 +405,7 @@ describe('runIssueImplement', () => {
     assert.equal(git.branches.length, 0);
   });
 
-  it('08: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
+  it('09: refuses when the deterministic PullOps branch already has an open implementation PR', async () => {
     const github = createFakeGitHub({
       issue: createIssue({ number: 42 }),
       existingPullRequest: {
@@ -372,16 +438,18 @@ describe('runIssueImplement', () => {
         number: 42,
         labels: [
           'pullops:issue:implement',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
           'pullops:status:failed',
+          'pullops:status:done',
         ],
       },
     ]);
   });
 
-  it('09: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
+  it('10: records invalid Operation Output before committing, pushing, or opening a PR', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
@@ -417,7 +485,7 @@ describe('runIssueImplement', () => {
     assert.match(github.comments[0].body, /Operation Output\.testPlan must be an array/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:status:failed'],
+      labels: ['pullops:human-required'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
@@ -425,7 +493,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('10: records unexpected git or GitHub failures after valid runner output', async () => {
+  it('11: records unexpected git or GitHub failures after valid runner output', async () => {
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit({
       failOn: action => action === 'pushBranch',
@@ -454,11 +522,11 @@ describe('runIssueImplement', () => {
     assert.match(github.comments[0].body, /push failed/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:status:failed'],
+      labels: ['pullops:human-required'],
     });
   });
 
-  it('11: blocks an issue when a dependency is not done', async () => {
+  it('12: blocks an issue when a dependency is not done', async () => {
     const issue = createIssue({
       number: 42,
       body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
@@ -490,15 +558,10 @@ describe('runIssueImplement', () => {
     assert.match(String(result.summary), /#7/);
     assert.equal(codex.calls.length, 0);
     assert.equal(git.branches.length, 0);
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 42,
-        labels: ['pullops:status:blocked'],
-      },
-    ]);
+    assert.deepEqual(github.issueLabelsAdded, []);
   });
 
-  it('12: blocks an issue when a dependency has only PullOps done status', async () => {
+  it('13: blocks an issue when a dependency has only PullOps done status', async () => {
     const issue = createIssue({
       number: 42,
       body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
@@ -532,7 +595,7 @@ describe('runIssueImplement', () => {
     assert.equal(git.branches.length, 0);
   });
 
-  it('13: uses the configured Branch Prefix for deterministic branch names', () => {
+  it('14: uses the configured Branch Prefix for deterministic branch names', () => {
     assert.equal(
       createIssueImplementBranchName({
         branchPrefix: 'automation/pullops/',
@@ -550,7 +613,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('14: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
+  it('15: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
     const codex = createFakeCodexRunner({ output: '{}' });
@@ -577,7 +640,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.issueLabelsAdded.length, 0);
   });
 
-  it('15: records a failed Codex Action runner before failing finalize', async () => {
+  it('16: records a failed Codex Action runner before failing finalize', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
@@ -603,7 +666,7 @@ describe('runIssueImplement', () => {
     assert.match(github.comments[0].body, /Codex Action completed with outcome "failure"/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
-      labels: ['pullops:status:failed'],
+      labels: ['pullops:human-required'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
@@ -677,6 +740,7 @@ function createIssue({
  *   issueLabelsRemoved: EditLabelsOptions[];
  *   pullRequestLabels: EditLabelsOptions[];
  *   comments: CommentOnIssueOptions[];
+ *   pullRequestComments: CommentOnPullRequestOptions[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
@@ -695,6 +759,9 @@ function createFakeGitHub({
   const pullRequestLabels = [];
   /** @type {CommentOnIssueOptions[]} */
   const comments = [];
+  /** @type {CommentOnPullRequestOptions[]} */
+  const pullRequestComments = [];
+  const existingPullRequests = existingPullRequest === undefined ? [] : [existingPullRequest];
 
   return {
     createdPullRequests,
@@ -702,6 +769,7 @@ function createFakeGitHub({
     issueLabelsRemoved,
     pullRequestLabels,
     comments,
+    pullRequestComments,
     client: {
       async ensureLabels() {
         return {
@@ -732,8 +800,8 @@ function createFakeGitHub({
       async getPullRequestDiff() {
         throw new Error('getPullRequestDiff was not expected in this test.');
       },
-      async findOpenPullRequestByHead() {
-        return existingPullRequest;
+      async findOpenPullRequestByHead(headBranch) {
+        return existingPullRequests.find(pullRequest => pullRequest.headRefName === headBranch);
       },
       async createDraftPullRequest(options) {
         createdPullRequests.push(options);
@@ -764,8 +832,8 @@ function createFakeGitHub({
       async closeIssue() {
         throw new Error('closeIssue was not expected in this test.');
       },
-      async commentOnPullRequest() {
-        throw new Error('commentOnPullRequest was not expected in this test.');
+      async commentOnPullRequest(options) {
+        pullRequestComments.push(options);
       },
       async updatePullRequestBody() {
         throw new Error('updatePullRequestBody was not expected in this test.');

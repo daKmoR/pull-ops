@@ -52,23 +52,26 @@ const FAILURE_STATUS_LABELS_TO_REMOVE = [
  * @returns {ManagedPrState}
  */
 export function readManagedPrState(body) {
-  const source = readSource(body);
+  const pullOpsState = readPullOpsStateMarker(body);
+  const workflowState = readWorkflowStateBlock(body) ?? '';
+  const source = readSource({ body, workflowState });
 
   return {
-    managed: /^Managed PR:\s*yes\s*$/im.test(body),
+    managed: pullOpsState.managed,
+    ...(pullOpsState.status === undefined ? {} : { status: pullOpsState.status }),
     ...(source === undefined
       ? {}
       : {
           sourceIssueNumber: source.number,
           sourceKind: source.kind,
         }),
-    lastOperation: readMarker(body, 'Last operation:'),
-    reviewedTreeHash: readMarker(body, 'Reviewed tree:'),
-    finalizedTreeHash: readMarker(body, 'Finalized tree:'),
-    finalizedHeadSha: readMarker(body, 'Finalized head:'),
-    mergeMethod: readMarker(body, 'Merge method:'),
-    reviewCycles: readReviewCycles(body),
-    ciFixCycles: readCiFixCycles(body),
+    lastOperation: readMarker(workflowState, 'Last operation:'),
+    reviewedTreeHash: readMarker(workflowState, 'Reviewed tree:'),
+    finalizedTreeHash: readMarker(workflowState, 'Finalized tree:'),
+    finalizedHeadSha: readMarker(workflowState, 'Finalized head:'),
+    mergeMethod: readMarker(workflowState, 'Merge method:'),
+    reviewCycles: readReviewCycles(workflowState),
+    ciFixCycles: readCiFixCycles(workflowState),
   };
 }
 
@@ -183,33 +186,28 @@ export async function resumeManagedPrWorkflow({ githubClient, pullRequest }) {
 export function createManagedPrStateSection({
   status,
   source,
-  branchName,
-  triggerActor,
-  runnerTask,
-  modelTier,
-  model,
   lastOperation,
   reviewCycles,
   ciFixCycles,
 }) {
-  return [
-    '## PullOps',
-    '',
-    'Managed PR: yes',
-    `Status: ${status}`,
+  const workflowState = [
+    formatSourceLine(source),
     ...(reviewCycles === undefined
       ? []
       : [`Review cycles: ${reviewCycles.current} / ${reviewCycles.max}`]),
     ...(ciFixCycles === undefined
       ? []
       : [`CI fix cycles: ${ciFixCycles.current} / ${ciFixCycles.max}`]),
-    formatSourceLine(source),
-    `Branch: ${branchName}`,
-    `Triggered by: ${formatActor(triggerActor)}`,
-    `Runner task: ${runnerTask}`,
-    `Model tier: ${modelTier}`,
-    `Model: ${model}`,
     `Last operation: ${lastOperation}`,
+  ].join('\n');
+
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    `Status: ${status}`,
+    '',
+    formatWorkflowStateBlock(workflowState),
   ].join('\n');
 }
 
@@ -230,45 +228,64 @@ export function updateManagedPrState({
   removeMergePreparationMarkers: shouldRemoveMergePreparationMarkers = false,
 }) {
   let updated = body.trimEnd();
+  let workflowState = readWorkflowStateBlock(updated) ?? '';
+  let workflowStateChanged = false;
 
   if (status !== undefined) {
     updated = upsertLine(updated, 'Status:', status);
   }
 
   if (reviewCycles !== undefined) {
-    updated = upsertLine(
-      updated,
+    workflowState = upsertLine(
+      workflowState,
       'Review cycles:',
       `${reviewCycles.current} / ${reviewCycles.max}`,
     );
+    workflowStateChanged = true;
   }
 
   if (ciFixCycles !== undefined) {
-    updated = upsertLine(updated, 'CI fix cycles:', `${ciFixCycles.current} / ${ciFixCycles.max}`);
+    workflowState = upsertLine(
+      workflowState,
+      'CI fix cycles:',
+      `${ciFixCycles.current} / ${ciFixCycles.max}`,
+    );
+    workflowStateChanged = true;
   }
 
   if (shouldRemoveMergePreparationMarkers) {
-    updated = removeMergePreparationMarkers(updated);
+    updated = removeMergePreparationMarkersOutsideWorkflowStateBlock(updated);
+    workflowState = removeMergePreparationMarkers(workflowState);
+    workflowStateChanged = true;
   }
 
   if (reviewedTreeHash !== undefined) {
-    updated = upsertLine(updated, 'Reviewed tree:', reviewedTreeHash);
+    workflowState = upsertLine(workflowState, 'Reviewed tree:', reviewedTreeHash);
+    workflowStateChanged = true;
   }
 
   if (finalizedTreeHash !== undefined) {
-    updated = upsertLine(updated, 'Finalized tree:', finalizedTreeHash);
+    workflowState = upsertLine(workflowState, 'Finalized tree:', finalizedTreeHash);
+    workflowStateChanged = true;
   }
 
   if (finalizedHeadSha !== undefined) {
-    updated = upsertLine(updated, 'Finalized head:', finalizedHeadSha);
+    workflowState = upsertLine(workflowState, 'Finalized head:', finalizedHeadSha);
+    workflowStateChanged = true;
   }
 
   if (mergeMethod !== undefined) {
-    updated = upsertLine(updated, 'Merge method:', mergeMethod);
+    workflowState = upsertLine(workflowState, 'Merge method:', mergeMethod);
+    workflowStateChanged = true;
   }
 
   if (lastOperation !== undefined) {
-    updated = upsertLine(updated, 'Last operation:', lastOperation);
+    workflowState = upsertLine(workflowState, 'Last operation:', lastOperation);
+    workflowStateChanged = true;
+  }
+
+  if (workflowStateChanged) {
+    updated = replaceWorkflowStateBlock(updated, workflowState);
   }
 
   return `${updated}\n`;
@@ -860,7 +877,7 @@ function getAllowedOutcomes(operation) {
  * @returns {string | undefined}
  */
 function chooseNextManagedPrOperation({ body, state }) {
-  const status = readMarker(body, 'Status:');
+  const status = state.status ?? readPullOpsStateMarker(body).status;
 
   if (isFinalizedForRebase(state)) {
     return undefined;
@@ -960,20 +977,12 @@ function formatSourceLine(source) {
  * @param {string | undefined} actor
  * @returns {string}
  */
-function formatActor(actor) {
-  if (actor === undefined || actor.trim() === '') {
-    return 'unknown';
-  }
-
-  return actor.startsWith('@') ? actor : `@${actor}`;
-}
-
 /**
- * @param {string} body
+ * @param {{ body: string, workflowState: string }} options
  * @returns {{ number: number, kind: 'issue' | 'parentIssue' } | undefined}
  */
-function readSource(body) {
-  const sourceMatch = body.match(/^Source:\s*(Parent\s+)?Issue\s+#(\d+)\s*$/im);
+function readSource({ body, workflowState }) {
+  const sourceMatch = workflowState.match(/^Source:\s*(Parent\s+)?Issue\s+#(\d+)\s*$/im);
   if (sourceMatch?.[2] !== undefined) {
     return {
       number: Number(sourceMatch[2]),
@@ -981,15 +990,124 @@ function readSource(body) {
     };
   }
 
-  const closesMatch = body.match(/^Closes\s+#(\d+)\s*$/im);
-  if (closesMatch?.[1] !== undefined) {
+  const sourceIssueMatch = body.match(/^Source Issue:\s*#(\d+)\s*$/im);
+  if (sourceIssueMatch?.[1] !== undefined) {
     return {
-      number: Number(closesMatch[1]),
+      number: Number(sourceIssueMatch[1]),
       kind: 'issue',
     };
   }
 
+  const prdIssueMatch = body.match(/^PRD Issue:\s*#(\d+)\s*$/im);
+  if (prdIssueMatch?.[1] !== undefined) {
+    return {
+      number: Number(prdIssueMatch[1]),
+      kind: 'parentIssue',
+    };
+  }
+
   return undefined;
+}
+
+/**
+ * @param {string} body
+ * @returns {{ managed: boolean, status: string | undefined }}
+ */
+function readPullOpsStateMarker(body) {
+  const section = readMarkdownSection(body, 'PullOps') ?? '';
+  const status = readMarker(section, 'Status:');
+  return {
+    managed: /^Managed:\s*yes\s*$/im.test(section) && status !== undefined,
+    status,
+  };
+}
+
+/**
+ * @param {string} body
+ * @param {string} title
+ * @returns {string | undefined}
+ */
+function readMarkdownSection(body, title) {
+  const headerPattern = new RegExp(`^##\\s+${escapeRegExp(title)}\\s*$`, 'im');
+  const header = headerPattern.exec(body);
+  if (header === null) {
+    return undefined;
+  }
+
+  const start = header.index + header[0].length;
+  const rest = body.slice(start);
+  const nextSectionIndex = rest.search(/^##\s+/m);
+  return (nextSectionIndex === -1 ? rest : rest.slice(0, nextSectionIndex)).trim();
+}
+
+/**
+ * @param {string} body
+ * @returns {string | undefined}
+ */
+function readWorkflowStateBlock(body) {
+  const match = body.match(
+    /<details>\s*<summary>\s*PullOps workflow state\s*<\/summary>\s*([\s\S]*?)\s*<\/details>/i,
+  );
+  return match?.[1]?.trim();
+}
+
+/**
+ * @param {string} content
+ * @returns {string}
+ */
+function formatWorkflowStateBlock(content) {
+  return [
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    content.trim(),
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {string} body
+ * @param {string} content
+ * @returns {string}
+ */
+function replaceWorkflowStateBlock(body, content) {
+  const replacement = formatWorkflowStateBlock(content);
+  const pattern = workflowStateBlockPattern();
+
+  if (pattern.test(body)) {
+    return body.replace(pattern, replacement);
+  }
+
+  return `${body.trimEnd()}\n\n${replacement}`;
+}
+
+/**
+ * @param {string} body
+ * @returns {string}
+ */
+function removeMergePreparationMarkersOutsideWorkflowStateBlock(body) {
+  const pattern = workflowStateBlockPattern();
+  const match = pattern.exec(body);
+  if (match === null) {
+    return removeMergePreparationMarkers(body);
+  }
+
+  const placeholder = '<!-- pullops-workflow-state-placeholder -->';
+  const withoutWorkflowState = [
+    body.slice(0, match.index),
+    placeholder,
+    body.slice(match.index + match[0].length),
+  ].join('');
+
+  return removeMergePreparationMarkers(withoutWorkflowState).replace(placeholder, match[0]);
+}
+
+/**
+ * @returns {RegExp}
+ */
+function workflowStateBlockPattern() {
+  return /<details>\s*<summary>\s*PullOps workflow state\s*<\/summary>\s*[\s\S]*?\s*<\/details>/i;
 }
 
 /**

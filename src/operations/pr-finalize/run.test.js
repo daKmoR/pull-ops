@@ -182,7 +182,6 @@ describe('runPrFinalize', () => {
         baseRefName: 'pullops/prd-7',
         body: createPullRequestBody({
           reviewedTree,
-          branchName: 'pullops/prd-7-issue-42',
           parentIssueNumber: 7,
         }),
       }),
@@ -244,7 +243,6 @@ describe('runPrFinalize', () => {
         headRefName: 'pullops/prd-7-issue-42',
         baseRefName: 'main',
         body: createPullRequestBody({
-          branchName: 'pullops/prd-7-issue-42',
           parentIssueNumber: 7,
         }),
       }),
@@ -268,7 +266,6 @@ describe('runPrFinalize', () => {
         headRefName: 'pullops/prd-7-issue-42',
         baseRefName: 'pullops/prd-7',
         body: createPullRequestBody({
-          branchName: 'pullops/prd-7-issue-42',
           parentIssueNumber: 7,
         }),
       }),
@@ -991,7 +988,6 @@ function createPullRequest(overrides = {}) {
  * @param {string} [options.finalizedTree]
  * @param {string} [options.finalizedHead]
  * @param {string} [options.reviewCycles]
- * @param {string} [options.branchName]
  * @param {number} [options.parentIssueNumber]
  * @param {string} [options.status]
  * @param {string} [options.lastOperation]
@@ -1002,7 +998,6 @@ function createPullRequestBody({
   finalizedTree,
   finalizedHead,
   reviewCycles = '1 / 3',
-  branchName = 'pullops/issue-42',
   parentIssueNumber,
   status = 'Review approved',
   lastOperation = PULL_OPS_OPERATION_LABELS.prReview,
@@ -1031,17 +1026,22 @@ function createPullRequestBody({
     '',
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     `Status: ${status}`,
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Review cycles: ${reviewCycles}`,
     'CI fix cycles: 0 / 2',
     'Source: Issue #42',
-    `Branch: ${branchName}`,
     ...(reviewedTree === null ? [] : [`Reviewed tree: ${reviewedTree}`]),
     ...(finalizedTree === undefined ? [] : [`Finalized tree: ${finalizedTree}`]),
     ...(finalizedHead === undefined ? [] : [`Finalized head: ${finalizedHead}`]),
     ...(finalizedTree === undefined && finalizedHead === undefined ? [] : ['Merge method: rebase']),
     `Last operation: ${lastOperation}`,
+    '',
+    '</details>',
   ].join('\n');
 }
 
@@ -1070,14 +1070,19 @@ function createParentPullRequestBody({
     '',
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Review cycles: ${reviewCycles}`,
     'CI fix cycles: 0 / 2',
     'Source: Parent Issue #7',
-    'Branch: pullops/prd-7',
     `Reviewed tree: ${reviewedTree}`,
     'Last operation: pullops:pr:review',
+    '',
+    '</details>',
   ].join('\n');
 }
 

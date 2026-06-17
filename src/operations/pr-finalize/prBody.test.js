@@ -17,10 +17,16 @@ describe('updatePullRequestBodyForPrFinalize', () => {
       '',
       '## PullOps',
       '',
-      'Managed PR: yes',
+      'Managed: yes',
       'Status: Review approved',
+      '',
+      '<details>',
+      '<summary>PullOps workflow state</summary>',
+      '',
       'Source: Issue #32',
       'Last operation: pullops:pr:review',
+      '',
+      '</details>',
     ].join('\n');
 
     const finalizedOnce = updatePullRequestBodyForPrFinalize({

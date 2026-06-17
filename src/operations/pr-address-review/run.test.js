@@ -113,6 +113,7 @@ describe('runPrAddressReview', () => {
         number: 100,
         labels: [
           'pullops:pr:address-review',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -368,12 +369,17 @@ function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
     '',
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Changes requested',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Review cycles: ${reviewCycles}`,
     'Source: Issue #42',
-    'Branch: pullops/issue-42',
     'Last operation: pullops:pr:review',
+    '',
+    '</details>',
   ].join('\n');
 }
 

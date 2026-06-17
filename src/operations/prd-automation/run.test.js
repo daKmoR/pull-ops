@@ -420,11 +420,16 @@ function childPullRequestBody(issueNumber) {
   return [
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Draft automation',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Source: Issue #${issueNumber}`,
-    `Branch: pullops/prd-12-issue-${issueNumber}`,
     'Last operation: pullops:issue:implement',
+    '',
+    '</details>',
   ].join('\n');
 }
 
@@ -436,15 +441,20 @@ function finalizedChildPullRequestBody(issueNumber) {
   return [
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Ready for human rebase merge',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Source: Issue #${issueNumber}`,
-    `Branch: pullops/prd-12-issue-${issueNumber}`,
     'Reviewed tree: tree-reviewed',
     'Finalized tree: tree-finalized',
     'Finalized head: head-finalized',
     'Merge method: rebase',
     'Last operation: pullops:pr:finalize',
+    '',
+    '</details>',
   ].join('\n');
 }
 
@@ -456,11 +466,16 @@ function parentPullRequestBody(issueNumber) {
   return [
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Draft parent preparation',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     `Source: Parent Issue #${issueNumber}`,
-    `Branch: pullops/prd-${issueNumber}`,
     'Last operation: pullops:prd:prepare',
+    '',
+    '</details>',
   ].join('\n');
 }
 

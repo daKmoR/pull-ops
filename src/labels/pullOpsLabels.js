@@ -16,6 +16,7 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
 });
 
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
+  humanRequired: 'pullops:human-required',
   inProgress: 'pullops:status:in-progress',
   blocked: 'pullops:status:blocked',
   prepared: 'pullops:status:prepared',
@@ -101,6 +102,11 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_OPERATION_LABELS.prFinalize,
     color: '5319E7',
     description: 'Finalize a PullOps-managed PR for human review and merge.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.humanRequired,
+    color: 'D93F0B',
+    description: 'PullOps automation needs maintainer attention.',
   },
   {
     name: PULL_OPS_STATUS_LABELS.inProgress,

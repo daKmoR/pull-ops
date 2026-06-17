@@ -55,10 +55,48 @@ describe('ManagedPrState', () => {
     assert.equal(state.lastOperation, PULL_OPS_OPERATION_LABELS.issueImplement);
     assert.deepEqual(state.reviewCycles, { current: 0, max: 3 });
     assert.deepEqual(state.ciFixCycles, { current: 0, max: 2 });
-    assert.match(section, /Triggered by: @octocat/);
+    assert.match(section, /^Managed: yes$/m);
+    assert.doesNotMatch(section, /Managed PR: yes/);
+    assert.match(section, /<summary>PullOps workflow state<\/summary>/);
+    assert.doesNotMatch(section, /Triggered by:/);
+    assert.doesNotMatch(section, /Model tier:/);
   });
 
-  it('02: applies approved review transitions and routes to finalize', async () => {
+  it('02: rejects old managed PR grammar and reads workflow markers only from the collapsed block', () => {
+    const state = readManagedPrState(
+      [
+        '## PullOps',
+        '',
+        'Managed PR: yes',
+        'Managed: yes',
+        'Status: Draft automation',
+        '',
+        'Last operation: pullops:pr:review',
+        '',
+        '<details>',
+        '<summary>PullOps workflow state</summary>',
+        '',
+        'Source: Issue #42',
+        'Review cycles: 1 / 3',
+        'CI fix cycles: 0 / 2',
+        'Last operation: pullops:issue:implement',
+        '',
+        '</details>',
+      ].join('\n'),
+    );
+
+    assert.equal(state.managed, true);
+    assert.equal(state.lastOperation, PULL_OPS_OPERATION_LABELS.issueImplement);
+    const oldGrammarState = readManagedPrState(
+      '## PullOps\n\nManaged PR: yes\nStatus: Draft automation',
+    );
+    assert.equal(oldGrammarState.managed, false);
+    assert.equal(oldGrammarState.status, 'Draft automation');
+    assert.deepEqual(oldGrammarState.reviewCycles, { current: 0, max: 3 });
+    assert.deepEqual(oldGrammarState.ciFixCycles, { current: 0, max: 2 });
+  });
+
+  it('03: applies approved review transitions and routes to finalize', async () => {
     const github = createFakeGitHub();
 
     await applyManagedPrTransition({
@@ -78,11 +116,16 @@ describe('ManagedPrState', () => {
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 2 \/ 3/);
     assert.match(github.updatedBodies[0].body, /Reviewed tree: tree-reviewed/);
+    assert.match(
+      github.updatedBodies[0].body,
+      /<summary>PullOps workflow state<\/summary>[\s\S]*Reviewed tree: tree-reviewed/,
+    );
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
         labels: [
           'pullops:pr:review',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -99,7 +142,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('03: preserves finalize review-approval status-label behavior', async () => {
+  it('04: preserves finalize review-approval status-label behavior', async () => {
     const github = createFakeGitHub();
 
     await applyManagedPrTransition({
@@ -124,7 +167,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('04: refuses non-managed PR targets without writing a PR State Marker', async () => {
+  it('05: refuses non-managed PR targets without writing a PR State Marker', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'managed-pr-'));
     const github = createFakeGitHub();
 
@@ -152,7 +195,7 @@ describe('ManagedPrState', () => {
     );
   });
 
-  it('05: resumes a managed PR from approved review to finalize', async () => {
+  it('06: resumes a managed PR from approved review to finalize', async () => {
     const github = createFakeGitHub();
 
     const result = await resumeManagedPrWorkflow({
@@ -176,7 +219,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('06: leaves finalized managed PRs waiting for integration', async () => {
+  it('07: leaves finalized managed PRs waiting for integration', async () => {
     const github = createFakeGitHub();
 
     const result = await resumeManagedPrWorkflow({
@@ -196,7 +239,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, []);
   });
 
-  it('07: requests managed PR review when no PR workflow is active', async () => {
+  it('08: requests managed PR review when no PR workflow is active', async () => {
     const github = createFakeGitHub();
 
     const result = await requestManagedPrReview({
@@ -218,7 +261,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('08: does not route managed PRs that already have active workflow labels', async () => {
+  it('09: does not route managed PRs that already have active workflow labels', async () => {
     const github = createFakeGitHub();
 
     const result = await requestManagedPrReview({
@@ -275,21 +318,22 @@ function createManagedBody({
     '',
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     `Status: ${status}`,
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     'Review cycles: 1 / 3',
     'CI fix cycles: 0 / 2',
     'Source: Issue #42',
-    'Branch: pullops/issue-42',
-    'Triggered by: @octocat',
-    'Runner task: pullops-issue-implement',
-    'Model tier: high',
-    'Model: gpt-test',
     ...(reviewedTreeHash === undefined ? [] : [`Reviewed tree: ${reviewedTreeHash}`]),
     ...(finalizedTreeHash === undefined ? [] : [`Finalized tree: ${finalizedTreeHash}`]),
     ...(finalizedHeadSha === undefined ? [] : [`Finalized head: ${finalizedHeadSha}`]),
     ...(mergeMethod === undefined ? [] : [`Merge method: ${mergeMethod}`]),
     `Last operation: ${lastOperation}`,
+    '',
+    '</details>',
   ].join('\n');
 }
 

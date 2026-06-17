@@ -47,6 +47,7 @@ describe('createGitHubClient', () => {
           '5319E7',
           'Finalize a PullOps-managed PR for human review and merge.',
         ],
+        ['pullops:human-required', 'D93F0B', 'PullOps automation needs maintainer attention.'],
         ['pullops:status:in-progress', 'FBCA04', 'PullOps automation is currently working.'],
         [
           'pullops:status:blocked',
@@ -309,7 +310,7 @@ describe('createGitHubClient', () => {
     });
     const createdPullRequest = await client.createDraftPullRequest({
       title: 'Implement #42',
-      body: 'Managed PR: yes',
+      body: '## PullOps\n\nManaged: yes\nStatus: Draft automation',
       baseBranch: 'main',
       headBranch: 'pullops/issue-42',
     });
@@ -882,7 +883,7 @@ function createIssue({
 function createPullRequest({
   number = 100,
   title = 'Implement #42',
-  body = 'Managed PR: yes',
+  body = '## PullOps\n\nManaged: yes\nStatus: Draft automation',
   headRefName = 'pullops/issue-42',
   headSha = 'abc123',
   baseRefName = 'main',

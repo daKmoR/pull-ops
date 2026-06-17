@@ -157,6 +157,8 @@ export class PullOpsCli {
       outputDirectory: this.env.OUTPUT_DIR,
       codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
       runnerRan: parsedArgs.runnerRan,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
     });
 
     this.writeValidatedJson(output);
@@ -353,6 +355,50 @@ function parseOptionalStringOption(args, optionName, consumed) {
   consumed.add(index);
   consumed.add(index + 1);
   return rawValue;
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {import('./types.js').OperationContextUsage | undefined}
+ */
+function readContextUsage(env) {
+  const used = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_USED_TOKENS);
+  const limit = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_LIMIT_TOKENS);
+
+  if (used === undefined || limit === undefined) {
+    return undefined;
+  }
+
+  return { used, limit };
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string | undefined}
+ */
+function readOptionalEnv(value) {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  return value;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {number | undefined}
+ */
+function readPositiveIntegerEnv(value) {
+  if (value === undefined || value.trim() === '') {
+    return undefined;
+  }
+
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) {
+    return undefined;
+  }
+
+  return number;
 }
 
 /**

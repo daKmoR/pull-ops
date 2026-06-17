@@ -13,6 +13,7 @@ import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js'
  * @param {ImplementedIssueOutput} options.output
  * @param {string} options.branchName
  * @param {number | undefined} options.parentIssueNumber
+ * @param {number | undefined} options.umbrellaPullRequestNumber
  * @param {string | undefined} options.triggerActor
  * @param {ModelTier} options.modelTier
  * @param {string} options.model
@@ -23,28 +24,12 @@ export function createIssueImplementPullRequestBody({
   output,
   branchName,
   parentIssueNumber,
+  umbrellaPullRequestNumber,
   triggerActor,
   modelTier,
   model,
 }) {
   return [
-    '## Summary',
-    '',
-    output.summary,
-    '',
-    '## Changes',
-    '',
-    formatList(output.changes),
-    '',
-    '## Test Plan',
-    '',
-    formatList(output.testPlan),
-    '',
-    '## Traceability',
-    '',
-    ...formatIssueTraceability({ issue, parentIssueNumber }),
-    ...formatParentTraceability({ issue, parentIssueNumber }),
-    '',
     createManagedPrStateSection({
       status: 'Draft automation',
       source: {
@@ -66,32 +51,53 @@ export function createIssueImplementPullRequestBody({
         max: 2,
       },
     }),
+    '',
+    '## PullOps Link Summary',
+    '',
+    ...formatPullOpsLinkSummary({
+      issue,
+      parentIssueNumber,
+      umbrellaPullRequestNumber,
+    }),
+    '',
+    '## Summary',
+    '',
+    output.summary,
+    '',
+    '## Changes',
+    '',
+    formatList(output.changes),
+    '',
+    '## Test Plan',
+    '',
+    formatList(output.testPlan),
   ].join('\n');
 }
 
 /**
- * @param {{ issue: GitHubIssue, parentIssueNumber: number | undefined }} options
+ * @param {{
+ *   issue: GitHubIssue,
+ *   parentIssueNumber: number | undefined,
+ *   umbrellaPullRequestNumber: number | undefined,
+ * }} options
  * @returns {string[]}
  */
-function formatIssueTraceability({ issue, parentIssueNumber }) {
+function formatPullOpsLinkSummary({ issue, parentIssueNumber, umbrellaPullRequestNumber }) {
   if (parentIssueNumber === undefined) {
-    return [`Closes #${issue.number}`];
+    return [
+      'Kind: Concrete Issue PR',
+      `Source Issue: #${issue.number}`,
+      `Closes: #${issue.number}`,
+    ];
   }
 
-  return [`Refs #${issue.number}`];
-}
-
-/**
- * @param {{ issue: GitHubIssue, parentIssueNumber: number | undefined }} options
- * @returns {string[]}
- */
-function formatParentTraceability({ issue, parentIssueNumber }) {
-  const resolvedParentIssueNumber = parentIssueNumber ?? issue.parent?.number;
-  if (resolvedParentIssueNumber === undefined) {
-    return [];
-  }
-
-  return [`Part of #${resolvedParentIssueNumber}`];
+  return [
+    'Kind: Child Issue PR',
+    `Source Issue: #${issue.number}`,
+    umbrellaPullRequestNumber === undefined
+      ? 'Umbrella PR: pending'
+      : `Umbrella PR: #${umbrellaPullRequestNumber}`,
+  ];
 }
 
 /**

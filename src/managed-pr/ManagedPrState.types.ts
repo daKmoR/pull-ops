@@ -9,6 +9,7 @@ export type ManagedPrSourceKind = 'issue' | 'parentIssue';
 
 export interface ManagedPrState {
   managed: boolean;
+  status?: string;
   sourceIssueNumber?: number;
   sourceKind?: ManagedPrSourceKind;
   lastOperation?: string;

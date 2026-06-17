@@ -67,6 +67,7 @@ describe('runPrResolveConflicts', () => {
         number: 100,
         labels: [
           'pullops:pr:resolve-conflicts',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -333,12 +334,20 @@ function createIssue() {
  */
 function createManagedPullRequestBody() {
   return [
-    'Managed PR: yes',
-    'Source: Issue #42',
+    '## PullOps',
+    '',
+    'Managed: yes',
     'Status: Rebase conflicts',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    'Source: Issue #42',
     'Review cycles: 1 / 3',
     'Reviewed tree: stale-reviewed-tree',
     'Last operation: pullops:pr:update-branch',
+    '',
+    '</details>',
   ].join('\n');
 }
 

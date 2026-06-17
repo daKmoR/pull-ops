@@ -84,6 +84,7 @@ describe('runPrFixCi', () => {
         number: 100,
         labels: [
           'pullops:pr:fix-ci',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -160,6 +161,7 @@ describe('runPrFixCi', () => {
         number: 100,
         labels: [
           'pullops:pr:fix-ci',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -373,13 +375,18 @@ function createPullRequestBody({ ciFixCycles = '0 / 2' } = {}) {
     '',
     '## PullOps',
     '',
-    'Managed PR: yes',
+    'Managed: yes',
     'Status: Draft automation',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
     'Review cycles: 1 / 3',
     `CI fix cycles: ${ciFixCycles}`,
     'Source: Issue #42',
-    'Branch: pullops/issue-42',
     'Last operation: pullops:pr:review',
+    '',
+    '</details>',
   ].join('\n');
 }
 

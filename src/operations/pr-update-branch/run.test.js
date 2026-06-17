@@ -57,6 +57,7 @@ describe('runPrUpdateBranch', () => {
         number: 100,
         labels: [
           'pullops:pr:update-branch',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
@@ -340,15 +341,23 @@ function createPullRequest(overrides = {}) {
  */
 function createManagedPullRequestBody() {
   return [
-    'Managed PR: yes',
-    'Source: Issue #42',
+    '## PullOps',
+    '',
+    'Managed: yes',
     'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    'Source: Issue #42',
     'Review cycles: 1 / 3',
     'Reviewed tree: stale-reviewed-tree',
     'Finalized tree: stale-finalized-tree',
     'Finalized head: stale-finalized-head',
     'Merge method: rebase',
     'Last operation: pullops:pr:review',
+    '',
+    '</details>',
   ].join('\n');
 }
 

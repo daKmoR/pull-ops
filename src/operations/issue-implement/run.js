@@ -6,6 +6,7 @@ import {
   readBlockingDependencies,
   readIssueWorkTarget,
 } from '../../prd-automation/childCoordination.js';
+import { createOperationAuditComment } from '../auditComment.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
@@ -180,6 +181,7 @@ async function prepareIssueImplement(context) {
           `Issue #${issue.number} is blocked by unfinished dependencies:`,
           blockingDependencies.map(dependency => `#${dependency.number}`).join(', '),
         ].join(' '),
+        humanRequired: false,
       }),
     };
   }
@@ -291,11 +293,16 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
     });
     await context.gitClient.pushBranch({ branchName });
 
+    const umbrellaPullRequestNumber = await readUmbrellaPullRequestNumber(context, {
+      parentIssueNumber,
+      baseBranch,
+    });
     const pullRequestBody = createIssueImplementPullRequestBody({
       issue,
       output: validatedOutput.value,
       branchName,
       parentIssueNumber,
+      umbrellaPullRequestNumber,
       triggerActor: context.triggerActor,
       modelTier: context.modelTier,
       model: context.model,
@@ -311,10 +318,17 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
       number: pullRequest.number,
       labels: [PULL_OPS_OPERATION_LABELS.prReview],
     });
+    await context.githubClient.commentOnPullRequest({
+      number: pullRequest.number,
+      body: createOperationAuditComment(context, {
+        operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      }),
+    });
     await context.githubClient.removeLabelsFromIssue({
       number: issue.number,
       labels: [
         PULL_OPS_OPERATION_LABELS.issueImplement,
+        PULL_OPS_STATUS_LABELS.humanRequired,
         PULL_OPS_STATUS_LABELS.inProgress,
         PULL_OPS_STATUS_LABELS.blocked,
         PULL_OPS_STATUS_LABELS.prepared,
@@ -343,6 +357,19 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
 
     throw error;
   }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ parentIssueNumber: number | undefined, baseBranch: string }} options
+ * @returns {Promise<number | undefined>}
+ */
+async function readUmbrellaPullRequestNumber(context, { parentIssueNumber, baseBranch }) {
+  if (parentIssueNumber === undefined) {
+    return undefined;
+  }
+
+  return (await context.githubClient.findOpenPullRequestByHead(baseBranch))?.number;
 }
 
 /**
@@ -392,19 +419,22 @@ function looksLikePrdIssue(issue) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubIssue} issue
- * @param {{ reason: string, summary?: string }} options
+ * @param {{ reason: string, summary?: string, humanRequired?: boolean }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function blockIssue(context, issue, { reason, summary = reason }) {
+async function blockIssue(context, issue, { reason, summary = reason, humanRequired = true }) {
   await writeFailureReason(context, reason);
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
-  });
+  if (humanRequired) {
+    await context.githubClient.addLabelsToIssue({
+      number: issue.number,
+      labels: [PULL_OPS_STATUS_LABELS.humanRequired],
+    });
+  }
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
     labels: [
       PULL_OPS_OPERATION_LABELS.issueImplement,
+      ...(humanRequired ? [] : [PULL_OPS_STATUS_LABELS.humanRequired]),
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.failed,
       PULL_OPS_STATUS_LABELS.prepared,
@@ -433,13 +463,10 @@ async function blockIssue(context, issue, { reason, summary = reason }) {
  * @returns {Promise<void>}
  */
 async function markIssueInProgress(context, issue) {
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.inProgress],
-  });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
     labels: [
+      PULL_OPS_STATUS_LABELS.humanRequired,
       PULL_OPS_STATUS_LABELS.blocked,
       PULL_OPS_STATUS_LABELS.failed,
       PULL_OPS_STATUS_LABELS.prepared,
@@ -458,7 +485,7 @@ async function recordIssueFailure(context, issue, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.failed],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
@@ -490,10 +517,12 @@ async function clearIssueTaskLabels(context, issue) {
     number: issue.number,
     labels: [
       PULL_OPS_OPERATION_LABELS.issueImplement,
+      PULL_OPS_STATUS_LABELS.humanRequired,
       PULL_OPS_STATUS_LABELS.inProgress,
       PULL_OPS_STATUS_LABELS.blocked,
       PULL_OPS_STATUS_LABELS.prepared,
       PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.done,
     ],
   });
 }

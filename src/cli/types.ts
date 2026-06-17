@@ -28,6 +28,13 @@ export interface OperationRunnerContext {
   outputDirectory?: string;
   codexActionOutcome?: string;
   runnerRan?: boolean;
+  reasoningEffort?: string;
+  contextUsage?: OperationContextUsage;
+}
+
+export interface OperationContextUsage {
+  used: number;
+  limit: number;
 }
 
 export type OperationPhase = 'run' | 'prepare' | 'finalize';
