@@ -131,11 +131,13 @@ export interface GitHubPullRequestComment {
 
 export interface GitHubPullRequestReviewSummary {
   id?: string;
+  databaseId?: number;
   state: string;
   body: string;
   authorLogin: string | null;
   url?: string;
   submittedAt?: string;
+  comments?: GitHubPullRequestComment[];
 }
 
 export interface GitHubPullRequestReviewThread {
@@ -175,6 +177,11 @@ export interface ReplyToPullRequestReviewCommentOptions {
   body: string;
 }
 
+export interface DismissPullRequestReviewOptions {
+  reviewId: string;
+  message: string;
+}
+
 export interface GitHubClient {
   ensureLabels(labels: PullOpsLabel[]): Promise<EnsureLabelsResult>;
   getIssue(number: number): Promise<GitHubIssue>;
@@ -202,4 +209,5 @@ export interface GitHubClient {
   publishPullRequestReview(options: PublishPullRequestReviewOptions): Promise<void>;
   replyToPullRequestReviewComment(options: ReplyToPullRequestReviewCommentOptions): Promise<void>;
   resolvePullRequestReviewThread(threadId: string): Promise<void>;
+  dismissPullRequestReview?(options: DismissPullRequestReviewOptions): Promise<void>;
 }

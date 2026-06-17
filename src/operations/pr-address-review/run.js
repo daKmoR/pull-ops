@@ -10,7 +10,10 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
-import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
+import {
+  appendOperationAuditFooter,
+  commentOnPullRequestWithOperationAudit,
+} from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { collectPrAddressReviewFeedback } from './feedback.js';
 import { validatePrAddressReviewOutput } from './output.js';
@@ -33,6 +36,9 @@ export const GITHUB_ACTIONS_BOT_AUTHOR = {
   name: 'github-actions[bot]',
   email: '41898282+github-actions[bot]@users.noreply.github.com',
 };
+
+const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
+  'PullOps addressed all actionable feedback associated with this requested-change review.';
 
 /**
  * @param {OperationRunnerContext} context
@@ -236,7 +242,7 @@ async function preparePrAddressReview(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function finalizePreparedPrAddressReview(context, preparation, rawOutput) {
-  const { pullRequest, feedbackItems, reviewCycle, maxReviewCycles } = preparation;
+  const { pullRequest, reviewContext, feedbackItems, reviewCycle, maxReviewCycles } = preparation;
   let failureRecorded = false;
 
   try {
@@ -294,6 +300,12 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
     );
     await postPrAddressReviewResponses(context, pullRequest, feedbackItems, validatedOutput.value);
     await resolveAddressedReviewThreads(context, feedbackItems, validatedOutput.value);
+    await dismissAddressedRequestedChangeReviews(
+      context,
+      reviewContext,
+      feedbackItems,
+      validatedOutput.value,
+    );
     await applyManagedPrTransition({
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
@@ -464,23 +476,33 @@ function requireFeedback(feedbackById, feedback) {
  * @returns {Promise<void>}
  */
 async function postFeedbackResponse(context, pullRequest, feedback, response) {
+  const body = appendOperationAuditFooter(
+    [`PullOps ${response.disposition} this feedback.`, '', response.body].join('\n'),
+    context,
+    { operation: PULL_OPS_OPERATION_LABELS.prAddressReview },
+  );
+
   if (feedback.replyCommentId !== undefined) {
     await context.githubClient.replyToPullRequestReviewComment({
       commentId: feedback.replyCommentId,
-      body: [`PullOps ${response.disposition} this feedback.`, '', response.body].join('\n'),
+      body,
     });
     return;
   }
 
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,
-    body: [
-      `PullOps ${response.disposition} feedback \`${feedback.id}\` (${formatFeedbackSurface(
-        feedback.surface,
-      )}).`,
-      '',
-      response.body,
-    ].join('\n'),
+    body: appendOperationAuditFooter(
+      [
+        `PullOps ${response.disposition} feedback \`${feedback.id}\` (${formatFeedbackSurface(
+          feedback.surface,
+        )}).`,
+        '',
+        response.body,
+      ].join('\n'),
+      context,
+      { operation: PULL_OPS_OPERATION_LABELS.prAddressReview },
+    ),
   });
 }
 
@@ -510,6 +532,106 @@ async function resolveAddressedReviewThreads(context, feedbackItems, output) {
       await context.githubClient.resolvePullRequestReviewThread(threadId);
     }
   }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequestReviewContext} reviewContext
+ * @param {PrAddressReviewFeedbackItem[]} feedbackItems
+ * @param {CompletedPrAddressReviewOutput} output
+ * @returns {Promise<void>}
+ */
+async function dismissAddressedRequestedChangeReviews(
+  context,
+  reviewContext,
+  feedbackItems,
+  output,
+) {
+  const reviewIds = findAddressedRequestedChangeReviewIds(reviewContext, feedbackItems, output);
+  if (reviewIds.length === 0) {
+    return;
+  }
+
+  if (context.githubClient.dismissPullRequestReview === undefined) {
+    throw new Error('GitHub client does not support dismissing requested-change reviews.');
+  }
+
+  for (const reviewId of reviewIds) {
+    await context.githubClient.dismissPullRequestReview({
+      reviewId,
+      message: REQUESTED_CHANGE_DISMISSAL_MESSAGE,
+    });
+  }
+}
+
+/**
+ * @param {GitHubPullRequestReviewContext} reviewContext
+ * @param {PrAddressReviewFeedbackItem[]} feedbackItems
+ * @param {CompletedPrAddressReviewOutput} output
+ * @returns {string[]}
+ */
+function findAddressedRequestedChangeReviewIds(reviewContext, feedbackItems, output) {
+  const feedbackIds = new Set(feedbackItems.map(feedback => feedback.id));
+  const addressedIds = new Set(output.addressed.map(feedback => feedback.feedbackId));
+  /** @type {string[]} */
+  const reviewIds = [];
+
+  for (const [index, review] of reviewContext.reviews.entries()) {
+    if (review.state !== 'CHANGES_REQUESTED' || review.id === undefined) {
+      continue;
+    }
+
+    const reviewFeedbackIds = collectRequestedChangeReviewFeedbackIds(review, index, feedbackIds);
+    if (
+      reviewFeedbackIds.length > 0 &&
+      reviewFeedbackIds.every(feedbackId => addressedIds.has(feedbackId))
+    ) {
+      reviewIds.push(review.id);
+    }
+  }
+
+  return reviewIds;
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestReviewSummary} review
+ * @param {number} index
+ * @param {Set<string>} feedbackIds
+ * @returns {string[]}
+ */
+function collectRequestedChangeReviewFeedbackIds(review, index, feedbackIds) {
+  /** @type {string[]} */
+  const reviewFeedbackIds = [];
+  const summaryFeedbackId = `review:${review.id ?? index + 1}`;
+
+  if (review.body.trim() !== '' && feedbackIds.has(summaryFeedbackId)) {
+    reviewFeedbackIds.push(summaryFeedbackId);
+  }
+
+  for (const comment of review.comments ?? []) {
+    const commentFeedbackId = createReviewCommentFeedbackId(comment);
+    if (commentFeedbackId !== undefined && feedbackIds.has(commentFeedbackId)) {
+      reviewFeedbackIds.push(commentFeedbackId);
+    }
+  }
+
+  return [...new Set(reviewFeedbackIds)];
+}
+
+/**
+ * @param {import('../../github/types.js').GitHubPullRequestComment} comment
+ * @returns {string | undefined}
+ */
+function createReviewCommentFeedbackId(comment) {
+  if (comment.databaseId !== undefined) {
+    return `thread:${comment.databaseId}`;
+  }
+
+  if (comment.id !== undefined) {
+    return `thread:${comment.id}`;
+  }
+
+  return undefined;
 }
 
 /**

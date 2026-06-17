@@ -28,6 +28,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
  * @typedef {import('./types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
+ * @typedef {import('./types.js').DismissPullRequestReviewOptions} DismissPullRequestReviewOptions
  *
  * @typedef {import('./GitHubClient.types.js').GitHubRepository} GitHubRepository
  * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
@@ -91,12 +92,27 @@ query($owner: String!, $repo: String!, $number: Int!) {
       reviews(first: 100) {
         nodes {
           id
+          databaseId
           state
           body
           url
           submittedAt
           author {
             login
+          }
+          comments(first: 100) {
+            nodes {
+              id
+              databaseId
+              body
+              path
+              line
+              diffHunk
+              url
+              author {
+                login
+              }
+            }
           }
         }
       }
@@ -158,6 +174,17 @@ mutation($threadId: ID!) {
     thread {
       id
       isResolved
+    }
+  }
+}
+`;
+
+const DISMISS_PULL_REQUEST_REVIEW_MUTATION = `
+mutation($pullRequestReviewId: ID!, $message: String!) {
+  dismissPullRequestReview(input: { pullRequestReviewId: $pullRequestReviewId, message: $message }) {
+    pullRequestReview {
+      id
+      state
     }
   }
 }
@@ -466,6 +493,17 @@ export function createGitHubClient({
      */
     async resolvePullRequestReviewThread(threadId) {
       await api.graphql(RESOLVE_REVIEW_THREAD_MUTATION, { threadId });
+    },
+
+    /**
+     * @param {DismissPullRequestReviewOptions} options
+     * @returns {Promise<void>}
+     */
+    async dismissPullRequestReview({ reviewId, message }) {
+      await api.graphql(DISMISS_PULL_REQUEST_REVIEW_MUTATION, {
+        pullRequestReviewId: reviewId,
+        message,
+      });
     },
   };
 }
@@ -1346,11 +1384,13 @@ function parseReviewSummaries(reviews) {
 
     return {
       id: typeof review.id === 'string' ? review.id : undefined,
+      databaseId: typeof review.databaseId === 'number' ? review.databaseId : undefined,
       state: requireString(review.state, `pull request review at index ${index}.state`),
       body: typeof review.body === 'string' ? review.body : '',
       authorLogin: parseAuthorLogin(review.author),
       url: typeof review.url === 'string' ? review.url : undefined,
       ...optionalProperty('submittedAt', readOptionalString(review.submittedAt)),
+      comments: parsePullRequestComments(review.comments),
     };
   });
 }

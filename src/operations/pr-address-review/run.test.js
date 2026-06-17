@@ -17,6 +17,7 @@ import { GITHUB_ACTIONS_BOT_AUTHOR, runPrAddressReview } from './run.js';
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
+ * @typedef {import('../../github/types.js').DismissPullRequestReviewOptions} DismissPullRequestReviewOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
@@ -87,26 +88,33 @@ describe('runPrAddressReview', () => {
       },
     ]);
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
-    assert.deepEqual(github.replies, [
+    assert.equal(github.replies[0].commentId, 9001);
+    assert.match(github.replies[0].body, /PullOps addressed this feedback\./);
+    assert.match(
+      github.replies[0].body,
+      /Updated the implementation to cover the inline concern\./,
+    );
+    assert.match(github.replies[0].body, /<summary>PullOps operation audit<\/summary>/);
+    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
+    assert.deepEqual(github.dismissedReviews, [
       {
-        commentId: 9001,
-        body: [
-          'PullOps addressed this feedback.',
-          '',
-          'Updated the implementation to cover the inline concern.',
-        ].join('\n'),
+        reviewId: 'PRR_requested',
+        message:
+          'PullOps addressed all actionable feedback associated with this requested-change review.',
       },
     ]);
-    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
     assert.equal(github.comments.length, 4);
     assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[0].body, /Operation: pullops:pr:address-review/);
     assert.match(github.comments[1].body, /PullOps addressed feedback `review:PRR_requested`/);
+    assert.match(github.comments[1].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(
       github.comments[2].body,
       /PullOps addressed feedback `pullops-pr-review:PRR_pullops`/,
     );
+    assert.match(github.comments[2].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[3].body, /PullOps addressed feedback `comment:7001`/);
+    assert.match(github.comments[3].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.updatedBodies[0].body, /Status: Review feedback addressed/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 1 \/ 3/);
     assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:address-review/);
@@ -140,7 +148,82 @@ describe('runPrAddressReview', () => {
     });
   });
 
-  it('02: posts declined feedback responses, defers stale feedback without responding, and returns to review without requiring code changes', async () => {
+  it('02: dismisses requested-change reviews whose inline feedback was addressed', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext({
+        comments: [],
+        reviews: [
+          {
+            id: 'PRR_inline_requested',
+            state: 'CHANGES_REQUESTED',
+            body: '',
+            authorLogin: 'maintainer',
+            comments: [
+              {
+                databaseId: 9001,
+                body: 'Please make the smoke-test failure valid JavaScript.',
+                authorLogin: 'maintainer',
+                path: 'src/example.js',
+              },
+            ],
+          },
+        ],
+        unresolvedThreads: [
+          {
+            id: 'PRRT_1',
+            isResolved: false,
+            comments: [
+              {
+                databaseId: 9001,
+                body: 'Please make the smoke-test failure valid JavaScript.',
+                authorLogin: 'maintainer',
+                path: 'src/example.js',
+              },
+            ],
+          },
+        ],
+      }),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Addressed the requested change.',
+        addressed: [
+          {
+            feedbackId: 'thread:9001',
+            response: 'Changed the smoke-test failure to valid JavaScript.',
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: ['node --test src/operations/pr-address-review/run.test.js'],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
+    assert.deepEqual(github.dismissedReviews, [
+      {
+        reviewId: 'PRR_inline_requested',
+        message:
+          'PullOps addressed all actionable feedback associated with this requested-change review.',
+      },
+    ]);
+  });
+
+  it('03: posts declined feedback responses, defers stale feedback without responding, and returns to review without requiring code changes', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext({
@@ -198,21 +281,20 @@ describe('runPrAddressReview', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.deepEqual(github.replies, [
-      {
-        commentId: 9001,
-        body: [
-          'PullOps declined this feedback.',
-          '',
-          'Reason: The requested inline change would break the linked issue behavior.',
-        ].join('\n'),
-      },
-    ]);
+    assert.equal(github.replies[0].commentId, 9001);
+    assert.match(github.replies[0].body, /PullOps declined this feedback\./);
+    assert.match(
+      github.replies[0].body,
+      /Reason: The requested inline change would break the linked issue behavior\./,
+    );
+    assert.match(github.replies[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.equal(github.comments.length, 2);
     assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /PullOps declined feedback `comment:7001`/);
+    assert.match(github.comments[1].body, /<summary>PullOps operation audit<\/summary>/);
     assert.doesNotMatch(github.comments[1].body, /7002/);
     assert.deepEqual(github.resolvedReviewThreads, []);
+    assert.deepEqual(github.dismissedReviews, []);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -229,7 +311,7 @@ describe('runPrAddressReview', () => {
     });
   });
 
-  it('03: blocks without running Codex when the review cycle budget is exhausted', async () => {
+  it('04: blocks without running Codex when the review cycle budget is exhausted', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         body: createPullRequestBody({ reviewCycles: '3 / 3' }),
@@ -259,7 +341,7 @@ describe('runPrAddressReview', () => {
     ]);
   });
 
-  it('04: records invalid output before posting responses, committing, or pushing', async () => {
+  it('05: records invalid output before posting responses, committing, or pushing', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-address-review-failure-'));
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
@@ -487,6 +569,7 @@ function createDiff() {
  *   pullRequestLabelsRemoved: EditLabelsOptions[];
  *   comments: CommentOnPullRequestOptions[];
  *   resolvedReviewThreads: string[];
+ *   dismissedReviews: DismissPullRequestReviewOptions[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
@@ -503,6 +586,8 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
   const comments = [];
   /** @type {string[]} */
   const resolvedReviewThreads = [];
+  /** @type {DismissPullRequestReviewOptions[]} */
+  const dismissedReviews = [];
 
   return {
     replies,
@@ -511,6 +596,7 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
     pullRequestLabelsRemoved,
     comments,
     resolvedReviewThreads,
+    dismissedReviews,
     client: {
       async ensureLabels() {
         return {
@@ -578,6 +664,9 @@ function createFakeGitHub({ pullRequest, reviewContext, diff }) {
       },
       async resolvePullRequestReviewThread(threadId) {
         resolvedReviewThreads.push(threadId);
+      },
+      async dismissPullRequestReview(options) {
+        dismissedReviews.push(options);
       },
     },
   };

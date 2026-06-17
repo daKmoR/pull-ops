@@ -318,7 +318,9 @@ describe('createGitHubClient', () => {
       },
     ]);
     assert.deepEqual(reviewContext.unresolvedThreads[0].comments[0].databaseId, 9001);
+    assert.equal(reviewContext.reviews[0].databaseId, 1);
     assert.equal(reviewContext.reviews[0].submittedAt, '2026-06-14T09:00:00Z');
+    assert.equal(reviewContext.reviews[0].comments?.[0].databaseId, 9001);
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
     assert.equal(existingPullRequest?.number, 100);
     assert.equal(pullRequestByHead?.number, 100);
@@ -405,6 +407,10 @@ describe('createGitHubClient', () => {
       method: 'rebase',
     });
     await client.resolvePullRequestReviewThread('PRRT_1');
+    await client.dismissPullRequestReview({
+      reviewId: 'PRR_1',
+      message: 'PullOps addressed the requested changes.',
+    });
     await client.removeLabelsFromPullRequest({
       number: 100,
       labels: ['pullops:pr:review'],
@@ -447,6 +453,7 @@ describe('createGitHubClient', () => {
         'issues.update',
         'pulls.merge',
         'graphql',
+        'graphql',
         'issues.removeLabel',
         'issues.addLabels',
         'issues.createComment',
@@ -454,6 +461,10 @@ describe('createGitHubClient', () => {
     );
     assert.deepEqual(calls[5].params, { pullRequestId: 'PR_100' });
     assert.deepEqual(calls[9].params, { threadId: 'PRRT_1' });
+    assert.deepEqual(calls[10].params, {
+      pullRequestReviewId: 'PRR_1',
+      message: 'PullOps addressed the requested changes.',
+    });
     assert.deepEqual(calls[2].params, {
       ...TEST_REPOSITORY,
       pull_number: 100,
@@ -736,6 +747,17 @@ function createFakeOctokit({
         };
       }
 
+      if (query.includes('dismissPullRequestReview')) {
+        return {
+          dismissPullRequestReview: {
+            pullRequestReview: {
+              id: variables.pullRequestReviewId,
+              state: 'DISMISSED',
+            },
+          },
+        };
+      }
+
       return {
         repository: {
           pullRequest: reviewContext,
@@ -927,12 +949,29 @@ function createReviewContext() {
       nodes: [
         {
           id: 'R_1',
+          databaseId: 1,
           state: 'COMMENTED',
           body: 'Review summary.',
           url: 'https://github.com/acme/widgets/pull/100#pullrequestreview-1',
           submittedAt: '2026-06-14T09:00:00Z',
           author: {
             login: 'reviewer',
+          },
+          comments: {
+            nodes: [
+              {
+                id: 'PRRC_1',
+                databaseId: 9001,
+                body: 'Unresolved feedback.',
+                path: 'src/example.js',
+                line: 2,
+                diffHunk: '@@ -1 +1 @@',
+                url: 'https://github.com/acme/widgets/pull/100#discussion_r9001',
+                author: {
+                  login: 'reviewer',
+                },
+              },
+            ],
           },
         },
       ],
