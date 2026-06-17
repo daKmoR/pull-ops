@@ -21,7 +21,7 @@ const execFile = promisify(nodeExecFile);
  */
 
 describe('runPrUpdateBranch', () => {
-  it('01: rebases a same-repository PR branch onto its base and returns it to review', async () => {
+  it('01: rebases a same-repository PR branch onto its base without requesting review', async () => {
     const repository = await createTemporaryBranchRepository({ conflict: false });
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
@@ -66,12 +66,7 @@ describe('runPrUpdateBranch', () => {
         ],
       },
     ]);
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 100,
-        labels: ['pullops:pr:review'],
-      },
-    ]);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.equal(github.comments.length, 0);
   });
 

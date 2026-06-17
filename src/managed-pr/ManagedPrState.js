@@ -562,9 +562,8 @@ function createPrUpdateBranchTransition({ body, outcome }) {
       lastOperation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
     }),
     removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prUpdateBranch),
-    addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+    addLabelsAfterRemove: [],
     addLabelsBeforeRemove: [],
-    nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
   };
 }
 

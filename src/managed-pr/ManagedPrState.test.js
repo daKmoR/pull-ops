@@ -270,6 +270,50 @@ describe('ManagedPrState', () => {
     assert.equal(result.status, 'already-active');
     assert.deepEqual(github.pullRequestLabelsAdded, []);
   });
+
+  it('10: applies clean branch update transitions without requesting review', async () => {
+    const github = createFakeGitHub();
+
+    await applyManagedPrTransition({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Ready for human merge',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          reviewedTreeHash: 'tree-reviewed',
+          finalizedTreeHash: 'tree-finalized',
+          finalizedHeadSha: 'head-finalized',
+          mergeMethod: 'rebase',
+        }),
+      }),
+      operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      outcome: {
+        kind: 'updated',
+      },
+    });
+
+    assert.match(github.updatedBodies[0].body, /Status: Branch updated/);
+    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:update-branch/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Reviewed tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized head:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Merge method:/);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
+      {
+        number: 100,
+        labels: [
+          'pullops:pr:update-branch',
+          'pullops:human-required',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
+      },
+    ]);
+  });
 });
 
 /**
