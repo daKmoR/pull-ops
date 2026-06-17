@@ -77,8 +77,12 @@ A repository label that requests one PullOps Operation on the issue or pull requ
 _Avoid_: Trigger label, command label, flat label
 
 **Status Label**:
-A repository label that records the current PullOps state of an issue or pull request without requesting new work. Status Labels use the `pullops:status:<state>` grammar and are mutually exclusive for a PullOps target.
-_Avoid_: State label, progress label, operation label
+A repository label that records that a PullOps target needs maintainer attention, not ordinary workflow progress. PullOps uses status labels only for exceptional human-required states rather than in-progress, prepared, or done workflow states.
+_Avoid_: Progress label, completion label, operation label
+
+**Human-Required Label**:
+The PullOps Status Label applied when automation cannot safely continue without maintainer action. Normal dependency waits, prepared PRDs, completed issues, merged pull requests, and ready-for-merge pull requests do not use this label.
+_Avoid_: Blocked-by dependency, failed state label, done label
 
 **Parent Issue**:
 An issue that represents a larger product requirement or PRD and owns implementation work through Child Issues.
@@ -193,12 +197,24 @@ A logical commit in an Umbrella Branch history that corresponds to one merged Ch
 _Avoid_: Direct child commit, PRD commit, task commit
 
 **Trigger Context**:
-The PR body record of who or what requested a PullOps Operation, which runner task executed it, and which model was used.
-_Avoid_: Commit author, audit log
+The record of who or what requested a PullOps Operation, which runner task executed it, and which model was selected.
+_Avoid_: Commit author
+
+**Operation Audit Comment**:
+An append-only GitHub timeline entry that records human-readable evidence from one PullOps Operation, especially AI runner context such as model, model tier, reasoning effort, and known context usage. Successful AI implementation work records the audit entry on the created pull request, AI pull request work records it on the pull request, and PullOps review records it in the GitHub review body; PullOps never relies on Operation Audit Comments as resumable workflow state, and it records unknown usage as unknown rather than estimating token or cost data.
+_Avoid_: PR state marker, machine state, trigger context
 
 **PR State Marker**:
-A visible section in a pull request body where PullOps records operation state that is useful to humans, such as the number of Review Cycles.
+A visible section in a pull request body where PullOps records current resumable workflow state, starting with whether the pull request is managed and its current PullOps status.
 _Avoid_: Hidden marker, metadata comment
+
+**PullOps Workflow State**:
+The collapsed pull request body block where PullOps records diagnostic and resumable workflow markers such as cycle counts, last operation, reviewed and finalized tree hashes, finalized head, and merge method. PullOps parses these markers only from the named workflow state block.
+_Avoid_: PR state marker, audit comment, visible summary
+
+**PullOps Link Summary**:
+A human-facing issue or pull request body section that summarizes the authoritative GitHub relationships around a PullOps target. Pull request bodies emphasize related pull requests first, such as Child Issue PRs and Umbrella PRs, while issue relationships are shown only when they help orientation; the section omits base/head branch data already visible in GitHub's PR UI.
+_Avoid_: Relationship database, dependency source of truth
 
 **PullOps-Managed PR Transition**:
 A single PullOps-owned change to a PullOps-Managed PR's automated workflow state, derived from a PullOps Operation outcome. It may advance, block, reroute, or complete the PR's pre-human review workflow.
