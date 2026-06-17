@@ -3,6 +3,9 @@
 PullOps is an npm CLI package for running AI-native GitHub issue and pull request
 workflows from GitHub Actions.
 
+Smoking-test failure branch: this change is intentionally not product work and
+should not be merged into the default branch.
+
 ## Workflow Labels
 
 Operation Labels request work and are namespaced by target kind:
