@@ -3,10 +3,6 @@ import { test } from 'node:test';
 
 import { validateOperationOutput } from './OperationOutput.js';
 
-// smoking test: In and and
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const pullOpsSmokeTestIntentionalSyntaxFailure = true;
-
 test('validateOperationOutput accepts structured JSON matching the contract', () => {
   const result = validateOperationOutput('{"status":"approved","summary":"looks good"}', {
     required: {
