@@ -3,7 +3,9 @@ import { test } from 'node:test';
 
 import { validateOperationOutput } from './OperationOutput.js';
 
-const pullOpsSmokeTestIntentionalSyntaxFailure = ;
+// smoking test
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const pullOpsSmokeTestIntentionalSyntaxFailure = true;
 
 test('validateOperationOutput accepts structured JSON matching the contract', () => {
   const result = validateOperationOutput('{"status":"approved","summary":"looks good"}', {
@@ -20,6 +22,10 @@ test('validateOperationOutput accepts structured JSON matching the contract', ()
       summary: 'looks good',
     },
   });
+});
+
+test('smoking test intentionally fails', () => {
+  throw new Error('Intentional smoke-test failure.');
 });
 
 test('validateOperationOutput validates array fields', () => {
