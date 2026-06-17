@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { validateOperationOutput } from './OperationOutput.js';
 
-// smoking test
+// smoking test: In and and
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const pullOpsSmokeTestIntentionalSyntaxFailure = true;
 
