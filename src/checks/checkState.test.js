@@ -38,3 +38,6 @@ describe('classifyCheckState', () => {
     );
   });
 });
+
+// PullOps smoke test: intentional broken JavaScript for Issue #52.
+const pullOpsSmokeBrokenJavaScript = ;
