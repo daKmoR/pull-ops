@@ -285,18 +285,21 @@ export function createGitHubClient({
      * @returns {Promise<GitHubPullRequest | undefined>}
      */
     async findOpenPullRequestByHead(headBranch) {
-      const repository = getRepository();
-      const response = await api.rest.pulls.list({
-        ...repository,
+      return await readPullRequestByHead(api, getRepository(), {
+        headBranch,
         state: 'open',
-        head: `${repository.owner}:${headBranch}`,
-        per_page: 1,
       });
-      const pullRequests = requireArray(response.data, 'pull request list');
-      const pullRequest = pullRequests[0];
-      return pullRequest === undefined
-        ? undefined
-        : parsePullRequest(pullRequest, 'pull request at index 0');
+    },
+
+    /**
+     * @param {string} headBranch
+     * @returns {Promise<GitHubPullRequest | undefined>}
+     */
+    async findPullRequestByHead(headBranch) {
+      return await readPullRequestByHead(api, getRepository(), {
+        headBranch,
+        state: 'all',
+      });
     },
 
     /**
@@ -668,6 +671,26 @@ async function getPullRequest(octokit, repository, number) {
     pull_number: number,
   });
   return parsePullRequest(response.data, 'pull request');
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {{ headBranch: string, state: 'all' | 'open' }} options
+ * @returns {Promise<GitHubPullRequest | undefined>}
+ */
+async function readPullRequestByHead(octokit, repository, { headBranch, state }) {
+  const response = await octokit.rest.pulls.list({
+    ...repository,
+    state,
+    head: `${repository.owner}:${headBranch}`,
+    per_page: 1,
+  });
+  const pullRequests = requireArray(response.data, 'pull request list');
+  const pullRequest = pullRequests[0];
+  return pullRequest === undefined
+    ? undefined
+    : parsePullRequest(pullRequest, 'pull request at index 0');
 }
 
 /**

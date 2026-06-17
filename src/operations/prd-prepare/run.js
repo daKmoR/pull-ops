@@ -1,8 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
-import { createParentBranchName } from '../branchNames.js';
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_STALE_STATUS_LABEL_NAMES,
+  PULL_OPS_STATUS_LABELS,
+} from '../../labels/pullOpsLabels.js';
+import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
 import { createPrdPreparePullRequestBody } from './prBody.js';
@@ -10,6 +14,7 @@ import { createPrdPreparePullRequestBody } from './prBody.js';
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  */
 
 /**
@@ -43,12 +48,9 @@ export async function runPrdPrepare(context) {
     branchPrefix: context.config.branchPrefix,
     parentNumber: issue.number,
   });
-  const pullRequestBody = createPrdPreparePullRequestBody({
+  const pullRequestBody = await createPrdPreparePullRequestBodyForIssue(context, {
     issue,
     branchName,
-    triggerActor: context.triggerActor,
-    modelTier: context.modelTier,
-    model: context.model,
   });
 
   const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
@@ -128,6 +130,23 @@ export function createPrdPrepareCommitMessage(issue) {
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {{ issue: GitHubIssue, branchName: string }} options
+ * @returns {Promise<string>}
+ */
+export async function createPrdPreparePullRequestBodyForIssue(context, { issue, branchName }) {
+  const childPullRequests = await readChildPullRequests(context, { issue });
+  return createPrdPreparePullRequestBody({
+    issue,
+    childPullRequests,
+    branchName,
+    triggerActor: context.triggerActor,
+    modelTier: context.modelTier,
+    model: context.model,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @returns {asserts context is OperationRunnerContext & { target: { type: 'issue', number: number } }}
  */
 function assertIssueTarget(context) {
@@ -146,17 +165,11 @@ async function blockPreparation(context, issue, { reason }) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prdPrepare,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -178,18 +191,9 @@ async function blockPreparation(context, issue, { reason }) {
  * @returns {Promise<void>}
  */
 async function markPreparationInProgress(context, issue) {
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.inProgress],
-  });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
   });
 }
 
@@ -199,18 +203,12 @@ async function markPreparationInProgress(context, issue) {
  * @returns {Promise<void>}
  */
 async function markPreparationPrepared(context, issue) {
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.prepared],
-  });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
     labels: [
       PULL_OPS_OPERATION_LABELS.prdPrepare,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.done,
-      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.humanRequired,
+      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
     ],
   });
 }
@@ -225,17 +223,11 @@ async function recordPreparationFailure(context, issue, reason) {
   await writeFailureReason(context, reason);
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.failed],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prdPrepare,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -243,6 +235,50 @@ async function recordPreparationFailure(context, issue, reason) {
       '\n',
     ),
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ issue: GitHubIssue }} options
+ * @returns {Promise<{ issueNumber: number, pullRequest: GitHubPullRequest }[]>}
+ */
+async function readChildPullRequests(context, { issue }) {
+  /** @type {{ issueNumber: number, pullRequest: GitHubPullRequest }[]} */
+  const childPullRequests = [];
+
+  for (const childIssue of issue.subIssues) {
+    if (childIssue.relationshipSource !== 'native') {
+      continue;
+    }
+
+    const childBranchName = createIssueBranchName({
+      branchPrefix: context.config.branchPrefix,
+      parentNumber: issue.number,
+      issueNumber: childIssue.number,
+    });
+    const pullRequest = await findPullRequestByHead(context, childBranchName);
+    if (pullRequest !== undefined) {
+      childPullRequests.push({
+        issueNumber: childIssue.number,
+        pullRequest,
+      });
+    }
+  }
+
+  return childPullRequests;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} headBranch
+ * @returns {Promise<GitHubPullRequest | undefined>}
+ */
+async function findPullRequestByHead(context, headBranch) {
+  if (context.githubClient.findPullRequestByHead !== undefined) {
+    return await context.githubClient.findPullRequestByHead(headBranch);
+  }
+
+  return await context.githubClient.findOpenPullRequestByHead(headBranch);
 }
 
 /**

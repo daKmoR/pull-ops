@@ -291,6 +291,7 @@ describe('createGitHubClient', () => {
     const reviewContext = await client.getPullRequestReviewContext(100);
     const diff = await client.getPullRequestDiff(100);
     const existingPullRequest = await client.findOpenPullRequestByHead('pullops/issue-42');
+    const pullRequestByHead = await client.findPullRequestByHead?.('pullops/issue-42');
     const bodyReferences = await client.findIssuesByBodyReference?.({
       fieldName: 'Part of',
       issueNumber: 1,
@@ -320,6 +321,7 @@ describe('createGitHubClient', () => {
     assert.equal(reviewContext.reviews[0].submittedAt, '2026-06-14T09:00:00Z');
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
     assert.equal(existingPullRequest?.number, 100);
+    assert.equal(pullRequestByHead?.number, 100);
     assert.deepEqual(bodyReferences, [
       {
         number: 43,
@@ -356,6 +358,7 @@ describe('createGitHubClient', () => {
         'pulls.get',
         'graphql',
         'pulls.get',
+        'pulls.list',
         'pulls.list',
         'search.issuesAndPullRequests',
         'pulls.create',

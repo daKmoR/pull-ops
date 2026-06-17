@@ -184,6 +184,7 @@ export interface GitHubClient {
   getPullRequestReviewContext(number: number): Promise<GitHubPullRequestReviewContext>;
   getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
+  findPullRequestByHead?(headBranch: string): Promise<GitHubPullRequest | undefined>;
   findIssuesByBodyReference?(
     options: FindIssuesByBodyReferenceOptions,
   ): Promise<GitHubIssueReference[]>;

@@ -72,14 +72,6 @@ describe('runPrdAutoAdvance', () => {
     );
     assert.deepEqual(github.issueLabelsAdded, [
       {
-        number: 12,
-        labels: ['pullops:status:in-progress'],
-      },
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-      {
         number: 34,
         labels: ['pullops:issue:implement'],
       },
@@ -132,12 +124,7 @@ describe('runPrdAutoAdvance', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(readParentPullRequest(result)?.status, 'waiting-for-child-issues');
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-    ]);
+    assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(
       readChildResults(result).map(child => child.issue.number),
@@ -183,10 +170,6 @@ describe('resumePrdAutomationForParentIssue', () => {
 
     assert.equal(result.status, 'accepted');
     assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
       {
         number: 35,
         labels: ['pullops:issue:implement'],
@@ -289,12 +272,7 @@ describe('runPrdAutoComplete', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 12,
-        labels: ['pullops:status:prepared'],
-      },
-    ]);
+    assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(

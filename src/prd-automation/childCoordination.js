@@ -1,5 +1,9 @@
 import { classifyCheckState } from '../checks/checkState.js';
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
+import {
+  PULL_OPS_OPERATION_LABELS,
+  PULL_OPS_STALE_STATUS_LABEL_NAMES,
+  PULL_OPS_STATUS_LABELS,
+} from '../labels/pullOpsLabels.js';
 import {
   isFinalizedForRebase,
   readManagedPrState,
@@ -12,7 +16,10 @@ import {
   parseChildIssueBranchName,
 } from '../operations/branchNames.js';
 import { isIssueDone, parseIssueDependencies } from '../operations/issueDependencies.js';
-import { runPrdPrepare } from '../operations/prd-prepare/run.js';
+import {
+  createPrdPreparePullRequestBodyForIssue,
+  runPrdPrepare,
+} from '../operations/prd-prepare/run.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -30,10 +37,7 @@ import { runPrdPrepare } from '../operations/prd-prepare/run.js';
  */
 
 /** @type {ReadonlySet<string>} */
-const ACTIVE_CHILD_ISSUE_LABELS = new Set([
-  PULL_OPS_OPERATION_LABELS.issueImplement,
-  PULL_OPS_STATUS_LABELS.inProgress,
-]);
+const ACTIVE_CHILD_ISSUE_LABELS = new Set([PULL_OPS_OPERATION_LABELS.issueImplement]);
 
 /**
  * @param {OperationRunnerContext} context
@@ -280,6 +284,7 @@ async function coordinateParentIssue(context, { parentIssue, mode }) {
   }
 
   const parentPullRequest = await requestUmbrellaReviewIfComplete(context, {
+    parentIssue,
     parentIssueNumber: parentIssue.number,
     parentBranchName,
     childIssues,
@@ -402,11 +407,11 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
     );
   }
 
-  if (childIssue.labels.includes(PULL_OPS_STATUS_LABELS.failed)) {
+  if (childIssue.labels.includes(PULL_OPS_STATUS_LABELS.humanRequired)) {
     return childResult(
       childIssue,
-      'failed',
-      `Child issue #${childIssue.number} has failed PullOps automation and needs human attention.`,
+      'human-required',
+      `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
       { labels: childIssue.labels },
     );
   }
@@ -575,6 +580,7 @@ async function mergeFinalizedChildPullRequest(
 /**
  * @param {OperationRunnerContext} context
  * @param {{
+ *   parentIssue?: GitHubIssue,
  *   parentIssueNumber: number,
  *   parentBranchName?: string,
  *   childIssues?: GitHubIssue[],
@@ -583,20 +589,23 @@ async function mergeFinalizedChildPullRequest(
  */
 async function requestUmbrellaReviewIfComplete(
   context,
-  { parentIssueNumber, parentBranchName, childIssues },
+  { parentIssue, parentIssueNumber, parentBranchName, childIssues },
 ) {
-  const parentIssue =
-    childIssues === undefined ? await context.githubClient.getIssue(parentIssueNumber) : undefined;
-  const children = childIssues ?? parentIssue?.subIssues ?? [];
+  const resolvedParentIssue =
+    parentIssue ??
+    (childIssues === undefined
+      ? await context.githubClient.getIssue(parentIssueNumber)
+      : undefined);
+  const children = childIssues ?? resolvedParentIssue?.subIssues ?? [];
   if (children.length === 0) {
     return {
       status: 'waiting-for-child-issues',
-      ...(parentIssue === undefined
+      ...(resolvedParentIssue === undefined
         ? {}
         : {
             issue: {
-              number: parentIssue.number,
-              url: parentIssue.url,
+              number: resolvedParentIssue.number,
+              url: resolvedParentIssue.url,
             },
           }),
     };
@@ -606,12 +615,12 @@ async function requestUmbrellaReviewIfComplete(
   if (openChildIssues.length > 0) {
     return {
       status: 'waiting',
-      ...(parentIssue === undefined
+      ...(resolvedParentIssue === undefined
         ? {}
         : {
             issue: {
-              number: parentIssue.number,
-              url: parentIssue.url,
+              number: resolvedParentIssue.number,
+              url: resolvedParentIssue.url,
             },
           }),
       openChildIssues: openChildIssues.map(childIssue => childIssue.number),
@@ -632,9 +641,25 @@ async function requestUmbrellaReviewIfComplete(
     };
   }
 
+  let reviewPullRequest = pullRequest;
+  if (resolvedParentIssue !== undefined) {
+    const refreshedBody = await createPrdPreparePullRequestBodyForIssue(context, {
+      issue: resolvedParentIssue,
+      branchName,
+    });
+    await context.githubClient.updatePullRequestBody({
+      number: pullRequest.number,
+      body: refreshedBody,
+    });
+    reviewPullRequest = {
+      ...pullRequest,
+      body: refreshedBody,
+    };
+  }
+
   return await requestManagedPrReview({
     githubClient: context.githubClient,
-    pullRequest,
+    pullRequest: reviewPullRequest,
   });
 }
 
@@ -675,15 +700,9 @@ async function closeChildIssue(context, { issue, pullRequest, expectedBaseBranch
     number: issue.number,
     labels: [
       PULL_OPS_OPERATION_LABELS.issueImplement,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.failed,
+      PULL_OPS_STATUS_LABELS.humanRequired,
+      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
     ],
-  });
-  await context.githubClient.addLabelsToIssue({
-    number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.done],
   });
 }
 
@@ -852,15 +871,14 @@ function formatIssueNumbers(issues) {
 async function blockPrdAutomation(context, issue, { reason, mode }) {
   await context.githubClient.addLabelsToIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.blocked],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
     labels: [
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
+      PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
+      PULL_OPS_OPERATION_LABELS.prdAutoComplete,
+      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
     ],
   });
   await context.githubClient.commentOnIssue({

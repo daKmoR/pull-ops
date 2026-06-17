@@ -19,6 +19,7 @@ import {
  * @typedef {import('../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../github/types.js').CloseIssueOptions} CloseIssueOptions
  * @typedef {import('../github/types.js').MergePullRequestOptions} MergePullRequestOptions
+ * @typedef {import('../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  */
 
 describe('PRD Child Coordination', () => {
@@ -75,6 +76,8 @@ describe('PRD Child Coordination', () => {
         },
       ],
     );
+    assert.match(github.createdPullRequests[0].body, /^Kind: Umbrella PR$/m);
+    assert.match(github.createdPullRequests[0].body, /^Child PRs: none yet$/m);
     assert.deepEqual(
       result.children?.map(child => [child.issue.number, child.status]),
       [
@@ -128,6 +131,8 @@ describe('PRD Child Coordination', () => {
         method: 'rebase',
       },
     ]);
+    assert.match(github.updatedPullRequestBodies[0].body, /^Child PRs:$/m);
+    assert.match(github.updatedPullRequestBodies[0].body, /^- #101 for #34$/m);
     assert.deepEqual(
       result.children?.map(child => child.status),
       ['merged'],
@@ -425,6 +430,7 @@ function parentPullRequestBody(issueNumber) {
  *   issueLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   createdPullRequests: CreateDraftPullRequestOptions[];
+ *   updatedPullRequestBodies: UpdatePullRequestBodyOptions[];
  *   mergedPullRequests: MergePullRequestOptions[];
  *   closedIssues: CloseIssueOptions[];
  * }}
@@ -447,6 +453,8 @@ function createFakeGitHub({
   const pullRequestLabelsAdded = [];
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
+  /** @type {UpdatePullRequestBodyOptions[]} */
+  const updatedPullRequestBodies = [];
   /** @type {MergePullRequestOptions[]} */
   const mergedPullRequests = [];
   /** @type {CloseIssueOptions[]} */
@@ -456,6 +464,7 @@ function createFakeGitHub({
     issueLabelsAdded,
     pullRequestLabelsAdded,
     createdPullRequests,
+    updatedPullRequestBodies,
     mergedPullRequests,
     closedIssues,
     client: {
@@ -540,7 +549,15 @@ function createFakeGitHub({
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');
       },
-      async updatePullRequestBody() {},
+      async updatePullRequestBody(options) {
+        updatedPullRequestBodies.push(options);
+        const pullRequest = [...pullRequestsByHead.values()].find(
+          candidate => candidate.number === options.number,
+        );
+        if (pullRequest !== undefined) {
+          pullRequest.body = options.body;
+        }
+      },
       async markPullRequestReadyForReview() {
         throw new Error('markPullRequestReadyForReview was not expected in this test.');
       },

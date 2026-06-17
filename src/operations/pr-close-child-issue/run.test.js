@@ -10,6 +10,7 @@ import { runPrCloseChildIssue } from './run.js';
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').CloseIssueOptions} CloseIssueOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
+ * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  */
 
 describe('runPrCloseChildIssue', () => {
@@ -62,19 +63,16 @@ describe('runPrCloseChildIssue', () => {
         number: 42,
         labels: [
           'pullops:issue:implement',
+          'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
           'pullops:status:prepared',
+          'pullops:status:done',
           'pullops:status:failed',
         ],
       },
     ]);
-    assert.deepEqual(github.issueLabelsAdded, [
-      {
-        number: 42,
-        labels: ['pullops:status:done'],
-      },
-    ]);
+    assert.deepEqual(github.issueLabelsAdded, []);
   });
 
   it('02: skips non-child issue PRs', async () => {
@@ -272,6 +270,8 @@ describe('runPrCloseChildIssue', () => {
         labels: ['pullops:pr:review'],
       },
     ]);
+    assert.match(github.updatedPullRequestBodies[0].body, /^Child PRs:$/m);
+    assert.match(github.updatedPullRequestBodies[0].body, /^- #100 for #42$/m);
   });
 
   it('08: leaves Umbrella PR review unrequested while sibling Child Issues remain open', async () => {
@@ -482,12 +482,17 @@ function createPullRequest({
  *   issueLabelsAdded: EditLabelsOptions[];
  *   issueLabelsRemoved: EditLabelsOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
+ *   updatedPullRequestBodies: UpdatePullRequestBodyOptions[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
 function createFakeGitHub({ issue, issues, pullRequest, openPullRequestsByHead = new Map() }) {
   const issueList = issues ?? (issue === undefined ? [] : [issue]);
   const issuesByNumber = new Map(issueList.map(githubIssue => [githubIssue.number, githubIssue]));
+  const pullRequestsByHead = new Map([[pullRequest.headRefName, pullRequest]]);
+  for (const [headBranch, openPullRequest] of openPullRequestsByHead) {
+    pullRequestsByHead.set(headBranch, openPullRequest);
+  }
   /** @type {CloseIssueOptions[]} */
   const closedIssues = [];
   /** @type {EditLabelsOptions[]} */
@@ -496,12 +501,15 @@ function createFakeGitHub({ issue, issues, pullRequest, openPullRequestsByHead =
   const issueLabelsRemoved = [];
   /** @type {EditLabelsOptions[]} */
   const pullRequestLabelsAdded = [];
+  /** @type {UpdatePullRequestBodyOptions[]} */
+  const updatedPullRequestBodies = [];
 
   return {
     closedIssues,
     issueLabelsAdded,
     issueLabelsRemoved,
     pullRequestLabelsAdded,
+    updatedPullRequestBodies,
     client: {
       async ensureLabels() {
         return {
@@ -536,6 +544,9 @@ function createFakeGitHub({ issue, issues, pullRequest, openPullRequestsByHead =
       async findOpenPullRequestByHead(headBranch) {
         return openPullRequestsByHead.get(headBranch);
       },
+      async findPullRequestByHead(headBranch) {
+        return pullRequestsByHead.get(headBranch);
+      },
       async createDraftPullRequest() {
         throw new Error('createDraftPullRequest was not expected in this test.');
       },
@@ -560,8 +571,14 @@ function createFakeGitHub({ issue, issues, pullRequest, openPullRequestsByHead =
       async commentOnPullRequest() {
         throw new Error('commentOnPullRequest was not expected in this test.');
       },
-      async updatePullRequestBody() {
-        throw new Error('updatePullRequestBody was not expected in this test.');
+      async updatePullRequestBody(options) {
+        updatedPullRequestBodies.push(options);
+        const updatedPullRequest = [...pullRequestsByHead.values()].find(
+          candidate => candidate.number === options.number,
+        );
+        if (updatedPullRequest !== undefined) {
+          updatedPullRequest.body = options.body;
+        }
       },
       async markPullRequestReadyForReview() {
         throw new Error('markPullRequestReadyForReview was not expected in this test.');

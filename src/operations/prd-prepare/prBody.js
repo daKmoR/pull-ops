@@ -4,11 +4,13 @@ import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js'
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  */
 
 /**
  * @param {object} options
  * @param {GitHubIssue} options.issue
+ * @param {{ issueNumber: number, pullRequest: GitHubPullRequest }[]} options.childPullRequests
  * @param {string} options.branchName
  * @param {string | undefined} options.triggerActor
  * @param {ModelTier} options.modelTier
@@ -17,24 +19,13 @@ import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js'
  */
 export function createPrdPreparePullRequestBody({
   issue,
+  childPullRequests,
   branchName,
   triggerActor,
   modelTier,
   model,
 }) {
   return [
-    '## Summary',
-    '',
-    `Prepared an umbrella branch and draft PR for parent issue #${issue.number}.`,
-    '',
-    '## Child Issues',
-    '',
-    formatChildIssues(issue),
-    '',
-    '## Traceability',
-    '',
-    `Closes #${issue.number}`,
-    '',
     createManagedPrStateSection({
       status: 'Draft parent preparation',
       source: {
@@ -48,24 +39,37 @@ export function createPrdPreparePullRequestBody({
       model,
       lastOperation: PULL_OPS_OPERATION_LABELS.prdPrepare,
     }),
+    '',
+    '## PullOps Link Summary',
+    '',
+    ...formatPullOpsLinkSummary({ issue, childPullRequests }),
+    '',
+    '## Summary',
+    '',
+    `Prepared an umbrella branch and draft PR for PRD issue #${issue.number}.`,
   ].join('\n');
 }
 
 /**
- * @param {GitHubIssue} issue
- * @returns {string}
+ * @param {{
+ *   issue: GitHubIssue,
+ *   childPullRequests: { issueNumber: number, pullRequest: GitHubPullRequest }[],
+ * }} options
+ * @returns {string[]}
  */
-function formatChildIssues(issue) {
-  if (issue.subIssues.length === 0) {
-    return '(none discovered)';
+function formatPullOpsLinkSummary({ issue, childPullRequests }) {
+  const lines = ['Kind: Umbrella PR', `PRD Issue: #${issue.number}`, `Closes: #${issue.number}`];
+
+  if (childPullRequests.length === 0) {
+    lines.push('Child PRs: none yet');
+    return lines;
   }
 
-  return issue.subIssues
-    .map(childIssue => {
-      const title = childIssue.title === undefined ? '(title unavailable)' : childIssue.title;
-      const state =
-        childIssue.state === undefined ? 'state unknown' : childIssue.state.toLowerCase();
-      return `- #${childIssue.number} ${title} (${state})`;
-    })
-    .join('\n');
+  lines.push(
+    'Child PRs:',
+    ...childPullRequests.map(({ issueNumber, pullRequest }) => {
+      return `- #${pullRequest.number} for #${issueNumber}`;
+    }),
+  );
+  return lines;
 }

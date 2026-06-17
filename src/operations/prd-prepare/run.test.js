@@ -61,23 +61,70 @@ describe('runPrdPrepare', () => {
     assert.equal(github.createdPullRequests[0].title, 'Prepare #12: PRD: Parent workflow');
     assert.equal(github.createdPullRequests[0].baseBranch, 'main');
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-12');
-    assert.match(github.createdPullRequests[0].body, /Closes #12/);
-    assert.match(github.createdPullRequests[0].body, /#34 Implement child workflow \(open\)/);
-    assert.match(github.createdPullRequests[0].body, /Last operation: pullops:prd:prepare/);
-    assert.deepEqual(github.issueLabelsAdded, [
+    assert.match(github.createdPullRequests[0].body, /^## PullOps$/m);
+    assert.match(github.createdPullRequests[0].body, /^Managed: yes$/m);
+    assert.match(github.createdPullRequests[0].body, /^Status: Draft parent preparation$/m);
+    assert.match(
+      github.createdPullRequests[0].body,
+      /<summary>PullOps workflow state<\/summary>[\s\S]*Last operation: pullops:prd:prepare/,
+    );
+    assert.match(github.createdPullRequests[0].body, /^## PullOps Link Summary$/m);
+    assert.match(github.createdPullRequests[0].body, /^Kind: Umbrella PR$/m);
+    assert.match(github.createdPullRequests[0].body, /^PRD Issue: #12$/m);
+    assert.match(github.createdPullRequests[0].body, /^Closes: #12$/m);
+    assert.match(github.createdPullRequests[0].body, /^Child PRs: none yet$/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Managed PR: yes/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /^## Traceability$/m);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /pullops\/prd-12/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /#34 Implement child workflow/);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 12,
-        labels: ['pullops:status:in-progress'],
+        labels: [
+          'pullops:human-required',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
       },
       {
         number: 12,
-        labels: ['pullops:status:prepared'],
+        labels: [
+          'pullops:prd:prepare',
+          'pullops:human-required',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
       },
     ]);
   });
 
-  it('02: updates an existing umbrella PR without creating duplicate git state', async () => {
-    const issue = createIssue({ number: 12 });
+  it('02: updates an existing umbrella PR with known Child PR links', async () => {
+    const issue = createIssue({
+      number: 12,
+      subIssues: [
+        {
+          number: 34,
+          title: 'Implement child workflow',
+          state: 'OPEN',
+          relationshipSource: 'native',
+        },
+      ],
+    });
+    const childPullRequest = {
+      number: 101,
+      title: 'Implement #34',
+      url: 'https://github.com/acme/widgets/pull/101',
+      headRefName: 'pullops/prd-12-issue-34',
+      body: 'child body',
+      isDraft: true,
+    };
     const github = createFakeGitHub({
       issue,
       existingPullRequest: {
@@ -88,6 +135,7 @@ describe('runPrdPrepare', () => {
         body: 'old body',
         isDraft: true,
       },
+      openPullRequestsByHead: new Map([['pullops/prd-12-issue-34', childPullRequest]]),
     });
     const git = createFakeGit();
 
@@ -104,7 +152,24 @@ describe('runPrdPrepare', () => {
     assert.equal(github.createdPullRequests.length, 0);
     assert.equal(github.updatedPullRequestBodies.length, 1);
     assert.equal(github.updatedPullRequestBodies[0].number, 100);
+    assert.match(github.updatedPullRequestBodies[0].body, /^Child PRs:$/m);
+    assert.match(github.updatedPullRequestBodies[0].body, /^- #101 for #34$/m);
     assert.match(github.updatedPullRequestBodies[0].body, /Last operation: pullops:prd:prepare/);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.issueLabelsRemoved, [
+      {
+        number: 12,
+        labels: [
+          'pullops:prd:prepare',
+          'pullops:human-required',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
+      },
+    ]);
   });
 
   it('03: blocks prepare when applied to a known child issue', async () => {
@@ -193,7 +258,11 @@ function createIssue({
 }
 
 /**
- * @param {{ issue: GitHubIssue, existingPullRequest?: GitHubPullRequest }} options
+ * @param {{
+ *   issue: GitHubIssue,
+ *   existingPullRequest?: GitHubPullRequest,
+ *   openPullRequestsByHead?: Map<string, GitHubPullRequest>,
+ * }} options
  * @returns {{
  *   createdPullRequests: CreateDraftPullRequestOptions[];
  *   updatedPullRequestBodies: UpdatePullRequestBodyOptions[];
@@ -203,7 +272,11 @@ function createIssue({
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
-function createFakeGitHub({ issue, existingPullRequest }) {
+function createFakeGitHub({ issue, existingPullRequest, openPullRequestsByHead = new Map() }) {
+  if (existingPullRequest !== undefined) {
+    openPullRequestsByHead.set(existingPullRequest.headRefName, existingPullRequest);
+  }
+
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
   /** @type {UpdatePullRequestBodyOptions[]} */
@@ -247,8 +320,8 @@ function createFakeGitHub({ issue, existingPullRequest }) {
       async getPullRequestDiff() {
         throw new Error('getPullRequestDiff was not expected in this test.');
       },
-      async findOpenPullRequestByHead() {
-        return existingPullRequest;
+      async findOpenPullRequestByHead(headBranch) {
+        return openPullRequestsByHead.get(headBranch);
       },
       async createDraftPullRequest(options) {
         createdPullRequests.push(options);
