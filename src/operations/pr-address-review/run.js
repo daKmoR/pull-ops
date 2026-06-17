@@ -10,6 +10,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { collectPrAddressReviewFeedback } from './feedback.js';
 import { validatePrAddressReviewOutput } from './output.js';
@@ -239,6 +240,11 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
   let failureRecorded = false;
 
   try {
+    await commentOnPullRequestWithOperationAudit(context, {
+      pullRequestNumber: pullRequest.number,
+      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    });
+
     const validatedOutput = validatePrAddressReviewOutput(rawOutput);
 
     if (!validatedOutput.valid) {

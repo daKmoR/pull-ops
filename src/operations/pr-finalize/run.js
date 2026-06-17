@@ -21,6 +21,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { validatePrFinalizeOutput } from './output.js';
 import { updatePullRequestBodyForPrFinalize } from './prBody.js';
@@ -1063,6 +1064,11 @@ function formatChildCommitOrder(childCommitEntries) {
  * @returns {Promise<Record<string, unknown>>}
  */
 async function completePrFinalizePlannerFallback(context, preparation, rawOutput) {
+  await commentOnPullRequestWithOperationAudit(context, {
+    pullRequestNumber: preparation.pullRequest.number,
+    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+  });
+
   const validatedOutput = validatePrFinalizeOutput(rawOutput);
 
   if (!validatedOutput.valid) {

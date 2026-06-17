@@ -85,7 +85,7 @@ function formatIssueTraceability({ sourceIssueNumber, parentIssueNumber }) {
  */
 function formatPrFinalizeStatus(status) {
   if (status === 'ready') {
-    return 'Ready for human rebase merge';
+    return 'Ready for human merge';
   }
 
   return 'Finalized for rebase merge';

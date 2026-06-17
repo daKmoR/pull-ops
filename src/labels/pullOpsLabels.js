@@ -51,6 +51,14 @@ export const PULL_OPS_OPERATION_LABEL_NAMES = Object.freeze([
 
 export const PULL_OPS_STATUS_LABEL_NAMES = Object.freeze(Object.values(PULL_OPS_STATUS_LABELS));
 
+export const PULL_OPS_STALE_STATUS_LABEL_NAMES = Object.freeze([
+  PULL_OPS_STATUS_LABELS.inProgress,
+  PULL_OPS_STATUS_LABELS.blocked,
+  PULL_OPS_STATUS_LABELS.prepared,
+  PULL_OPS_STATUS_LABELS.done,
+  PULL_OPS_STATUS_LABELS.failed,
+]);
+
 /** @type {PullOpsLabel[]} */
 export const PULL_OPS_LABELS = [
   {
@@ -107,30 +115,5 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_STATUS_LABELS.humanRequired,
     color: 'D93F0B',
     description: 'PullOps automation needs maintainer attention.',
-  },
-  {
-    name: PULL_OPS_STATUS_LABELS.inProgress,
-    color: 'FBCA04',
-    description: 'PullOps automation is currently working.',
-  },
-  {
-    name: PULL_OPS_STATUS_LABELS.blocked,
-    color: 'D93F0B',
-    description: 'PullOps automation is blocked and needs human attention.',
-  },
-  {
-    name: PULL_OPS_STATUS_LABELS.prepared,
-    color: '1D76DB',
-    description: 'PullOps prepared this target; downstream work remains.',
-  },
-  {
-    name: PULL_OPS_STATUS_LABELS.done,
-    color: '0E8A16',
-    description: 'PullOps automation completed successfully.',
-  },
-  {
-    name: PULL_OPS_STATUS_LABELS.failed,
-    color: 'B60205',
-    description: 'PullOps automation failed and needs investigation.',
   },
 ];

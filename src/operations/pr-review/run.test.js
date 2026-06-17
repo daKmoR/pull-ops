@@ -83,18 +83,20 @@ describe('runPrReview', () => {
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Use the pullops-pr-review skill/);
     assert.match(codex.calls[0].prompt, /Coding Standards Pass/);
-    assert.deepEqual(github.publishedReviews, [
+    assert.equal(github.publishedReviews.length, 1);
+    assert.equal(github.publishedReviews[0].number, 100);
+    assert.equal(github.publishedReviews[0].event, 'COMMENT');
+    assert.match(
+      github.publishedReviews[0].body,
+      /^The PR satisfies the issue and coding standards\./,
+    );
+    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.match(github.publishedReviews[0].body, /Operation: pullops:pr:review/);
+    assert.deepEqual(github.publishedReviews[0].comments, [
       {
-        number: 100,
-        event: 'COMMENT',
-        body: 'The PR satisfies the issue and coding standards.',
-        comments: [
-          {
-            path: 'src/example.js',
-            line: 2,
-            body: 'This new line is clear.',
-          },
-        ],
+        path: 'src/example.js',
+        line: 2,
+        body: 'This new line is clear.',
       },
     ]);
     assert.deepEqual(github.replies, [
@@ -278,7 +280,7 @@ describe('runPrReview', () => {
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
 
-  it('05: records a blocked Review Result without publishing a GitHub review', async () => {
+  it('05: records a blocked Review Result with an audited GitHub review body', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -300,13 +302,16 @@ describe('runPrReview', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.equal(github.publishedReviews.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.equal(github.publishedReviews.length, 1);
+    assert.match(github.publishedReviews[0].body, /^Review could not complete\./);
+    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.match(github.publishedReviews[0].body, /Operation: pullops:pr:review/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 2 \/ 3/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
     assert.match(github.comments[0].body, /The diff context was incomplete/);
@@ -350,7 +355,7 @@ describe('runPrReview', () => {
     assert.equal(github.replies.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
       'Invalid Review Result: Operation Output.comments[0].line must be a positive integer.\n',
@@ -378,7 +383,7 @@ describe('runPrReview', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
   });
@@ -444,7 +449,7 @@ describe('runPrReview', () => {
     assert.match(github.comments[0].body, /Codex Action completed with outcome "failure"/);
     assert.deepEqual(github.pullRequestLabelsAdded.at(-1), {
       number: 100,
-      labels: ['pullops:status:blocked'],
+      labels: ['pullops:human-required'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
@@ -482,18 +487,16 @@ describe('runPrReview', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.reviewResult, 'approved');
-    assert.deepEqual(github.publishedReviews, [
-      {
-        number: 100,
-        event: 'COMMENT',
-        body: 'The README change matches issue #15.',
-        comments: [],
-      },
-    ]);
+    assert.equal(github.publishedReviews.length, 1);
+    assert.equal(github.publishedReviews[0].number, 100);
+    assert.equal(github.publishedReviews[0].event, 'COMMENT');
+    assert.match(github.publishedReviews[0].body, /^The README change matches issue #15\./);
+    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.deepEqual(github.publishedReviews[0].comments, []);
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
 
-  it('11: marks the PR done when final review approves after pr-finalize', async () => {
+  it('11: keeps the PR ready for human merge when final review approves after pr-finalize', async () => {
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         body: [
@@ -536,12 +539,8 @@ describe('runPrReview', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 100,
-        labels: ['pullops:status:done'],
-      },
-    ]);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.match(github.updatedBodies[0].body, /Status: Ready for human merge/);
   });
 
   it('12: refuses incomplete Umbrella PRD PRs before Codex can approve them', async () => {
@@ -604,7 +603,7 @@ describe('runPrReview', () => {
     assert.equal(result.status, 'refused');
     assert.equal(codex.calls.length, 0);
     assert.equal(github.publishedReviews.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.comments[0].body, /native Child Issues #42 remain open/);
     assert.match(github.comments[0].body, /Incomplete PRDs cannot be approved/);
   });

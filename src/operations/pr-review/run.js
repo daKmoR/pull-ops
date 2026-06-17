@@ -11,6 +11,7 @@ import {
   writeCodexActionPrompt,
 } from '../codexAction.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
+import { appendOperationAuditFooter } from '../auditComment.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
@@ -250,6 +251,14 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
 
     if (validatedOutput.value.status === 'blocked') {
       failureRecorded = true;
+      await context.githubClient.publishPullRequestReview({
+        number: pullRequest.number,
+        event: 'COMMENT',
+        body: appendOperationAuditFooter(validatedOutput.value.summary, context, {
+          operation: PULL_OPS_OPERATION_LABELS.prReview,
+        }),
+        comments: [],
+      });
       await recordPullRequestFailure(context, pullRequest, validatedOutput.value.failureReason, {
         updateBody: true,
         reviewCycle: nextReviewCycle,
@@ -294,7 +303,9 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       // PullOps records approved/changes-requested in PR state and labels. A formal
       // GitHub review event is rejected for draft PRs and same-token automation.
       event: 'COMMENT',
-      body: reviewResult.summary,
+      body: appendOperationAuditFooter(reviewResult.summary, context, {
+        operation: PULL_OPS_OPERATION_LABELS.prReview,
+      }),
       comments: comments.publishable,
     });
 

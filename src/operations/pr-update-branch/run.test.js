@@ -107,11 +107,11 @@ describe('runPrUpdateBranch', () => {
     assert.deepEqual(await readRemoteCommitSubjects(repository.workDir, 'pullops/issue-42', 1), [
       'chore: concurrent branch update',
     ]);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
     assert.match(github.comments[0].body, /force-with-lease push was rejected/);
@@ -174,11 +174,11 @@ describe('runPrUpdateBranch', () => {
     assert.equal(result.status, 'refused');
     assert.match(String(result.summary), /comes from a fork/);
     assert.equal(headAfter, headBefore);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
     assert.match(github.comments[0].body, /same-repository PR branches/);

@@ -13,6 +13,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { classifyCheckFailures } from './classification.js';
 import { validatePrFixCiOutput } from './output.js';
@@ -281,6 +282,11 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
   let failureRecorded = false;
 
   try {
+    await commentOnPullRequestWithOperationAudit(context, {
+      pullRequestNumber: pullRequest.number,
+      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    });
+
     const validatedOutput = validatePrFixCiOutput(rawOutput);
 
     if (!validatedOutput.valid) {

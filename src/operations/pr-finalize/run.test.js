@@ -88,7 +88,7 @@ describe('runPrFinalize', () => {
     );
     assert.equal(readMarker(readyBody, 'Finalized tree:'), reviewedTree);
     assert.equal(readMarker(readyBody, 'Merge method:'), 'rebase');
-    assert.match(readyBody, /Status: Ready for human rebase merge/);
+    assert.match(readyBody, /Status: Ready for human merge/);
     assert.match(readyBody, /Closes #42/);
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
@@ -162,7 +162,7 @@ describe('runPrFinalize', () => {
     ]);
     assert.equal(github.pullRequestLabelsAdded.length, 0);
     assert.equal(github.comments.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Ready for human rebase merge/);
+    assert.match(github.updatedBodies[0].body, /Status: Ready for human merge/);
   });
 
   it('03: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
@@ -231,7 +231,7 @@ describe('runPrFinalize', () => {
       },
     ]);
     assert.equal(github.comments.length, 0);
-    assert.match(readyBody, /Status: Ready for human rebase merge/);
+    assert.match(readyBody, /Status: Ready for human merge/);
   });
 
   it('04: blocks child PRs targeting default and non-child PRs targeting PRD branches', async () => {
@@ -363,7 +363,7 @@ describe('runPrFinalize', () => {
     assert.deepEqual(block.github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
   });
@@ -586,7 +586,7 @@ describe('runPrFinalize', () => {
     );
     assert.equal(readMarker(readyBody, 'Finalized tree:'), reviewedTree);
     assert.equal(readMarker(readyBody, 'Merge method:'), 'rebase');
-    assert.match(readyBody, /Status: Ready for human rebase merge/);
+    assert.match(readyBody, /Status: Ready for human merge/);
     assert.match(readyBody, /Closes #7/);
     assert.doesNotMatch(readyBody, /#999 stale child/);
     assert.match(readyBody, /#21 First child \(closed\)/);
@@ -715,6 +715,8 @@ describe('runPrFinalize', () => {
     assert.match(codex.calls[0].prompt, /Plan ambiguous PR Finalize history grouping/);
     assert.match(codex.calls[0].prompt, /Do not edit files, run commands, create commits/);
     assert.doesNotMatch(codex.calls[0].prompt, /"pullRequest"/);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /Operation: pullops:pr:finalize/);
     assert.deepEqual(await readCommitMessages(repository.workDir), [
       createPrFinalizeCommitMessage(21, 7),
       createPrFinalizeCommitMessage(22, 7),
@@ -798,7 +800,8 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(codex.calls.length, 1);
-    assert.match(github.comments[0].body, /Invalid PR Finalize Planner Output/);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /Invalid PR Finalize Planner Output/);
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
@@ -842,7 +845,8 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(codex.calls.length, 1);
-    assert.match(github.comments[0].body, /Finalized tree different-tree did not match/);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /Finalized tree different-tree did not match/);
   });
 });
 

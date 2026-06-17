@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_PR_OPERATION_LABELS,
+  PULL_OPS_STALE_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../labels/pullOpsLabels.js';
@@ -39,13 +40,6 @@ const ACTIVE_PULL_OPS_PR_LABELS = new Set([
   ...PULL_OPS_PR_OPERATION_LABELS,
   ...PULL_OPS_STATUS_LABEL_NAMES,
 ]);
-
-const FAILURE_STATUS_LABELS_TO_REMOVE = [
-  PULL_OPS_STATUS_LABELS.inProgress,
-  PULL_OPS_STATUS_LABELS.failed,
-  PULL_OPS_STATUS_LABELS.prepared,
-  PULL_OPS_STATUS_LABELS.done,
-];
 
 /**
  * @param {string} body
@@ -447,14 +441,11 @@ function createTransition({ body, operation, outcome, state }) {
  */
 function createPrReviewTransition({ body, outcome, state }) {
   if (outcome.kind === 'approved') {
-    const nextLabel =
-      state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize
-        ? PULL_OPS_STATUS_LABELS.done
-        : PULL_OPS_OPERATION_LABELS.prFinalize;
+    const finalizedReview = state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize;
     return {
       body: updateManagedPrState({
         body,
-        status: 'Review approved',
+        status: finalizedReview ? 'Ready for human merge' : 'Review approved',
         reviewCycles: {
           current: outcome.reviewCycle,
           max: outcome.maxReviewCycles,
@@ -463,11 +454,9 @@ function createPrReviewTransition({ body, outcome, state }) {
         lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
       }),
       removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prReview),
-      addLabelsAfterRemove: [nextLabel],
+      addLabelsAfterRemove: finalizedReview ? [] : [PULL_OPS_OPERATION_LABELS.prFinalize],
       addLabelsBeforeRemove: [],
-      ...(nextLabel === PULL_OPS_STATUS_LABELS.done
-        ? { statusLabel: nextLabel }
-        : { nextOperationLabel: nextLabel }),
+      ...(finalizedReview ? {} : { nextOperationLabel: PULL_OPS_OPERATION_LABELS.prFinalize }),
     };
   }
 
@@ -588,7 +577,7 @@ function createPrFinalizeTransition({ body, outcome }) {
     return {
       body: updateManagedPrState({
         body,
-        status: 'Ready for human rebase merge',
+        status: 'Ready for human merge',
         finalizedTreeHash: outcome.finalizedTreeHash,
         finalizedHeadSha: outcome.finalizedHeadSha,
         mergeMethod: 'rebase',
@@ -680,14 +669,14 @@ function createBlockedTransition({
       : undefined,
     failureReason: reason,
     removeLabels: labelsForBlockedOperation(operation),
-    addLabelsBeforeRemove: [PULL_OPS_STATUS_LABELS.blocked],
+    addLabelsBeforeRemove: [PULL_OPS_STATUS_LABELS.humanRequired],
     addLabelsAfterRemove: [],
     commentBody: [
       `PullOps could not complete \`pullops run ${formatOperationCommand(operation)}\`.`,
       '',
       `Reason: ${reason}`,
     ].join('\n'),
-    statusLabel: PULL_OPS_STATUS_LABELS.blocked,
+    statusLabel: PULL_OPS_STATUS_LABELS.humanRequired,
   };
 }
 
@@ -715,7 +704,7 @@ function createBlockedBody({
   if (operation === PULL_OPS_OPERATION_LABELS.prReview) {
     return updateManagedPrState({
       body,
-      status: 'Blocked',
+      status: 'Human required',
       reviewCycles: {
         current: reviewCycle ?? state.reviewCycles.current,
         max: maxReviewCycles ?? state.reviewCycles.max,
@@ -728,7 +717,7 @@ function createBlockedBody({
   if (operation === PULL_OPS_OPERATION_LABELS.prAddressReview) {
     return updateManagedPrState({
       body,
-      status: 'Blocked',
+      status: 'Human required',
       reviewCycles: {
         current: reviewCycle ?? state.reviewCycles.current,
         max: maxReviewCycles ?? state.reviewCycles.max,
@@ -740,7 +729,7 @@ function createBlockedBody({
   if (operation === PULL_OPS_OPERATION_LABELS.prFixCi) {
     return updateManagedPrState({
       body,
-      status: 'Blocked',
+      status: 'Human required',
       ciFixCycles: {
         current: ciFixCycle ?? state.ciFixCycles.current,
         max: maxCiFixCycles ?? state.ciFixCycles.max,
@@ -751,7 +740,7 @@ function createBlockedBody({
 
   return updateManagedPrState({
     body,
-    status: 'Blocked',
+    status: 'Human required',
     removeMergePreparationMarkers:
       operation === PULL_OPS_OPERATION_LABELS.prUpdateBranch ||
       operation === PULL_OPS_OPERATION_LABELS.prResolveConflicts,
@@ -921,7 +910,7 @@ function formatPullRequest(pullRequest) {
  * @returns {string[]}
  */
 function labelsForSuccessfulOperation(operation) {
-  return [operation, ...PULL_OPS_STATUS_LABEL_NAMES];
+  return [operation, PULL_OPS_STATUS_LABELS.humanRequired, ...PULL_OPS_STALE_STATUS_LABEL_NAMES];
 }
 
 /**
@@ -929,7 +918,7 @@ function labelsForSuccessfulOperation(operation) {
  * @returns {string[]}
  */
 function labelsForBlockedOperation(operation) {
-  return [operation, ...extraBlockedLabels(operation), ...FAILURE_STATUS_LABELS_TO_REMOVE];
+  return [operation, ...extraBlockedLabels(operation), ...PULL_OPS_STALE_STATUS_LABEL_NAMES];
 }
 
 /**

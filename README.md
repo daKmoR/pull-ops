@@ -17,9 +17,9 @@ Operation Labels request work and are namespaced by target kind:
   or implement child issues.
 - `pullops:pr:review` runs automated review for a PullOps-managed PR.
 
-Status Labels report queryable state and use the `pullops:status:*` namespace:
-`pullops:status:in-progress`, `pullops:status:done`,
-`pullops:status:blocked`, and `pullops:status:failed`.
+PullOps uses `pullops:human-required` only when automation needs maintainer
+attention. Ordinary progress and completion state lives in PullOps-managed PR
+body text and GitHub's native issue and pull request state.
 
 For the current parent/child workflow:
 

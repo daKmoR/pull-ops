@@ -98,13 +98,15 @@ describe('runPrAddressReview', () => {
       },
     ]);
     assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
-    assert.equal(github.comments.length, 3);
-    assert.match(github.comments[0].body, /PullOps addressed feedback `review:PRR_requested`/);
+    assert.equal(github.comments.length, 4);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /Operation: pullops:pr:address-review/);
+    assert.match(github.comments[1].body, /PullOps addressed feedback `review:PRR_requested`/);
     assert.match(
-      github.comments[1].body,
+      github.comments[2].body,
       /PullOps addressed feedback `pullops-pr-review:PRR_pullops`/,
     );
-    assert.match(github.comments[2].body, /PullOps addressed feedback `comment:7001`/);
+    assert.match(github.comments[3].body, /PullOps addressed feedback `comment:7001`/);
     assert.match(github.updatedBodies[0].body, /Status: Review feedback addressed/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 1 \/ 3/);
     assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:address-review/);
@@ -206,9 +208,10 @@ describe('runPrAddressReview', () => {
         ].join('\n'),
       },
     ]);
-    assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /PullOps declined feedback `comment:7001`/);
-    assert.doesNotMatch(github.comments[0].body, /7002/);
+    assert.equal(github.comments.length, 2);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /PullOps declined feedback `comment:7001`/);
+    assert.doesNotMatch(github.comments[1].body, /7002/);
     assert.deepEqual(github.resolvedReviewThreads, []);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
@@ -246,12 +249,12 @@ describe('runPrAddressReview', () => {
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /Review cycle budget exhausted/);
     assert.equal(codex.calls.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.comments[0].body, /3 \/ 3 Review Cycles have already run/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
   });
@@ -298,9 +301,10 @@ describe('runPrAddressReview', () => {
     assert.equal(github.replies.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /Invalid Address Review Output/);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.equal(github.comments.length, 2);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /Invalid Address Review Output/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
       [

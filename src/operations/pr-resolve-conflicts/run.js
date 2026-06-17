@@ -16,6 +16,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { validatePrResolveConflictsOutput } from './output.js';
 import { buildPrResolveConflictsPrompt } from './prompt.js';
 
@@ -52,6 +53,8 @@ export async function runPrResolveConflicts(context) {
     return await completeResolvedRebase(context, preparation, step, { conflictPasses: 0 });
   }
 
+  let auditCommentPosted = false;
+
   for (let pass = 1; pass <= preparation.maxConflictResolutionPasses; pass += 1) {
     let rawOutput;
 
@@ -68,6 +71,13 @@ export async function runPrResolveConflicts(context) {
           maxPasses: preparation.maxConflictResolutionPasses,
         }),
       });
+      if (!auditCommentPosted) {
+        await commentOnPullRequestWithOperationAudit(context, {
+          pullRequestNumber: preparation.pullRequest.number,
+          operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+        });
+        auditCommentPosted = true;
+      }
     } catch (error) {
       await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
         updateBody: preparation.managed,
@@ -156,6 +166,10 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
 
   try {
     rawOutput = await readCodexActionOutput(context);
+    await commentOnPullRequestWithOperationAudit(context, {
+      pullRequestNumber: preparation.pullRequest.number,
+      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+    });
   } catch (error) {
     await removeCodexActionPrompt(context);
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

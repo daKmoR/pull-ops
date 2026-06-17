@@ -82,7 +82,9 @@ describe('runPrResolveConflicts', () => {
         labels: ['pullops:pr:review'],
       },
     ]);
-    assert.equal(github.comments.length, 0);
+    assert.equal(github.comments.length, 1);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /Operation: pullops:pr:resolve-conflicts/);
   });
 
   it('02: blocks when the conflict resolution budget is exhausted', async () => {
@@ -112,14 +114,15 @@ describe('runPrResolveConflicts', () => {
       await isAncestor(repository.workDir, 'origin/main', 'origin/pullops/issue-42'),
       false,
     );
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
-    assert.match(github.comments[0].body, /Remaining conflicted files: beta.txt/);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /Remaining conflicted files: beta.txt/);
   });
 
   it('03: refuses fork PRs with a clear comment before touching git', async () => {
@@ -147,7 +150,7 @@ describe('runPrResolveConflicts', () => {
     assert.equal(result.status, 'refused');
     assert.match(String(result.summary), /comes from a fork/);
     assert.equal(headAfter, headBefore);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.comments[0].body, /same-repository PRs/);
   });
 });

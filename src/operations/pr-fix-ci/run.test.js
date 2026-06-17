@@ -79,6 +79,9 @@ describe('runPrFixCi', () => {
     assert.match(github.updatedBodies[0].body, /Status: CI fixed/);
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
     assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:fix-ci/);
+    assert.equal(github.comments.length, 1);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /Operation: pullops:pr:fix-ci/);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
@@ -227,13 +230,13 @@ describe('runPrFixCi', () => {
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /CI fix cycle budget exhausted/);
     assert.equal(codex.calls.length, 0);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 2 \/ 2/);
     assert.match(github.comments[0].body, /2 \/ 2 CI Fix Cycles have already run/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
   });
@@ -263,7 +266,7 @@ describe('runPrFixCi', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
   });
@@ -309,8 +312,9 @@ describe('runPrFixCi', () => {
     assert.equal(result.status, 'blocked');
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.match(github.comments[0].body, /unsafe repair actions/);
-    assert.match(github.updatedBodies[0].body, /Status: Blocked/);
+    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[1].body, /unsafe repair actions/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
   });
 });

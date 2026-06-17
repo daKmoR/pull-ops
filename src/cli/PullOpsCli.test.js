@@ -201,20 +201,8 @@ test('labels ensure reports label reconciliation results from the GitHub client 
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:blocked'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:prepared'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:done'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:failed'),
-    true,
+    ensuredLabels.some(label => label.name.startsWith('pullops:status:')),
+    false,
   );
   const expectedLabels = {
     created: [ensuredLabels[0].name],
@@ -223,7 +211,7 @@ test('labels ensure reports label reconciliation results from the GitHub client 
   };
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'Ensured 16 PullOps labels: 1 created, 1 updated, 14 already correct.',
+    summary: 'Ensured 11 PullOps labels: 1 created, 1 updated, 9 already correct.',
     labels: expectedLabels,
   });
 });

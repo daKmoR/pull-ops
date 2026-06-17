@@ -21,6 +21,33 @@ export function createOperationAuditComment(context, { operation }) {
 }
 
 /**
+ * @param {string} body
+ * @param {OperationRunnerContext} context
+ * @param {{ operation: string }} options
+ * @returns {string}
+ */
+export function appendOperationAuditFooter(body, context, { operation }) {
+  return [body.trimEnd(), '', '---', '', createOperationAuditComment(context, { operation })].join(
+    '\n',
+  );
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequestNumber: number, operation: string }} options
+ * @returns {Promise<void>}
+ */
+export async function commentOnPullRequestWithOperationAudit(
+  context,
+  { pullRequestNumber, operation },
+) {
+  await context.githubClient.commentOnPullRequest({
+    number: pullRequestNumber,
+    body: createOperationAuditComment(context, { operation }),
+  });
+}
+
+/**
  * @param {string | undefined} actor
  * @returns {string}
  */

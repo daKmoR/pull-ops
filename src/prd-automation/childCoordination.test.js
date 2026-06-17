@@ -377,7 +377,7 @@ function finalizedChildPullRequestBody(issueNumber) {
     '## PullOps',
     '',
     'Managed: yes',
-    'Status: Ready for human rebase merge',
+    'Status: Ready for human merge',
     '',
     '<details>',
     '<summary>PullOps workflow state</summary>',

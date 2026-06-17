@@ -142,7 +142,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('04: preserves finalize review-approval status-label behavior', async () => {
+  it('04: leaves final review approvals ready for human merge without status labels', async () => {
     const github = createFakeGitHub();
 
     await applyManagedPrTransition({
@@ -159,12 +159,8 @@ describe('ManagedPrState', () => {
       },
     });
 
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 100,
-        labels: ['pullops:status:done'],
-      },
-    ]);
+    assert.match(github.updatedBodies[0].body, /Status: Ready for human merge/);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
   });
 
   it('05: refuses non-managed PR targets without writing a PR State Marker', async () => {
@@ -185,7 +181,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       },
     ]);
     assert.match(github.comments[0].body, /not a PullOps-managed PR/);
@@ -226,7 +222,7 @@ describe('ManagedPrState', () => {
       githubClient: github.client,
       pullRequest: createPullRequest({
         body: createManagedBody({
-          status: 'Ready for human rebase merge',
+          status: 'Ready for human merge',
           finalizedTreeHash: 'tree-finalized',
           finalizedHeadSha: 'head-finalized',
           mergeMethod: 'rebase',
@@ -267,7 +263,7 @@ describe('ManagedPrState', () => {
     const result = await requestManagedPrReview({
       githubClient: github.client,
       pullRequest: createPullRequest({
-        labels: ['pullops:status:blocked'],
+        labels: ['pullops:human-required'],
       }),
     });
 
