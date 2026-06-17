@@ -16,6 +16,7 @@ import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplet
  */
 
 /** @typedef {{ issue: { number: number }, status: string }} ChildAutomationResult */
+/** @typedef {import('../../prd-automation/childCoordination.types.js').ParentReviewResult} ParentReviewResult */
 
 describe('runPrdAutoAdvance', () => {
   it('01: prepares the PRD and starts currently unblocked open child issues only', async () => {
@@ -130,12 +131,14 @@ describe('runPrdAutoAdvance', () => {
     );
 
     assert.equal(result.status, 'accepted');
+    assert.equal(readParentPullRequest(result)?.status, 'waiting-for-child-issues');
     assert.deepEqual(github.issueLabelsAdded, [
       {
         number: 12,
         labels: ['pullops:status:prepared'],
       },
     ]);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(
       readChildResults(result).map(child => child.issue.number),
       [],
@@ -467,6 +470,14 @@ function parentPullRequestBody(issueNumber) {
  */
 function readChildResults(result) {
   return /** @type {ChildAutomationResult[]} */ (result.children);
+}
+
+/**
+ * @param {Record<string, unknown>} result
+ * @returns {ParentReviewResult | undefined}
+ */
+function readParentPullRequest(result) {
+  return /** @type {ParentReviewResult | undefined} */ (result.parentPullRequest);
 }
 
 /**

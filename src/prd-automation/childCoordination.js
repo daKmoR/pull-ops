@@ -588,6 +588,20 @@ async function requestUmbrellaReviewIfComplete(
   const parentIssue =
     childIssues === undefined ? await context.githubClient.getIssue(parentIssueNumber) : undefined;
   const children = childIssues ?? parentIssue?.subIssues ?? [];
+  if (children.length === 0) {
+    return {
+      status: 'waiting-for-child-issues',
+      ...(parentIssue === undefined
+        ? {}
+        : {
+            issue: {
+              number: parentIssue.number,
+              url: parentIssue.url,
+            },
+          }),
+    };
+  }
+
   const openChildIssues = children.filter(childIssue => childIssue.state !== 'CLOSED');
   if (openChildIssues.length > 0) {
     return {
@@ -803,6 +817,10 @@ function summarizePrdAutomation({ mode, parentIssue, children, parentPullRequest
 
   if (parentPullRequest.status === 'review-requested') {
     parts.push('Requested umbrella PR review.');
+  }
+
+  if (parentPullRequest.status === 'waiting-for-child-issues') {
+    parts.push('Waiting for Child Issues.');
   }
 
   return parts.join(' ');
