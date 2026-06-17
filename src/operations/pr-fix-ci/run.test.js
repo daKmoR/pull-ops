@@ -87,6 +87,7 @@ describe('runPrFixCi', () => {
         number: 100,
         labels: [
           'pullops:pr:fix-ci',
+          'pullops:pr:review',
           'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',

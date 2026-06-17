@@ -36,6 +36,10 @@ _Avoid_: Internal command, subcommand
 The package-owned implementation directory for one PullOps Operation, containing its orchestration code, prompts, extraction instructions, and Operation Output schema.
 _Avoid_: Workflow script, runner file
 
+**Operation Catalog**:
+The PullOps-owned source of truth for the fixed PullOps Operation set and their canonical operation facts, keeping Operation Names, Operation Labels, target kinds, and workflow-facing identity aligned.
+_Avoid_: Plugin registry, workflow generator, operation list
+
 **Local PullOps Dependency**:
 The Target Repository's package-managed dependency on `@pull-ops/cli`, used by workflows instead of a global install.
 _Avoid_: Global CLI, latest CLI
@@ -55,6 +59,14 @@ _Avoid_: Provider config, model command
 **Runner Adapter**:
 The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
 _Avoid_: Phase, task script, provider
+
+**Execution Backend**:
+The place where a PullOps Operation is executed, such as the active local checkout or GitHub Actions.
+_Avoid_: Runner adapter, provider
+
+**Publication Mode**:
+The intended visibility and persistence of a PullOps Operation result, such as opening a pull request or producing a dry run for review.
+_Avoid_: Output, execution backend
 
 **GitHub State Synchronization**:
 A deterministic PullOps workflow that reconciles GitHub issue or pull request state without invoking a Runner Adapter.

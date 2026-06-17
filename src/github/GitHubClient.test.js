@@ -407,7 +407,9 @@ describe('createGitHubClient', () => {
       method: 'rebase',
     });
     await client.resolvePullRequestReviewThread('PRRT_1');
-    await client.dismissPullRequestReview({
+    const dismissPullRequestReview = client.dismissPullRequestReview;
+    assert.ok(dismissPullRequestReview);
+    await dismissPullRequestReview({
       reviewId: 'PRR_1',
       message: 'PullOps addressed the requested changes.',
     });

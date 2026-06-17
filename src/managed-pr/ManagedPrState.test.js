@@ -125,6 +125,7 @@ describe('ManagedPrState', () => {
         number: 100,
         labels: [
           'pullops:pr:review',
+          'pullops:pr:finalize',
           'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
@@ -201,7 +202,50 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('06: refuses non-managed PR targets without writing a PR State Marker', async () => {
+  it('06: refreshes stale PR operation labels before routing to the next operation', async () => {
+    const github = createFakeGitHub();
+
+    await applyManagedPrTransition({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Changes requested',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+        }),
+        labels: [PULL_OPS_OPERATION_LABELS.prReview, PULL_OPS_OPERATION_LABELS.prAddressReview],
+      }),
+      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      outcome: {
+        kind: 'addressed',
+        reviewCycle: 2,
+        maxReviewCycles: 3,
+      },
+    });
+
+    assert.deepEqual(github.pullRequestLabelsRemoved, [
+      {
+        number: 100,
+        labels: [
+          'pullops:pr:address-review',
+          'pullops:pr:review',
+          'pullops:human-required',
+          'pullops:status:in-progress',
+          'pullops:status:blocked',
+          'pullops:status:prepared',
+          'pullops:status:done',
+          'pullops:status:failed',
+        ],
+      },
+    ]);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:review'],
+      },
+    ]);
+  });
+
+  it('07: refuses non-managed PR targets without writing a PR State Marker', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'managed-pr-'));
     const github = createFakeGitHub();
 
@@ -229,7 +273,7 @@ describe('ManagedPrState', () => {
     );
   });
 
-  it('07: resumes a managed PR from approved review to finalize', async () => {
+  it('08: resumes a managed PR from approved review to finalize', async () => {
     const github = createFakeGitHub();
 
     const result = await resumeManagedPrWorkflow({
@@ -253,7 +297,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('08: leaves finalized managed PRs waiting for integration', async () => {
+  it('09: leaves finalized managed PRs waiting for integration', async () => {
     const github = createFakeGitHub();
 
     const result = await resumeManagedPrWorkflow({
@@ -273,7 +317,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, []);
   });
 
-  it('09: requests managed PR review when no PR workflow is active', async () => {
+  it('10: requests managed PR review when no PR workflow is active', async () => {
     const github = createFakeGitHub();
 
     const result = await requestManagedPrReview({
@@ -295,7 +339,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('10: does not route managed PRs that already have active workflow labels', async () => {
+  it('11: does not route managed PRs that already have active workflow labels', async () => {
     const github = createFakeGitHub();
 
     const result = await requestManagedPrReview({
@@ -309,7 +353,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsAdded, []);
   });
 
-  it('11: applies clean branch update transitions without requesting review', async () => {
+  it('12: applies clean branch update transitions without requesting review', async () => {
     const github = createFakeGitHub();
 
     await applyManagedPrTransition({

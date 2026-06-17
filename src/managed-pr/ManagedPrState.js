@@ -403,7 +403,7 @@ function createTransition({ body, operation, outcome, state }) {
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(operation),
+      removeLabels: labelsForSuccessfulOperation(operation, PULL_OPS_OPERATION_LABELS.prReview),
       addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
       addLabelsBeforeRemove: [],
       nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
@@ -426,7 +426,7 @@ function createTransition({ body, operation, outcome, state }) {
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(operation),
+      removeLabels: labelsForSuccessfulOperation(operation, PULL_OPS_OPERATION_LABELS.prReview),
       addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
       addLabelsBeforeRemove: [],
       nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
@@ -454,7 +454,10 @@ function createPrReviewTransition({ body, outcome, state }) {
         reviewedTreeHash: outcome.reviewedTreeHash,
         lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
       }),
-      removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prReview),
+      removeLabels: labelsForSuccessfulOperation(
+        PULL_OPS_OPERATION_LABELS.prReview,
+        finalizedReview ? undefined : PULL_OPS_OPERATION_LABELS.prFinalize,
+      ),
       addLabelsAfterRemove: finalizedReview ? [] : [PULL_OPS_OPERATION_LABELS.prFinalize],
       addLabelsBeforeRemove: [],
       ...(finalizedReview ? {} : { nextOperationLabel: PULL_OPS_OPERATION_LABELS.prFinalize }),
@@ -478,7 +481,10 @@ function createPrReviewTransition({ body, outcome, state }) {
       removeMergePreparationMarkers: true,
       lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
     }),
-    removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prReview),
+    removeLabels: labelsForSuccessfulOperation(
+      PULL_OPS_OPERATION_LABELS.prReview,
+      PULL_OPS_OPERATION_LABELS.prAddressReview,
+    ),
     addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prAddressReview],
     addLabelsBeforeRemove: [],
     nextOperationLabel: PULL_OPS_OPERATION_LABELS.prAddressReview,
@@ -492,7 +498,10 @@ function createPrReviewTransition({ body, outcome, state }) {
 function createPrFixCiTransition({ body, outcome }) {
   if (outcome.kind === 'no-failed-checks') {
     return {
-      removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prFixCi),
+      removeLabels: labelsForSuccessfulOperation(
+        PULL_OPS_OPERATION_LABELS.prFixCi,
+        PULL_OPS_OPERATION_LABELS.prReview,
+      ),
       addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
       addLabelsBeforeRemove: [],
       nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
@@ -515,7 +524,10 @@ function createPrFixCiTransition({ body, outcome }) {
       },
       lastOperation: PULL_OPS_OPERATION_LABELS.prFixCi,
     }),
-    removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prFixCi),
+    removeLabels: labelsForSuccessfulOperation(
+      PULL_OPS_OPERATION_LABELS.prFixCi,
+      PULL_OPS_OPERATION_LABELS.prReview,
+    ),
     addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
     addLabelsBeforeRemove: [],
     nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
@@ -535,7 +547,10 @@ function createPrUpdateBranchTransition({ body, outcome }) {
         removeMergePreparationMarkers: true,
         lastOperation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
       }),
-      removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prUpdateBranch),
+      removeLabels: labelsForSuccessfulOperation(
+        PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+        PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      ),
       addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prResolveConflicts],
       addLabelsBeforeRemove: [],
       commentBody: [
@@ -598,7 +613,10 @@ function createPrFinalizeTransition({ body, outcome }) {
         lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
       }),
       failureReason: outcome.reason,
-      removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prFinalize),
+      removeLabels: labelsForSuccessfulOperation(
+        PULL_OPS_OPERATION_LABELS.prFinalize,
+        PULL_OPS_OPERATION_LABELS.prReview,
+      ),
       addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
       addLabelsBeforeRemove: [],
       commentBody: [
@@ -618,7 +636,10 @@ function createPrFinalizeTransition({ body, outcome }) {
 
   return {
     failureReason: outcome.reason,
-    removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prFinalize),
+    removeLabels: labelsForSuccessfulOperation(
+      PULL_OPS_OPERATION_LABELS.prFinalize,
+      PULL_OPS_OPERATION_LABELS.prFixCi,
+    ),
     addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prFixCi],
     addLabelsBeforeRemove: [],
     commentBody: [
@@ -907,10 +928,18 @@ function formatPullRequest(pullRequest) {
 
 /**
  * @param {string} operation
+ * @param {string | undefined} nextOperation
  * @returns {string[]}
  */
-function labelsForSuccessfulOperation(operation) {
-  return [operation, PULL_OPS_STATUS_LABELS.humanRequired, ...PULL_OPS_STALE_STATUS_LABEL_NAMES];
+function labelsForSuccessfulOperation(operation, nextOperation = undefined) {
+  return [
+    ...new Set([
+      operation,
+      ...(nextOperation === undefined ? [] : [nextOperation]),
+      PULL_OPS_STATUS_LABELS.humanRequired,
+      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
+    ]),
+  ];
 }
 
 /**

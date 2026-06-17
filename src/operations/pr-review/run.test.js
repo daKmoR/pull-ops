@@ -114,6 +114,7 @@ describe('runPrReview', () => {
         number: 100,
         labels: [
           'pullops:pr:review',
+          'pullops:pr:finalize',
           'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',

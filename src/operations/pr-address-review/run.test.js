@@ -123,6 +123,7 @@ describe('runPrAddressReview', () => {
         number: 100,
         labels: [
           'pullops:pr:address-review',
+          'pullops:pr:review',
           'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',
@@ -497,6 +498,25 @@ function createReviewContext(overrides = {}) {
         databaseId: 7001,
         body: 'Please clarify how this works from the top-level conversation.',
         authorLogin: 'maintainer',
+      },
+      {
+        databaseId: 7002,
+        body: [
+          'PullOps ran `pullops:issue:implement`.',
+          '',
+          '---',
+          '',
+          '<details>',
+          '<summary>PullOps operation audit</summary>',
+          '',
+          'Operation: pullops:issue:implement',
+          'Trigger actor: @github-actions[bot]',
+          'Model tier: high',
+          'Model: gpt-5.5',
+          'Context used: unknown',
+          '</details>',
+        ].join('\n'),
+        authorLogin: 'pullops-bot',
       },
     ],
     reviews: [

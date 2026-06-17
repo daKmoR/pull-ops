@@ -67,6 +67,7 @@ describe('runPrResolveConflicts', () => {
         number: 100,
         labels: [
           'pullops:pr:resolve-conflicts',
+          'pullops:pr:review',
           'pullops:human-required',
           'pullops:status:in-progress',
           'pullops:status:blocked',

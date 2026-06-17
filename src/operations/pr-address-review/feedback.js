@@ -108,6 +108,10 @@ function collectTopLevelCommentFeedback(reviewContext) {
       continue;
     }
 
+    if (isPullOpsOperationAuditComment(body)) {
+      continue;
+    }
+
     items.push({
       id: `comment:${comment.databaseId ?? comment.id ?? index + 1}`,
       surface: 'top_level_comment',
@@ -118,4 +122,12 @@ function collectTopLevelCommentFeedback(reviewContext) {
   }
 
   return items;
+}
+
+/**
+ * @param {string} body
+ * @returns {boolean}
+ */
+function isPullOpsOperationAuditComment(body) {
+  return /<summary>\s*PullOps operation audit\s*<\/summary>/i.test(body);
 }
