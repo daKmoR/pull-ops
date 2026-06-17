@@ -13,6 +13,7 @@ temp
 # Local Netlify folder
 .netlify
 .wireit
+.pullops/runs/
 
 _examples/**/*
 

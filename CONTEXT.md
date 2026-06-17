@@ -32,12 +32,20 @@ _Avoid_: Setup, bootstrap
 A PullOps CLI command intended to be called by generated GitHub Actions workflows.
 _Avoid_: Internal command, subcommand
 
+**Human-Facing Command**:
+A PullOps CLI command intended to be typed directly by a maintainer to run an Operation Label Reference against a target with an Execution Backend and Publication Mode.
+_Avoid_: Workflow-facing command, lifecycle command
+
+**Operation Label Reference**:
+The command-line spelling of an Operation Label, using only the short `target-kind:operation` form such as `issue:implement` or `prd:auto-advance`.
+_Avoid_: Operation name, full label
+
 **Operation Module**:
 The package-owned implementation directory for one PullOps Operation, containing its orchestration code, prompts, extraction instructions, and Operation Output schema.
 _Avoid_: Workflow script, runner file
 
 **Operation Catalog**:
-The PullOps-owned source of truth for the fixed PullOps Operation set and their canonical operation facts, keeping Operation Names, Operation Labels, target kinds, and workflow-facing identity aligned.
+The PullOps-owned source of truth for the fixed PullOps Operation set and their canonical operation facts, keeping Operation Names, Operation Labels, target kinds, default operation settings, and workflow-facing identity aligned.
 _Avoid_: Plugin registry, workflow generator, operation list
 
 **Local PullOps Dependency**:
@@ -67,6 +75,22 @@ _Avoid_: Runner adapter, provider
 **Publication Mode**:
 The intended visibility and persistence of a PullOps Operation result, such as opening a pull request or leaving local changes for review.
 _Avoid_: Output, execution backend
+
+**Run Goal**:
+How far a PullOps Execution Backend should continue through PullOps follow-up operations for a target.
+_Avoid_: Publication mode, operation label
+
+**Local Run Record**:
+A visible, gitignored `.pullops/runs/<timestamp>-<operation-label-reference>-<target-number>/` directory where local execution records artifacts from one PullOps run.
+_Avoid_: Hidden cache, audit store
+
+**Operation Run Goal**:
+The Run Goal where PullOps runs exactly the requested Operation Label Reference and then stops.
+_Avoid_: One-shot mode
+
+**Finalized Run Goal**:
+The Run Goal where PullOps follows local PullOps follow-up operations until the pull request is finalized or blocked.
+_Avoid_: Full run, final publish
 
 **GitHub State Synchronization**:
 A deterministic PullOps workflow that reconciles GitHub issue or pull request state without invoking a Runner Adapter.
