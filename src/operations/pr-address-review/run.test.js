@@ -99,7 +99,7 @@ describe('runPrAddressReview', () => {
     ]);
     assert.deepEqual(github.resolvedReviewThreads, ['PRRT_1']);
     assert.equal(github.comments.length, 4);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[0].body, /Operation: pullops:pr:address-review/);
     assert.match(github.comments[1].body, /PullOps addressed feedback `review:PRR_requested`/);
     assert.match(
@@ -209,7 +209,7 @@ describe('runPrAddressReview', () => {
       },
     ]);
     assert.equal(github.comments.length, 2);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /PullOps declined feedback `comment:7001`/);
     assert.doesNotMatch(github.comments[1].body, /7002/);
     assert.deepEqual(github.resolvedReviewThreads, []);
@@ -302,7 +302,7 @@ describe('runPrAddressReview', () => {
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
     assert.equal(github.comments.length, 2);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /Invalid Address Review Output/);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.equal(

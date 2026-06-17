@@ -4,20 +4,14 @@
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ operation: string }} options
+ * @param {{ operation: string, summary?: string }} options
  * @returns {string}
  */
-export function createOperationAuditComment(context, { operation }) {
-  return [
-    '## PullOps Operation Audit',
-    '',
-    `Operation: ${operation}`,
-    `Trigger actor: ${formatActor(context.triggerActor)}`,
-    `Model tier: ${context.modelTier}`,
-    `Model: ${context.model}`,
-    ...formatReasoningEffort(context.reasoningEffort),
-    `Context used: ${formatContextUsage(context.contextUsage)}`,
-  ].join('\n');
+export function createOperationAuditComment(context, { operation, summary }) {
+  const auditDetails = createOperationAuditDetails(context, { operation });
+  const trimmedSummary = summary?.trim() || `PullOps ran \`${operation}\`.`;
+
+  return [trimmedSummary, '', '---', '', auditDetails].join('\n');
 }
 
 /**
@@ -27,24 +21,44 @@ export function createOperationAuditComment(context, { operation }) {
  * @returns {string}
  */
 export function appendOperationAuditFooter(body, context, { operation }) {
-  return [body.trimEnd(), '', '---', '', createOperationAuditComment(context, { operation })].join(
+  return [body.trimEnd(), '', '---', '', createOperationAuditDetails(context, { operation })].join(
     '\n',
   );
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ pullRequestNumber: number, operation: string }} options
+ * @param {{ pullRequestNumber: number, operation: string, summary?: string }} options
  * @returns {Promise<void>}
  */
 export async function commentOnPullRequestWithOperationAudit(
   context,
-  { pullRequestNumber, operation },
+  { pullRequestNumber, operation, summary },
 ) {
   await context.githubClient.commentOnPullRequest({
     number: pullRequestNumber,
-    body: createOperationAuditComment(context, { operation }),
+    body: createOperationAuditComment(context, { operation, summary }),
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ operation: string }} options
+ * @returns {string}
+ */
+function createOperationAuditDetails(context, { operation }) {
+  return [
+    '<details>',
+    '<summary>PullOps operation audit</summary>',
+    '',
+    `Operation: ${operation}`,
+    `Trigger actor: ${formatActor(context.triggerActor)}`,
+    `Model tier: ${context.modelTier}`,
+    `Model: ${context.model}`,
+    ...formatReasoningEffort(context.reasoningEffort),
+    `Context used: ${formatContextUsage(context.contextUsage)}`,
+    '</details>',
+  ].join('\n');
 }
 
 /**

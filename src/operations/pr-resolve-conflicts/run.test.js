@@ -83,7 +83,7 @@ describe('runPrResolveConflicts', () => {
       },
     ]);
     assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[0].body, /Operation: pullops:pr:resolve-conflicts/);
   });
 
@@ -121,7 +121,7 @@ describe('runPrResolveConflicts', () => {
         labels: ['pullops:human-required'],
       },
     ]);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /Remaining conflicted files: beta.txt/);
   });
 

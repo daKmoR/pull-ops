@@ -715,7 +715,7 @@ describe('runPrFinalize', () => {
     assert.match(codex.calls[0].prompt, /Plan ambiguous PR Finalize history grouping/);
     assert.match(codex.calls[0].prompt, /Do not edit files, run commands, create commits/);
     assert.doesNotMatch(codex.calls[0].prompt, /"pullRequest"/);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[0].body, /Operation: pullops:pr:finalize/);
     assert.deepEqual(await readCommitMessages(repository.workDir), [
       createPrFinalizeCommitMessage(21, 7),
@@ -800,7 +800,7 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(codex.calls.length, 1);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /Invalid PR Finalize Planner Output/);
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
@@ -845,7 +845,7 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(codex.calls.length, 1);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /Finalized tree different-tree did not match/);
   });
 });

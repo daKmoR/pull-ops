@@ -80,7 +80,7 @@ describe('runPrFixCi', () => {
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
     assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:fix-ci/);
     assert.equal(github.comments.length, 1);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[0].body, /Operation: pullops:pr:fix-ci/);
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
@@ -312,7 +312,7 @@ describe('runPrFixCi', () => {
     assert.equal(result.status, 'blocked');
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.match(github.comments[0].body, /## PullOps Operation Audit/);
+    assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /unsafe repair actions/);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);

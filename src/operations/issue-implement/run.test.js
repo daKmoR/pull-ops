@@ -100,13 +100,19 @@ describe('runIssueImplement', () => {
       {
         number: 100,
         body: [
-          '## PullOps Operation Audit',
+          'Implemented the first operation.',
+          '',
+          '---',
+          '',
+          '<details>',
+          '<summary>PullOps operation audit</summary>',
           '',
           'Operation: pullops:issue:implement',
           'Trigger actor: @octocat',
           'Model tier: high',
           'Model: gpt-5.5',
           'Context used: unknown',
+          '</details>',
         ].join('\n'),
       },
     ]);

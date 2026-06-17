@@ -6,7 +6,7 @@ import {
   readBlockingDependencies,
   readIssueWorkTarget,
 } from '../../prd-automation/childCoordination.js';
-import { createOperationAuditComment } from '../auditComment.js';
+import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
@@ -318,11 +318,10 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
       number: pullRequest.number,
       labels: [PULL_OPS_OPERATION_LABELS.prReview],
     });
-    await context.githubClient.commentOnPullRequest({
-      number: pullRequest.number,
-      body: createOperationAuditComment(context, {
-        operation: PULL_OPS_OPERATION_LABELS.issueImplement,
-      }),
+    await commentOnPullRequestWithOperationAudit(context, {
+      pullRequestNumber: pullRequest.number,
+      operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      summary: validatedOutput.value.summary,
     });
     await context.githubClient.removeLabelsFromIssue({
       number: issue.number,

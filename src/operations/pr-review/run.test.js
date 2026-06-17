@@ -90,7 +90,7 @@ describe('runPrReview', () => {
       github.publishedReviews[0].body,
       /^The PR satisfies the issue and coding standards\./,
     );
-    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.match(github.publishedReviews[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.publishedReviews[0].body, /Operation: pullops:pr:review/);
     assert.deepEqual(github.publishedReviews[0].comments, [
       {
@@ -304,7 +304,7 @@ describe('runPrReview', () => {
     assert.equal(result.status, 'blocked');
     assert.equal(github.publishedReviews.length, 1);
     assert.match(github.publishedReviews[0].body, /^Review could not complete\./);
-    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.match(github.publishedReviews[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.publishedReviews[0].body, /Operation: pullops:pr:review/);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /Review cycles: 2 \/ 3/);
@@ -491,7 +491,7 @@ describe('runPrReview', () => {
     assert.equal(github.publishedReviews[0].number, 100);
     assert.equal(github.publishedReviews[0].event, 'COMMENT');
     assert.match(github.publishedReviews[0].body, /^The README change matches issue #15\./);
-    assert.match(github.publishedReviews[0].body, /## PullOps Operation Audit/);
+    assert.match(github.publishedReviews[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.deepEqual(github.publishedReviews[0].comments, []);
     assert.match(github.updatedBodies[0].body, /Status: Review approved/);
   });
