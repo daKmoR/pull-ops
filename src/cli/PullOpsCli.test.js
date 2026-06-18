@@ -513,19 +513,22 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.match(stderr.text, /Use "prd:prepare --backend github-actions"/);
   });
 
-  await t.test('local pr references stay unsupported until local dry-run semantics exist', async () => {
-    const stderr = createWritableBuffer();
-    const cli = new PullOpsCli({ stderr });
+  await t.test(
+    'local pr references stay unsupported until local dry-run semantics exist',
+    async () => {
+      const stderr = createWritableBuffer();
+      const cli = new PullOpsCli({ stderr });
 
-    const exitCode = await cli.run(['run', 'pr:review', '456']);
+      const exitCode = await cli.run(['run', 'pr:review', '456']);
 
-    assert.equal(exitCode, 1);
-    assert.match(
-      stderr.text,
-      /Local execution is currently only supported for: issue:implement, prd:auto-advance, prd:auto-complete/,
-    );
-    assert.match(stderr.text, /Use "pr:review --backend github-actions"/);
-  });
+      assert.equal(exitCode, 1);
+      assert.match(
+        stderr.text,
+        /Local execution is currently only supported for: issue:implement, prd:auto-advance, prd:auto-complete/,
+      );
+      assert.match(stderr.text, /Use "pr:review --backend github-actions"/);
+    },
+  );
 
   await t.test('publish flag with github-actions backend', async () => {
     const stderr = createWritableBuffer();
