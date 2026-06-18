@@ -1,4 +1,5 @@
 import type { GitHubIssue } from '../../github/types.js';
+import type { ImplementedIssueOutput } from './output.types.js';
 
 export type IssueImplementPreparation =
   | { ready: false; output: Record<string, unknown> }
@@ -16,4 +17,10 @@ export interface BlockIssueDryRunOptions {
   branchName: string;
   baseBranch: string;
   publicationMode?: 'dry-run' | 'publish';
+}
+
+export interface ReusableFinalizedDryRunRecord {
+  directory: string;
+  output: ImplementedIssueOutput;
+  body: string;
 }

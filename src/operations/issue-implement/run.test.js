@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -1663,7 +1663,134 @@ describe('runIssueImplement', () => {
     assert.equal(codex.calls.length, 3);
   });
 
-  it('33: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
+  it('33: local finalized PR publication reuses a successful finalized dry-run record', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-existing-'));
+    const previousRunRecord = join(
+      cwd,
+      '.pullops',
+      'runs',
+      '2026-06-18T120000000Z-issue-implement-42',
+    );
+    await mkdir(previousRunRecord, { recursive: true });
+    await writeFile(
+      join(previousRunRecord, 'metadata.json'),
+      `${JSON.stringify(
+        {
+          operation: 'pullops:issue:implement',
+          operationReference: 'issue:implement',
+          target: {
+            type: 'issue',
+            number: 42,
+          },
+          branch: 'pullops/issue-42',
+          baseBranch: 'main',
+          publicationMode: 'dry-run',
+          runGoal: 'finalized',
+          modelTier: 'high',
+          model: 'gpt-5.5',
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      join(previousRunRecord, 'validated-output.json'),
+      `${JSON.stringify(
+        {
+          status: 'implemented',
+          summary: 'Implemented finalized dry-run.',
+          changes: ['Added the finalized behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+          followUps: [],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      join(previousRunRecord, 'finalized-pr-body.md'),
+      [
+        '## PullOps',
+        '',
+        'Managed: yes',
+        'Status: Ready for human merge',
+        '',
+        '## PullOps Link Summary',
+        '',
+        'Kind: Concrete Issue PR',
+        'Source Issue: #42',
+        'Closes: #42',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      join(previousRunRecord, 'ci-follow-up.json'),
+      `${JSON.stringify(
+        {
+          mode: 'await-hosted-checks',
+          status: 'pending-publication',
+          operation: 'pr:fix-ci',
+          finalizedHeadSha: 'head-finalized',
+          finalizedTreeHash: 'tree-finalized',
+          branch: 'pullops/issue-42',
+          publicationMode: 'dry-run',
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const issue = createIssue({ number: 42, title: 'Publish finalized dry-run', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      currentBranch: 'main',
+      hasChangesResults: [false, false],
+      commitsSinceBase: [
+        {
+          sha: 'abc123',
+          subject: 'feat(issue): implement #42',
+          body: 'Refs: #42',
+          files: ['README.md'],
+        },
+      ],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({ output: [] });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.preparedBranch, true);
+    assert.equal(result.reusedLocalRunRecord, previousRunRecord);
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+    assert.deepEqual(git.rewrites, []);
+    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/issue-42' }]);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(github.createdPullRequests[0].body, /Status: Ready for human merge/);
+    assert.doesNotMatch(github.createdPullRequests[0].body, /Published local commit/);
+    assert.deepEqual(github.readyPullRequests, [100]);
+
+    const publishRunRecord = String(result.localRunRecord);
+    assert.notEqual(publishRunRecord, previousRunRecord);
+    assert.equal(
+      await readFile(join(publishRunRecord, 'reused-local-run-record.txt'), 'utf8'),
+      `${previousRunRecord}\n`,
+    );
+  });
+
+  it('34: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
     const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1760,7 +1887,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('34: local finalized approval commits direct review changes before finalization continues', async () => {
+  it('35: local finalized approval commits direct review changes before finalization continues', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-review-direct-changes-'));
     const issue = createIssue({ number: 42, title: 'Commit review-owned changes locally' });
     const github = createFakeGitHub({ issue });
@@ -1842,7 +1969,7 @@ describe('runIssueImplement', () => {
     ]);
   });
 
-  it('35: local finalized runs block when address-review omits local feedback coverage', async () => {
+  it('36: local finalized runs block when address-review omits local feedback coverage', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-address-coverage-'));
     const issue = createIssue({ number: 42, title: 'Cover every local feedback item', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1905,7 +2032,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('36: local finalized tree mismatch restores the reviewed head before blocking', async () => {
+  it('37: local finalized tree mismatch restores the reviewed head before blocking', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-tree-mismatch-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on finalize mismatch' });
     const github = createFakeGitHub({ issue });
@@ -1972,7 +2099,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('37: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
+  it('38: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-rewrite-failure-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on rewrite failure' });
     const github = createFakeGitHub({ issue });

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
@@ -34,6 +34,7 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
  * @typedef {import('../pr-review/output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
  * @typedef {import('./run.types.js').IssueImplementPreparation} IssueImplementPreparation
  * @typedef {import('./run.types.js').BlockIssueDryRunOptions} BlockIssueDryRunOptions
+ * @typedef {import('./run.types.js').ReusableFinalizedDryRunRecord} ReusableFinalizedDryRunRecord
  */
 
 export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
@@ -488,7 +489,6 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
   const prepared = buildPreparedIssueImplement(workTarget);
 
   await fetchRemoteRefsForDryRun(context, prepared);
-  const currentBranch = await readCurrentBranch(context);
   await writeIssueImplementLocalMetadata(context, runRecord, {
     issue,
     prepared,
@@ -501,15 +501,13 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
     return blocked;
   }
 
-  if (currentBranch === prepared.branchName) {
-    const commits = await readLocalCommitsSinceBase(context, prepared);
-    if (commits.length > 0) {
-      return {
-        ...prepared,
-        preparedBranch: true,
-        commits,
-      };
-    }
+  const commits = await readLocalCommitsSinceBase(context, prepared);
+  if (commits.length > 0) {
+    return {
+      ...prepared,
+      preparedBranch: true,
+      commits,
+    };
   }
 
   return prepared;
@@ -807,14 +805,42 @@ async function finalizePreparedIssueImplementLocalPublish(
  * @returns {Promise<Record<string, unknown>>}
  */
 async function publishPreparedIssueImplementBranch(context, preparation, runRecord) {
-  const output = createPreparedBranchIssueImplementOutput(preparation);
-  await writeLocalRunArtifact(
-    runRecord,
-    'validated-output.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-
   if (context.runGoal === 'finalized') {
+    const reusableRunRecord = await readReusableFinalizedDryRunRecord(context, preparation);
+    if (reusableRunRecord !== undefined) {
+      await writeLocalRunArtifact(
+        runRecord,
+        'validated-output.json',
+        `${JSON.stringify(reusableRunRecord.output, null, 2)}\n`,
+      );
+      await writeLocalRunArtifact(runRecord, 'finalized-pr-body.md', reusableRunRecord.body);
+      await writeLocalRunArtifact(
+        runRecord,
+        'reused-local-run-record.txt',
+        `${reusableRunRecord.directory}\n`,
+      );
+      return await publishIssueImplementPullRequest(
+        context,
+        preparation,
+        reusableRunRecord.output,
+        {
+          localRunRecord: runRecord.directory,
+          preparedBranch: true,
+          finalizedBody: reusableRunRecord.body,
+          readyForReview: true,
+          finalizedBranch: true,
+          reusedLocalRunRecord: reusableRunRecord.directory,
+          summary: `Published existing finalized local run for issue #${preparation.issue.number}.`,
+        },
+      );
+    }
+
+    const output = createPreparedBranchIssueImplementOutput(preparation);
+    await writeLocalRunArtifact(
+      runRecord,
+      'validated-output.json',
+      `${JSON.stringify(output, null, 2)}\n`,
+    );
     const finalized = await runLocalFinalizedIssuePipeline(context, preparation, output, runRecord);
     if (finalized.status === 'blocked') {
       return finalized.output;
@@ -830,6 +856,12 @@ async function publishPreparedIssueImplementBranch(context, preparation, runReco
     });
   }
 
+  const output = createPreparedBranchIssueImplementOutput(preparation);
+  await writeLocalRunArtifact(
+    runRecord,
+    'validated-output.json',
+    `${JSON.stringify(output, null, 2)}\n`,
+  );
   return await publishIssueImplementPullRequest(context, preparation, output, {
     localRunRecord: runRecord.directory,
     preparedBranch: true,
@@ -846,6 +878,7 @@ async function publishPreparedIssueImplementBranch(context, preparation, runReco
  *   finalizedBody?: string,
  *   readyForReview?: boolean,
  *   finalizedBranch?: boolean,
+ *   reusedLocalRunRecord?: string,
  *   summary?: string,
  * }} options
  * @returns {Promise<Record<string, unknown>>}
@@ -860,6 +893,7 @@ async function publishIssueImplementPullRequest(
     finalizedBody,
     readyForReview = false,
     finalizedBranch = false,
+    reusedLocalRunRecord,
     summary,
   },
 ) {
@@ -949,6 +983,7 @@ async function publishIssueImplementPullRequest(
     publicationMode: 'publish',
     localRunRecord,
     ...(preparedBranch ? { preparedBranch: true } : {}),
+    ...(reusedLocalRunRecord === undefined ? {} : { reusedLocalRunRecord }),
   };
 }
 
@@ -1980,6 +2015,71 @@ async function writeLocalRunArtifact(runRecord, fileName, contents) {
 }
 
 /**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {Promise<ReusableFinalizedDryRunRecord | undefined>}
+ */
+async function readReusableFinalizedDryRunRecord(context, preparation) {
+  const runsDirectory = join(context.cwd, '.pullops', 'runs');
+  let entries;
+  try {
+    entries = await readdir(runsDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (isErrorWithCode(error, 'ENOENT')) {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  const currentHeadSha = await readLocalFinalizedHeadSha(context);
+  const currentTreeHash = await readLocalFinalizedTreeHash(context);
+  const recordNames = entries
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .sort()
+    .reverse();
+
+  for (const recordName of recordNames) {
+    const directory = join(runsDirectory, recordName);
+    const metadata = await readJsonLocalRunArtifactIfAvailable(directory, 'metadata.json');
+    if (!isReusableFinalizedDryRunMetadata(metadata, preparation)) {
+      continue;
+    }
+
+    const ciFollowUp = await readJsonLocalRunArtifactIfAvailable(directory, 'ci-follow-up.json');
+    if (
+      !isReusableFinalizedCiFollowUp(ciFollowUp, {
+        branchName: preparation.branchName,
+        currentHeadSha,
+        currentTreeHash,
+      })
+    ) {
+      continue;
+    }
+
+    const rawOutput = await readJsonLocalRunArtifactIfAvailable(directory, 'validated-output.json');
+    const output = validateIssueImplementOutput(rawOutput);
+    if (!output.valid || output.value.status !== 'implemented') {
+      continue;
+    }
+
+    const body = await readTextLocalRunArtifactIfAvailable(directory, 'finalized-pr-body.md');
+    if (body === undefined || body.trim() === '') {
+      continue;
+    }
+
+    return {
+      directory,
+      output: output.value,
+      body,
+    };
+  }
+
+  return undefined;
+}
+
+/**
  * @param {unknown} value
  * @returns {string}
  */
@@ -2111,6 +2211,109 @@ async function writeIssueImplementLocalMetadata(
       2,
     )}\n`,
   );
+}
+
+/**
+ * @param {string} directory
+ * @param {string} fileName
+ * @returns {Promise<unknown | undefined>}
+ */
+async function readJsonLocalRunArtifactIfAvailable(directory, fileName) {
+  const contents = await readTextLocalRunArtifactIfAvailable(directory, fileName);
+  if (contents === undefined) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {string} directory
+ * @param {string} fileName
+ * @returns {Promise<string | undefined>}
+ */
+async function readTextLocalRunArtifactIfAvailable(directory, fileName) {
+  try {
+    return await readFile(join(directory, fileName), 'utf8');
+  } catch (error) {
+    if (isErrorWithCode(error, 'ENOENT')) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {unknown} metadata
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {boolean}
+ */
+function isReusableFinalizedDryRunMetadata(metadata, preparation) {
+  if (!isRecord(metadata) || !isRecord(metadata.target)) {
+    return false;
+  }
+
+  return (
+    metadata.operationReference === 'issue:implement' &&
+    metadata.target.type === 'issue' &&
+    metadata.target.number === preparation.issue.number &&
+    metadata.branch === preparation.branchName &&
+    metadata.baseBranch === preparation.baseBranch &&
+    metadata.publicationMode === 'dry-run' &&
+    metadata.runGoal === 'finalized'
+  );
+}
+
+/**
+ * @param {unknown} ciFollowUp
+ * @param {{
+ *   branchName: string,
+ *   currentHeadSha: string,
+ *   currentTreeHash: string,
+ * }} expected
+ * @returns {boolean}
+ */
+function isReusableFinalizedCiFollowUp(
+  ciFollowUp,
+  { branchName, currentHeadSha, currentTreeHash },
+) {
+  if (!isRecord(ciFollowUp)) {
+    return false;
+  }
+
+  return (
+    ciFollowUp.status === 'pending-publication' &&
+    ciFollowUp.branch === branchName &&
+    ciFollowUp.publicationMode === 'dry-run' &&
+    ciFollowUp.finalizedHeadSha === currentHeadSha &&
+    ciFollowUp.finalizedTreeHash === currentTreeHash
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} code
+ * @returns {boolean}
+ */
+function isErrorWithCode(error, code) {
+  return isRecord(error) && error.code === code;
 }
 
 /**
