@@ -130,6 +130,368 @@ test('run operation accepts every workflow-facing operation shape', async () => 
   }
 });
 
+test('run operation dispatches short operation label references through GitHub Actions labels', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const issueLabelAdds = [];
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const pullRequestLabelAdds = [];
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient({
+      async getIssue(number) {
+        return createGitHubIssue({ number, labels: [] });
+      },
+      async addLabelsToIssue(options) {
+        issueLabelAdds.push(options);
+      },
+      async addLabelsToPullRequest(options) {
+        pullRequestLabelAdds.push(options);
+      },
+    }),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--backend', 'github-actions']);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(issueLabelAdds, [{ number: 123, labels: ['pullops:issue:implement'] }]);
+  assert.deepEqual(pullRequestLabelAdds, []);
+  assert.deepEqual(runnerCalls, []);
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'Applied pullops:issue:implement to issue #123.',
+    operation: 'pullops:issue:implement',
+    target: { type: 'issue', number: 123 },
+    backend: 'github-actions',
+  });
+});
+
+test('run operation refreshes an existing GitHub Actions label before reapplying it', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const issueLabelRemovals = [];
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const issueLabelAdds = [];
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient({
+      async getIssue(number) {
+        return createGitHubIssue({
+          number,
+          labels: ['pullops:issue:implement'],
+        });
+      },
+      async removeLabelsFromIssue(options) {
+        issueLabelRemovals.push(options);
+      },
+      async addLabelsToIssue(options) {
+        issueLabelAdds.push(options);
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--backend', 'github-actions']);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(issueLabelRemovals, [{ number: 123, labels: ['pullops:issue:implement'] }]);
+  assert.deepEqual(issueLabelAdds, [{ number: 123, labels: ['pullops:issue:implement'] }]);
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'Applied pullops:issue:implement to issue #123.',
+    operation: 'pullops:issue:implement',
+    target: { type: 'issue', number: 123 },
+    backend: 'github-actions',
+  });
+});
+
+test('run issue:implement defaults to local dry-run operation execution', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const issueLabelAdds = [];
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient({
+      async addLabelsToIssue(options) {
+        issueLabelAdds.push(options);
+      },
+    }),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local dry-run accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123']);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(issueLabelAdds, []);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'issue-implement');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+  assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local dry-run accepted',
+    publicationMode: 'dry-run',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run issue:implement accepts local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PR publication accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PR publication accepted',
+    publicationMode: 'publish',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run issue:implement accepts explicit dry-run publication and finalized run goal', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local finalized dry-run accepted',
+        publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'issue:implement',
+    '123',
+    '--publish',
+    'dry-run',
+    '--until',
+    'finalized',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local finalized dry-run accepted',
+    publicationMode: 'dry-run',
+    runGoal: 'finalized',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run prd:auto-advance accepts local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-advance accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'prd-auto-advance');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+  assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PRD auto-advance accepted',
+    publicationMode: 'publish',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run prd:auto-complete accepts local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'prd-auto-complete');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+  assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PRD auto-complete accepted',
+    publicationMode: 'publish',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run local pull request operation references through the matching workflow operation', async () => {
+  const cases = [
+    ['pr:review', 'pr-review'],
+    ['pr:address-review', 'pr-address-review'],
+    ['pr:fix-ci', 'pr-fix-ci'],
+    ['pr:update-branch', 'pr-update-branch'],
+    ['pr:resolve-conflicts', 'pr-resolve-conflicts'],
+    ['pr:finalize', 'pr-finalize'],
+  ];
+
+  for (const [reference, expectedOperation] of cases) {
+    const stdout = createWritableBuffer();
+    /** @type {OperationRunnerContext[]} */
+    const runnerCalls = [];
+    const cli = new PullOpsCli({
+      stdout,
+      operationRunner: async context => {
+        runnerCalls.push(context);
+        return {
+          status: 'accepted',
+          summary: 'local pull request operation accepted',
+          operation: context.operation,
+          target: context.target,
+        };
+      },
+    });
+
+    const exitCode = await cli.run(['run', reference, '456']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(runnerCalls.length, 1);
+    assert.equal(runnerCalls[0].operation, expectedOperation);
+    assert.equal(runnerCalls[0].executionBackend, 'local');
+    assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+    assert.equal(runnerCalls[0].phase, 'run');
+    assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+    assert.deepEqual(runnerCalls[0].target, { type: 'pr', number: 456 });
+    assert.deepEqual(JSON.parse(stdout.text), {
+      status: 'accepted',
+      summary: 'local pull request operation accepted',
+      operation: expectedOperation,
+      target: { type: 'pr', number: 456 },
+    });
+  }
+});
+
+test('run operation accepts every short operation label reference and infers target kind', async () => {
+  const cases = [
+    ['prd:prepare', 'pullops:prd:prepare', 'issue'],
+    ['prd:auto-advance', 'pullops:prd:auto-advance', 'issue'],
+    ['prd:auto-complete', 'pullops:prd:auto-complete', 'issue'],
+    ['issue:implement', 'pullops:issue:implement', 'issue'],
+    ['pr:review', 'pullops:pr:review', 'pr'],
+    ['pr:address-review', 'pullops:pr:address-review', 'pr'],
+    ['pr:fix-ci', 'pullops:pr:fix-ci', 'pr'],
+    ['pr:update-branch', 'pullops:pr:update-branch', 'pr'],
+    ['pr:resolve-conflicts', 'pullops:pr:resolve-conflicts', 'pr'],
+    ['pr:finalize', 'pullops:pr:finalize', 'pr'],
+  ];
+
+  for (const [reference, expectedLabel, expectedTarget] of cases) {
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const issueLabelAdds = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const pullRequestLabelAdds = [];
+    const cli = new PullOpsCli({
+      stdout: createWritableBuffer(),
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          return createGitHubIssue({ number, labels: [] });
+        },
+        async getPullRequest(number) {
+          return createGitHubPullRequest({ number, labels: [] });
+        },
+        async addLabelsToIssue(options) {
+          issueLabelAdds.push(options);
+        },
+        async addLabelsToPullRequest(options) {
+          pullRequestLabelAdds.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['run', reference, '321', '--backend', 'github-actions']);
+
+    assert.equal(exitCode, 0);
+    if (expectedTarget === 'issue') {
+      assert.deepEqual(issueLabelAdds, [{ number: 321, labels: [expectedLabel] }]);
+      assert.deepEqual(pullRequestLabelAdds, []);
+    } else {
+      assert.deepEqual(issueLabelAdds, []);
+      assert.deepEqual(pullRequestLabelAdds, [{ number: 321, labels: [expectedLabel] }]);
+    }
+  }
+});
+
 test('run operation accepts explicit local runner override', async () => {
   /** @type {OperationRunnerContext[]} */
   const calls = [];
@@ -157,6 +519,110 @@ test('run operation accepts explicit local runner override', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].phase, 'run');
   assert.equal(calls[0].runnerAdapter, 'codex-cli');
+});
+
+test('run operation reports usage errors for invalid GitHub Actions label reference commands', async t => {
+  await t.test('unknown short reference', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:nope', '123', '--backend', 'github-actions']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unknown operation label reference "issue:nope"/);
+  });
+
+  await t.test('full canonical label input', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'pullops:issue:implement',
+      '123',
+      '--backend',
+      'github-actions',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Full PullOps labels are not accepted/);
+  });
+
+  await t.test('unsupported local reference explains the limited local catalog', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'prd:prepare', '123']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Local execution is currently only supported for/);
+    assert.match(stderr.text, /Use "prd:prepare --backend github-actions"/);
+  });
+
+  await t.test('publish flag with github-actions backend', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'issue:implement',
+      '123',
+      '--backend',
+      'github-actions',
+      '--publish',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /--publish is only supported by the local execution backend/);
+  });
+
+  await t.test('until flag with github-actions backend', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'pr:review',
+      '456',
+      '--backend',
+      'github-actions',
+      '--until',
+      'prepared',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /--until is only supported by the local execution backend/);
+  });
+
+  await t.test('missing publish value', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Missing value for "--publish"/);
+  });
+
+  await t.test('unsupported run goal', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--until', 'prepared']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unsupported run goal "prepared"/);
+  });
+
+  await t.test('runner flag is rejected for label-shaped local commands', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--runner', 'codex-action']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unknown arguments for issue:implement: --runner codex-action/);
+  });
 });
 
 test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {
@@ -346,6 +812,42 @@ function createWritableBuffer() {
     write(chunk) {
       this.text += chunk;
     },
+  };
+}
+
+/**
+ * @param {Partial<import('../github/types.js').GitHubIssue>} [overrides]
+ * @returns {import('../github/types.js').GitHubIssue}
+ */
+function createGitHubIssue(overrides = {}) {
+  return {
+    number: 1,
+    title: 'Issue title',
+    body: '',
+    state: 'OPEN',
+    url: 'https://github.test/owner/repo/issues/1',
+    authorLogin: null,
+    labels: [],
+    parent: null,
+    subIssues: [],
+    ...overrides,
+  };
+}
+
+/**
+ * @param {Partial<import('../github/types.js').GitHubPullRequest>} [overrides]
+ * @returns {import('../github/types.js').GitHubPullRequest}
+ */
+function createGitHubPullRequest(overrides = {}) {
+  return {
+    number: 1,
+    title: 'Pull request title',
+    url: 'https://github.test/owner/repo/pull/1',
+    headRefName: 'pullops/issue-1',
+    body: '',
+    isDraft: true,
+    labels: [],
+    ...overrides,
   };
 }
 

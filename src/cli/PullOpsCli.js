@@ -3,7 +3,10 @@ import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import {
+  getOperationLabelReference,
   getWorkflowOperation,
+  LOCAL_OPERATION_LABEL_REFERENCE_NAMES,
+  OPERATION_LABEL_REFERENCE_NAMES,
   runWorkflowOperation,
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
@@ -124,6 +127,10 @@ export class PullOpsCli {
       );
     }
 
+    if (isOperationLabelReferenceInput(operationName)) {
+      return await this.runOperationLabelReference(operationName, operationArgs);
+    }
+
     const operation = getWorkflowOperation(operationName);
     if (operation === undefined) {
       throw new CliUsageError(
@@ -157,6 +164,300 @@ export class PullOpsCli {
       outputDirectory: this.env.OUTPUT_DIR,
       codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
       runnerRan: parsedArgs.runnerRan,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string} reference
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runOperationLabelReference(reference, args) {
+    if (reference.startsWith('pullops:')) {
+      throw new CliUsageError(
+        `Full PullOps labels are not accepted as operation references. Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+          ', ',
+        )}.`,
+      );
+    }
+
+    const operation = getOperationLabelReference(reference);
+    if (operation === undefined) {
+      throw new CliUsageError(
+        `Unknown operation label reference "${reference}". Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+          ', ',
+        )}.`,
+      );
+    }
+
+    const backend = readOperationLabelBackend(args);
+    if (backend === 'github-actions') {
+      return await this.dispatchOperationLabelThroughGitHubActions(operation, reference, args);
+    }
+
+    if (backend !== undefined && backend !== 'local') {
+      throw new CliUsageError(
+        `Unknown backend "${backend}" for ${reference}. Expected one of: local, github-actions.`,
+      );
+    }
+
+    if (reference === 'issue:implement') {
+      return await this.runLocalIssueImplementReference(args);
+    }
+
+    if (reference === 'prd:auto-advance') {
+      return await this.runLocalPrdAutoAdvanceReference(args);
+    }
+
+    if (reference === 'prd:auto-complete') {
+      return await this.runLocalPrdAutoCompleteReference(args);
+    }
+
+    if (operation.target === 'pr') {
+      return await this.runLocalPullRequestOperationReference(operation, reference, args);
+    }
+
+    throw new CliUsageError(localOperationLabelReferenceUnsupportedMessage(reference));
+  }
+
+  /**
+   * @param {import('../operations/types.js').OperationLabelReference} operation
+   * @param {string} reference
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async dispatchOperationLabelThroughGitHubActions(operation, reference, args) {
+    const parsedArgs = parseGitHubActionsOperationLabelArgs(args, reference);
+
+    if (operation.target === 'issue') {
+      const issue = await this.githubClient.getIssue(parsedArgs.targetNumber);
+      if (issue.labels.includes(operation.label)) {
+        await this.githubClient.removeLabelsFromIssue({
+          number: parsedArgs.targetNumber,
+          labels: [operation.label],
+        });
+      }
+
+      await this.githubClient.addLabelsToIssue({
+        number: parsedArgs.targetNumber,
+        labels: [operation.label],
+      });
+    } else {
+      const pullRequest = await this.githubClient.getPullRequest(parsedArgs.targetNumber);
+      if (pullRequest.labels?.includes(operation.label) === true) {
+        await this.githubClient.removeLabelsFromPullRequest({
+          number: parsedArgs.targetNumber,
+          labels: [operation.label],
+        });
+      }
+
+      await this.githubClient.addLabelsToPullRequest({
+        number: parsedArgs.targetNumber,
+        labels: [operation.label],
+      });
+    }
+
+    this.writeValidatedJson({
+      status: 'accepted',
+      summary: `Applied ${operation.label} to ${formatTargetKind(operation.target)} #${parsedArgs.targetNumber}.`,
+      operation: operation.label,
+      target: {
+        type: operation.target,
+        number: parsedArgs.targetNumber,
+      },
+      backend: parsedArgs.backend,
+    });
+    return 0;
+  }
+
+  /**
+   * @param {import('../operations/types.js').OperationLabelReference} operation
+   * @param {string} reference
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPullRequestOperationReference(operation, reference, args) {
+    const parsedArgs = parseLocalPullRequestOperationReferenceArgs(args, reference);
+    const workflowOperation = getWorkflowOperation(operation.workflowOperationName);
+    if (workflowOperation === undefined) {
+      throw new Error(`${operation.workflowOperationName} operation is not registered.`);
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[workflowOperation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: workflowOperation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: workflowOperation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: 'dry-run',
+      target: {
+        type: 'pr',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalIssueImplementReference(args) {
+    const parsedArgs = parseLocalIssueImplementReferenceArgs(args);
+    const operation = getWorkflowOperation('issue-implement');
+    if (operation === undefined) {
+      throw new Error('issue-implement operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
+      runGoal: parsedArgs.runGoal,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPrdAutoAdvanceReference(args) {
+    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-advance');
+    const operation = getWorkflowOperation('prd-auto-advance');
+    if (operation === undefined) {
+      throw new Error('prd-auto-advance operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPrdAutoCompleteReference(args) {
+    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-complete');
+    const operation = getWorkflowOperation('prd-auto-complete');
+    if (operation === undefined) {
+      throw new Error('prd-auto-complete operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
     });
@@ -239,6 +540,296 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
     runnerAdapter,
     ...(runnerRan === undefined ? {} : { runnerRan }),
   };
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} reference
+ * @returns {{ targetNumber: number, backend: 'github-actions' }}
+ */
+function parseGitHubActionsOperationLabelArgs(args, reference) {
+  rejectGitHubActionsLocalOnlyFlag(args, '--publish');
+  rejectGitHubActionsLocalOnlyFlag(args, '--until');
+
+  const consumed = new Set();
+  const backend = parseRequiredGitHubActionsBackend(args, reference, consumed);
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError(`Missing target number for ${reference}.`);
+  }
+
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
+    throw new CliUsageError(
+      `Unknown arguments for ${reference} with --backend github-actions: ${remaining.join(' ')}.`,
+    );
+  }
+
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(
+      `Unknown arguments for ${reference} with --backend github-actions: ${unknownArgs.join(' ')}.`,
+    );
+  }
+
+  const targetNumber = Number(targetArgument);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return { targetNumber, backend };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {string | undefined}
+ */
+function readOperationLabelBackend(args) {
+  const index = args.indexOf('--backend');
+  if (index === -1) {
+    return undefined;
+  }
+
+  const rawBackend = args[index + 1];
+  if (rawBackend === undefined || rawBackend.startsWith('--')) {
+    throw new CliUsageError('Missing value for "--backend". Expected "local" or "github-actions".');
+  }
+
+  return rawBackend;
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ *   runGoal: import('./types.js').OperationRunGoal,
+ * }}
+ */
+function parseLocalIssueImplementReferenceArgs(args) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for issue:implement. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const runGoal = parseOperationRunGoal(args, consumed);
+  const publicationMode = parsePublicationMode(args, consumed);
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError('Missing target number for issue:implement.');
+  }
+
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for issue:implement: ${remaining.join(' ')}.`);
+  }
+
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for issue:implement: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return {
+    targetNumber,
+    publicationMode,
+    runGoal,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @param {'prd:auto-advance' | 'prd:auto-complete'} reference
+ * @returns {{
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }}
+ */
+function parseLocalPrdAutomationReferenceArgs(args, reference) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const publicationMode = parsePublicationMode(args, consumed);
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError(`Missing target number for ${reference}.`);
+  }
+
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${remaining.join(' ')}.`);
+  }
+
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return {
+    targetNumber,
+    publicationMode,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} reference
+ * @returns {{ targetNumber: number }}
+ */
+function parseLocalPullRequestOperationReferenceArgs(args, reference) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError(`Missing target number for ${reference}.`);
+  }
+
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${remaining.join(' ')}.`);
+  }
+
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return { targetNumber };
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {'dry-run' | 'publish'}
+ */
+function parsePublicationMode(args, consumed) {
+  const index = args.indexOf('--publish');
+  if (index === -1) {
+    return 'dry-run';
+  }
+
+  consumed.add(index);
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    throw new CliUsageError('Missing value for "--publish". Expected "dry-run" or "pr".');
+  }
+
+  consumed.add(index + 1);
+
+  if (value === 'dry-run') {
+    return 'dry-run';
+  }
+
+  if (value !== 'pr') {
+    throw new CliUsageError(
+      'Unsupported publish target. Expected "--publish dry-run" or "--publish pr".',
+    );
+  }
+
+  return 'publish';
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {import('./types.js').OperationRunGoal}
+ */
+function parseOperationRunGoal(args, consumed) {
+  const rawRunGoal = parseOptionalStringOption(args, '--until', consumed);
+  if (rawRunGoal === undefined) {
+    return 'operation';
+  }
+
+  if (rawRunGoal === 'operation' || rawRunGoal === 'finalized') {
+    return rawRunGoal;
+  }
+
+  throw new CliUsageError(
+    `Unsupported run goal "${rawRunGoal}". Expected "--until operation" or "--until finalized".`,
+  );
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} reference
+ * @param {Set<number>} consumed
+ * @returns {'github-actions'}
+ */
+function parseRequiredGitHubActionsBackend(args, reference, consumed) {
+  const index = args.indexOf('--backend');
+  if (index === -1) {
+    throw new CliUsageError(
+      `${reference} requires "--backend github-actions" to dispatch through GitHub Actions.`,
+    );
+  }
+
+  const rawBackend = args[index + 1];
+  if (rawBackend === undefined || rawBackend.startsWith('--')) {
+    throw new CliUsageError('Missing value for "--backend". Expected "github-actions".');
+  }
+
+  consumed.add(index);
+  consumed.add(index + 1);
+
+  if (rawBackend !== 'github-actions') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for ${reference}. Expected "github-actions".`,
+    );
+  }
+
+  return rawBackend;
+}
+
+/**
+ * @param {string[]} args
+ * @param {'--publish' | '--until'} flag
+ */
+function rejectGitHubActionsLocalOnlyFlag(args, flag) {
+  if (args.includes(flag)) {
+    throw new CliUsageError(
+      `${flag} is only supported by the local execution backend and cannot be used with "--backend github-actions".`,
+    );
+  }
 }
 
 /**
@@ -441,11 +1032,43 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
 }
 
 /**
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isOperationLabelReferenceInput(value) {
+  return value.includes(':');
+}
+
+/**
+ * @param {'issue' | 'pr'} target
+ * @returns {string}
+ */
+function formatTargetKind(target) {
+  return target === 'pr' ? 'pull request' : 'issue';
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function localOperationLabelReferenceUnsupportedMessage(reference) {
+  return [
+    `Local execution is currently only supported for: ${LOCAL_OPERATION_LABEL_REFERENCE_NAMES.join(', ')}.`,
+    `Use "${reference} --backend github-actions" to dispatch the canonical PullOps label through GitHub Actions.`,
+  ].join(' ');
+}
+
+/**
  * @returns {string}
  */
 function usage() {
   return [
     'Usage:',
+    '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr]',
+    '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
+    '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',
     '  pullops run <operation> --runner codex-action --phase prepare --issue <number>',

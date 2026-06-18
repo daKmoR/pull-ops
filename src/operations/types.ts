@@ -21,3 +21,10 @@ export interface WorkflowOperation {
   option: WorkflowTargetOption;
   configKey: WorkflowOperationConfigKey;
 }
+
+export interface OperationLabelReference {
+  reference: string;
+  workflowOperationName: string;
+  target: WorkflowTarget;
+  label: string;
+}

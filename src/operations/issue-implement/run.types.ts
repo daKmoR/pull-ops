@@ -9,3 +9,11 @@ export type IssueImplementPreparation =
       branchName: string;
       baseBranch: string;
     };
+
+export interface BlockIssueDryRunOptions {
+  reason: string;
+  summary?: string;
+  branchName: string;
+  baseBranch: string;
+  publicationMode?: 'dry-run' | 'publish';
+}

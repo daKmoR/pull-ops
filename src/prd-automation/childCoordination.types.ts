@@ -19,6 +19,8 @@ export interface ChildAutomationResult {
   blockedBy?: number[];
   labels?: string[];
   branch?: string;
+  localRunRecord?: string;
+  publicationMode?: 'dry-run' | 'publish';
   pullRequest?: {
     number: number;
     url: string;
@@ -28,6 +30,10 @@ export interface ChildAutomationResult {
   nextOperation?: string;
   checks?: number;
   mergeMethod?: string;
+  conflictedFiles?: string[];
+  finalizedHeadSha?: string;
+  headSha?: string;
+  treeHash?: string;
 }
 
 export interface ParentReviewResult {
@@ -61,6 +67,10 @@ export interface PrdAutomationResult extends Record<string, unknown> {
   preparation?: Record<string, unknown>;
   children?: ChildAutomationResult[];
   parentPullRequest?: ParentReviewResult;
+  publicationMode?: 'dry-run' | 'publish';
+  branch?: string;
+  localRunRecord?: string;
+  localNextSteps?: string[];
 }
 
 export interface ChildIssueCloseResult extends Record<string, unknown> {

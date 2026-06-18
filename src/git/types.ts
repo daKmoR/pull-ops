@@ -8,6 +8,16 @@ export interface CreateBranchOptions {
   baseBranch: string;
 }
 
+export interface FetchRemoteRefsOptions {
+  requiredBranchNames: string[];
+  optionalBranchNames?: string[];
+}
+
+export interface CheckoutPullOpsBranchOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
 export interface CommitAllOptions {
   message: string;
   author: GitCommitAuthor;
@@ -86,6 +96,24 @@ export type GitRebaseStepResult =
       conflictContext: GitConflictContext;
     };
 
+export interface CherryPickCommitOntoBranchOptions {
+  branchName: string;
+  baseBranch: string;
+  commitSha: string;
+  committer: GitCommitAuthor;
+}
+
+export type GitCherryPickResult =
+  | {
+      status: 'cherry-picked';
+      headSha: string;
+      treeHash: string;
+    }
+  | {
+      status: 'conflicts';
+      conflictedFiles: string[];
+    };
+
 export interface PushBranchWithLeaseOptions {
   branchName: string;
 }
@@ -106,6 +134,10 @@ export interface GetChangedFilesSinceBaseOptions {
 
 export interface GetCommitsSinceBaseOptions {
   baseBranch: string;
+}
+
+export interface ResetHardToRevisionOptions {
+  revision: string;
 }
 
 export interface GitCommit {
@@ -130,6 +162,7 @@ export interface RewriteBranchWithCommitPlanOptions {
   branchName: string;
   commits: PlannedRewriteCommit[];
   author: GitCommitAuthor;
+  push?: boolean;
 }
 
 export interface RewriteBranchWithExistingCommitsOptions {
@@ -141,9 +174,13 @@ export interface RewriteBranchWithExistingCommitsOptions {
 
 export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
+  fetchRemoteRefs?(options: FetchRemoteRefsOptions): Promise<void>;
+  checkoutPullOpsBranch?(options: CheckoutPullOpsBranchOptions): Promise<void>;
+  getCurrentBranch?(): Promise<string>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;
+  readWorkingTreePatch?(): Promise<string>;
   pushBranch(options: PushBranchOptions): Promise<void>;
   rebaseBranchOntoBase(options: RebaseBranchOntoBaseOptions): Promise<GitRebaseResult>;
   startRebaseBranchOntoBase?(
@@ -153,9 +190,13 @@ export interface GitClient {
   readRebaseConflictContext?(
     options: ReadRebaseConflictContextOptions,
   ): Promise<GitConflictContext | undefined>;
+  cherryPickCommitOntoBranch?(
+    options: CherryPickCommitOntoBranchOptions,
+  ): Promise<GitCherryPickResult>;
   pushBranchWithLease(options: PushBranchWithLeaseOptions): Promise<GitPushWithLeaseResult>;
   getCurrentHeadSha(): Promise<string>;
   getCurrentTreeHash(): Promise<string>;
+  resetHardToRevision?(options: ResetHardToRevisionOptions): Promise<void>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
   getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
   rewriteBranchWithCommitPlan(

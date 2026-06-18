@@ -318,6 +318,64 @@ describe('runPrFixCi', () => {
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
   });
+
+  it('07: automatically fixes failed checks on a ready finalized managed PR', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createPullRequestBody({
+          status: 'Ready for human merge',
+          lastOperation: 'pullops:pr:finalize',
+          finalizedTreeHash: 'tree-finalized',
+          finalizedHeadSha: 'head-finalized',
+          mergeMethod: 'rebase',
+        }),
+        isDraft: false,
+      }),
+      checks: [createFailedCheck({ name: 'Unit tests' })],
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: true });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'fixed',
+        summary: 'Fixed the failing test.',
+        classifications: [
+          {
+            checkId: 'check-1',
+            classification: 'test',
+            rationale: 'The unit test check failed.',
+          },
+        ],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: false,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Updated the failing test expectation.'],
+        testPlan: ['npm test'],
+      }),
+    });
+
+    const result = await runPrFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
+    assert.match(github.updatedBodies[0].body, /Status: CI fixed/);
+    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:fix-ci/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Reviewed tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized head:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Merge method:/);
+  });
 });
 
 /**
@@ -369,10 +427,24 @@ function createPullRequest(overrides = {}) {
 }
 
 /**
- * @param {{ ciFixCycles?: string }} [options]
+ * @param {{
+ *   ciFixCycles?: string,
+ *   status?: string,
+ *   lastOperation?: string,
+ *   finalizedTreeHash?: string,
+ *   finalizedHeadSha?: string,
+ *   mergeMethod?: string,
+ * }} [options]
  * @returns {string}
  */
-function createPullRequestBody({ ciFixCycles = '0 / 2' } = {}) {
+function createPullRequestBody({
+  ciFixCycles = '0 / 2',
+  status = 'Draft automation',
+  lastOperation = 'pullops:pr:review',
+  finalizedTreeHash,
+  finalizedHeadSha,
+  mergeMethod,
+} = {}) {
   return [
     '## Summary',
     '',
@@ -381,7 +453,7 @@ function createPullRequestBody({ ciFixCycles = '0 / 2' } = {}) {
     '## PullOps',
     '',
     'Managed: yes',
-    'Status: Draft automation',
+    `Status: ${status}`,
     '',
     '<details>',
     '<summary>PullOps workflow state</summary>',
@@ -389,7 +461,10 @@ function createPullRequestBody({ ciFixCycles = '0 / 2' } = {}) {
     'Review cycles: 1 / 3',
     `CI fix cycles: ${ciFixCycles}`,
     'Source: Issue #42',
-    'Last operation: pullops:pr:review',
+    ...(finalizedTreeHash === undefined ? [] : [`Finalized tree: ${finalizedTreeHash}`]),
+    ...(finalizedHeadSha === undefined ? [] : [`Finalized head: ${finalizedHeadSha}`]),
+    ...(mergeMethod === undefined ? [] : [`Merge method: ${mergeMethod}`]),
+    `Last operation: ${lastOperation}`,
     '',
     '</details>',
   ].join('\n');

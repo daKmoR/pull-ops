@@ -9,6 +9,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitClient} GitClient
  * @typedef {import('./types.js').GitCommitAuthor} GitCommitAuthor
  * @typedef {import('./types.js').CreateBranchOptions} CreateBranchOptions
+ * @typedef {import('./types.js').FetchRemoteRefsOptions} FetchRemoteRefsOptions
+ * @typedef {import('./types.js').CheckoutPullOpsBranchOptions} CheckoutPullOpsBranchOptions
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
@@ -20,6 +22,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitRebaseStepResult} GitRebaseStepResult
  * @typedef {import('./types.js').GitConflictContext} GitConflictContext
  * @typedef {import('./types.js').GitConflictFile} GitConflictFile
+ * @typedef {import('./types.js').CherryPickCommitOntoBranchOptions} CherryPickCommitOntoBranchOptions
+ * @typedef {import('./types.js').GitCherryPickResult} GitCherryPickResult
  * @typedef {import('./types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('./types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
@@ -52,10 +56,83 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @param {FetchRemoteRefsOptions} options
+     * @returns {Promise<void>}
+     */
+    async fetchRemoteRefs({ requiredBranchNames, optionalBranchNames = [] }) {
+      for (const branchName of requiredBranchNames) {
+        await fetchRemoteBranch(execFile, branchName, { optional: false });
+      }
+      for (const branchName of optionalBranchNames) {
+        await fetchRemoteBranch(execFile, branchName, { optional: true });
+      }
+    },
+
+    /**
+     * @param {CheckoutPullOpsBranchOptions} options
+     * @returns {Promise<void>}
+     */
+    async checkoutPullOpsBranch({ branchName, baseBranch }) {
+      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${branchName}`],
+          `check out branch ${branchName}`,
+        );
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/heads/${baseBranch}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, baseBranch],
+          `create branch ${branchName}`,
+        );
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/remotes/origin/${baseBranch}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${baseBranch}`],
+          `create branch ${branchName}`,
+        );
+        return;
+      }
+
+      await runGit(
+        execFile,
+        ['checkout', '-B', branchName, `origin/${baseBranch}`],
+        `create branch ${branchName}`,
+      );
+    },
+
+    /**
+     * @returns {Promise<string>}
+     */
+    async getCurrentBranch() {
+      const result = await runGit(
+        execFile,
+        ['branch', '--show-current'],
+        'read the current branch name',
+      );
+      return result.stdout.toString().trim();
+    },
+
+    /**
      * @returns {Promise<boolean>}
      */
     async hasChanges() {
-      const result = await runGit(execFile, ['status', '--porcelain'], 'inspect the working tree');
+      const result = await runGit(
+        execFile,
+        ['status', '--porcelain', '--', '.', ':!.pullops/runs/**'],
+        'inspect the working tree',
+      );
       return result.stdout.toString().trim() !== '';
     },
 
@@ -64,7 +141,11 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<void>}
      */
     async commitAll({ message, author }) {
-      await runGit(execFile, ['add', '--all'], 'stage PullOps changes');
+      await runGit(
+        execFile,
+        ['add', '--all', '--', '.', ':!.pullops/runs/**'],
+        'stage PullOps changes',
+      );
       await runGit(
         execFile,
         [
@@ -99,6 +180,31 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         ],
         'create an empty PullOps commit',
       );
+    },
+
+    /**
+     * @returns {Promise<string>}
+     */
+    async readWorkingTreePatch() {
+      const result = await runGit(
+        execFile,
+        ['diff', '--binary', 'HEAD', '--'],
+        'capture the working tree patch',
+      );
+      const untrackedFiles = await readUntrackedFiles(execFile);
+      if (untrackedFiles.length === 0) {
+        return result.stdout.toString();
+      }
+
+      const patches = [result.stdout.toString().trimEnd()];
+      for (const filePath of untrackedFiles) {
+        const untrackedPatch = await readUntrackedFilePatch(execFile, filePath);
+        if (untrackedPatch.trim() !== '') {
+          patches.push(untrackedPatch.trimEnd());
+        }
+      }
+
+      return patches.filter(patch => patch !== '').join('\n');
     },
 
     /**
@@ -244,6 +350,55 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @param {CherryPickCommitOntoBranchOptions} options
+     * @returns {Promise<GitCherryPickResult>}
+     */
+    async cherryPickCommitOntoBranch({ branchName, baseBranch, commitSha, committer }) {
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      await fetchRemoteBranch(execFile, branchName, { optional: true });
+
+      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
+      } else if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${branchName}`],
+          `check out branch ${branchName}`,
+        );
+      } else {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${baseBranch}`],
+          `create branch ${branchName}`,
+        );
+      }
+
+      try {
+        await runGit(
+          execFile,
+          withGitCommitter(['cherry-pick', commitSha], committer),
+          `cherry-pick ${commitSha} onto ${branchName}`,
+        );
+      } catch (error) {
+        const conflictedFiles = await readConflictedFiles(execFile);
+        if (conflictedFiles.length === 0) {
+          throw error;
+        }
+
+        return {
+          status: 'conflicts',
+          conflictedFiles,
+        };
+      }
+
+      return {
+        status: 'cherry-picked',
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
+    },
+
+    /**
      * @param {PushBranchWithLeaseOptions} options
      * @returns {Promise<GitPushWithLeaseResult>}
      */
@@ -288,11 +443,18 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @param {import('./types.js').ResetHardToRevisionOptions} options
+     * @returns {Promise<void>}
+     */
+    async resetHardToRevision({ revision }) {
+      await runGit(execFile, ['reset', '--hard', revision], `reset branch to ${revision}`);
+    },
+
+    /**
      * @param {GetChangedFilesSinceBaseOptions} options
      * @returns {Promise<string[]>}
      */
     async getChangedFilesSinceBase({ baseBranch }) {
-      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       const result = await runGit(
         execFile,
@@ -307,7 +469,6 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<GitCommit[]>}
      */
     async getCommitsSinceBase({ baseBranch }) {
-      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       const baseRef = `origin/${baseBranch}`;
       const result = await runGit(
@@ -334,7 +495,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @param {RewriteBranchWithCommitPlanOptions} options
      * @returns {Promise<GitRewriteResult>}
      */
-    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author }) {
+    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author, push = true }) {
       const originalHead = (
         await runGit(execFile, ['rev-parse', 'HEAD'], 'record the original branch head')
       ).stdout
@@ -368,12 +529,14 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         );
       }
 
-      await configureAuthenticatedOrigin(execFile, env);
-      await runGit(
-        execFile,
-        ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
-        `force-with-lease push branch ${branchName}`,
-      );
+      if (push) {
+        await configureAuthenticatedOrigin(execFile, env);
+        await runGit(
+          execFile,
+          ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
+          `force-with-lease push branch ${branchName}`,
+        );
+      }
 
       return {
         headSha: await getCurrentHeadSha(execFile),
@@ -420,6 +583,56 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
  */
 function withGitCommitter(args, committer) {
   return ['-c', `user.name=${committer.name}`, '-c', `user.email=${committer.email}`, ...args];
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} branchName
+ * @param {{ optional: boolean }} options
+ * @returns {Promise<void>}
+ */
+async function fetchRemoteBranch(execFile, branchName, { optional }) {
+  try {
+    await runGit(
+      execFile,
+      ['fetch', 'origin', `+refs/heads/${branchName}:refs/remotes/origin/${branchName}`],
+      `fetch branch ${branchName}`,
+    );
+  } catch (error) {
+    if (optional && isMissingRemoteRefError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} ref
+ * @returns {Promise<boolean>}
+ */
+async function gitRefExists(execFile, ref) {
+  try {
+    await execFile('git', ['show-ref', '--verify', '--quiet', ref]);
+    return true;
+  } catch (error) {
+    if (isPlainObject(error) && (error.code === 1 || error.code === 128)) {
+      return false;
+    }
+
+    throw new Error(`Failed to inspect git ref ${ref}: ${getCommandErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isMissingRemoteRefError(error) {
+  return /couldn't find remote ref|could not find remote ref/i.test(getCommandErrorMessage(error));
 }
 
 /**
@@ -726,6 +939,53 @@ function parseNullSeparatedFiles(stdout) {
     .toString()
     .split('\0')
     .filter(file => file !== '');
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string[]>}
+ */
+async function readUntrackedFiles(execFile) {
+  const result = await runGit(
+    execFile,
+    ['ls-files', '--others', '--exclude-standard', '-z', '--'],
+    'read untracked files',
+  );
+  return parseNullSeparatedFiles(result.stdout);
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} filePath
+ * @returns {Promise<string>}
+ */
+async function readUntrackedFilePatch(execFile, filePath) {
+  try {
+    const result = await execFile('git', [
+      'diff',
+      '--binary',
+      '--no-index',
+      '--',
+      '/dev/null',
+      filePath,
+    ]);
+    return result.stdout.toString();
+  } catch (error) {
+    if (isPlainObject(error) && error.code === 1) {
+      const stdout = error.stdout;
+      if (typeof stdout === 'string') {
+        return stdout;
+      }
+      if (Buffer.isBuffer(stdout)) {
+        return stdout.toString();
+      }
+    }
+
+    throw new Error(
+      `Failed to capture untracked file patch for ${filePath}: ${getCommandErrorMessage(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 /**
