@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
@@ -130,6 +133,270 @@ describe('runPrdAutoAdvance', () => {
       readChildResults(result).map(child => child.issue.number),
       [],
     );
+  });
+
+  it('03: local dry-run prepares the PRD and stops after one runnable child issue', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-dry-run-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [issueReference(34), issueReference(35), issueReference(36)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({
+          number: 34,
+          body: 'Part of: #12\n\nBlocked by: #99',
+          parent: issueReference(12),
+        }),
+        createIssue({ number: 35, parent: issueReference(12) }),
+        createIssue({ number: 36, parent: issueReference(12) }),
+        createIssue({ number: 99, state: 'OPEN' }),
+      ],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'dry-run');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Child issue 35/);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [
+        [34, 'blocked'],
+        [35, 'dry-run-completed'],
+      ],
+    );
+    assert.deepEqual(
+      git.checkouts.map(checkout => checkout.branchName),
+      ['pullops/prd-12-issue-35'],
+    );
+  });
+
+  it('04: local PR publication sequences unblocked child issues and restores the umbrella branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-publish-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, parent: issueReference(12) }),
+      ],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'publish');
+    assert.equal(codex.calls.length, 2);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [
+        [34, 'published'],
+        [35, 'published'],
+      ],
+    );
+    assert.deepEqual(
+      github.createdPullRequests.map(pullRequest => ({
+        baseBranch: pullRequest.baseBranch,
+        headBranch: pullRequest.headBranch,
+      })),
+      [
+        {
+          baseBranch: 'main',
+          headBranch: 'pullops/prd-12',
+        },
+        {
+          baseBranch: 'pullops/prd-12',
+          headBranch: 'pullops/prd-12-issue-34',
+        },
+        {
+          baseBranch: 'pullops/prd-12',
+          headBranch: 'pullops/prd-12-issue-35',
+        },
+      ],
+    );
+    assert.deepEqual(
+      git.pushes.map(push => push.branchName),
+      ['pullops/prd-12', 'pullops/prd-12-issue-34', 'pullops/prd-12-issue-35'],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+    assert.deepEqual(
+      git.checkouts.map(checkout => checkout.branchName),
+      [
+        'pullops/prd-12',
+        'pullops/prd-12-issue-34',
+        'pullops/prd-12',
+        'pullops/prd-12-issue-35',
+        'pullops/prd-12',
+        'pullops/prd-12',
+      ],
+    );
+  });
+
+  it('05: local PRD auto-advance preserves human review gates for existing child PRs', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-human-gate-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          labels: [],
+          isDraft: false,
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'ready-for-human-merge']],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+  });
+
+  it('06: local dry-run reports umbrella review readiness without adding trigger labels', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-umbrella-review-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({
+          number: 34,
+          state: 'CLOSED',
+          parent: issueReference(12),
+        }),
+      ],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+          isDraft: false,
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.equal(readParentPullRequest(result)?.status, 'ready-for-review');
+    assert.equal(github.updatedPullRequestBodies.length > 0, true);
+    assert.deepEqual(result.localNextSteps, [
+      'Umbrella PR is ready for human review after local dry-run; request review manually instead of adding trigger labels.',
+    ]);
+  });
+
+  it('07: local dry-run records a follow-up when no native child issues are available', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-no-children-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [],
+    });
+    const github = createFakeGitHub({
+      issues: [parent],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.equal(readParentPullRequest(result)?.status, 'waiting-for-child-issues');
+    assert.deepEqual(result.localNextSteps, [
+      'Add or reopen a native Child Issue before rerunning local PRD auto-advance.',
+    ]);
   });
 });
 
@@ -484,6 +751,8 @@ function readParentPullRequest(result) {
  *   issueLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   createdPullRequests: CreateDraftPullRequestOptions[];
+ *   updatedPullRequestBodies: { number: number, body: string }[];
+ *   pullRequestComments: { number: number, body: string }[];
  *   mergedPullRequests: MergePullRequestOptions[];
  *   closedIssues: number[];
  * }}
@@ -506,6 +775,10 @@ function createFakeGitHub({
   const pullRequestLabelsAdded = [];
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
+  /** @type {{ number: number, body: string }[]} */
+  const updatedPullRequestBodies = [];
+  /** @type {{ number: number, body: string }[]} */
+  const pullRequestComments = [];
   /** @type {MergePullRequestOptions[]} */
   const mergedPullRequests = [];
   /** @type {number[]} */
@@ -515,6 +788,8 @@ function createFakeGitHub({
     issueLabelsAdded,
     pullRequestLabelsAdded,
     createdPullRequests,
+    updatedPullRequestBodies,
+    pullRequestComments,
     mergedPullRequests,
     closedIssues,
     client: {
@@ -593,10 +868,17 @@ function createFakeGitHub({
       async closeIssue(options) {
         closedIssues.push(options.number);
       },
-      async commentOnPullRequest() {
-        throw new Error('commentOnPullRequest was not expected in this test.');
+      async commentOnPullRequest(options) {
+        pullRequestComments.push(options);
       },
-      async updatePullRequestBody() {},
+      async updatePullRequestBody(options) {
+        updatedPullRequestBodies.push(options);
+        for (const pullRequest of pullRequestsByHead.values()) {
+          if (pullRequest.number === options.number) {
+            pullRequest.body = options.body;
+          }
+        }
+      },
       async markPullRequestReadyForReview() {
         throw new Error('markPullRequestReadyForReview was not expected in this test.');
       },
@@ -614,29 +896,63 @@ function createFakeGitHub({
 }
 
 /**
+ * @param {object} [options]
+ * @param {boolean} [options.dirtyAfterRunner]
  * @returns {{
  *   client: import('../../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
+ *   checkouts: { branchName: string, baseBranch: string }[];
+ *   pushes: { branchName: string }[];
+ *   currentBranch: string;
+ *   markRunnerChangedWorktree(): void;
  * }}
  */
-function createFakeGit() {
+function createFakeGit({ dirtyAfterRunner = false } = {}) {
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const createdBranches = [];
+  /** @type {{ branchName: string, baseBranch: string }[]} */
+  const checkouts = [];
+  /** @type {{ branchName: string }[]} */
+  const pushes = [];
+  let currentBranch = 'main';
+  let dirty = false;
 
   return {
     createdBranches,
+    checkouts,
+    pushes,
+    get currentBranch() {
+      return currentBranch;
+    },
+    markRunnerChangedWorktree() {
+      dirty = dirtyAfterRunner;
+    },
     client: {
       async createBranch(options) {
         createdBranches.push(options);
+        currentBranch = options.branchName;
+      },
+      async fetchRemoteRefs() {},
+      async checkoutPullOpsBranch(options) {
+        checkouts.push(options);
+        currentBranch = options.branchName;
+      },
+      async getCurrentBranch() {
+        return currentBranch;
       },
       async hasChanges() {
-        throw new Error('hasChanges was not expected in this test.');
+        return dirty;
       },
       async commitAll() {
-        throw new Error('commitAll was not expected in this test.');
+        dirty = false;
       },
       async commitEmpty() {},
-      async pushBranch() {},
+      async readWorkingTreePatch() {
+        return dirty ? 'diff --git a/src/file.js b/src/file.js\n' : '';
+      },
+      async pushBranch(options) {
+        pushes.push(options);
+      },
       async rebaseBranchOntoBase() {
         throw new Error('rebaseBranchOntoBase was not expected in this test.');
       },
@@ -654,6 +970,38 @@ function createFakeGit() {
       },
       async rewriteBranchWithCommitPlan() {
         throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
+      },
+      async getCommitsSinceBase() {
+        return [];
+      },
+    },
+  };
+}
+
+/**
+ * @param {{ markRunnerChangedWorktree(): void }} [git]
+ * @returns {{
+ *   runner: import('../../runner/types.js').CodexRunner;
+ *   calls: { cwd: string, command: string, model: string, prompt: string }[];
+ * }}
+ */
+function createFakeCodexRunner(git) {
+  /** @type {{ cwd: string, command: string, model: string, prompt: string }[]} */
+  const calls = [];
+
+  return {
+    calls,
+    runner: {
+      async run(options) {
+        calls.push(options);
+        git?.markRunnerChangedWorktree();
+        return {
+          status: 'implemented',
+          summary: `Implemented child issue run ${calls.length}.`,
+          changes: [`Changed child issue run ${calls.length}.`],
+          testPlan: ['Not run in fake test.'],
+          followUps: [],
+        };
       },
     },
   };
