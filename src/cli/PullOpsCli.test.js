@@ -396,6 +396,52 @@ test('run prd:auto-complete accepts local PR publication', async () => {
   });
 });
 
+test('run local pull request operation references through the matching workflow operation', async () => {
+  const cases = [
+    ['pr:review', 'pr-review'],
+    ['pr:address-review', 'pr-address-review'],
+    ['pr:fix-ci', 'pr-fix-ci'],
+    ['pr:update-branch', 'pr-update-branch'],
+    ['pr:resolve-conflicts', 'pr-resolve-conflicts'],
+    ['pr:finalize', 'pr-finalize'],
+  ];
+
+  for (const [reference, expectedOperation] of cases) {
+    const stdout = createWritableBuffer();
+    /** @type {OperationRunnerContext[]} */
+    const runnerCalls = [];
+    const cli = new PullOpsCli({
+      stdout,
+      operationRunner: async context => {
+        runnerCalls.push(context);
+        return {
+          status: 'accepted',
+          summary: 'local pull request operation accepted',
+          operation: context.operation,
+          target: context.target,
+        };
+      },
+    });
+
+    const exitCode = await cli.run(['run', reference, '456']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(runnerCalls.length, 1);
+    assert.equal(runnerCalls[0].operation, expectedOperation);
+    assert.equal(runnerCalls[0].executionBackend, 'local');
+    assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+    assert.equal(runnerCalls[0].phase, 'run');
+    assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+    assert.deepEqual(runnerCalls[0].target, { type: 'pr', number: 456 });
+    assert.deepEqual(JSON.parse(stdout.text), {
+      status: 'accepted',
+      summary: 'local pull request operation accepted',
+      operation: expectedOperation,
+      target: { type: 'pr', number: 456 },
+    });
+  }
+});
+
 test('run operation accepts every short operation label reference and infers target kind', async () => {
   const cases = [
     ['prd:prepare', 'pullops:prd:prepare', 'issue'],
@@ -512,23 +558,6 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.match(stderr.text, /Local execution is currently only supported for/);
     assert.match(stderr.text, /Use "prd:prepare --backend github-actions"/);
   });
-
-  await t.test(
-    'local pr references stay unsupported until local dry-run semantics exist',
-    async () => {
-      const stderr = createWritableBuffer();
-      const cli = new PullOpsCli({ stderr });
-
-      const exitCode = await cli.run(['run', 'pr:review', '456']);
-
-      assert.equal(exitCode, 1);
-      assert.match(
-        stderr.text,
-        /Local execution is currently only supported for: issue:implement, prd:auto-advance, prd:auto-complete/,
-      );
-      assert.match(stderr.text, /Use "pr:review --backend github-actions"/);
-    },
-  );
 
   await t.test('publish flag with github-actions backend', async () => {
     const stderr = createWritableBuffer();

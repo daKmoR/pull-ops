@@ -128,7 +128,11 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<boolean>}
      */
     async hasChanges() {
-      const result = await runGit(execFile, ['status', '--porcelain'], 'inspect the working tree');
+      const result = await runGit(
+        execFile,
+        ['status', '--porcelain', '--', '.', ':!.pullops/runs/**'],
+        'inspect the working tree',
+      );
       return result.stdout.toString().trim() !== '';
     },
 

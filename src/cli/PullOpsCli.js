@@ -218,6 +218,10 @@ export class PullOpsCli {
       return await this.runLocalPrdAutoCompleteReference(args);
     }
 
+    if (operation.target === 'pr') {
+      return await this.runLocalPullRequestOperationReference(operation, reference, args);
+    }
+
     throw new CliUsageError(localOperationLabelReferenceUnsupportedMessage(reference));
   }
 
@@ -268,6 +272,55 @@ export class PullOpsCli {
       },
       backend: parsedArgs.backend,
     });
+    return 0;
+  }
+
+  /**
+   * @param {import('../operations/types.js').OperationLabelReference} operation
+   * @param {string} reference
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPullRequestOperationReference(operation, reference, args) {
+    const parsedArgs = parseLocalPullRequestOperationReferenceArgs(args, reference);
+    const workflowOperation = getWorkflowOperation(operation.workflowOperationName);
+    if (workflowOperation === undefined) {
+      throw new Error(`${operation.workflowOperationName} operation is not registered.`);
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[workflowOperation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: workflowOperation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: workflowOperation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: 'dry-run',
+      target: {
+        type: 'pr',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
     return 0;
   }
 
@@ -646,6 +699,46 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
 
 /**
  * @param {string[]} args
+ * @param {string} reference
+ * @returns {{ targetNumber: number }}
+ */
+function parseLocalPullRequestOperationReferenceArgs(args, reference) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError(`Missing target number for ${reference}.`);
+  }
+
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${remaining.join(' ')}.`);
+  }
+
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return { targetNumber };
+}
+
+/**
+ * @param {string[]} args
  * @param {Set<number>} consumed
  * @returns {'dry-run' | 'publish'}
  */
@@ -974,7 +1067,7 @@ function usage() {
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr]',
-    '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> --backend github-actions',
+    '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',

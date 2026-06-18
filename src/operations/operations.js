@@ -22,6 +22,7 @@ import {
   runIssueImplementCodexActionPrepare,
 } from './issue-implement/run.js';
 import { runPrdPrepare } from './prd-prepare/run.js';
+import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 import {
   runPrFinalize,
   runPrFinalizeCodexActionFinalize,
@@ -192,6 +193,12 @@ export const LOCAL_OPERATION_LABEL_REFERENCE_NAMES = [
   'issue:implement',
   'prd:auto-advance',
   'prd:auto-complete',
+  'pr:review',
+  'pr:address-review',
+  'pr:fix-ci',
+  'pr:update-branch',
+  'pr:resolve-conflicts',
+  'pr:finalize',
 ];
 
 /**
@@ -215,6 +222,10 @@ export function getOperationLabelReference(reference) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runWorkflowOperation(context) {
+  if (context.executionBackend === 'local' && context.target.type === 'pr') {
+    return await runLocalPullRequestOperation(context);
+  }
+
   if (context.operation === 'prd-prepare') {
     return await runPrdPrepare(context);
   }
