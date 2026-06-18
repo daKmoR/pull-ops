@@ -270,7 +270,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    const runnerAdapter = config.runner.adapter;
     validateRunnerLifecycle({
       operationName: operation.name,
       phase: 'run',
@@ -318,7 +318,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    const runnerAdapter = config.runner.adapter;
     validateRunnerLifecycle({
       operationName: operation.name,
       phase: 'run',
@@ -365,7 +365,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    const runnerAdapter = config.runner.adapter;
     validateRunnerLifecycle({
       operationName: operation.name,
       phase: 'run',
@@ -494,13 +494,20 @@ function parseGitHubActionsOperationLabelArgs(args, reference) {
     throw new CliUsageError(`Missing target number for ${reference}.`);
   }
 
-  if (remaining.length > 1 || remaining[0].startsWith('--')) {
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
     throw new CliUsageError(
       `Unknown arguments for ${reference} with --backend github-actions: ${remaining.join(' ')}.`,
     );
   }
 
-  const targetNumber = Number(remaining[0]);
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(
+      `Unknown arguments for ${reference} with --backend github-actions: ${unknownArgs.join(' ')}.`,
+    );
+  }
+
+  const targetNumber = Number(targetArgument);
   if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
     throw new CliUsageError('Target number must be a positive integer.');
   }
@@ -532,7 +539,6 @@ function readOperationLabelBackend(args) {
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  *   runGoal: import('./types.js').OperationRunGoal,
- *   runnerAdapter?: RunnerAdapter,
  * }}
  */
 function parseLocalIssueImplementReferenceArgs(args) {
@@ -544,7 +550,6 @@ function parseLocalIssueImplementReferenceArgs(args) {
     );
   }
 
-  const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
   const runGoal = parseOperationRunGoal(args, consumed);
   const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
@@ -556,11 +561,16 @@ function parseLocalIssueImplementReferenceArgs(args) {
     throw new CliUsageError('Missing target number for issue:implement.');
   }
 
-  if (remaining.length > 1 || remaining[0].startsWith('--')) {
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
     throw new CliUsageError(`Unknown arguments for issue:implement: ${remaining.join(' ')}.`);
   }
 
-  const targetNumber = Number(remaining[0]);
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for issue:implement: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
   if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
     throw new CliUsageError('Target number must be a positive integer.');
   }
@@ -569,7 +579,6 @@ function parseLocalIssueImplementReferenceArgs(args) {
     targetNumber,
     publicationMode,
     runGoal,
-    ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
   };
 }
 
@@ -579,7 +588,6 @@ function parseLocalIssueImplementReferenceArgs(args) {
  * @returns {{
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
- *   runnerAdapter?: RunnerAdapter,
  * }}
  */
 function parseLocalPrdAutomationReferenceArgs(args, reference) {
@@ -591,7 +599,6 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     );
   }
 
-  const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
   const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
@@ -602,11 +609,16 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     throw new CliUsageError(`Missing target number for ${reference}.`);
   }
 
-  if (remaining.length > 1 || remaining[0].startsWith('--')) {
+  const [targetArgument, ...unknownArgs] = remaining;
+  if (targetArgument === undefined || targetArgument.startsWith('--')) {
     throw new CliUsageError(`Unknown arguments for ${reference}: ${remaining.join(' ')}.`);
   }
 
-  const targetNumber = Number(remaining[0]);
+  if (unknownArgs.length > 0) {
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${unknownArgs.join(' ')}.`);
+  }
+
+  const targetNumber = Number(targetArgument);
   if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
     throw new CliUsageError('Target number must be a positive integer.');
   }
@@ -614,7 +626,6 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   return {
     targetNumber,
     publicationMode,
-    ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
   };
 }
 

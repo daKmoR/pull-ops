@@ -30,6 +30,7 @@ import {
  * @typedef {import('../../git/types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('../../git/types.js').ResetHardToRevisionOptions} ResetHardToRevisionOptions
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../config/types.js').PullOpsConfig} PullOpsConfig
  */
 
 describe('runIssueImplement', () => {
@@ -733,6 +734,7 @@ describe('runIssueImplement', () => {
         testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
       }),
     });
+    /** @type {PullOpsConfig} */
     const config = {
       ...DEFAULT_PULL_OPS_CONFIG,
       runner: {
@@ -1290,6 +1292,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
+    /** @type {PullOpsConfig} */
     const config = {
       ...DEFAULT_PULL_OPS_CONFIG,
       runner: {
@@ -1304,7 +1307,10 @@ describe('runIssueImplement', () => {
         ...DEFAULT_PULL_OPS_CONFIG.operations,
         prReview: { modelTier: 'low' },
         prAddressReview: { modelTier: 'mid' },
-        prFinalize: { modelTier: 'low' },
+        prFinalize: {
+          ...DEFAULT_PULL_OPS_CONFIG.operations.prFinalize,
+          modelTier: 'low',
+        },
       },
     };
     const codex = createFakeCodexRunner({

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -16,6 +16,7 @@ import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplet
  * @typedef {import('../../github/types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').MergePullRequestOptions} MergePullRequestOptions
+ * @typedef {import('../../config/types.js').PullOpsConfig} PullOpsConfig
  */
 
 /** @typedef {import('../../prd-automation/childCoordination.types.js').ChildAutomationResult} ChildAutomationResult */
@@ -171,6 +172,7 @@ describe('runPrdAutoAdvance', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'dry-run');
+    assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Child issue 35/);
     assert.deepEqual(github.issueLabelsAdded, []);
@@ -397,9 +399,67 @@ describe('runPrdAutoAdvance', () => {
     assert.equal(codex.calls.length, 0);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.equal(readParentPullRequest(result)?.status, 'waiting-for-child-issues');
+    assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
     assert.deepEqual(result.localNextSteps, [
       'Add or reopen a native Child Issue before rerunning local PRD auto-advance.',
     ]);
+  });
+
+  it('08: local PRD dry-run refuses a dirty worktree and still records a local run', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-dirty-'));
+    const github = createFakeGitHub({
+      issues: [createIssue({ number: 12, labels: ['pullops:prd:auto-advance'] })],
+    });
+    const git = createFakeGit({ initialDirtyWorktree: true });
+
+    await assert.rejects(
+      runPrdAutoAdvance(
+        createContext({
+          cwd,
+          executionBackend: 'local',
+          publicationMode: 'dry-run',
+          githubClient: github.client,
+          gitClient: git.client,
+        }),
+      ),
+      /requires a clean worktree/,
+    );
+
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(git.checkouts, []);
+    const [recordName] = await readdir(join(cwd, '.pullops', 'runs'));
+    assert.match(recordName, /prd-auto-advance-12$/);
+    assert.match(
+      await readFile(join(cwd, '.pullops', 'runs', recordName, 'failure-reason.txt'), 'utf8'),
+      /clean worktree/,
+    );
+  });
+
+  it('09: local PRD publish refuses a dirty worktree before preparing the umbrella branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-publish-dirty-'));
+    const github = createFakeGitHub({
+      issues: [createIssue({ number: 12, labels: ['pullops:prd:auto-advance'] })],
+    });
+    const git = createFakeGit({ initialDirtyWorktree: true });
+
+    await assert.rejects(
+      runPrdAutoAdvance(
+        createContext({
+          cwd,
+          executionBackend: 'local',
+          publicationMode: 'publish',
+          githubClient: github.client,
+          gitClient: git.client,
+        }),
+      ),
+      /requires a clean worktree/,
+    );
+
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(git.checkouts, []);
+    assert.deepEqual(git.pushes, []);
   });
 });
 
@@ -1223,6 +1283,7 @@ function createFakeGitHub({
  * @param {object} [options]
  * @param {boolean} [options.dirtyAfterRunner]
  * @param {string[]} [options.cherryPickConflicts]
+ * @param {boolean} [options.initialDirtyWorktree]
  * @returns {{
  *   client: import('../../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
@@ -1233,7 +1294,11 @@ function createFakeGitHub({
  *   markRunnerChangedWorktree(): void;
  * }}
  */
-function createFakeGit({ dirtyAfterRunner = false, cherryPickConflicts = [] } = {}) {
+function createFakeGit({
+  dirtyAfterRunner = false,
+  cherryPickConflicts = [],
+  initialDirtyWorktree = false,
+} = {}) {
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const createdBranches = [];
   /** @type {{ branchName: string, baseBranch: string }[]} */
@@ -1243,7 +1308,7 @@ function createFakeGit({ dirtyAfterRunner = false, cherryPickConflicts = [] } = 
   /** @type {{ branchName: string }[]} */
   const pushes = [];
   let currentBranch = 'main';
-  let dirty = false;
+  let dirty = initialDirtyWorktree;
   let hasUnmergedFiles = false;
 
   return {

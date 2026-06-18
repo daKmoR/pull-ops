@@ -69,6 +69,7 @@ export interface PrdAutomationResult extends Record<string, unknown> {
   parentPullRequest?: ParentReviewResult;
   publicationMode?: 'dry-run' | 'publish';
   branch?: string;
+  localRunRecord?: string;
   localNextSteps?: string[];
 }
 

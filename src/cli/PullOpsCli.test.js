@@ -519,6 +519,22 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Unsupported run goal "prepared"/);
   });
+
+  await t.test('runner flag is rejected for label-shaped local commands', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'issue:implement',
+      '123',
+      '--runner',
+      'codex-action',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unknown arguments for issue:implement: --runner codex-action/);
+  });
 });
 
 test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {

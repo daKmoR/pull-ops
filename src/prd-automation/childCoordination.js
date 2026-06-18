@@ -1,3 +1,6 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { classifyCheckState } from '../checks/checkState.js';
 import {
   PULL_OPS_OPERATION_LABELS,
@@ -93,106 +96,120 @@ export async function coordinateLocalPrdAutoComplete(
  * @returns {Promise<PrdAutomationResult>}
  */
 async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, runChildIssue }) {
-  const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
   const publicationMode = context.publicationMode ?? 'dry-run';
-  if (parentIssue.state !== 'OPEN') {
-    return {
-      status: 'skipped',
-      summary: `PRD issue #${parentIssue.number} is ${parentIssue.state.toLowerCase()}.`,
-      issue: parentIssue.number,
-      mode,
-    };
-  }
-
-  const nativeParentIssueNumber = getNativeParentIssueNumber(parentIssue);
-  if (nativeParentIssueNumber !== undefined) {
-    return await blockPrdAutomation(context, parentIssue, {
-      reason: [
-        `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
-        'PRD automation can only run on a Parent Issue.',
-      ].join(' '),
-      mode,
-    });
-  }
-
-  const parentBranchName = createParentBranchName({
-    branchPrefix: context.config.branchPrefix,
-    parentNumber: parentIssue.number,
-  });
-  const preparation = await prepareLocalPrdAutomation(context, parentIssue, {
-    parentBranchName,
+  const operationReference = readLocalPrdOperationReference(mode);
+  const runRecord = await createLocalPrdRunRecord(context, {
+    operationReference,
+    targetNumber: parentIssueNumber,
     publicationMode,
   });
-  const childIssues = await readNativeChildIssues(context, parentIssue);
-  /** @type {ChildAutomationResult[]} */
-  const children = [];
-  let preserveInspectableBranchState = false;
 
-  if (publicationMode === 'publish') {
-    await checkoutLocalPrdBase(context, { parentBranchName });
-  }
+  try {
+    await requireCleanLocalPrdWorktree(context, runRecord, operationReference);
+    const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
+    if (parentIssue.state !== 'OPEN') {
+      return await completeLocalPrdRunRecord(runRecord, {
+        status: 'skipped',
+        summary: `PRD issue #${parentIssue.number} is ${parentIssue.state.toLowerCase()}.`,
+        issue: parentIssue.number,
+        mode,
+      });
+    }
 
-  for (const childIssue of childIssues) {
-    const localResult = await coordinateLocalChildIssue(context, {
-      parentIssue,
-      parentBranchName,
-      childIssue,
-      mode,
-      publicationMode,
-      runChildIssue,
+    const nativeParentIssueNumber = getNativeParentIssueNumber(parentIssue);
+    if (nativeParentIssueNumber !== undefined) {
+      const result = await blockPrdAutomation(context, parentIssue, {
+        reason: [
+          `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
+          'PRD automation can only run on a Parent Issue.',
+        ].join(' '),
+        mode,
+      });
+      return await completeLocalPrdRunRecord(runRecord, result);
+    }
+
+    const parentBranchName = createParentBranchName({
+      branchPrefix: context.config.branchPrefix,
+      parentNumber: parentIssue.number,
     });
-    children.push(localResult.child);
-    preserveInspectableBranchState =
-      preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
+    const preparation = await prepareLocalPrdAutomation(context, parentIssue, {
+      parentBranchName,
+      publicationMode,
+    });
+    const childIssues = await readNativeChildIssues(context, parentIssue);
+    /** @type {ChildAutomationResult[]} */
+    const children = [];
+    let preserveInspectableBranchState = false;
 
-    if (
-      publicationMode === 'publish' &&
-      localResult.restorePrdBase &&
-      !preserveInspectableBranchState
-    ) {
+    if (publicationMode === 'publish') {
       await checkoutLocalPrdBase(context, { parentBranchName });
     }
 
-    if (localResult.stop) {
-      break;
+    for (const childIssue of childIssues) {
+      const localResult = await coordinateLocalChildIssue(context, {
+        parentIssue,
+        parentBranchName,
+        childIssue,
+        mode,
+        publicationMode,
+        runChildIssue,
+      });
+      children.push(localResult.child);
+      preserveInspectableBranchState =
+        preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
+
+      if (
+        publicationMode === 'publish' &&
+        localResult.restorePrdBase &&
+        !preserveInspectableBranchState
+      ) {
+        await checkoutLocalPrdBase(context, { parentBranchName });
+      }
+
+      if (localResult.stop) {
+        break;
+      }
     }
-  }
 
-  const refreshedPreparation =
-    publicationMode === 'publish' ? await ensurePrdPrepared(context, parentIssue) : preparation;
+    const refreshedPreparation =
+      publicationMode === 'publish' ? await ensurePrdPrepared(context, parentIssue) : preparation;
 
-  if (publicationMode === 'publish' && !preserveInspectableBranchState) {
-    await checkoutLocalPrdBase(context, { parentBranchName });
-  }
+    if (publicationMode === 'publish' && !preserveInspectableBranchState) {
+      await checkoutLocalPrdBase(context, { parentBranchName });
+    }
 
-  const parentPullRequest = await requestUmbrellaReviewIfComplete(context, {
-    parentIssue,
-    parentIssueNumber: parentIssue.number,
-    parentBranchName,
-    childIssues,
-    requestReview: false,
-  });
-
-  return {
-    status: 'accepted',
-    summary: summarizeLocalPrdAutomation({
-      mode,
+    const parentPullRequest = await requestUmbrellaReviewIfComplete(context, {
       parentIssue,
+      parentIssueNumber: parentIssue.number,
+      parentBranchName,
+      childIssues,
+      requestReview: false,
+    });
+
+    return await completeLocalPrdRunRecord(runRecord, {
+      status: 'accepted',
+      summary: summarizeLocalPrdAutomation({
+        mode,
+        parentIssue,
+        children,
+        publicationMode,
+      }),
+      mode,
+      issue: {
+        number: parentIssue.number,
+        url: parentIssue.url,
+      },
+      preparation: refreshedPreparation,
       children,
+      parentPullRequest,
       publicationMode,
-    }),
-    mode,
-    issue: {
-      number: parentIssue.number,
-      url: parentIssue.url,
-    },
-    preparation: refreshedPreparation,
-    children,
-    parentPullRequest,
-    publicationMode,
-    branch: parentBranchName,
-    localNextSteps: buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }),
-  };
+      branch: parentBranchName,
+      localNextSteps: buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }),
+    });
+  } catch (error) {
+    await writeLocalPrdRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    throw error;
+  }
 }
 
 /**
@@ -1455,6 +1472,129 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
   }
 
   return parts.join(' ');
+}
+
+/**
+ * @param {PrdAutomationMode} mode
+ * @returns {'prd:auto-advance' | 'prd:auto-complete'}
+ */
+function readLocalPrdOperationReference(mode) {
+  return mode === 'auto-complete' ? 'prd:auto-complete' : 'prd:auto-advance';
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   operationReference: 'prd:auto-advance' | 'prd:auto-complete',
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }} options
+ * @returns {Promise<{ directory: string }>}
+ */
+async function createLocalPrdRunRecord(
+  context,
+  { operationReference, targetNumber, publicationMode },
+) {
+  const normalizedReference = normalizeOperationReferenceForPath(operationReference);
+  const timestamp = new Date().toISOString().replaceAll(':', '').replaceAll('.', '');
+  const directory = join(
+    context.cwd,
+    '.pullops',
+    'runs',
+    `${timestamp}-${normalizedReference}-${targetNumber}`,
+  );
+
+  await mkdir(directory, { recursive: true });
+  await writeLocalPrdRunArtifact(
+    { directory },
+    'metadata.json',
+    `${JSON.stringify(
+      {
+        operationReference,
+        normalizedOperationReference: normalizedReference,
+        target: {
+          type: context.target.type,
+          number: targetNumber,
+        },
+        publicationMode,
+        runGoal: context.runGoal ?? 'operation',
+        createdAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  return { directory };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ directory: string }} runRecord
+ * @param {string} operationReference
+ * @returns {Promise<void>}
+ */
+async function requireCleanLocalPrdWorktree(context, runRecord, operationReference) {
+  if (!(await context.gitClient.hasChanges())) {
+    return;
+  }
+
+  const reason = [
+    `Local ${operationReference} requires a clean worktree before PullOps reads or mutates branch state.`,
+    'Commit, stash, or discard existing changes and run PullOps again.',
+  ].join(' ');
+  await writeLocalPrdRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+  throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
+}
+
+/**
+ * @param {{ directory: string }} runRecord
+ * @param {PrdAutomationResult} result
+ * @returns {Promise<PrdAutomationResult>}
+ */
+async function completeLocalPrdRunRecord(runRecord, result) {
+  const withRunRecord = {
+    ...result,
+    localRunRecord: runRecord.directory,
+  };
+
+  await writeLocalPrdRunArtifact(
+    runRecord,
+    'result.json',
+    `${JSON.stringify(withRunRecord, null, 2)}\n`,
+  );
+  return withRunRecord;
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function normalizeOperationReferenceForPath(reference) {
+  return reference
+    .trim()
+    .toLowerCase()
+    .replaceAll(':', '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * @param {{ directory: string }} runRecord
+ * @param {string} fileName
+ * @param {string} contents
+ * @returns {Promise<void>}
+ */
+async function writeLocalPrdRunArtifact(runRecord, fileName, contents) {
+  await writeFile(join(runRecord.directory, fileName), contents);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**
