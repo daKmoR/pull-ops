@@ -88,8 +88,10 @@ async function runIssueImplementLocalPublish(context) {
     targetNumber: context.target.number,
     publicationMode: 'publish',
   });
+  context.progress?.(`Local Run Record: ${runRecord.directory}`);
 
   try {
+    context.progress?.('Checking local worktree.');
     if (await context.gitClient.hasChanges()) {
       const reason = [
         'Local issue implementation PR publication requires a clean worktree before pushing or mutating GitHub.',
@@ -113,6 +115,7 @@ async function runIssueImplementLocalPublish(context) {
       parentIssueNumber: preparation.parentIssueNumber,
     });
     await writeLocalRunArtifact(runRecord, 'prompt.md', prompt);
+    context.progress?.('Starting Codex runner.');
 
     let rawOutput;
     try {
@@ -127,6 +130,7 @@ async function runIssueImplementLocalPublish(context) {
       await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
       throw error;
     }
+    context.progress?.('Codex runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
     return await finalizePreparedIssueImplementLocalPublish(
@@ -152,8 +156,10 @@ async function runIssueImplementDryRun(context) {
     operationReference: 'issue:implement',
     targetNumber: context.target.number,
   });
+  context.progress?.(`Local Run Record: ${runRecord.directory}`);
 
   try {
+    context.progress?.('Checking local worktree.');
     if (await context.gitClient.hasChanges()) {
       const reason = [
         'Local dry-run issue implementation requires a clean worktree before the runner starts.',
@@ -177,6 +183,7 @@ async function runIssueImplementDryRun(context) {
       parentIssueNumber: preparation.parentIssueNumber,
     });
     await writeLocalRunArtifact(runRecord, 'prompt.md', prompt);
+    context.progress?.('Starting Codex runner.');
 
     let rawOutput;
     try {
@@ -191,6 +198,7 @@ async function runIssueImplementDryRun(context) {
       await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
       throw error;
     }
+    context.progress?.('Codex runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
     return await finalizePreparedIssueImplementDryRun(context, preparation, rawOutput, runRecord);

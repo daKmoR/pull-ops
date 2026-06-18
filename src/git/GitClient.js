@@ -36,10 +36,26 @@ const execFileAsync = promisify(nodeExecFile);
  */
 
 /**
- * @param {{ execFile?: ExecFile, env?: NodeJS.ProcessEnv }} [options]
+ * @param {{ execFile?: ExecFile, env?: NodeJS.ProcessEnv, traceCommand?: (command: string) => void }} [options]
  * @returns {GitClient}
  */
-export function createGitClient({ execFile = execFileAsync, env = process.env } = {}) {
+export function createGitClient({
+  execFile: rawExecFile = execFileAsync,
+  env = process.env,
+  traceCommand,
+} = {}) {
+  /** @type {ExecFile} */
+  const execFile =
+    traceCommand === undefined
+      ? rawExecFile
+      : async (file, args) => {
+          if (file === 'git') {
+            traceCommand(formatGitCommand(args));
+          }
+
+          return await rawExecFile(file, args);
+        };
+
   return {
     /**
      * @param {CreateBranchOptions} options
@@ -1040,4 +1056,32 @@ function isStaleLeaseError(error) {
  */
 function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * @param {string[]} args
+ * @returns {string}
+ */
+function formatGitCommand(args) {
+  return ['git', ...args.map(redactGitCommandArgument)].map(quoteCommandPart).join(' ');
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function redactGitCommandArgument(value) {
+  return value.replace(/(https:\/\/x-access-token:)[^@]+(@github\.com\/)/g, '$1REDACTED$2');
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function quoteCommandPart(value) {
+  if (/^[A-Za-z0-9_./:=@%+,-]+$/.test(value)) {
+    return value;
+  }
+
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }

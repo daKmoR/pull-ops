@@ -51,7 +51,7 @@ export class PullOpsCli {
     stderr = process.stderr,
     githubClient = createGitHubClient(),
     gitClient,
-    codexRunner = createCodexRunner(),
+    codexRunner,
     operationRunner = runWorkflowOperation,
     env = process.env,
   } = {}) {
@@ -59,8 +59,26 @@ export class PullOpsCli {
     this.stdout = stdout;
     this.stderr = stderr;
     this.githubClient = githubClient;
-    this.gitClient = gitClient ?? createGitClient({ env });
-    this.codexRunner = codexRunner;
+    /** @type {(message: string) => void} */
+    this.progress = message => {
+      this.stderr.write(`[pullops] ${message}\n`);
+    };
+    this.gitClient =
+      gitClient ??
+      createGitClient({
+        env,
+        traceCommand: command => {
+          this.progress(`git: ${command}`);
+        },
+      });
+    this.codexRunner =
+      codexRunner ??
+      createCodexRunner({
+        output: this.stderr,
+        traceCommand: command => {
+          this.progress(`runner: ${command}`);
+        },
+      });
     this.operationRunner = operationRunner;
     this.env = env;
   }
@@ -318,6 +336,7 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
+      progress: this.progress,
     });
 
     this.writeValidatedJson(output);
@@ -366,6 +385,7 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
+      progress: this.progress,
     });
 
     this.writeValidatedJson(output);
@@ -413,6 +433,7 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
+      progress: this.progress,
     });
 
     this.writeValidatedJson(output);
@@ -460,6 +481,7 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
+      progress: this.progress,
     });
 
     this.writeValidatedJson(output);

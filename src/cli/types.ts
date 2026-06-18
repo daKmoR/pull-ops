@@ -33,6 +33,7 @@ export interface OperationRunnerContext {
   runnerRan?: boolean;
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
+  progress?: (message: string) => void;
 }
 
 export interface OperationContextUsage {

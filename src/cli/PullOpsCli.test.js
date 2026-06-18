@@ -215,12 +215,14 @@ test('run operation refreshes an existing GitHub Actions label before reapplying
 
 test('run issue:implement defaults to local dry-run operation execution', async () => {
   const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
   /** @type {import('../github/types.js').EditLabelsOptions[]} */
   const issueLabelAdds = [];
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
   const cli = new PullOpsCli({
     stdout,
+    stderr,
     githubClient: createFakeGitHubClient({
       async addLabelsToIssue(options) {
         issueLabelAdds.push(options);
@@ -247,6 +249,8 @@ test('run issue:implement defaults to local dry-run operation execution', async 
   assert.equal(runnerCalls[0].publicationMode, 'dry-run');
   assert.equal(runnerCalls[0].runGoal, 'operation');
   assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+  runnerCalls[0].progress?.('Starting Codex runner.');
+  assert.equal(stderr.text, '[pullops] Starting Codex runner.\n');
   assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
