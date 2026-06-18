@@ -43,7 +43,7 @@ export interface OperationContextUsage {
 export type OperationPhase = 'run' | 'prepare' | 'finalize';
 export type ExecutionBackend = 'local' | 'github-actions';
 export type PublicationMode = 'dry-run' | 'publish';
-export type OperationRunGoal = 'operation' | string;
+export type OperationRunGoal = 'operation' | 'finalized';
 
 export type OperationRunner = (
   context: OperationRunnerContext,

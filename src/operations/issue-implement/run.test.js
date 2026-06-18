@@ -1290,6 +1290,23 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
+    const config = {
+      ...DEFAULT_PULL_OPS_CONFIG,
+      runner: {
+        ...DEFAULT_PULL_OPS_CONFIG.runner,
+        models: {
+          high: 'model-high',
+          mid: 'model-mid',
+          low: 'model-low',
+        },
+      },
+      operations: {
+        ...DEFAULT_PULL_OPS_CONFIG.operations,
+        prReview: { modelTier: 'low' },
+        prAddressReview: { modelTier: 'mid' },
+        prFinalize: { modelTier: 'low' },
+      },
+    };
     const codex = createFakeCodexRunner({
       output: [
         JSON.stringify({
@@ -1348,12 +1365,14 @@ describe('runIssueImplement', () => {
     const result = await runIssueImplement(
       createContext({
         cwd,
+        config,
         executionBackend: 'local',
         publicationMode: 'dry-run',
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
+        model: 'model-high',
       }),
     );
 
@@ -1369,6 +1388,13 @@ describe('runIssueImplement', () => {
         'pullops-pr-finalize',
       ],
     );
+    assert.deepEqual(codex.calls.map(call => call.model), [
+      'model-high',
+      'model-low',
+      'model-mid',
+      'model-low',
+      'model-low',
+    ]);
     assert.deepEqual(git.pushes, []);
     assert.deepEqual(git.forcePushes, []);
     assert.equal(git.rewrites.length, 1);

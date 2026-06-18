@@ -94,6 +94,7 @@ export async function coordinateLocalPrdAutoComplete(
  */
 async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, runChildIssue }) {
   const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
+  const publicationMode = context.publicationMode ?? 'dry-run';
   if (parentIssue.state !== 'OPEN') {
     return {
       status: 'skipped',
@@ -118,9 +119,11 @@ async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, 
     branchPrefix: context.config.branchPrefix,
     parentNumber: parentIssue.number,
   });
-  const preparation = await ensurePrdPrepared(context, parentIssue);
+  const preparation = await prepareLocalPrdAutomation(context, parentIssue, {
+    parentBranchName,
+    publicationMode,
+  });
   const childIssues = await readNativeChildIssues(context, parentIssue);
-  const publicationMode = context.publicationMode ?? 'dry-run';
   /** @type {ChildAutomationResult[]} */
   const children = [];
   let preserveInspectableBranchState = false;
@@ -466,6 +469,61 @@ async function ensurePrdPrepared(context, parentIssue) {
       number: parentIssue.number,
     },
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} parentIssue
+ * @param {{ parentBranchName: string, publicationMode: 'dry-run' | 'publish' }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function prepareLocalPrdAutomation(
+  context,
+  parentIssue,
+  { parentBranchName, publicationMode },
+) {
+  if (publicationMode === 'publish') {
+    return await ensurePrdPrepared(context, parentIssue);
+  }
+
+  return await inspectLocalPrdPreparation(context, parentIssue, parentBranchName);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} parentIssue
+ * @param {string} parentBranchName
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function inspectLocalPrdPreparation(context, parentIssue, parentBranchName) {
+  const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(parentBranchName);
+  if (existingPullRequest !== undefined) {
+    return {
+      status: 'accepted',
+      summary: `Inspected existing umbrella PR #${existingPullRequest.number} for parent issue #${parentIssue.number} without GitHub mutations.`,
+      issue: {
+        number: parentIssue.number,
+        url: parentIssue.url,
+      },
+      pullRequest: {
+        number: existingPullRequest.number,
+        url: existingPullRequest.url,
+        branch: parentBranchName,
+        draft: existingPullRequest.isDraft,
+      },
+    };
+  }
+
+  return {
+    status: 'accepted',
+    summary: `Prepared local PRD automation context for parent issue #${parentIssue.number} without GitHub mutations.`,
+    issue: {
+      number: parentIssue.number,
+      url: parentIssue.url,
+    },
+    branch: parentBranchName,
+    publicationMode: 'dry-run',
+  };
 }
 
 /**
@@ -1126,10 +1184,12 @@ async function requestUmbrellaReviewIfComplete(
       issue: resolvedParentIssue,
       branchName,
     });
-    await context.githubClient.updatePullRequestBody({
-      number: pullRequest.number,
-      body: refreshedBody,
-    });
+    if (requestReview || context.publicationMode === 'publish') {
+      await context.githubClient.updatePullRequestBody({
+        number: pullRequest.number,
+        body: refreshedBody,
+      });
+    }
     reviewPullRequest = {
       ...pullRequest,
       body: refreshedBody,

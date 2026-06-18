@@ -15,6 +15,7 @@ import {
 } from '../codexAction.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
+import { getWorkflowOperation } from '../operations.js';
 import { validateAddressReviewFeedbackCoverage } from '../pr-address-review/feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from '../pr-address-review/output.js';
 import { validatePlannerCommitPlan } from '../pr-finalize/commitPlan.js';
@@ -1076,6 +1077,7 @@ async function runLocalFinalizedIssuePipeline(
       reviewComments,
     });
     const reviewOutput = await runLocalFollowUpOperation(context, runRecord, {
+      operationName: 'pr-review',
       operationReference: 'pr:review',
       prompt: reviewPrompt,
       validate: validatePrReviewOutput,
@@ -1140,6 +1142,7 @@ async function runLocalFinalizedIssuePipeline(
       latestReviewOutput: reviewOutput.value,
     });
     const addressOutput = await runLocalFollowUpOperation(context, runRecord, {
+      operationName: 'pr-address-review',
       operationReference: 'pr:address-review',
       prompt: addressPrompt,
       validate: validatePrAddressReviewOutput,
@@ -1203,6 +1206,7 @@ async function runLocalFinalizedIssuePipeline(
     reviewComments,
   });
   const finalizeOutput = await runLocalFollowUpOperation(context, runRecord, {
+    operationName: 'pr-finalize',
     operationReference: 'pr:finalize',
     prompt: finalizePrompt,
     validate: validatePrFinalizeOutput,
@@ -1351,6 +1355,7 @@ async function runLocalFinalizedIssuePipeline(
  * @param {OperationRunnerContext} context
  * @param {{ directory: string }} runRecord
  * @param {{
+ *   operationName: string,
  *   operationReference: string,
  *   prompt: string,
  *   validate: (value: unknown) => { valid: true, value: T } | { valid: false, reason: string },
@@ -1360,12 +1365,13 @@ async function runLocalFinalizedIssuePipeline(
 async function runLocalFollowUpOperation(
   context,
   runRecord,
-  { operationReference, prompt, validate },
+  { operationName, operationReference, prompt, validate },
 ) {
+  const modelSelection = resolveOperationModelSelection(context, operationName);
   const rawOutput = await context.codexRunner.run({
     cwd: context.cwd,
     command: context.config.runner.command,
-    model: context.model,
+    model: modelSelection.model,
     prompt,
   });
   await writeLocalRunArtifact(
@@ -1375,6 +1381,24 @@ async function runLocalFollowUpOperation(
   );
 
   return validate(rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} operationName
+ * @returns {{ modelTier: string, model: string }}
+ */
+function resolveOperationModelSelection(context, operationName) {
+  const operation = getWorkflowOperation(operationName);
+  if (operation === undefined) {
+    throw new Error(`Workflow operation "${operationName}" is not registered.`);
+  }
+
+  const operationConfig = context.config.operations[operation.configKey];
+  return {
+    modelTier: operationConfig.modelTier,
+    model: context.config.runner.models[operationConfig.modelTier],
+  };
 }
 
 /**

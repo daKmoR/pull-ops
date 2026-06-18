@@ -531,7 +531,7 @@ function readOperationLabelBackend(args) {
  * @returns {{
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
- *   runGoal: string,
+ *   runGoal: import('./types.js').OperationRunGoal,
  *   runnerAdapter?: RunnerAdapter,
  * }}
  */
@@ -545,8 +545,8 @@ function parseLocalIssueImplementReferenceArgs(args) {
   }
 
   const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
-  const runGoal = parseOptionalStringOption(args, '--until', consumed) ?? 'operation';
-  const publish = parsePublishPrFlag(args, consumed);
+  const runGoal = parseOperationRunGoal(args, consumed);
+  const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);
@@ -567,7 +567,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
 
   return {
     targetNumber,
-    publicationMode: publish ? 'publish' : 'dry-run',
+    publicationMode,
     runGoal,
     ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
   };
@@ -592,7 +592,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   }
 
   const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
-  const publish = parsePublishPrFlag(args, consumed);
+  const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);
@@ -613,7 +613,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
 
   return {
     targetNumber,
-    publicationMode: publish ? 'publish' : 'dry-run',
+    publicationMode,
     ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
   };
 }
@@ -621,26 +621,53 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
 /**
  * @param {string[]} args
  * @param {Set<number>} consumed
- * @returns {boolean}
+ * @returns {'dry-run' | 'publish'}
  */
-function parsePublishPrFlag(args, consumed) {
+function parsePublicationMode(args, consumed) {
   const index = args.indexOf('--publish');
   if (index === -1) {
-    return false;
+    return 'dry-run';
   }
 
   consumed.add(index);
   const value = args[index + 1];
   if (value === undefined || value.startsWith('--')) {
-    return true;
-  }
-
-  if (value !== 'pr') {
-    throw new CliUsageError('Unsupported publish target. Expected "--publish pr".');
+    throw new CliUsageError('Missing value for "--publish". Expected "dry-run" or "pr".');
   }
 
   consumed.add(index + 1);
-  return true;
+
+  if (value === 'dry-run') {
+    return 'dry-run';
+  }
+
+  if (value !== 'pr') {
+    throw new CliUsageError(
+      'Unsupported publish target. Expected "--publish dry-run" or "--publish pr".',
+    );
+  }
+
+  return 'publish';
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {import('./types.js').OperationRunGoal}
+ */
+function parseOperationRunGoal(args, consumed) {
+  const rawRunGoal = parseOptionalStringOption(args, '--until', consumed);
+  if (rawRunGoal === undefined) {
+    return 'operation';
+  }
+
+  if (rawRunGoal === 'operation' || rawRunGoal === 'finalized') {
+    return rawRunGoal;
+  }
+
+  throw new CliUsageError(
+    `Unsupported run goal "${rawRunGoal}". Expected "--until operation" or "--until finalized".`,
+  );
 }
 
 /**
@@ -927,9 +954,9 @@ function formatTargetKind(target) {
 function usage() {
   return [
     'Usage:',
-    '  pullops run issue:implement <issue-number> [--backend local] [--publish pr]',
-    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish pr]',
-    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish pr]',
+    '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',

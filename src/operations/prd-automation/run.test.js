@@ -174,6 +174,9 @@ describe('runPrdAutoAdvance', () => {
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Child issue 35/);
     assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(github.pullRequestComments, []);
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
       [
@@ -360,7 +363,7 @@ describe('runPrdAutoAdvance', () => {
     assert.equal(codex.calls.length, 0);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.equal(readParentPullRequest(result)?.status, 'ready-for-review');
-    assert.equal(github.updatedPullRequestBodies.length > 0, true);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
     assert.deepEqual(result.localNextSteps, [
       'Umbrella PR is ready for human review after local dry-run; request review manually instead of adding trigger labels.',
     ]);

@@ -246,6 +246,47 @@ test('run issue:implement accepts local PR publication', async () => {
   });
 });
 
+test('run issue:implement accepts explicit dry-run publication and finalized run goal', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local finalized dry-run accepted',
+        publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'issue:implement',
+    '123',
+    '--publish',
+    'dry-run',
+    '--until',
+    'finalized',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local finalized dry-run accepted',
+    publicationMode: 'dry-run',
+    runGoal: 'finalized',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
 test('run prd:auto-advance accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -457,6 +498,26 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /--until is only supported by the local execution backend/);
+  });
+
+  await t.test('missing publish value', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Missing value for "--publish"/);
+  });
+
+  await t.test('unsupported run goal', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--until', 'prepared']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unsupported run goal "prepared"/);
   });
 });
 
