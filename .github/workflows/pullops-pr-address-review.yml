@@ -189,7 +189,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
           output-file: ${{ runner.temp }}/pullops-output/codex_output.json
-          model: gpt-5.4-mini
+          model: gpt-5.4
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true

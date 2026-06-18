@@ -201,7 +201,7 @@ The schema-validated structured result emitted by a Workflow-Facing Command and 
 _Avoid_: Agent response, stdout
 
 **Review Cycle**:
-One automated loop where PullOps reviews a pull request, requests changes, addresses those changes, and reviews again.
+One automated review pass for a PullOps-Managed PR, counted when `pr-review` runs. If the review requests changes, `pr-address-review` may respond only when the workflow still has budget for a follow-up review to approve the resulting tree.
 _Avoid_: Retry, review attempt
 
 **CI Fix Cycle**:

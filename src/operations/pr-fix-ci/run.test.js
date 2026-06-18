@@ -336,7 +336,7 @@ function createContext(overrides = {}) {
     cwd: '/workspace',
     config: DEFAULT_PULL_OPS_CONFIG,
     modelTier: 'mid',
-    model: 'gpt-5.4-mini',
+    model: DEFAULT_PULL_OPS_CONFIG.runner.models.mid,
     githubClient: createFakeGitHub({
       pullRequest: createPullRequest(),
       checks: [createFailedCheck({ name: 'Unit tests' })],

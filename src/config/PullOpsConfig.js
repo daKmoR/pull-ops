@@ -28,7 +28,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     command: 'codex exec',
     models: {
       high: 'gpt-5.5',
-      mid: 'gpt-5.4-mini',
+      mid: 'gpt-5.4',
       low: 'gpt-5.4-mini',
     },
   },
