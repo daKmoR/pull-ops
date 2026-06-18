@@ -213,6 +213,10 @@ export class PullOpsCli {
       return await this.runLocalPrdAutoAdvanceReference(args);
     }
 
+    if (reference === 'prd:auto-complete') {
+      return await this.runLocalPrdAutoCompleteReference(args);
+    }
+
     throw new CliUsageError(
       `${reference} requires "--backend github-actions" to dispatch through GitHub Actions.`,
     );
@@ -305,10 +309,57 @@ export class PullOpsCli {
    * @returns {Promise<number>}
    */
   async runLocalPrdAutoAdvanceReference(args) {
-    const parsedArgs = parseLocalPrdAutoAdvanceReferenceArgs(args);
+    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-advance');
     const operation = getWorkflowOperation('prd-auto-advance');
     if (operation === undefined) {
       throw new Error('prd-auto-advance operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPrdAutoCompleteReference(args) {
+    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-complete');
+    const operation = getWorkflowOperation('prd-auto-complete');
+    if (operation === undefined) {
+      throw new Error('prd-auto-complete operation is not registered.');
     }
 
     const config = await loadPullOpsConfig({ cwd: this.cwd });
@@ -524,18 +575,19 @@ function parseLocalIssueImplementReferenceArgs(args) {
 
 /**
  * @param {string[]} args
+ * @param {'prd:auto-advance' | 'prd:auto-complete'} reference
  * @returns {{
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  *   runnerAdapter?: RunnerAdapter,
  * }}
  */
-function parseLocalPrdAutoAdvanceReferenceArgs(args) {
+function parseLocalPrdAutomationReferenceArgs(args, reference) {
   const consumed = new Set();
   const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
   if (rawBackend !== undefined && rawBackend !== 'local') {
     throw new CliUsageError(
-      `Unknown backend "${rawBackend}" for prd:auto-advance. Expected one of: local, github-actions.`,
+      `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
     );
   }
 
@@ -547,11 +599,11 @@ function parseLocalPrdAutoAdvanceReferenceArgs(args) {
   });
 
   if (remaining.length === 0) {
-    throw new CliUsageError('Missing target number for prd:auto-advance.');
+    throw new CliUsageError(`Missing target number for ${reference}.`);
   }
 
   if (remaining.length > 1 || remaining[0].startsWith('--')) {
-    throw new CliUsageError(`Unknown arguments for prd:auto-advance: ${remaining.join(' ')}.`);
+    throw new CliUsageError(`Unknown arguments for ${reference}: ${remaining.join(' ')}.`);
   }
 
   const targetNumber = Number(remaining[0]);
@@ -877,6 +929,7 @@ function usage() {
     'Usage:',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish pr]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish pr]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish pr]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',

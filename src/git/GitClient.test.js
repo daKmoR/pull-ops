@@ -423,6 +423,110 @@ describe('createGitClient', () => {
 
     assert.equal(await gitClient.getCurrentBranch?.(), 'pullops/issue-15');
   });
+
+  it('12: cherry-picks finalized child commits onto a local PullOps branch', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set(['refs/heads/pullops/prd-7']);
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    const result = await gitClient.cherryPickCommitOntoBranch?.({
+      branchName: 'pullops/prd-7',
+      baseBranch: 'main',
+      commitSha: 'finalized-head',
+      committer: {
+        name: 'github-actions[bot]',
+        email: '41898282+github-actions[bot]@users.noreply.github.com',
+      },
+    });
+
+    assert.equal(result?.status, 'cherry-picked');
+    assert.equal(
+      calls.some(call => isGitCall(call, ['checkout', 'pullops/prd-7'])),
+      true,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          '-c',
+          'user.name=github-actions[bot]',
+          '-c',
+          'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+          'cherry-pick',
+          'finalized-head',
+        ]),
+      ),
+      true,
+    );
+  });
+
+  it('13: leaves conflicted cherry-picks inspectable on the target branch', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        if (args[0] === 'cherry-pick' || args.includes('cherry-pick')) {
+          const error = new Error('conflict');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        if (isGitCall({ file, args }, ['diff', '--name-only', '--diff-filter=U', '-z'])) {
+          return { stdout: 'src/conflicted.js\u0000', stderr: '' };
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    const result = await gitClient.cherryPickCommitOntoBranch?.({
+      branchName: 'pullops/prd-7',
+      baseBranch: 'main',
+      commitSha: 'finalized-head',
+      committer: {
+        name: 'github-actions[bot]',
+        email: '41898282+github-actions[bot]@users.noreply.github.com',
+      },
+    });
+
+    assert.deepEqual(result, {
+      status: 'conflicts',
+      conflictedFiles: ['src/conflicted.js'],
+    });
+    assert.equal(
+      calls.some(call => isGitCall(call, ['checkout', '-B', 'pullops/prd-7', 'origin/main'])),
+      true,
+    );
+    assert.equal(
+      calls.some(call => isGitCall(call, ['cherry-pick', '--abort'])),
+      false,
+    );
+  });
 });
 
 /**
