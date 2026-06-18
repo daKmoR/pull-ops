@@ -743,6 +743,69 @@ describe('createGitClient', () => {
       },
     ]);
   });
+
+  it('21: reads and rewrites against a preferred local base without fetching it from origin', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set(['refs/heads/pullops/prd-7']);
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/prd-7'])) {
+          const error = new Error('missing remote ref');
+          Object.assign(error, {
+            stderr: "fatal: couldn't find remote ref pullops/prd-7",
+          });
+          throw error;
+        }
+
+        if (isGitCall({ file, args }, ['diff', '--name-only', '-z', 'pullops/prd-7...HEAD'])) {
+          return { stdout: 'src/file.js\u0000', stderr: '' };
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    const changedFiles = await gitClient.getChangedFilesSinceBase({
+      baseBranch: 'pullops/prd-7',
+      preferLocalBase: true,
+    });
+    const commits = await gitClient.getCommitsSinceBase?.({
+      baseBranch: 'pullops/prd-7',
+      preferLocalBase: true,
+    });
+    await gitClient.rewriteBranchWithCommitPlan({
+      baseBranch: 'pullops/prd-7',
+      branchName: 'pullops/prd-7-issue-42',
+      commits: [],
+      author: {
+        name: 'github-actions[bot]',
+        email: '41898282+github-actions[bot]@users.noreply.github.com',
+      },
+      push: false,
+      preferLocalBase: true,
+    });
+
+    assert.deepEqual(changedFiles, ['src/file.js']);
+    assert.equal(commits?.length, 1);
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
+    assert.equal(countGitCalls(calls, ['diff', '--name-only', '-z', 'pullops/prd-7...HEAD']), 1);
+    assert.equal(countGitCalls(calls, ['rev-list', '--reverse', 'pullops/prd-7..HEAD']), 1);
+    assert.equal(countGitCalls(calls, ['reset', '--hard', 'pullops/prd-7']), 1);
+  });
 });
 
 /**

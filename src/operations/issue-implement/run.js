@@ -1340,9 +1340,9 @@ async function runLocalFinalizedIssuePipeline(
     );
   }
 
-  const changedFiles = await context.gitClient.getChangedFilesSinceBase({
-    baseBranch: preparation.baseBranch,
-  });
+  const changedFiles = await context.gitClient.getChangedFilesSinceBase(
+    createLocalBaseOptions(context, preparation),
+  );
   const commitPlan = validatePlannerCommitPlan({
     plannedCommits: finalizeOutput.value.commitPlan.commits,
     changedFiles,
@@ -1361,7 +1361,7 @@ async function runLocalFinalizedIssuePipeline(
   let rewriteResult;
   try {
     rewriteResult = await context.gitClient.rewriteBranchWithCommitPlan({
-      baseBranch: preparation.baseBranch,
+      ...createLocalBaseOptions(context, preparation),
       branchName: preparation.branchName,
       commits: commitPlan.commits,
       author: GITHUB_ACTIONS_BOT_AUTHOR,
@@ -1544,9 +1544,9 @@ async function buildLocalFollowUpPrompt(
     modelTier: context.modelTier,
     model: context.model,
   });
-  const changedFiles = await context.gitClient.getChangedFilesSinceBase({
-    baseBranch: preparation.baseBranch,
-  });
+  const changedFiles = await context.gitClient.getChangedFilesSinceBase(
+    createLocalBaseOptions(context, preparation),
+  );
   const commits = await readLocalCommitsSinceBaseIfAvailable(context, preparation);
   const patch = await readWorkingTreePatchIfAvailable(context);
 
@@ -2304,7 +2304,7 @@ async function readLocalCommitsSinceBase(context, preparation) {
   }
 
   return await context.gitClient.getCommitsSinceBase({
-    baseBranch: preparation.baseBranch,
+    ...createLocalBaseOptions(context, preparation),
   });
 }
 
@@ -2319,8 +2319,20 @@ async function readLocalCommitsSinceBaseIfAvailable(context, preparation) {
   }
 
   return await context.gitClient.getCommitsSinceBase({
-    baseBranch: preparation.baseBranch,
+    ...createLocalBaseOptions(context, preparation),
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {{ baseBranch: string, preferLocalBase?: boolean }}
+ */
+function createLocalBaseOptions(context, preparation) {
+  return {
+    baseBranch: preparation.baseBranch,
+    ...(context.publicationMode === 'dry-run' ? { preferLocalBase: true } : {}),
+  };
 }
 
 /**

@@ -486,11 +486,14 @@ export function createGitClient({
      * @param {GetChangedFilesSinceBaseOptions} options
      * @returns {Promise<string[]>}
      */
-    async getChangedFilesSinceBase({ baseBranch }) {
-      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+    async getChangedFilesSinceBase({ baseBranch, preferLocalBase = false }) {
+      const baseRef = await resolveBaseReference(execFile, baseBranch, {
+        preferLocalBase,
+        refreshRemote: true,
+      });
       const result = await runGit(
         execFile,
-        ['diff', '--name-only', '-z', `origin/${baseBranch}...HEAD`],
+        ['diff', '--name-only', '-z', `${baseRef}...HEAD`],
         `inspect changed files since ${baseBranch}`,
       );
       return parseNullSeparatedFiles(result.stdout);
@@ -500,9 +503,11 @@ export function createGitClient({
      * @param {GetCommitsSinceBaseOptions} options
      * @returns {Promise<GitCommit[]>}
      */
-    async getCommitsSinceBase({ baseBranch }) {
-      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
-      const baseRef = `origin/${baseBranch}`;
+    async getCommitsSinceBase({ baseBranch, preferLocalBase = false }) {
+      const baseRef = await resolveBaseReference(execFile, baseBranch, {
+        preferLocalBase,
+        refreshRemote: true,
+      });
       const result = await runGit(
         execFile,
         ['rev-list', '--reverse', `${baseRef}..HEAD`],
@@ -527,13 +532,23 @@ export function createGitClient({
      * @param {RewriteBranchWithCommitPlanOptions} options
      * @returns {Promise<GitRewriteResult>}
      */
-    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author, push = true }) {
+    async rewriteBranchWithCommitPlan({
+      baseBranch,
+      branchName,
+      commits,
+      author,
+      push = true,
+      preferLocalBase = false,
+    }) {
       const originalHead = (
         await runGit(execFile, ['rev-parse', 'HEAD'], 'record the original branch head')
       ).stdout
         .toString()
         .trim();
-      const baseRef = `origin/${baseBranch}`;
+      const baseRef = await resolveBaseReference(execFile, baseBranch, {
+        preferLocalBase,
+        refreshRemote: false,
+      });
 
       await runGit(execFile, ['reset', '--hard', baseRef], `reset branch to ${baseRef}`);
 
@@ -615,6 +630,24 @@ export function createGitClient({
  */
 function withGitCommitter(args, committer) {
   return ['-c', `user.name=${committer.name}`, '-c', `user.email=${committer.email}`, ...args];
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} baseBranch
+ * @param {{ preferLocalBase: boolean, refreshRemote: boolean }} options
+ * @returns {Promise<string>}
+ */
+async function resolveBaseReference(execFile, baseBranch, { preferLocalBase, refreshRemote }) {
+  if (preferLocalBase && (await gitRefExists(execFile, `refs/heads/${baseBranch}`))) {
+    return baseBranch;
+  }
+
+  if (refreshRemote) {
+    await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+  }
+
+  return `origin/${baseBranch}`;
 }
 
 /**

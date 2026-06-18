@@ -134,10 +134,12 @@ export type GitPushWithLeaseResult =
 
 export interface GetChangedFilesSinceBaseOptions {
   baseBranch: string;
+  preferLocalBase?: boolean;
 }
 
 export interface GetCommitsSinceBaseOptions {
   baseBranch: string;
+  preferLocalBase?: boolean;
 }
 
 export interface ResetHardToRevisionOptions {
@@ -167,6 +169,7 @@ export interface RewriteBranchWithCommitPlanOptions {
   commits: PlannedRewriteCommit[];
   author: GitCommitAuthor;
   push?: boolean;
+  preferLocalBase?: boolean;
 }
 
 export interface RewriteBranchWithExistingCommitsOptions {

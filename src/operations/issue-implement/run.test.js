@@ -26,6 +26,8 @@ import {
  * @typedef {import('../../git/types.js').CheckoutPullOpsBranchOptions} CheckoutPullOpsBranchOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
+ * @typedef {import('../../git/types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
+ * @typedef {import('../../git/types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../../git/types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('../../git/types.js').ResetHardToRevisionOptions} ResetHardToRevisionOptions
@@ -2241,6 +2243,90 @@ describe('runIssueImplement', () => {
     );
     assert.equal(github.createdPullRequests.length, 0);
   });
+
+  it('39: local finalized child dry-runs prefer the local PRD base branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-child-base-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Finalize child locally',
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false],
+      changedFilesSinceBase: ['smoking.md'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized child dry-run.',
+          changes: ['Added child behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local child implementation.'],
+                footers: ['Refs: #42', 'PRD: #1'],
+                files: ['smoking.md'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.baseBranch, 'pullops/prd-1');
+    assert.deepEqual(git.changedFileRequests, [
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+    ]);
+    assert.deepEqual(git.commitListRequests, [
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+    ]);
+    assert.equal(git.rewrites.length, 1);
+    assert.equal(git.rewrites[0].baseBranch, 'pullops/prd-1');
+    assert.equal(git.rewrites[0].preferLocalBase, true);
+    assert.equal(git.rewrites[0].push, false);
+    assert.deepEqual(git.pushes, []);
+    assert.equal(github.createdPullRequests.length, 0);
+  });
 });
 
 /**
@@ -2458,6 +2544,8 @@ function createFakeGitHub({
  *   checkouts: CheckoutPullOpsBranchOptions[];
  *   commits: CommitAllOptions[];
  *   emptyCommits: CommitEmptyOptions[];
+ *   changedFileRequests: GetChangedFilesSinceBaseOptions[];
+ *   commitListRequests: GetCommitsSinceBaseOptions[];
  *   pushes: PushBranchOptions[];
  *   forcePushes: PushBranchWithLeaseOptions[];
  *   hardResets: ResetHardToRevisionOptions[];
@@ -2487,6 +2575,10 @@ function createFakeGit({
   const commits = [];
   /** @type {CommitEmptyOptions[]} */
   const emptyCommits = [];
+  /** @type {GetChangedFilesSinceBaseOptions[]} */
+  const changedFileRequests = [];
+  /** @type {GetCommitsSinceBaseOptions[]} */
+  const commitListRequests = [];
   /** @type {PushBranchOptions[]} */
   const pushes = [];
   /** @type {PushBranchWithLeaseOptions[]} */
@@ -2502,6 +2594,8 @@ function createFakeGit({
     checkouts,
     commits,
     emptyCommits,
+    changedFileRequests,
+    commitListRequests,
     pushes,
     forcePushes,
     hardResets,
@@ -2585,13 +2679,15 @@ function createFakeGit({
         }
         hardResets.push(options);
       },
-      async getChangedFilesSinceBase() {
+      async getChangedFilesSinceBase(options) {
+        changedFileRequests.push(options);
         return changedFilesSinceBase;
       },
-      async getCommitsSinceBase() {
+      async getCommitsSinceBase(options) {
         if (failOn('getCommitsSinceBase')) {
           throw new Error('get commits failed');
         }
+        commitListRequests.push(options);
         return commitsSinceBase;
       },
       async rewriteBranchWithCommitPlan(options) {
