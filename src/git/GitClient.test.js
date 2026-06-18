@@ -326,7 +326,43 @@ describe('createGitClient', () => {
     );
   });
 
-  it('08: excludes local run records when committing all changes', async () => {
+  it('08: creates a child PullOps branch from an existing local base branch', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set(['refs/heads/pullops/prd-12']);
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    await gitClient.checkoutPullOpsBranch?.({
+      branchName: 'pullops/prd-12-issue-35',
+      baseBranch: 'pullops/prd-12',
+    });
+
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, ['checkout', '-B', 'pullops/prd-12-issue-35', 'pullops/prd-12']),
+      ),
+      true,
+    );
+  });
+
+  it('09: excludes local run records when committing all changes', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -351,7 +387,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('09: includes untracked files in the working tree patch', async () => {
+  it('10: includes untracked files in the working tree patch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-git-patch-'));
     await execFile('git', ['init'], { cwd });
     await execFile('git', ['config', 'user.name', 'PullOps'], { cwd });
@@ -378,7 +414,7 @@ describe('createGitClient', () => {
     assert.match(patch ?? '', /\+hello from a new file/);
   });
 
-  it('10: fetches local dry-run refs without requiring GitHub Actions push auth', async () => {
+  it('11: fetches local dry-run refs without requiring GitHub Actions push auth', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -412,7 +448,7 @@ describe('createGitClient', () => {
     ]);
   });
 
-  it('11: reads the current branch name', async () => {
+  it('12: reads the current branch name', async () => {
     const gitClient = createGitClient({
       env: {},
       execFile: async (_file, args) => {
@@ -424,7 +460,7 @@ describe('createGitClient', () => {
     assert.equal(await gitClient.getCurrentBranch?.(), 'pullops/issue-15');
   });
 
-  it('12: cherry-picks finalized child commits onto a local PullOps branch', async () => {
+  it('13: cherry-picks finalized child commits onto a local PullOps branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const refs = new Set(['refs/heads/pullops/prd-7']);
@@ -477,7 +513,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('13: leaves conflicted cherry-picks inspectable on the target branch', async () => {
+  it('14: leaves conflicted cherry-picks inspectable on the target branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -528,7 +564,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('14: reads changed files since base without requiring Push auth configuration', async () => {
+  it('15: reads changed files since base without requiring Push auth configuration', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -560,7 +596,7 @@ describe('createGitClient', () => {
     ]);
   });
 
-  it('15: reads commits since base without requiring Push auth configuration', async () => {
+  it('16: reads commits since base without requiring Push auth configuration', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({

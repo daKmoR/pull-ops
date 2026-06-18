@@ -504,6 +504,7 @@ async function prepareLocalPrdAutomation(
     return await ensurePrdPrepared(context, parentIssue);
   }
 
+  await checkoutLocalPrdBase(context, { parentBranchName });
   return await inspectLocalPrdPreparation(context, parentIssue, parentBranchName);
 }
 

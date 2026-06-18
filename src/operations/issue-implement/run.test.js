@@ -806,7 +806,58 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('19: local dry-run preserves the checked-out PullOps branch when runner output blocks', async () => {
+  it('19: local dry-run child issue fetches the repository base and uses the local PRD branch as the branch base', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-child-dry-run-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Implement a PRD child issue locally',
+      labels: [],
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true],
+      patch: 'diff --git a/src/file.js b/src/file.js\n',
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented a PRD child locally.',
+        changes: ['Changed child issue code.'],
+        testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
+      }),
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/prd-1', 'pullops/prd-1-issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [
+      {
+        branchName: 'pullops/prd-1-issue-42',
+        baseBranch: 'pullops/prd-1',
+      },
+    ]);
+  });
+
+  it('20: local dry-run preserves the checked-out PullOps branch when runner output blocks', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-blocked-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
     const git = createFakeGit({ hasChangesResults: [false] });
@@ -841,7 +892,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('20: local dry-run checks out the PullOps branch before blocking a closed issue', async () => {
+  it('21: local dry-run checks out the PullOps branch before blocking a closed issue', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-closed-'));
     const github = createFakeGitHub({
       issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
@@ -872,7 +923,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
   });
 
-  it('21: local dry-run checks out the PullOps branch before blocking a PRD-looking issue', async () => {
+  it('22: local dry-run checks out the PullOps branch before blocking a PRD-looking issue', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-prd-'));
     const github = createFakeGitHub({
       issue: createIssue({
@@ -919,7 +970,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-1', baseBranch: 'main' }]);
   });
 
-  it('22: local dry-run checks out the PullOps branch before blocking a parent issue with children', async () => {
+  it('23: local dry-run checks out the PullOps branch before blocking a parent issue with children', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-parent-'));
     const github = createFakeGitHub({
       issue: createIssue({
@@ -964,7 +1015,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-1', baseBranch: 'main' }]);
   });
 
-  it('23: local dry-run checks out the PullOps branch before blocking an issue with dependencies', async () => {
+  it('24: local dry-run checks out the PullOps branch before blocking an issue with dependencies', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-deps-'));
     const issue = createIssue({
       number: 42,
@@ -1009,7 +1060,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
   });
 
-  it('24: local PR publication runs the runner, pushes, opens a managed draft PR, records audit evidence, and avoids trigger labels', async () => {
+  it('25: local PR publication runs the runner, pushes, opens a managed draft PR, records audit evidence, and avoids trigger labels', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-'));
     const issue = createIssue({ number: 42, title: 'Add local PR publication', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1097,7 +1148,7 @@ describe('runIssueImplement', () => {
     assert.equal(metadata.publicationMode, 'publish');
   });
 
-  it('25: local PR publication publishes a clean prepared branch without rerunning the runner', async () => {
+  it('26: local PR publication publishes a clean prepared branch without rerunning the runner', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-prepared-publish-'));
     const issue = createIssue({ number: 42, title: 'Publish prepared branch', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1129,7 +1180,7 @@ describe('runIssueImplement', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.preparedBranch, true);
     assert.equal(codex.calls.length, 0);
-    assert.deepEqual(git.checkouts, []);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
     assert.equal(github.createdPullRequests.length, 1);
     assert.match(
@@ -1141,7 +1192,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.pullRequestComments.length, 1);
   });
 
-  it('26: local PR publication refuses a dirty worktree before push or GitHub mutation', async () => {
+  it('27: local PR publication refuses a dirty worktree before push or GitHub mutation', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-dirty-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
     const git = createFakeGit({ hasChangesResults: [true] });
@@ -1171,7 +1222,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.issueLabelsRemoved.length, 0);
   });
 
-  it('27: local PR publication updates an existing managed PR body and records audit evidence without trigger labels', async () => {
+  it('28: local PR publication updates an existing managed PR body and records audit evidence without trigger labels', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-update-pr-'));
     const issue = createIssue({ number: 42, title: 'Update existing PR', labels: [] });
     const github = createFakeGitHub({
@@ -1227,7 +1278,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('28: local PR publication reports blocked publish mode for closed issues', async () => {
+  it('29: local PR publication checks out the PullOps branch before reporting blocked publish mode', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-closed-'));
     const github = createFakeGitHub({
       issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
@@ -1257,11 +1308,11 @@ describe('runIssueImplement', () => {
         optionalBranchNames: ['pullops/issue-42'],
       },
     ]);
-    assert.deepEqual(git.checkouts, []);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('29: local dry-run finalized runs ordered follow-up operations and keeps GitHub unmutated', async () => {
+  it('30: local dry-run finalized runs ordered follow-up operations and keeps GitHub unmutated', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-dry-run-'));
     const issue = createIssue({
       number: 42,
@@ -1438,7 +1489,7 @@ describe('runIssueImplement', () => {
     assert.match(finalizedBody, /^Umbrella PR: #7$/m);
   });
 
-  it('30: local finalized PR publication delays GitHub mutation and marks the PR ready', async () => {
+  it('31: local finalized PR publication delays GitHub mutation and marks the PR ready', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-'));
     const issue = createIssue({
       number: 42,
@@ -1530,7 +1581,7 @@ describe('runIssueImplement', () => {
     assert.equal(codex.calls.length, 3);
   });
 
-  it('31: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
+  it('32: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
     const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1627,7 +1678,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('32: local finalized approval commits direct review changes before finalization continues', async () => {
+  it('33: local finalized approval commits direct review changes before finalization continues', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-review-direct-changes-'));
     const issue = createIssue({ number: 42, title: 'Commit review-owned changes locally' });
     const github = createFakeGitHub({ issue });
@@ -1709,7 +1760,7 @@ describe('runIssueImplement', () => {
     ]);
   });
 
-  it('33: local finalized runs block when address-review omits local feedback coverage', async () => {
+  it('34: local finalized runs block when address-review omits local feedback coverage', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-address-coverage-'));
     const issue = createIssue({ number: 42, title: 'Cover every local feedback item', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1772,7 +1823,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('34: local finalized tree mismatch restores the reviewed head before blocking', async () => {
+  it('35: local finalized tree mismatch restores the reviewed head before blocking', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-tree-mismatch-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on finalize mismatch' });
     const github = createFakeGitHub({ issue });
@@ -1839,7 +1890,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('35: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
+  it('36: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-rewrite-failure-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on rewrite failure' });
     const github = createFakeGitHub({ issue });

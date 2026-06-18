@@ -464,18 +464,19 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
   const prepared = buildPreparedIssueImplement(workTarget);
 
   await fetchRemoteRefsForDryRun(context, prepared);
+  const currentBranch = await readCurrentBranch(context);
   await writeIssueImplementLocalMetadata(context, runRecord, {
     issue,
     prepared,
     publicationMode: 'publish',
   });
+  await checkoutPullOpsBranchForDryRun(context, prepared);
 
   const blocked = await readIssueImplementLocalBlock(context, prepared, issue, runRecord);
   if (blocked !== undefined) {
     return blocked;
   }
 
-  const currentBranch = await readCurrentBranch(context);
   if (currentBranch === prepared.branchName) {
     const commits = await readLocalCommitsSinceBase(context, prepared);
     if (commits.length > 0) {
@@ -487,7 +488,6 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
     }
   }
 
-  await checkoutPullOpsBranchForDryRun(context, prepared);
   return prepared;
 }
 
@@ -1923,9 +1923,18 @@ async function fetchRemoteRefsForDryRun(context, preparation) {
     throw new Error('Git client does not support local remote ref fetching.');
   }
 
+  const requiredBranchNames =
+    preparation.baseBranch === context.config.baseBranch
+      ? [preparation.baseBranch]
+      : [context.config.baseBranch];
+  const optionalBranchNames =
+    preparation.baseBranch === context.config.baseBranch
+      ? [preparation.branchName]
+      : [preparation.baseBranch, preparation.branchName];
+
   await context.gitClient.fetchRemoteRefs({
-    requiredBranchNames: [preparation.baseBranch],
-    optionalBranchNames: [preparation.branchName],
+    requiredBranchNames,
+    optionalBranchNames,
   });
 }
 

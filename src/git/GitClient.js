@@ -87,6 +87,20 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         return;
       }
 
+      if (await gitRefExists(execFile, `refs/heads/${baseBranch}`)) {
+        await runGit(execFile, ['checkout', '-B', branchName, baseBranch], `create branch ${branchName}`);
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/remotes/origin/${baseBranch}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${baseBranch}`],
+          `create branch ${branchName}`,
+        );
+        return;
+      }
+
       await runGit(
         execFile,
         ['checkout', '-B', branchName, `origin/${baseBranch}`],

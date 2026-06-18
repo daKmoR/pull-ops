@@ -188,7 +188,7 @@ describe('runPrdAutoAdvance', () => {
     );
     assert.deepEqual(
       git.checkouts.map(checkout => checkout.branchName),
-      ['pullops/prd-12-issue-35'],
+      ['pullops/prd-12', 'pullops/prd-12-issue-35'],
     );
   });
 
