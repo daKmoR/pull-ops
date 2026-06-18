@@ -1,7 +1,9 @@
 import {
   coordinatePrdAutomation,
+  coordinateLocalPrdAutoAdvance,
   resumePrdAutomationForParentIssue as resumePrdAutomation,
 } from '../../prd-automation/childCoordination.js';
+import { runIssueImplement } from '../issue-implement/run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -13,6 +15,23 @@ import {
  */
 export async function runPrdAutoAdvance(context) {
   assertIssueTarget(context, 'prd-auto-advance');
+  if (context.executionBackend === 'local') {
+    return await coordinateLocalPrdAutoAdvance(context, {
+      parentIssueNumber: context.target.number,
+      async runChildIssue(childIssueNumber) {
+        return await runIssueImplement({
+          ...context,
+          operation: 'issue-implement',
+          target: {
+            type: 'issue',
+            number: childIssueNumber,
+          },
+          publicationMode: context.publicationMode ?? 'dry-run',
+        });
+      },
+    });
+  }
+
   return await coordinatePrdAutomation(context, {
     parentIssueNumber: context.target.number,
     mode: 'auto-advance',

@@ -209,6 +209,10 @@ export class PullOpsCli {
       return await this.runLocalIssueImplementReference(args);
     }
 
+    if (reference === 'prd:auto-advance') {
+      return await this.runLocalPrdAutoAdvanceReference(args);
+    }
+
     throw new CliUsageError(
       `${reference} requires "--backend github-actions" to dispatch through GitHub Actions.`,
     );
@@ -276,6 +280,53 @@ export class PullOpsCli {
       executionBackend: 'local',
       publicationMode: parsedArgs.publicationMode,
       runGoal: parsedArgs.runGoal,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalPrdAutoAdvanceReference(args) {
+    const parsedArgs = parseLocalPrdAutoAdvanceReferenceArgs(args);
+    const operation = getWorkflowOperation('prd-auto-advance');
+    if (operation === undefined) {
+      throw new Error('prd-auto-advance operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
       target: {
         type: 'issue',
         number: parsedArgs.targetNumber,
@@ -473,6 +524,50 @@ function parseLocalIssueImplementReferenceArgs(args) {
 
 /**
  * @param {string[]} args
+ * @returns {{
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ *   runnerAdapter?: RunnerAdapter,
+ * }}
+ */
+function parseLocalPrdAutoAdvanceReferenceArgs(args) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for prd:auto-advance. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
+  const publish = parsePublishPrFlag(args, consumed);
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError('Missing target number for prd:auto-advance.');
+  }
+
+  if (remaining.length > 1 || remaining[0].startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for prd:auto-advance: ${remaining.join(' ')}.`);
+  }
+
+  const targetNumber = Number(remaining[0]);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return {
+    targetNumber,
+    publicationMode: publish ? 'publish' : 'dry-run',
+    ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
+  };
+}
+
+/**
+ * @param {string[]} args
  * @param {Set<number>} consumed
  * @returns {boolean}
  */
@@ -633,22 +728,6 @@ function parseOptionalRunnerAdapter(args, consumed) {
 
 /**
  * @param {string[]} args
- * @param {string} flag
- * @param {Set<number>} consumed
- * @returns {boolean}
- */
-function parseBooleanFlag(args, flag, consumed) {
-  const index = args.indexOf(flag);
-  if (index === -1) {
-    return false;
-  }
-
-  consumed.add(index);
-  return true;
-}
-
-/**
- * @param {string[]} args
  * @param {Set<number>} consumed
  * @returns {boolean | undefined}
  */
@@ -797,6 +876,7 @@ function usage() {
   return [
     'Usage:',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish pr]',
+    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish pr]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',

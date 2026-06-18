@@ -19,6 +19,8 @@ export interface ChildAutomationResult {
   blockedBy?: number[];
   labels?: string[];
   branch?: string;
+  localRunRecord?: string;
+  publicationMode?: 'dry-run' | 'publish';
   pullRequest?: {
     number: number;
     url: string;
