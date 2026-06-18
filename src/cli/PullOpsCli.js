@@ -693,11 +693,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   }
 
   const publicationMode = parsePublicationMode(args, consumed);
-  const runGoal = parseOperationRunGoal(
-    args,
-    consumed,
-    publicationMode === 'publish' ? 'finalized' : 'operation',
-  );
+  const runGoal = parseOperationRunGoal(args, consumed, 'finalized');
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);

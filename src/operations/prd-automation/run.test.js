@@ -173,8 +173,10 @@ describe('runPrdAutoAdvance', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'dry-run');
     assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
-    assert.equal(codex.calls.length, 1);
+    assert.equal(codex.calls.length, 3);
     assert.match(codex.calls[0].prompt, /Child issue 35/);
+    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.updatedPullRequestBodies, []);
@@ -559,7 +561,18 @@ describe('runPrdAutoAdvance', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 2);
+    assert.equal(codex.calls.length, 6);
+    assert.deepEqual(
+      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      [
+        'pullops-issue-implement',
+        'pullops-pr-review',
+        'pullops-pr-finalize',
+        'pullops-issue-implement',
+        'pullops-pr-review',
+        'pullops-pr-finalize',
+      ],
+    );
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
       [
@@ -908,8 +921,10 @@ describe('runPrdAutoComplete', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.mode, 'auto-complete');
     assert.equal(result.publicationMode, 'dry-run');
-    assert.equal(codex.calls.length, 1);
+    assert.equal(codex.calls.length, 3);
     assert.match(codex.calls[0].prompt, /Child issue 34/);
+    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),

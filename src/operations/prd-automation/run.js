@@ -93,8 +93,8 @@ function assertIssueTarget(context, operationName) {
 }
 
 /**
- * Local PRD publication should produce Child Issue PRs that have completed automated review and
- * finalization, while dry-runs stay operation-only unless the caller explicitly asks otherwise.
+ * Local PRD runs should prepare the same finalized child PR branch that publication will push,
+ * while callers can still request operation-only behavior explicitly.
  *
  * @param {OperationRunnerContext} context
  * @returns {OperationRunnerContext}
@@ -104,6 +104,6 @@ function withDefaultLocalPrdRunGoal(context) {
   return {
     ...context,
     publicationMode,
-    runGoal: context.runGoal ?? (publicationMode === 'publish' ? 'finalized' : 'operation'),
+    runGoal: context.runGoal ?? 'finalized',
   };
 }

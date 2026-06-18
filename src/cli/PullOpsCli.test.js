@@ -332,6 +332,75 @@ test('run issue:implement accepts explicit dry-run publication and finalized run
   });
 });
 
+test('run prd:auto-advance defaults local dry-run to finalized', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-advance dry-run accepted',
+        publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-advance', '123']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'prd-auto-advance');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PRD auto-advance dry-run accepted',
+    publicationMode: 'dry-run',
+    runGoal: 'finalized',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run prd:auto-advance allows explicit operation-only local dry-run', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-advance operation dry-run accepted',
+        publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--until', 'operation']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PRD auto-advance operation dry-run accepted',
+    publicationMode: 'dry-run',
+    runGoal: 'operation',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
 test('run prd:auto-advance accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
