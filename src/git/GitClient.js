@@ -93,6 +93,18 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @returns {Promise<string>}
+     */
+    async getCurrentBranch() {
+      const result = await runGit(
+        execFile,
+        ['branch', '--show-current'],
+        'read the current branch name',
+      );
+      return result.stdout.toString().trim();
+    },
+
+    /**
      * @returns {Promise<boolean>}
      */
     async hasChanges() {

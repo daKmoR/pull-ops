@@ -153,6 +153,7 @@ export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
   fetchRemoteRefs?(options: FetchRemoteRefsOptions): Promise<void>;
   checkoutPullOpsBranch?(options: CheckoutPullOpsBranchOptions): Promise<void>;
+  getCurrentBranch?(): Promise<string>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;

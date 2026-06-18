@@ -215,6 +215,37 @@ test('run issue:implement defaults to local dry-run operation execution', async 
   });
 });
 
+test('run issue:implement accepts local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PR publication accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local PR publication accepted',
+    publicationMode: 'publish',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
 test('run operation accepts every short operation label reference and infers target kind', async () => {
   const cases = [
     ['prd:prepare', 'pullops:prd:prepare', 'issue'],

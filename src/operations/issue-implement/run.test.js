@@ -1004,6 +1004,258 @@ describe('runIssueImplement', () => {
     ]);
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
   });
+
+  it('24: local PR publication runs the runner, pushes, opens a managed draft PR, records audit evidence, and avoids trigger labels', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-'));
+    const issue = createIssue({ number: 42, title: 'Add local PR publication', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      currentBranch: 'main',
+      hasChangesResults: [false, true, false],
+      patch: 'diff --git a/src/file.js b/src/file.js\n',
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented local PR publication.',
+        changes: ['Added local publish behavior.'],
+        testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
+      }),
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        triggerActor: 'local-user',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'publish');
+    assert.equal(codex.calls.length, 1);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+    assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(github.createdPullRequests[0].body, /^## PullOps$/m);
+    assert.match(github.createdPullRequests[0].body, /^Managed: yes$/m);
+    assert.match(github.createdPullRequests[0].body, /Status: Draft automation/);
+    assert.match(github.createdPullRequests[0].body, /^## PullOps Link Summary$/m);
+    assert.match(github.createdPullRequests[0].body, /^Source Issue: #42$/m);
+    assert.deepEqual(github.pullRequestLabels, []);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.pullRequestComments, [
+      {
+        number: 100,
+        body: [
+          'Implemented local PR publication.',
+          '',
+          '---',
+          '',
+          '<details>',
+          '<summary>PullOps operation audit</summary>',
+          '',
+          'Operation: pullops:issue:implement',
+          'Trigger actor: @local-user',
+          'Model tier: high',
+          'Model: gpt-5.5',
+          'Context used: unknown',
+          '</details>',
+        ].join('\n'),
+      },
+    ]);
+    assert.deepEqual(github.issueLabelsRemoved.at(-1), {
+      number: 42,
+      labels: [
+        'pullops:issue:implement',
+        'pullops:human-required',
+        'pullops:status:in-progress',
+        'pullops:status:blocked',
+        'pullops:status:prepared',
+        'pullops:status:failed',
+        'pullops:status:done',
+      ],
+    });
+
+    const metadata = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'metadata.json'), 'utf8'),
+    );
+    assert.equal(metadata.publicationMode, 'publish');
+  });
+
+  it('25: local PR publication publishes a clean prepared branch without rerunning the runner', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-prepared-publish-'));
+    const issue = createIssue({ number: 42, title: 'Publish prepared branch', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      currentBranch: 'pullops/issue-42',
+      hasChangesResults: [false, false],
+      commitsSinceBase: [
+        {
+          sha: 'abc123',
+          subject: 'feat(issue): implement #42',
+          body: 'Refs: #42',
+          files: ['src/file.js'],
+        },
+      ],
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.preparedBranch, true);
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.checkouts, []);
+    assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(
+      github.createdPullRequests[0].body,
+      /Published local commit: feat\(issue\): implement #42/,
+    );
+    assert.match(github.createdPullRequests[0].body, /^## PullOps Link Summary$/m);
+    assert.deepEqual(github.pullRequestLabels, []);
+    assert.equal(github.pullRequestComments.length, 1);
+  });
+
+  it('26: local PR publication refuses a dirty worktree before push or GitHub mutation', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-dirty-'));
+    const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
+    const git = createFakeGit({ hasChangesResults: [true] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    await assert.rejects(
+      runIssueImplement(
+        createContext({
+          cwd,
+          executionBackend: 'local',
+          publicationMode: 'publish',
+          githubClient: github.client,
+          gitClient: git.client,
+          codexRunner: codex.runner,
+        }),
+      ),
+      /requires a clean worktree/,
+    );
+
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.pushes, []);
+    assert.deepEqual(git.fetches, []);
+    assert.deepEqual(github.issueLookups, []);
+    assert.equal(github.createdPullRequests.length, 0);
+    assert.equal(github.pullRequestComments.length, 0);
+    assert.equal(github.issueLabelsAdded.length, 0);
+    assert.equal(github.issueLabelsRemoved.length, 0);
+  });
+
+  it('27: local PR publication updates an existing managed PR body and records audit evidence without trigger labels', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-update-pr-'));
+    const issue = createIssue({ number: 42, title: 'Update existing PR', labels: [] });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequest: {
+        number: 7,
+        title: 'Existing PR',
+        url: 'https://github.com/acme/widgets/pull/7',
+        headRefName: 'pullops/issue-42',
+        body: 'old body',
+        isDraft: true,
+      },
+    });
+    const git = createFakeGit({
+      currentBranch: 'pullops/issue-42',
+      hasChangesResults: [false, false],
+      commitsSinceBase: [
+        {
+          sha: 'def456',
+          subject: 'feat(issue): update existing PR',
+          body: 'Refs: #42',
+          files: ['src/file.js'],
+        },
+      ],
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    const output = /** @type {{ status: string, pullRequest: { number: number } }} */ (result);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.pullRequest.number, 7);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(github.createdPullRequests.length, 0);
+    assert.equal(github.updatedPullRequestBodies.length, 1);
+    assert.equal(github.updatedPullRequestBodies[0].number, 7);
+    assert.match(github.updatedPullRequestBodies[0].body, /^## PullOps$/m);
+    assert.match(github.updatedPullRequestBodies[0].body, /^Managed: yes$/m);
+    assert.match(github.updatedPullRequestBodies[0].body, /^## PullOps Link Summary$/m);
+    assert.deepEqual(github.pullRequestLabels, []);
+    assert.deepEqual(
+      github.pullRequestComments.map(comment => comment.number),
+      [7],
+    );
+  });
+
+  it('28: local PR publication reports blocked publish mode for closed issues', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-closed-'));
+    const github = createFakeGitHub({
+      issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
+    });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.publicationMode, 'publish');
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.equal(result.baseBranch, 'main');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, []);
+    assert.equal(github.createdPullRequests.length, 0);
+  });
 });
 
 /**
@@ -1072,6 +1324,7 @@ function createIssue({
  *   pullRequestLabels: EditLabelsOptions[];
  *   comments: CommentOnIssueOptions[];
  *   pullRequestComments: CommentOnPullRequestOptions[];
+ *   updatedPullRequestBodies: import('../../github/types.js').UpdatePullRequestBodyOptions[];
  *   issueLookups: number[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
@@ -1093,6 +1346,8 @@ function createFakeGitHub({
   const comments = [];
   /** @type {CommentOnPullRequestOptions[]} */
   const pullRequestComments = [];
+  /** @type {import('../../github/types.js').UpdatePullRequestBodyOptions[]} */
+  const updatedPullRequestBodies = [];
   /** @type {number[]} */
   const issueLookups = [];
   const existingPullRequests = existingPullRequest === undefined ? [] : [existingPullRequest];
@@ -1104,6 +1359,7 @@ function createFakeGitHub({
     pullRequestLabels,
     comments,
     pullRequestComments,
+    updatedPullRequestBodies,
     issueLookups,
     client: {
       async ensureLabels() {
@@ -1171,8 +1427,8 @@ function createFakeGitHub({
       async commentOnPullRequest(options) {
         pullRequestComments.push(options);
       },
-      async updatePullRequestBody() {
-        throw new Error('updatePullRequestBody was not expected in this test.');
+      async updatePullRequestBody(options) {
+        updatedPullRequestBodies.push(options);
       },
       async markPullRequestReadyForReview() {
         throw new Error('markPullRequestReadyForReview was not expected in this test.');
@@ -1195,6 +1451,8 @@ function createFakeGitHub({
  *   failOn?: (action: string) => boolean,
  *   hasChangesResults?: boolean[],
  *   patch?: string,
+ *   currentBranch?: string,
+ *   commitsSinceBase?: import('../../git/types.js').GitCommit[],
  * }} [options]
  * @returns {{
  *   branches: CreateBranchOptions[];
@@ -1206,7 +1464,13 @@ function createFakeGitHub({
  *   client: import('../../git/types.js').GitClient;
  * }}
  */
-function createFakeGit({ failOn = () => false, hasChangesResults = [true], patch = '' } = {}) {
+function createFakeGit({
+  failOn = () => false,
+  hasChangesResults = [true],
+  patch = '',
+  currentBranch = 'main',
+  commitsSinceBase = [],
+} = {}) {
   /** @type {CreateBranchOptions[]} */
   const branches = [];
   /** @type {FetchRemoteRefsOptions[]} */
@@ -1245,6 +1509,12 @@ function createFakeGit({ failOn = () => false, hasChangesResults = [true], patch
           throw new Error('checkout failed');
         }
         checkouts.push(options);
+      },
+      async getCurrentBranch() {
+        if (failOn('getCurrentBranch')) {
+          throw new Error('current branch failed');
+        }
+        return currentBranch;
       },
       async hasChanges() {
         if (failOn('hasChanges')) {
@@ -1288,6 +1558,12 @@ function createFakeGit({ failOn = () => false, hasChangesResults = [true], patch
       },
       async getChangedFilesSinceBase() {
         throw new Error('getChangedFilesSinceBase was not expected in this test.');
+      },
+      async getCommitsSinceBase() {
+        if (failOn('getCommitsSinceBase')) {
+          throw new Error('get commits failed');
+        }
+        return commitsSinceBase;
       },
       async rewriteBranchWithCommitPlan() {
         throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
