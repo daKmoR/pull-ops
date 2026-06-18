@@ -8,6 +8,16 @@ export interface CreateBranchOptions {
   baseBranch: string;
 }
 
+export interface FetchRemoteRefsOptions {
+  requiredBranchNames: string[];
+  optionalBranchNames?: string[];
+}
+
+export interface CheckoutPullOpsBranchOptions {
+  branchName: string;
+  baseBranch: string;
+}
+
 export interface CommitAllOptions {
   message: string;
   author: GitCommitAuthor;
@@ -141,9 +151,12 @@ export interface RewriteBranchWithExistingCommitsOptions {
 
 export interface GitClient {
   createBranch(options: CreateBranchOptions): Promise<void>;
+  fetchRemoteRefs?(options: FetchRemoteRefsOptions): Promise<void>;
+  checkoutPullOpsBranch?(options: CheckoutPullOpsBranchOptions): Promise<void>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;
+  readWorkingTreePatch?(): Promise<string>;
   pushBranch(options: PushBranchOptions): Promise<void>;
   rebaseBranchOntoBase(options: RebaseBranchOntoBaseOptions): Promise<GitRebaseResult>;
   startRebaseBranchOntoBase?(

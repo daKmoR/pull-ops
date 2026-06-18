@@ -16,6 +16,9 @@ export interface OperationRunnerContext {
   operation: string;
   phase: OperationPhase;
   runnerAdapter: RunnerAdapter;
+  executionBackend?: ExecutionBackend;
+  publicationMode?: PublicationMode;
+  runGoal?: OperationRunGoal;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;
@@ -38,6 +41,9 @@ export interface OperationContextUsage {
 }
 
 export type OperationPhase = 'run' | 'prepare' | 'finalize';
+export type ExecutionBackend = 'local' | 'github-actions';
+export type PublicationMode = 'dry-run' | 'publish';
+export type OperationRunGoal = 'operation' | string;
 
 export type OperationRunner = (
   context: OperationRunnerContext,

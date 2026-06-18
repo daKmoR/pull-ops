@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -22,6 +22,8 @@ import {
  * @typedef {import('../../github/types.js').CommentOnIssueOptions} CommentOnIssueOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('../../git/types.js').CreateBranchOptions} CreateBranchOptions
+ * @typedef {import('../../git/types.js').FetchRemoteRefsOptions} FetchRemoteRefsOptions
+ * @typedef {import('../../git/types.js').CheckoutPullOpsBranchOptions} CheckoutPullOpsBranchOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
@@ -679,6 +681,329 @@ describe('runIssueImplement', () => {
       'Codex Action completed with outcome "failure".\n',
     );
   });
+
+  it('17: local dry-run refuses a dirty worktree before reading GitHub issue state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-dirty-'));
+    const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
+    const git = createFakeGit({ hasChangesResults: [true] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    await assert.rejects(
+      runIssueImplement(
+        createContext({
+          cwd,
+          publicationMode: 'dry-run',
+          githubClient: github.client,
+          gitClient: git.client,
+          codexRunner: codex.runner,
+        }),
+      ),
+      /requires a clean worktree/,
+    );
+
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, []);
+    assert.deepEqual(git.checkouts, []);
+    assert.deepEqual(github.issueLookups, []);
+    assert.equal(github.comments.length, 0);
+    assert.equal(github.issueLabelsAdded.length, 0);
+    const [recordName] = await readdir(join(cwd, '.pullops', 'runs'));
+    assert.match(recordName, /issue-implement-42$/);
+    assert.match(
+      await readFile(join(cwd, '.pullops', 'runs', recordName, 'failure-reason.txt'), 'utf8'),
+      /clean worktree/,
+    );
+  });
+
+  it('18: local dry-run fetches refs, checks out the PullOps branch, records artifacts, and commits without GitHub mutations', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-dry-run-'));
+    const issue = createIssue({ number: 42, title: 'Add the first operation', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true],
+      patch: 'diff --git a/src/file.js b/src/file.js\n',
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented locally.',
+        changes: ['Changed code.'],
+        testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
+      }),
+    });
+    const config = {
+      ...DEFAULT_PULL_OPS_CONFIG,
+      runner: {
+        ...DEFAULT_PULL_OPS_CONFIG.runner,
+        command: 'custom-runner exec',
+        models: {
+          ...DEFAULT_PULL_OPS_CONFIG.runner.models,
+          high: 'gpt-local-high',
+        },
+      },
+    };
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        config,
+        model: 'gpt-local-high',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'dry-run');
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+    assert.deepEqual(git.pushes, []);
+    assert.equal(codex.calls[0].cwd, cwd);
+    assert.equal(codex.calls[0].command, 'custom-runner exec');
+    assert.equal(codex.calls[0].model, 'gpt-local-high');
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.issueLabelsRemoved, []);
+    assert.deepEqual(github.pullRequestLabels, []);
+    assert.deepEqual(github.comments, []);
+    assert.deepEqual(github.pullRequestComments, []);
+    assert.deepEqual(git.commits, [
+      {
+        message: [
+          'feat(issue): implement #42',
+          '',
+          'Implement Add the first operation.',
+          '',
+          'Refs: #42',
+        ].join('\n'),
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      },
+    ]);
+
+    const runRecord = String(result.localRunRecord);
+    assert.match(runRecord, /\.pullops\/runs\/.+issue-implement-42$/);
+    assert.match(await readFile(join(runRecord, 'prompt.md'), 'utf8'), /Issue #42/);
+    assert.match(
+      await readFile(join(runRecord, 'raw-runner-output.txt'), 'utf8'),
+      /Implemented locally/,
+    );
+    assert.match(await readFile(join(runRecord, 'validated-output.json'), 'utf8'), /Changed code/);
+    assert.equal(
+      await readFile(join(runRecord, 'working-tree.patch'), 'utf8'),
+      'diff --git a/src/file.js b/src/file.js\n',
+    );
+  });
+
+  it('19: local dry-run preserves the checked-out PullOps branch when runner output blocks', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-blocked-'));
+    const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'blocked',
+        summary: 'Need maintainer input.',
+        failureReason: 'The issue lacks enough detail.',
+      }),
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+    assert.deepEqual(git.commits, []);
+    assert.deepEqual(git.pushes, []);
+    assert.equal(github.comments.length, 0);
+    assert.equal(github.issueLabelsAdded.length, 0);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /lacks enough detail/,
+    );
+  });
+
+  it('20: local dry-run checks out the PullOps branch before blocking a closed issue', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-closed-'));
+    const github = createFakeGitHub({
+      issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
+    });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.equal(result.baseBranch, 'main');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+  });
+
+  it('21: local dry-run checks out the PullOps branch before blocking a PRD-looking issue', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-prd-'));
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 1,
+        title: 'PRD: Dogfood PullOps workflow kit',
+        body: [
+          '## Problem Statement',
+          '',
+          'Build the thing.',
+          '',
+          '## Solution',
+          '',
+          'Ship it.',
+        ].join('\n'),
+      }),
+    });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        target: {
+          type: 'issue',
+          number: 1,
+        },
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/issue-1');
+    assert.equal(result.baseBranch, 'main');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-1'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-1', baseBranch: 'main' }]);
+  });
+
+  it('22: local dry-run checks out the PullOps branch before blocking a parent issue with children', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-parent-'));
+    const github = createFakeGitHub({
+      issue: createIssue({
+        number: 1,
+        title: 'PRD: Dogfood PullOps workflow kit',
+        subIssues: [
+          {
+            number: 4,
+            title: 'Implement a Child Issue',
+            relationshipSource: 'native',
+          },
+        ],
+      }),
+    });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        target: {
+          type: 'issue',
+          number: 1,
+        },
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/issue-1');
+    assert.equal(result.baseBranch, 'main');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-1'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-1', baseBranch: 'main' }]);
+  });
+
+  it('23: local dry-run checks out the PullOps branch before blocking an issue with dependencies', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-deps-'));
+    const issue = createIssue({
+      number: 42,
+      body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
+      labels: [],
+    });
+    const dependency = createIssue({
+      number: 7,
+      title: 'Dependency',
+      labels: [],
+    });
+    const github = createFakeGitHub({
+      issue,
+      issuesByNumber: new Map([
+        [42, issue],
+        [7, dependency],
+      ]),
+    });
+    const git = createFakeGit({ hasChangesResults: [false] });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.equal(result.baseBranch, 'main');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(git.fetches, [
+      {
+        requiredBranchNames: ['main'],
+        optionalBranchNames: ['pullops/issue-42'],
+      },
+    ]);
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
+  });
 });
 
 /**
@@ -747,6 +1072,7 @@ function createIssue({
  *   pullRequestLabels: EditLabelsOptions[];
  *   comments: CommentOnIssueOptions[];
  *   pullRequestComments: CommentOnPullRequestOptions[];
+ *   issueLookups: number[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
  */
@@ -767,6 +1093,8 @@ function createFakeGitHub({
   const comments = [];
   /** @type {CommentOnPullRequestOptions[]} */
   const pullRequestComments = [];
+  /** @type {number[]} */
+  const issueLookups = [];
   const existingPullRequests = existingPullRequest === undefined ? [] : [existingPullRequest];
 
   return {
@@ -776,6 +1104,7 @@ function createFakeGitHub({
     pullRequestLabels,
     comments,
     pullRequestComments,
+    issueLookups,
     client: {
       async ensureLabels() {
         return {
@@ -785,6 +1114,7 @@ function createFakeGitHub({
         };
       },
       async getIssue(number) {
+        issueLookups.push(number);
         const foundIssue = issuesByNumber.get(number);
         if (foundIssue === undefined) {
           throw new Error(`Unexpected issue lookup: #${number}`);
@@ -861,18 +1191,28 @@ function createFakeGitHub({
 }
 
 /**
- * @param {{ failOn?: (action: string) => boolean }} [options]
+ * @param {{
+ *   failOn?: (action: string) => boolean,
+ *   hasChangesResults?: boolean[],
+ *   patch?: string,
+ * }} [options]
  * @returns {{
  *   branches: CreateBranchOptions[];
+ *   fetches: FetchRemoteRefsOptions[];
+ *   checkouts: CheckoutPullOpsBranchOptions[];
  *   commits: CommitAllOptions[];
  *   emptyCommits: CommitEmptyOptions[];
  *   pushes: PushBranchOptions[];
  *   client: import('../../git/types.js').GitClient;
  * }}
  */
-function createFakeGit({ failOn = () => false } = {}) {
+function createFakeGit({ failOn = () => false, hasChangesResults = [true], patch = '' } = {}) {
   /** @type {CreateBranchOptions[]} */
   const branches = [];
+  /** @type {FetchRemoteRefsOptions[]} */
+  const fetches = [];
+  /** @type {CheckoutPullOpsBranchOptions[]} */
+  const checkouts = [];
   /** @type {CommitAllOptions[]} */
   const commits = [];
   /** @type {CommitEmptyOptions[]} */
@@ -882,6 +1222,8 @@ function createFakeGit({ failOn = () => false } = {}) {
 
   return {
     branches,
+    fetches,
+    checkouts,
     commits,
     emptyCommits,
     pushes,
@@ -892,11 +1234,24 @@ function createFakeGit({ failOn = () => false } = {}) {
         }
         branches.push(options);
       },
+      async fetchRemoteRefs(options) {
+        if (failOn('fetchRemoteRefs')) {
+          throw new Error('fetch failed');
+        }
+        fetches.push(options);
+      },
+      async checkoutPullOpsBranch(options) {
+        if (failOn('checkoutPullOpsBranch')) {
+          throw new Error('checkout failed');
+        }
+        checkouts.push(options);
+      },
       async hasChanges() {
         if (failOn('hasChanges')) {
           throw new Error('status failed');
         }
-        return true;
+        const next = hasChangesResults.shift();
+        return next ?? hasChangesResults.at(-1) ?? true;
       },
       async commitAll(options) {
         if (failOn('commitAll')) {
@@ -909,6 +1264,9 @@ function createFakeGit({ failOn = () => false } = {}) {
           throw new Error('empty commit failed');
         }
         emptyCommits.push(options);
+      },
+      async readWorkingTreePatch() {
+        return patch;
       },
       async pushBranch(options) {
         if (failOn('pushBranch')) {

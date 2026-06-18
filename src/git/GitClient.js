@@ -9,6 +9,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitClient} GitClient
  * @typedef {import('./types.js').GitCommitAuthor} GitCommitAuthor
  * @typedef {import('./types.js').CreateBranchOptions} CreateBranchOptions
+ * @typedef {import('./types.js').FetchRemoteRefsOptions} FetchRemoteRefsOptions
+ * @typedef {import('./types.js').CheckoutPullOpsBranchOptions} CheckoutPullOpsBranchOptions
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
@@ -52,6 +54,45 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @param {FetchRemoteRefsOptions} options
+     * @returns {Promise<void>}
+     */
+    async fetchRemoteRefs({ requiredBranchNames, optionalBranchNames = [] }) {
+      for (const branchName of requiredBranchNames) {
+        await fetchRemoteBranch(execFile, branchName, { optional: false });
+      }
+      for (const branchName of optionalBranchNames) {
+        await fetchRemoteBranch(execFile, branchName, { optional: true });
+      }
+    },
+
+    /**
+     * @param {CheckoutPullOpsBranchOptions} options
+     * @returns {Promise<void>}
+     */
+    async checkoutPullOpsBranch({ branchName, baseBranch }) {
+      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${branchName}`],
+          `check out branch ${branchName}`,
+        );
+        return;
+      }
+
+      await runGit(
+        execFile,
+        ['checkout', '-B', branchName, `origin/${baseBranch}`],
+        `create branch ${branchName}`,
+      );
+    },
+
+    /**
      * @returns {Promise<boolean>}
      */
     async hasChanges() {
@@ -64,7 +105,11 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<void>}
      */
     async commitAll({ message, author }) {
-      await runGit(execFile, ['add', '--all'], 'stage PullOps changes');
+      await runGit(
+        execFile,
+        ['add', '--all', '--', '.', ':!.pullops/runs/**'],
+        'stage PullOps changes',
+      );
       await runGit(
         execFile,
         [
@@ -99,6 +144,31 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         ],
         'create an empty PullOps commit',
       );
+    },
+
+    /**
+     * @returns {Promise<string>}
+     */
+    async readWorkingTreePatch() {
+      const result = await runGit(
+        execFile,
+        ['diff', '--binary', 'HEAD', '--'],
+        'capture the working tree patch',
+      );
+      const untrackedFiles = await readUntrackedFiles(execFile);
+      if (untrackedFiles.length === 0) {
+        return result.stdout.toString();
+      }
+
+      const patches = [result.stdout.toString().trimEnd()];
+      for (const filePath of untrackedFiles) {
+        const untrackedPatch = await readUntrackedFilePatch(execFile, filePath);
+        if (untrackedPatch.trim() !== '') {
+          patches.push(untrackedPatch.trimEnd());
+        }
+      }
+
+      return patches.filter(patch => patch !== '').join('\n');
     },
 
     /**
@@ -424,6 +494,56 @@ function withGitCommitter(args, committer) {
 
 /**
  * @param {ExecFile} execFile
+ * @param {string} branchName
+ * @param {{ optional: boolean }} options
+ * @returns {Promise<void>}
+ */
+async function fetchRemoteBranch(execFile, branchName, { optional }) {
+  try {
+    await runGit(
+      execFile,
+      ['fetch', 'origin', `+refs/heads/${branchName}:refs/remotes/origin/${branchName}`],
+      `fetch branch ${branchName}`,
+    );
+  } catch (error) {
+    if (optional && isMissingRemoteRefError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} ref
+ * @returns {Promise<boolean>}
+ */
+async function gitRefExists(execFile, ref) {
+  try {
+    await execFile('git', ['show-ref', '--verify', '--quiet', ref]);
+    return true;
+  } catch (error) {
+    if (isPlainObject(error) && (error.code === 1 || error.code === 128)) {
+      return false;
+    }
+
+    throw new Error(`Failed to inspect git ref ${ref}: ${getCommandErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isMissingRemoteRefError(error) {
+  return /couldn't find remote ref|could not find remote ref/i.test(getCommandErrorMessage(error));
+}
+
+/**
+ * @param {ExecFile} execFile
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<void>}
  */
@@ -726,6 +846,53 @@ function parseNullSeparatedFiles(stdout) {
     .toString()
     .split('\0')
     .filter(file => file !== '');
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @returns {Promise<string[]>}
+ */
+async function readUntrackedFiles(execFile) {
+  const result = await runGit(
+    execFile,
+    ['ls-files', '--others', '--exclude-standard', '-z', '--'],
+    'read untracked files',
+  );
+  return parseNullSeparatedFiles(result.stdout);
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} filePath
+ * @returns {Promise<string>}
+ */
+async function readUntrackedFilePatch(execFile, filePath) {
+  try {
+    const result = await execFile('git', [
+      'diff',
+      '--binary',
+      '--no-index',
+      '--',
+      '/dev/null',
+      filePath,
+    ]);
+    return result.stdout.toString();
+  } catch (error) {
+    if (isPlainObject(error) && error.code === 1) {
+      const stdout = error.stdout;
+      if (typeof stdout === 'string') {
+        return stdout;
+      }
+      if (Buffer.isBuffer(stdout)) {
+        return stdout.toString();
+      }
+    }
+
+    throw new Error(
+      `Failed to capture untracked file patch for ${filePath}: ${getCommandErrorMessage(error)}`,
+      { cause: error },
+    );
+  }
 }
 
 /**
