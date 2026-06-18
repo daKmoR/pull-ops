@@ -15,4 +15,5 @@ export interface BlockIssueDryRunOptions {
   summary?: string;
   branchName: string;
   baseBranch: string;
+  publicationMode?: 'dry-run' | 'publish';
 }

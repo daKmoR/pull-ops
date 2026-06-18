@@ -411,6 +411,18 @@ describe('createGitClient', () => {
       },
     ]);
   });
+
+  it('11: reads the current branch name', async () => {
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (_file, args) => {
+        assert.deepEqual(args, ['branch', '--show-current']);
+        return { stdout: 'pullops/issue-15\n', stderr: '' };
+      },
+    });
+
+    assert.equal(await gitClient.getCurrentBranch?.(), 'pullops/issue-15');
+  });
 });
 
 /**

@@ -444,7 +444,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
 
   const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
   const runGoal = parseOptionalStringOption(args, '--until', consumed) ?? 'operation';
-  const publish = parseBooleanFlag(args, '--publish', consumed);
+  const publish = parsePublishPrFlag(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);
@@ -469,6 +469,31 @@ function parseLocalIssueImplementReferenceArgs(args) {
     runGoal,
     ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
   };
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {boolean}
+ */
+function parsePublishPrFlag(args, consumed) {
+  const index = args.indexOf('--publish');
+  if (index === -1) {
+    return false;
+  }
+
+  consumed.add(index);
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith('--')) {
+    return true;
+  }
+
+  if (value !== 'pr') {
+    throw new CliUsageError('Unsupported publish target. Expected "--publish pr".');
+  }
+
+  consumed.add(index + 1);
+  return true;
 }
 
 /**
@@ -771,7 +796,7 @@ function formatTargetKind(target) {
 function usage() {
   return [
     'Usage:',
-    '  pullops run issue:implement <issue-number> [--backend local] [--publish]',
+    '  pullops run issue:implement <issue-number> [--backend local] [--publish pr]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',
