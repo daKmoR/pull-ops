@@ -192,12 +192,6 @@ export const LOCAL_OPERATION_LABEL_REFERENCE_NAMES = [
   'issue:implement',
   'prd:auto-advance',
   'prd:auto-complete',
-  'pr:review',
-  'pr:address-review',
-  'pr:fix-ci',
-  'pr:update-branch',
-  'pr:resolve-conflicts',
-  'pr:finalize',
 ];
 
 /**
