@@ -192,7 +192,7 @@ describe('runPrdAutoAdvance', () => {
     );
   });
 
-  it('04: local PR publication sequences unblocked child issues and restores the umbrella branch', async () => {
+  it('04: local PR publication finalizes unblocked child issue PRs and restores the umbrella branch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-publish-'));
     const parent = createIssue({
       number: 12,
@@ -222,7 +222,13 @@ describe('runPrdAutoAdvance', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'publish');
-    assert.equal(codex.calls.length, 2);
+    assert.equal(codex.calls.length, 6);
+    assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.match(codex.calls[3].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(codex.calls[4].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[5].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(
@@ -250,6 +256,25 @@ describe('runPrdAutoAdvance', () => {
           baseBranch: 'pullops/prd-12',
           headBranch: 'pullops/prd-12-issue-35',
         },
+      ],
+    );
+    assert.deepEqual(github.readyPullRequests, [302, 303]);
+    assert.match(github.createdPullRequests[1].body, /Status: Ready for human merge/);
+    assert.match(github.createdPullRequests[1].body, /Last operation: pullops:pr:finalize/);
+    assert.match(github.createdPullRequests[1].body, /^Finalized tree: tree-current$/m);
+    assert.match(github.createdPullRequests[1].body, /^Finalized head: head-current$/m);
+    assert.deepEqual(
+      github.pullRequestComments.map(comment => [
+        comment.number,
+        comment.body.match(/^Operation: (pullops:[^\n]+)$/m)?.[1],
+      ]),
+      [
+        [302, 'pullops:issue:implement'],
+        [302, 'pullops:pr:review'],
+        [302, 'pullops:pr:finalize'],
+        [303, 'pullops:issue:implement'],
+        [303, 'pullops:pr:review'],
+        [303, 'pullops:pr:finalize'],
       ],
     );
     assert.deepEqual(
@@ -1178,6 +1203,7 @@ function readParentPullRequest(result) {
  *   pullRequestComments: { number: number, body: string }[];
  *   mergedPullRequests: MergePullRequestOptions[];
  *   closedIssues: number[];
+ *   readyPullRequests: number[];
  * }}
  */
 function createFakeGitHub({
@@ -1206,6 +1232,8 @@ function createFakeGitHub({
   const mergedPullRequests = [];
   /** @type {number[]} */
   const closedIssues = [];
+  /** @type {number[]} */
+  const readyPullRequests = [];
 
   return {
     issueLabelsAdded,
@@ -1215,6 +1243,7 @@ function createFakeGitHub({
     pullRequestComments,
     mergedPullRequests,
     closedIssues,
+    readyPullRequests,
     client: {
       async ensureLabels() {
         return {
@@ -1306,8 +1335,13 @@ function createFakeGitHub({
           }
         }
       },
-      async markPullRequestReadyForReview() {
-        throw new Error('markPullRequestReadyForReview was not expected in this test.');
+      async markPullRequestReadyForReview(number) {
+        readyPullRequests.push(number);
+        for (const pullRequest of pullRequestsByHead.values()) {
+          if (pullRequest.number === number) {
+            pullRequest.isDraft = false;
+          }
+        }
       },
       async publishPullRequestReview() {
         throw new Error('publishPullRequestReview was not expected in this test.');
@@ -1427,16 +1461,19 @@ function createFakeGit({
         };
       },
       async getCurrentHeadSha() {
-        throw new Error('getCurrentHeadSha was not expected in this test.');
+        return 'head-current';
       },
       async getCurrentTreeHash() {
-        throw new Error('getCurrentTreeHash was not expected in this test.');
+        return 'tree-current';
       },
       async getChangedFilesSinceBase() {
-        throw new Error('getChangedFilesSinceBase was not expected in this test.');
+        return ['src/file.js'];
       },
       async rewriteBranchWithCommitPlan() {
-        throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
+        return {
+          headSha: 'head-current',
+          treeHash: 'tree-current',
+        };
       },
       async getCommitsSinceBase() {
         return [];
@@ -1461,6 +1498,35 @@ function createFakeCodexRunner(git) {
     runner: {
       async run(options) {
         calls.push(options);
+        if (options.prompt.includes('Use the pullops-pr-review skill.')) {
+          return {
+            status: 'approved',
+            summary: `Approved child issue run ${calls.length}.`,
+            comments: [],
+            replies: [],
+            directChanges: [],
+            followUps: [],
+          };
+        }
+
+        if (options.prompt.includes('Use the pullops-pr-finalize skill.')) {
+          return {
+            status: 'planned',
+            summary: `Planned child issue finalization ${calls.length}.`,
+            commitPlan: {
+              commits: [
+                {
+                  header: 'feat(issue): implement child issue',
+                  body: ['Finalize local child issue implementation.'],
+                  footers: ['Refs: #34'],
+                  files: ['src/file.js'],
+                },
+              ],
+            },
+            followUps: [],
+          };
+        }
+
         git?.markRunnerChangedWorktree();
         return {
           status: 'implemented',

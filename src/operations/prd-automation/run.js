@@ -17,17 +17,18 @@ import { runIssueImplement } from '../issue-implement/run.js';
 export async function runPrdAutoAdvance(context) {
   assertIssueTarget(context, 'prd-auto-advance');
   if (context.executionBackend === 'local') {
-    return await coordinateLocalPrdAutoAdvance(context, {
-      parentIssueNumber: context.target.number,
+    const localContext = withDefaultLocalPrdRunGoal(context);
+    return await coordinateLocalPrdAutoAdvance(localContext, {
+      parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber) {
         return await runIssueImplement({
-          ...context,
+          ...localContext,
           operation: 'issue-implement',
           target: {
             type: 'issue',
             number: childIssueNumber,
           },
-          publicationMode: context.publicationMode ?? 'dry-run',
+          publicationMode: localContext.publicationMode,
         });
       },
     });
@@ -46,17 +47,18 @@ export async function runPrdAutoAdvance(context) {
 export async function runPrdAutoComplete(context) {
   assertIssueTarget(context, 'prd-auto-complete');
   if (context.executionBackend === 'local') {
-    return await coordinateLocalPrdAutoComplete(context, {
-      parentIssueNumber: context.target.number,
+    const localContext = withDefaultLocalPrdRunGoal(context);
+    return await coordinateLocalPrdAutoComplete(localContext, {
+      parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber) {
         return await runIssueImplement({
-          ...context,
+          ...localContext,
           operation: 'issue-implement',
           target: {
             type: 'issue',
             number: childIssueNumber,
           },
-          publicationMode: context.publicationMode ?? 'dry-run',
+          publicationMode: localContext.publicationMode,
         });
       },
     });
@@ -88,4 +90,20 @@ function assertIssueTarget(context, operationName) {
   if (context.target.type !== 'issue') {
     throw new Error(`${operationName} requires an issue target.`);
   }
+}
+
+/**
+ * Local PRD publication should produce Child Issue PRs that have completed automated review and
+ * finalization, while dry-runs stay operation-only unless the caller explicitly asks otherwise.
+ *
+ * @param {OperationRunnerContext} context
+ * @returns {OperationRunnerContext}
+ */
+function withDefaultLocalPrdRunGoal(context) {
+  const publicationMode = context.publicationMode ?? 'dry-run';
+  return {
+    ...context,
+    publicationMode,
+    runGoal: context.runGoal ?? (publicationMode === 'publish' ? 'finalized' : 'operation'),
+  };
 }

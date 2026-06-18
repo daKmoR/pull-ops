@@ -419,6 +419,7 @@ export class PullOpsCli {
       runnerAdapter,
       executionBackend: 'local',
       publicationMode: parsedArgs.publicationMode,
+      runGoal: parsedArgs.runGoal,
       target: {
         type: 'issue',
         number: parsedArgs.targetNumber,
@@ -467,6 +468,7 @@ export class PullOpsCli {
       runnerAdapter,
       executionBackend: 'local',
       publicationMode: parsedArgs.publicationMode,
+      runGoal: parsedArgs.runGoal,
       target: {
         type: 'issue',
         number: parsedArgs.targetNumber,
@@ -678,6 +680,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
  * @returns {{
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
+ *   runGoal: import('./types.js').OperationRunGoal,
  * }}
  */
 function parseLocalPrdAutomationReferenceArgs(args, reference) {
@@ -690,6 +693,11 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   }
 
   const publicationMode = parsePublicationMode(args, consumed);
+  const runGoal = parseOperationRunGoal(
+    args,
+    consumed,
+    publicationMode === 'publish' ? 'finalized' : 'operation',
+  );
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);
@@ -716,6 +724,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   return {
     targetNumber,
     publicationMode,
+    runGoal,
   };
 }
 
@@ -794,12 +803,13 @@ function parsePublicationMode(args, consumed) {
 /**
  * @param {string[]} args
  * @param {Set<number>} consumed
+ * @param {import('./types.js').OperationRunGoal} [defaultRunGoal]
  * @returns {import('./types.js').OperationRunGoal}
  */
-function parseOperationRunGoal(args, consumed) {
+function parseOperationRunGoal(args, consumed, defaultRunGoal = 'operation') {
   const rawRunGoal = parseOptionalStringOption(args, '--until', consumed);
   if (rawRunGoal === undefined) {
-    return 'operation';
+    return defaultRunGoal;
   }
 
   if (rawRunGoal === 'operation' || rawRunGoal === 'finalized') {
@@ -1087,8 +1097,8 @@ function usage() {
   return [
     'Usage:',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
-    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr]',
-    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr]',
+    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
