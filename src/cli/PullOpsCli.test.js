@@ -172,6 +172,49 @@ test('run operation dispatches short operation label references through GitHub A
   });
 });
 
+test('run issue:implement defaults to local dry-run operation execution', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {import('../github/types.js').EditLabelsOptions[]} */
+  const issueLabelAdds = [];
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient({
+      async addLabelsToIssue(options) {
+        issueLabelAdds.push(options);
+      },
+    }),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local dry-run accepted',
+        publicationMode: context.publicationMode,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123']);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(issueLabelAdds, []);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'issue-implement');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'dry-run');
+  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
+  assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local dry-run accepted',
+    publicationMode: 'dry-run',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
 test('run operation accepts every short operation label reference and infers target kind', async () => {
   const cases = [
     ['prd:prepare', 'pullops:prd:prepare', 'issue'],
@@ -272,14 +315,14 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.match(stderr.text, /Full PullOps labels are not accepted/);
   });
 
-  await t.test('missing backend', async () => {
+  await t.test('missing backend for non-local label reference', async () => {
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
-    const exitCode = await cli.run(['run', 'issue:implement', '123']);
+    const exitCode = await cli.run(['run', 'pr:review', '123']);
 
     assert.equal(exitCode, 1);
-    assert.match(stderr.text, /requires "--backend github-actions"/);
+    assert.match(stderr.text, /pr:review requires "--backend github-actions"/);
   });
 
   await t.test('publish flag with github-actions backend', async () => {

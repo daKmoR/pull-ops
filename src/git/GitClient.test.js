@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
+import { execFile as nodeExecFile } from 'node:child_process';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { promisify } from 'node:util';
 
 import { createGitClient } from './GitClient.js';
+
+const execFile = promisify(nodeExecFile);
 
 describe('createGitClient', () => {
   it('01: authenticates origin before force-with-lease rewrite pushes in GitHub Actions', async () => {
@@ -123,6 +130,7 @@ describe('createGitClient', () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
+      env: {},
       execFile: async (file, args) => {
         calls.push({ file, args });
         return { stdout: stdoutFor(args), stderr: '' };
@@ -251,6 +259,157 @@ describe('createGitClient', () => {
     assert.notEqual(setOriginIndex, -1);
     assert.notEqual(pushIndex, -1);
     assert.equal(setOriginIndex < pushIndex, true);
+  });
+
+  it('07: fetches local dry-run refs and checks out existing or new PullOps branches', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set(['refs/remotes/origin/pullops/issue-15']);
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    await gitClient.fetchRemoteRefs?.({
+      requiredBranchNames: ['main'],
+      optionalBranchNames: ['pullops/issue-15'],
+    });
+    await gitClient.checkoutPullOpsBranch?.({
+      branchName: 'pullops/issue-15',
+      baseBranch: 'main',
+    });
+    refs.delete('refs/remotes/origin/pullops/issue-15');
+    await gitClient.checkoutPullOpsBranch?.({
+      branchName: 'pullops/issue-16',
+      baseBranch: 'main',
+    });
+
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, ['fetch', 'origin', '+refs/heads/main:refs/remotes/origin/main']),
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          'fetch',
+          'origin',
+          '+refs/heads/pullops/issue-15:refs/remotes/origin/pullops/issue-15',
+        ]),
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, ['checkout', '-B', 'pullops/issue-15', 'origin/pullops/issue-15']),
+      ),
+      true,
+    );
+    assert.equal(
+      calls.some(call => isGitCall(call, ['checkout', '-B', 'pullops/issue-16', 'origin/main'])),
+      true,
+    );
+  });
+
+  it('08: excludes local run records when committing all changes', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    await gitClient.commitAll({
+      message: 'Test commit',
+      author: {
+        name: 'PullOps',
+        email: 'pullops@example.com',
+      },
+    });
+
+    assert.equal(
+      calls.some(call => isGitCall(call, ['add', '--all', '--', '.', ':!.pullops/runs/**'])),
+      true,
+    );
+  });
+
+  it('09: includes untracked files in the working tree patch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-git-patch-'));
+    await execFile('git', ['init'], { cwd });
+    await execFile('git', ['config', 'user.name', 'PullOps'], { cwd });
+    await execFile('git', ['config', 'user.email', 'pullops@example.com'], { cwd });
+    await writeFile(join(cwd, 'tracked.txt'), 'tracked\n');
+    await execFile('git', ['add', 'tracked.txt'], { cwd });
+    await execFile('git', ['commit', '-m', 'Initial commit'], { cwd });
+    await writeFile(join(cwd, 'new-file.txt'), 'hello from a new file\n');
+
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        const result = await execFile(file, args, { cwd });
+        return {
+          stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
+          stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? ''),
+        };
+      },
+    });
+
+    const patch = await gitClient.readWorkingTreePatch?.();
+
+    assert.match(patch ?? '', /diff --git a\/new-file\.txt b\/new-file\.txt/);
+    assert.match(patch ?? '', /\+hello from a new file/);
+  });
+
+  it('10: fetches local dry-run refs without requiring GitHub Actions push auth', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    await gitClient.fetchRemoteRefs?.({
+      requiredBranchNames: ['main'],
+      optionalBranchNames: ['pullops/issue-15'],
+    });
+
+    assert.deepEqual(calls, [
+      {
+        file: 'git',
+        args: ['fetch', 'origin', '+refs/heads/main:refs/remotes/origin/main'],
+      },
+      {
+        file: 'git',
+        args: [
+          'fetch',
+          'origin',
+          '+refs/heads/pullops/issue-15:refs/remotes/origin/pullops/issue-15',
+        ],
+      },
+    ]);
   });
 });
 

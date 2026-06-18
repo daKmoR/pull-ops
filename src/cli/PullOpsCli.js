@@ -194,6 +194,33 @@ export class PullOpsCli {
       );
     }
 
+    const backend = readOperationLabelBackend(args);
+    if (backend === 'github-actions') {
+      return await this.dispatchOperationLabelThroughGitHubActions(operation, reference, args);
+    }
+
+    if (backend !== undefined && backend !== 'local') {
+      throw new CliUsageError(
+        `Unknown backend "${backend}" for ${reference}. Expected one of: local, github-actions.`,
+      );
+    }
+
+    if (reference === 'issue:implement') {
+      return await this.runLocalIssueImplementReference(args);
+    }
+
+    throw new CliUsageError(
+      `${reference} requires "--backend github-actions" to dispatch through GitHub Actions.`,
+    );
+  }
+
+  /**
+   * @param {import('../operations/types.js').OperationLabelReference} operation
+   * @param {string} reference
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async dispatchOperationLabelThroughGitHubActions(operation, reference, args) {
     const parsedArgs = parseGitHubActionsOperationLabelArgs(args, reference);
 
     if (operation.target === 'issue') {
@@ -218,6 +245,54 @@ export class PullOpsCli {
       },
       backend: parsedArgs.backend,
     });
+    return 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runLocalIssueImplementReference(args) {
+    const parsedArgs = parseLocalIssueImplementReferenceArgs(args);
+    const operation = getWorkflowOperation('issue-implement');
+    if (operation === undefined) {
+      throw new Error('issue-implement operation is not registered.');
+    }
+
+    const config = await loadPullOpsConfig({ cwd: this.cwd });
+    const operationConfig = config.operations[operation.configKey];
+    const model = config.runner.models[operationConfig.modelTier];
+    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
+    validateRunnerLifecycle({
+      operationName: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      runnerRan: undefined,
+    });
+    const output = await this.operationRunner({
+      operation: operation.name,
+      phase: 'run',
+      runnerAdapter,
+      executionBackend: 'local',
+      publicationMode: parsedArgs.publicationMode,
+      runGoal: parsedArgs.runGoal,
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      cwd: this.cwd,
+      config,
+      modelTier: operationConfig.modelTier,
+      model,
+      githubClient: this.githubClient,
+      gitClient: this.gitClient,
+      codexRunner: this.codexRunner,
+      triggerActor: this.env.GITHUB_ACTOR,
+      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+      contextUsage: readContextUsage(this.env),
+    });
+
+    this.writeValidatedJson(output);
     return 0;
   }
 
@@ -333,6 +408,71 @@ function parseGitHubActionsOperationLabelArgs(args, reference) {
 
 /**
  * @param {string[]} args
+ * @returns {string | undefined}
+ */
+function readOperationLabelBackend(args) {
+  const index = args.indexOf('--backend');
+  if (index === -1) {
+    return undefined;
+  }
+
+  const rawBackend = args[index + 1];
+  if (rawBackend === undefined || rawBackend.startsWith('--')) {
+    throw new CliUsageError('Missing value for "--backend". Expected "local" or "github-actions".');
+  }
+
+  return rawBackend;
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ *   runGoal: string,
+ *   runnerAdapter?: RunnerAdapter,
+ * }}
+ */
+function parseLocalIssueImplementReferenceArgs(args) {
+  const consumed = new Set();
+  const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
+  if (rawBackend !== undefined && rawBackend !== 'local') {
+    throw new CliUsageError(
+      `Unknown backend "${rawBackend}" for issue:implement. Expected one of: local, github-actions.`,
+    );
+  }
+
+  const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
+  const runGoal = parseOptionalStringOption(args, '--until', consumed) ?? 'operation';
+  const publish = parseBooleanFlag(args, '--publish', consumed);
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length === 0) {
+    throw new CliUsageError('Missing target number for issue:implement.');
+  }
+
+  if (remaining.length > 1 || remaining[0].startsWith('--')) {
+    throw new CliUsageError(`Unknown arguments for issue:implement: ${remaining.join(' ')}.`);
+  }
+
+  const targetNumber = Number(remaining[0]);
+  if (!Number.isInteger(targetNumber) || targetNumber <= 0) {
+    throw new CliUsageError('Target number must be a positive integer.');
+  }
+
+  return {
+    targetNumber,
+    publicationMode: publish ? 'publish' : 'dry-run',
+    runGoal,
+    ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
+  };
+}
+
+/**
+ * @param {string[]} args
  * @param {string} reference
  * @param {Set<number>} consumed
  * @returns {'github-actions'}
@@ -444,6 +584,42 @@ function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
   }
 
   return rawRunner;
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {RunnerAdapter | undefined}
+ */
+function parseOptionalRunnerAdapter(args, consumed) {
+  const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
+  if (rawRunner === undefined) {
+    return undefined;
+  }
+
+  if (!isRunnerAdapter(rawRunner)) {
+    throw new CliUsageError(
+      `Unknown runner "${rawRunner}". Expected one of: ${RUNNER_ADAPTERS.join(', ')}.`,
+    );
+  }
+
+  return rawRunner;
+}
+
+/**
+ * @param {string[]} args
+ * @param {string} flag
+ * @param {Set<number>} consumed
+ * @returns {boolean}
+ */
+function parseBooleanFlag(args, flag, consumed) {
+  const index = args.indexOf(flag);
+  if (index === -1) {
+    return false;
+  }
+
+  consumed.add(index);
+  return true;
 }
 
 /**
@@ -595,6 +771,7 @@ function formatTargetKind(target) {
 function usage() {
   return [
     'Usage:',
+    '  pullops run issue:implement <issue-number> [--backend local] [--publish]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',

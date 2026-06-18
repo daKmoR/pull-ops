@@ -24,6 +24,7 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
  * @typedef {import('./run.types.js').IssueImplementPreparation} IssueImplementPreparation
+ * @typedef {import('./run.types.js').BlockIssueDryRunOptions} BlockIssueDryRunOptions
  */
 
 export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
@@ -33,6 +34,10 @@ export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplement(context) {
+  if (context.publicationMode === 'dry-run') {
+    return await runIssueImplementDryRun(context);
+  }
+
   const preparation = await prepareIssueImplement(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -56,6 +61,61 @@ export async function runIssueImplement(context) {
   }
 
   return await finalizePreparedIssueImplement(context, preparation, rawOutput);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runIssueImplementDryRun(context) {
+  assertIssueTarget(context);
+
+  const runRecord = await createLocalRunRecord(context, {
+    operationReference: 'issue:implement',
+    targetNumber: context.target.number,
+  });
+
+  try {
+    if (await context.gitClient.hasChanges()) {
+      const reason = [
+        'Local dry-run issue implementation requires a clean worktree before the runner starts.',
+        'Commit, stash, or discard existing changes and run PullOps again.',
+      ].join(' ');
+      await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+      throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
+    }
+
+    const preparation = await prepareIssueImplementDryRun(context, runRecord);
+    if (!preparation.ready) {
+      return preparation.output;
+    }
+
+    const prompt = buildIssueImplementPrompt({
+      issue: preparation.issue,
+      parentIssueNumber: preparation.parentIssueNumber,
+    });
+    await writeLocalRunArtifact(runRecord, 'prompt.md', prompt);
+
+    let rawOutput;
+    try {
+      rawOutput = await context.codexRunner.run({
+        cwd: context.cwd,
+        command: context.config.runner.command,
+        model: context.model,
+        prompt,
+      });
+    } catch (error) {
+      const reason = getErrorMessage(error);
+      await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+      throw error;
+    }
+
+    await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
+    return await finalizePreparedIssueImplementDryRun(context, preparation, rawOutput, runRecord);
+  } catch (error) {
+    await writeLocalRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    throw error;
+  }
 }
 
 /**
@@ -222,6 +282,97 @@ async function prepareIssueImplement(context) {
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {{ directory: string }} runRecord
+ * @returns {Promise<IssueImplementPreparation>}
+ */
+async function prepareIssueImplementDryRun(context, runRecord) {
+  assertIssueTarget(context);
+
+  const workTarget = await readIssueWorkTarget(context, {
+    issueNumber: context.target.number,
+  });
+  const { issue } = workTarget;
+  const prepared = buildPreparedIssueImplement(workTarget);
+
+  await fetchRemoteRefsForDryRun(context, prepared);
+  await checkoutPullOpsBranchForDryRun(context, prepared);
+  await writeLocalRunArtifact(
+    runRecord,
+    'metadata.json',
+    `${JSON.stringify(
+      {
+        operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+        operationReference: 'issue:implement',
+        target: {
+          type: 'issue',
+          number: issue.number,
+        },
+        branch: prepared.branchName,
+        baseBranch: prepared.baseBranch,
+        publicationMode: 'dry-run',
+        runGoal: context.runGoal ?? 'operation',
+        modelTier: context.modelTier,
+        model: context.model,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  if (issue.state !== 'OPEN') {
+    return await blockIssueDryRun(runRecord, issue, {
+      reason: `Issue #${issue.number} is ${issue.state.toLowerCase()}. PullOps can only implement open issues.`,
+      branchName: prepared.branchName,
+      baseBranch: prepared.baseBranch,
+    });
+  }
+
+  if (issue.subIssues.length > 0) {
+    return await blockIssueDryRun(runRecord, issue, {
+      reason: [
+        `Issue #${issue.number} is a Parent Issue with child issues.`,
+        [
+          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} on the parent issue`,
+          'to create or update its umbrella branch and draft PR.',
+        ].join(' '),
+        `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+      ].join(' '),
+      branchName: prepared.branchName,
+      baseBranch: prepared.baseBranch,
+    });
+  }
+
+  if (looksLikePrdIssue(issue)) {
+    return await blockIssueDryRun(runRecord, issue, {
+      reason: [
+        `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+        [
+          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} for parent setup,`,
+          `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+        ].join(' '),
+      ].join(' '),
+      branchName: prepared.branchName,
+      baseBranch: prepared.baseBranch,
+    });
+  }
+
+  const blockingDependencies = await readBlockingDependencies(context, { issue });
+  if (blockingDependencies.length > 0) {
+    return await blockIssueDryRun(runRecord, issue, {
+      reason: [
+        `Issue #${issue.number} is blocked by unfinished dependencies:`,
+        blockingDependencies.map(dependency => `#${dependency.number}`).join(', '),
+      ].join(' '),
+      branchName: prepared.branchName,
+      baseBranch: prepared.baseBranch,
+    });
+  }
+
+  return prepared;
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @returns {Promise<IssueImplementPreparation & { ready: true }>}
  */
 async function readPreparedIssueImplement(context) {
@@ -356,6 +507,73 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
 
     throw error;
   }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @param {unknown} rawOutput
+ * @param {{ directory: string }} runRecord
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function finalizePreparedIssueImplementDryRun(context, preparation, rawOutput, runRecord) {
+  const { issue, parentIssueNumber, branchName, baseBranch } = preparation;
+  const validatedOutput = validateIssueImplementOutput(rawOutput);
+
+  if (!validatedOutput.valid) {
+    const reason = `Invalid Operation Output: ${validatedOutput.reason}`;
+    await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+    throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
+  }
+
+  await writeLocalRunArtifact(
+    runRecord,
+    'validated-output.json',
+    `${JSON.stringify(validatedOutput.value, null, 2)}\n`,
+  );
+
+  if (validatedOutput.value.status === 'blocked') {
+    await writeLocalRunArtifact(
+      runRecord,
+      'failure-reason.txt',
+      `${validatedOutput.value.failureReason}\n`,
+    );
+    await writePatchArtifactIfAvailable(context, runRecord);
+    return {
+      status: 'blocked',
+      summary: validatedOutput.value.summary,
+      issue: issue.number,
+      branch: branchName,
+      baseBranch,
+      publicationMode: 'dry-run',
+      localRunRecord: runRecord.directory,
+    };
+  }
+
+  if (!(await context.gitClient.hasChanges())) {
+    const reason = 'Codex runner completed but did not leave any working tree changes to commit.';
+    await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+    throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
+  }
+
+  await writePatchArtifactIfAvailable(context, runRecord);
+  await context.gitClient.commitAll({
+    message: createIssueImplementCommitMessage(issue, parentIssueNumber),
+    author: GITHUB_ACTIONS_BOT_AUTHOR,
+  });
+
+  return {
+    status: 'accepted',
+    summary: `Completed local dry-run issue implementation for issue #${issue.number} on ${branchName}.`,
+    issue: {
+      number: issue.number,
+      url: issue.url,
+    },
+    branch: branchName,
+    baseBranch,
+    publicationMode: 'dry-run',
+    localRunRecord: runRecord.directory,
+  };
 }
 
 /**
@@ -538,6 +756,156 @@ async function writeFailureReason(context, reason) {
 
   await mkdir(context.outputDirectory, { recursive: true });
   await writeFile(join(context.outputDirectory, 'failure_reason.txt'), `${reason}\n`);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ operationReference: string, targetNumber: number }} options
+ * @returns {Promise<{ directory: string }>}
+ */
+async function createLocalRunRecord(context, { operationReference, targetNumber }) {
+  const normalizedReference = normalizeOperationReferenceForPath(operationReference);
+  const timestamp = new Date().toISOString().replaceAll(':', '').replaceAll('.', '');
+  const directory = join(
+    context.cwd,
+    '.pullops',
+    'runs',
+    `${timestamp}-${normalizedReference}-${targetNumber}`,
+  );
+
+  await mkdir(directory, { recursive: true });
+  await writeLocalRunArtifact(
+    { directory },
+    'metadata.json',
+    `${JSON.stringify(
+      {
+        operationReference,
+        normalizedOperationReference: normalizedReference,
+        target: {
+          type: context.target.type,
+          number: targetNumber,
+        },
+        publicationMode: 'dry-run',
+        runGoal: context.runGoal ?? 'operation',
+        createdAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  return { directory };
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function normalizeOperationReferenceForPath(reference) {
+  return reference
+    .trim()
+    .toLowerCase()
+    .replaceAll(':', '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * @param {{ directory: string }} runRecord
+ * @param {string} fileName
+ * @param {string} contents
+ * @returns {Promise<void>}
+ */
+async function writeLocalRunArtifact(runRecord, fileName, contents) {
+  await writeFile(join(runRecord.directory, fileName), contents);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatArtifactValue(value) {
+  if (typeof value === 'string') {
+    return value.endsWith('\n') ? value : `${value}\n`;
+  }
+
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {Promise<void>}
+ */
+async function fetchRemoteRefsForDryRun(context, preparation) {
+  if (context.gitClient.fetchRemoteRefs === undefined) {
+    throw new Error('Git client does not support local remote ref fetching.');
+  }
+
+  await context.gitClient.fetchRemoteRefs({
+    requiredBranchNames: [preparation.baseBranch],
+    optionalBranchNames: [preparation.branchName],
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {Promise<void>}
+ */
+async function checkoutPullOpsBranchForDryRun(context, preparation) {
+  if (context.gitClient.checkoutPullOpsBranch === undefined) {
+    throw new Error('Git client does not support local PullOps branch checkout.');
+  }
+
+  await context.gitClient.checkoutPullOpsBranch({
+    branchName: preparation.branchName,
+    baseBranch: preparation.baseBranch,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ directory: string }} runRecord
+ * @returns {Promise<void>}
+ */
+async function writePatchArtifactIfAvailable(context, runRecord) {
+  if (context.gitClient.readWorkingTreePatch === undefined) {
+    return;
+  }
+
+  const patch = await context.gitClient.readWorkingTreePatch();
+  if (patch.trim() === '') {
+    return;
+  }
+
+  await writeLocalRunArtifact(runRecord, 'working-tree.patch', patch);
+}
+
+/**
+ * @param {{ directory: string }} runRecord
+ * @param {GitHubIssue} issue
+ * @param {BlockIssueDryRunOptions} options
+ * @returns {Promise<IssueImplementPreparation>}
+ */
+async function blockIssueDryRun(
+  runRecord,
+  issue,
+  { reason, summary = reason, branchName, baseBranch },
+) {
+  await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+  return {
+    ready: false,
+    output: {
+      status: 'blocked',
+      summary,
+      issue: issue.number,
+      branch: branchName,
+      baseBranch,
+      publicationMode: 'dry-run',
+      localRunRecord: runRecord.directory,
+    },
+  };
 }
 
 /**
