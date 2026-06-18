@@ -16,6 +16,7 @@ import {
 } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { collectPrAddressReviewFeedback } from './feedback.js';
+import { validateAddressReviewFeedbackCoverage } from './feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from './output.js';
 import { buildAddressPrReviewompt } from './prompt.js';
 
@@ -281,7 +282,10 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
       };
     }
 
-    const coverage = validateFeedbackCoverage(validatedOutput.value, feedbackItems);
+    const coverage = validateAddressReviewFeedbackCoverage(
+      validatedOutput.value,
+      feedbackItems.map(item => item.id),
+    );
     if (!coverage.valid) {
       const reason = `Invalid Address Review Output: ${coverage.reason}`;
       failureRecorded = true;
@@ -345,49 +349,6 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
 
     throw error;
   }
-}
-
-/**
- * @param {CompletedPrAddressReviewOutput} output
- * @param {PrAddressReviewFeedbackItem[]} feedbackItems
- * @returns {{ valid: true } | { valid: false, reason: string }}
- */
-function validateFeedbackCoverage(output, feedbackItems) {
-  const expected = new Set(feedbackItems.map(item => item.id));
-  const seen = new Set();
-
-  for (const feedback of [
-    ...output.addressed.map(item => ({ feedbackId: item.feedbackId, path: 'addressed' })),
-    ...output.declined.map(item => ({ feedbackId: item.feedbackId, path: 'declined' })),
-    ...output.deferred.map(item => ({ feedbackId: item.feedbackId, path: 'deferred' })),
-  ]) {
-    if (!expected.has(feedback.feedbackId)) {
-      return {
-        valid: false,
-        reason: `Operation Output.${feedback.path} references unknown feedbackId "${feedback.feedbackId}".`,
-      };
-    }
-
-    if (seen.has(feedback.feedbackId)) {
-      return {
-        valid: false,
-        reason: `Feedback item "${feedback.feedbackId}" must be classified exactly once.`,
-      };
-    }
-
-    seen.add(feedback.feedbackId);
-  }
-
-  for (const feedbackId of expected) {
-    if (!seen.has(feedbackId)) {
-      return {
-        valid: false,
-        reason: `Feedback item "${feedbackId}" must be classified as addressed, declined, or deferred.`,
-      };
-    }
-  }
-
-  return { valid: true };
 }
 
 /**

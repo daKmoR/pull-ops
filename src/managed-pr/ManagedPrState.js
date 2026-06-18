@@ -522,6 +522,7 @@ function createPrFixCiTransition({ body, outcome }) {
         current: outcome.ciFixCycle,
         max: outcome.maxCiFixCycles,
       },
+      removeMergePreparationMarkers: true,
       lastOperation: PULL_OPS_OPERATION_LABELS.prFixCi,
     }),
     removeLabels: labelsForSuccessfulOperation(

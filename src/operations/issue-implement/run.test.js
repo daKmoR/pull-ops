@@ -27,6 +27,8 @@ import {
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
+ * @typedef {import('../../git/types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
+ * @typedef {import('../../git/types.js').ResetHardToRevisionOptions} ResetHardToRevisionOptions
  * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
  */
 
@@ -1256,6 +1258,629 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, []);
     assert.equal(github.createdPullRequests.length, 0);
   });
+
+  it('29: local dry-run finalized runs ordered follow-up operations and keeps GitHub unmutated', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-dry-run-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Finalize locally',
+      labels: [],
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequests: [
+        {
+          number: 7,
+          title: 'Umbrella PR',
+          url: 'https://github.com/acme/widgets/pull/7',
+          headRefName: 'pullops/prd-1',
+          body: '',
+          isDraft: true,
+        },
+      ],
+    });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized dry-run.',
+          changes: ['Added behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: 'Needs a small fix.',
+          comments: [{ path: 'src/file.js', line: 1, body: 'Tighten this.' }],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'addressed',
+          summary: 'Addressed review.',
+          addressed: [
+            { feedbackId: 'local-review-summary:1', response: 'Applied the requested follow-up.' },
+            { feedbackId: 'local-review-comment:1', response: 'Tightened this.' },
+          ],
+          declined: [],
+          deferred: [],
+          changes: ['Tightened implementation.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.runGoal, 'finalized');
+    assert.deepEqual(
+      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      [
+        'pullops-issue-implement',
+        'pullops-pr-review',
+        'pullops-pr-address-review',
+        'pullops-pr-review',
+        'pullops-pr-finalize',
+      ],
+    );
+    assert.deepEqual(git.pushes, []);
+    assert.deepEqual(git.forcePushes, []);
+    assert.equal(git.rewrites.length, 1);
+    assert.equal(git.rewrites[0].push, false);
+    assert.equal(github.createdPullRequests.length, 0);
+    assert.equal(github.pullRequestComments.length, 0);
+    assert.deepEqual(github.readyPullRequests, []);
+    assert.match(codex.calls[2].prompt, /Local Run Record:/);
+    assert.match(codex.calls[2].prompt, /Issue #42: Finalize locally/);
+    assert.match(codex.calls[2].prompt, /Pull request body:/);
+    assert.match(codex.calls[2].prompt, /Actionable PR Feedback:/);
+    assert.match(codex.calls[2].prompt, /Tighten this\./);
+    assert.match(codex.calls[2].prompt, /01-pr-review-evidence\.json/);
+    assert.match(codex.calls[4].prompt, /Changed files since base:/);
+    assert.match(codex.calls[4].prompt, /Prior local follow-up evidence:/);
+
+    const localRunRecord = String(result.localRunRecord);
+    const reviewComments = JSON.parse(
+      await readFile(join(localRunRecord, 'review-comments.json'), 'utf8'),
+    );
+    assert.deepEqual(reviewComments, [{ path: 'src/file.js', line: 1, body: 'Tighten this.' }]);
+    const ciFollowUp = JSON.parse(
+      await readFile(join(localRunRecord, 'ci-follow-up.json'), 'utf8'),
+    );
+    assert.deepEqual(ciFollowUp, {
+      mode: 'await-hosted-checks',
+      status: 'pending-publication',
+      operation: 'pr:fix-ci',
+      finalizedHeadSha: 'head-finalized',
+      finalizedTreeHash: 'tree-finalized',
+      branch: 'pullops/prd-1-issue-42',
+      publicationMode: 'dry-run',
+      reason:
+        'Local finalized runs cannot observe hosted checks for the finalized head before publication.',
+    });
+    const finalizedBody = await readFile(join(localRunRecord, 'finalized-pr-body.md'), 'utf8');
+    assert.match(finalizedBody, /Status: Ready for human merge/);
+    assert.match(finalizedBody, /^Umbrella PR: #7$/m);
+  });
+
+  it('30: local finalized PR publication delays GitHub mutation and marks the PR ready', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Publish finalized PR',
+      labels: [],
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequests: [
+        {
+          number: 7,
+          title: 'Umbrella PR',
+          url: 'https://github.com/acme/widgets/pull/7',
+          headRefName: 'pullops/prd-1',
+          body: '',
+          isDraft: true,
+        },
+      ],
+    });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented finalized publication.',
+          changes: ['Added delayed publication.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    const output = /** @type {{ status: string, pullRequest: { draft: boolean } }} */ (result);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.pullRequest.draft, false);
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.match(github.createdPullRequests[0].body, /Status: Ready for human merge/);
+    assert.match(github.createdPullRequests[0].body, /^Umbrella PR: #7$/m);
+    assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(github.pullRequestLabels, []);
+    assert.deepEqual(git.pushes, []);
+    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/prd-1-issue-42' }]);
+    assert.equal(git.rewrites.length, 1);
+    assert.equal(git.rewrites[0].push, false);
+    assert.equal(codex.calls.length, 3);
+  });
+
+  it('31: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
+    const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false, false, false, false],
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented with review issues.',
+          changes: ['Changed code.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: 'First review.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'addressed',
+          summary: 'Addressed first review.',
+          addressed: [
+            {
+              feedbackId: 'local-review-summary:1',
+              response: 'Applied the first review feedback.',
+            },
+          ],
+          declined: [],
+          deferred: [],
+          changes: [],
+          testPlan: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: 'Second review.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'addressed',
+          summary: 'Addressed second review.',
+          addressed: [
+            {
+              feedbackId: 'local-review-summary:1',
+              response: 'Applied the second review feedback.',
+            },
+          ],
+          declined: [],
+          deferred: [],
+          changes: [],
+          testPlan: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: 'Third review.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(String(result.summary), /Review Cycles are exhausted \(3 \/ 3\)/);
+    assert.equal(result.branch, 'pullops/issue-42');
+    assert.equal(result.baseBranch, 'main');
+    assert.deepEqual(git.pushes, []);
+    assert.equal(github.createdPullRequests.length, 0);
+    assert.equal(codex.calls.length, 6);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /Review Cycles are exhausted/,
+    );
+  });
+
+  it('32: local finalized approval commits direct review changes before finalization continues', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-review-direct-changes-'));
+    const issue = createIssue({ number: 42, title: 'Commit review-owned changes locally' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, true],
+      patch: 'diff --git a/src/file.js b/src/file.js\n+review change\n',
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized dry-run.',
+          changes: ['Added behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready after a tiny review-owned fix.',
+          comments: [],
+          replies: [],
+          directChanges: ['Normalized a local coding-standards issue.'],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(git.commits, [
+      {
+        message: [
+          'feat(issue): implement #42',
+          '',
+          'Implement Commit review-owned changes locally.',
+          '',
+          'Refs: #42',
+        ].join('\n'),
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      },
+      {
+        message: [
+          'chore(review): apply local review improvements for #42',
+          '',
+          '- Normalized a local coding-standards issue.',
+          '',
+          'Refs: #42',
+        ].join('\n'),
+        author: GITHUB_ACTIONS_BOT_AUTHOR,
+      },
+    ]);
+  });
+
+  it('33: local finalized runs block when address-review omits local feedback coverage', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-address-coverage-'));
+    const issue = createIssue({ number: 42, title: 'Cover every local feedback item', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized dry-run.',
+          changes: ['Added behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: 'Needs a small fix.',
+          comments: [{ path: 'src/file.js', line: 1, body: 'Tighten this.' }],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'addressed',
+          summary: 'Addressed review.',
+          addressed: [],
+          declined: [],
+          deferred: [],
+          changes: ['Tightened implementation.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(
+      String(result.summary),
+      /Invalid Address Review Output: Feedback item "local-review-summary:1" must be classified/,
+    );
+    assert.equal(codex.calls.length, 3);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /local-review-summary:1/,
+    );
+  });
+
+  it('34: local finalized tree mismatch restores the reviewed head before blocking', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-tree-mismatch-'));
+    const issue = createIssue({ number: 42, title: 'Restore reviewed head on finalize mismatch' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-reviewed',
+      currentHeadSha: 'head-reviewed',
+      rewrittenTreeHash: 'tree-rewritten',
+      rewrittenHeadSha: 'head-rewritten',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized dry-run.',
+          changes: ['Added behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(
+      String(result.summary),
+      /Finalized tree tree-rewritten did not match reviewed tree/,
+    );
+    assert.deepEqual(git.hardResets, [{ revision: 'head-reviewed' }]);
+    assert.equal(github.createdPullRequests.length, 0);
+  });
+
+  it('35: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-rewrite-failure-'));
+    const issue = createIssue({ number: 42, title: 'Restore reviewed head on rewrite failure' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      failOn(step) {
+        return step === 'rewriteBranchWithCommitPlan';
+      },
+      hasChangesResults: [false, true, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-reviewed',
+      currentHeadSha: 'head-reviewed',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented local finalized dry-run.',
+          changes: ['Added behavior.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.match(
+      String(result.summary),
+      /Failed to rewrite the finalized branch: rewrite with commit plan failed/,
+    );
+    assert.deepEqual(git.hardResets, [{ revision: 'head-reviewed' }]);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /Failed to rewrite the finalized branch/,
+    );
+    assert.equal(github.createdPullRequests.length, 0);
+  });
 });
 
 /**
@@ -1316,7 +1941,12 @@ function createIssue({
 }
 
 /**
- * @param {{ issue: GitHubIssue, issuesByNumber?: Map<number, GitHubIssue>, existingPullRequest?: GitHubPullRequest }} options
+ * @param {{
+ *   issue: GitHubIssue,
+ *   issuesByNumber?: Map<number, GitHubIssue>,
+ *   existingPullRequest?: GitHubPullRequest,
+ *   existingPullRequests?: GitHubPullRequest[],
+ * }} options
  * @returns {{
  *   createdPullRequests: CreateDraftPullRequestOptions[];
  *   issueLabelsAdded: EditLabelsOptions[];
@@ -1325,6 +1955,7 @@ function createIssue({
  *   comments: CommentOnIssueOptions[];
  *   pullRequestComments: CommentOnPullRequestOptions[];
  *   updatedPullRequestBodies: import('../../github/types.js').UpdatePullRequestBodyOptions[];
+ *   readyPullRequests: number[];
  *   issueLookups: number[];
  *   client: import('../../github/types.js').GitHubClient;
  * }}
@@ -1333,6 +1964,7 @@ function createFakeGitHub({
   issue,
   issuesByNumber = new Map([[issue.number, issue]]),
   existingPullRequest,
+  existingPullRequests = existingPullRequest === undefined ? [] : [existingPullRequest],
 }) {
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
@@ -1349,9 +1981,9 @@ function createFakeGitHub({
   /** @type {import('../../github/types.js').UpdatePullRequestBodyOptions[]} */
   const updatedPullRequestBodies = [];
   /** @type {number[]} */
+  const readyPullRequests = [];
+  /** @type {number[]} */
   const issueLookups = [];
-  const existingPullRequests = existingPullRequest === undefined ? [] : [existingPullRequest];
-
   return {
     createdPullRequests,
     issueLabelsAdded,
@@ -1360,6 +1992,7 @@ function createFakeGitHub({
     comments,
     pullRequestComments,
     updatedPullRequestBodies,
+    readyPullRequests,
     issueLookups,
     client: {
       async ensureLabels() {
@@ -1430,8 +2063,8 @@ function createFakeGitHub({
       async updatePullRequestBody(options) {
         updatedPullRequestBodies.push(options);
       },
-      async markPullRequestReadyForReview() {
-        throw new Error('markPullRequestReadyForReview was not expected in this test.');
+      async markPullRequestReadyForReview(number) {
+        readyPullRequests.push(number);
       },
       async publishPullRequestReview() {
         throw new Error('publishPullRequestReview was not expected in this test.');
@@ -1453,6 +2086,11 @@ function createFakeGitHub({
  *   patch?: string,
  *   currentBranch?: string,
  *   commitsSinceBase?: import('../../git/types.js').GitCommit[],
+ *   changedFilesSinceBase?: string[],
+ *   currentTreeHash?: string,
+ *   currentHeadSha?: string,
+ *   rewrittenTreeHash?: string,
+ *   rewrittenHeadSha?: string,
  * }} [options]
  * @returns {{
  *   branches: CreateBranchOptions[];
@@ -1461,6 +2099,9 @@ function createFakeGitHub({
  *   commits: CommitAllOptions[];
  *   emptyCommits: CommitEmptyOptions[];
  *   pushes: PushBranchOptions[];
+ *   forcePushes: PushBranchWithLeaseOptions[];
+ *   hardResets: ResetHardToRevisionOptions[];
+ *   rewrites: import('../../git/types.js').RewriteBranchWithCommitPlanOptions[];
  *   client: import('../../git/types.js').GitClient;
  * }}
  */
@@ -1470,6 +2111,11 @@ function createFakeGit({
   patch = '',
   currentBranch = 'main',
   commitsSinceBase = [],
+  changedFilesSinceBase = ['src/file.js'],
+  currentTreeHash = 'tree-current',
+  currentHeadSha = 'head-current',
+  rewrittenTreeHash = currentTreeHash,
+  rewrittenHeadSha = currentHeadSha,
 } = {}) {
   /** @type {CreateBranchOptions[]} */
   const branches = [];
@@ -1483,6 +2129,12 @@ function createFakeGit({
   const emptyCommits = [];
   /** @type {PushBranchOptions[]} */
   const pushes = [];
+  /** @type {PushBranchWithLeaseOptions[]} */
+  const forcePushes = [];
+  /** @type {ResetHardToRevisionOptions[]} */
+  const hardResets = [];
+  /** @type {import('../../git/types.js').RewriteBranchWithCommitPlanOptions[]} */
+  const rewrites = [];
 
   return {
     branches,
@@ -1491,6 +2143,9 @@ function createFakeGit({
     commits,
     emptyCommits,
     pushes,
+    forcePushes,
+    hardResets,
+    rewrites,
     client: {
       async createBranch(options) {
         if (failOn('createBranch')) {
@@ -1547,17 +2202,31 @@ function createFakeGit({
       async rebaseBranchOntoBase() {
         throw new Error('rebaseBranchOntoBase was not expected in this test.');
       },
-      async pushBranchWithLease() {
-        throw new Error('pushBranchWithLease was not expected in this test.');
+      async pushBranchWithLease(options) {
+        if (failOn('pushBranchWithLease')) {
+          throw new Error('push with lease failed');
+        }
+        forcePushes.push(options);
+        return {
+          status: 'pushed',
+          headSha: currentHeadSha,
+          treeHash: currentTreeHash,
+        };
       },
       async getCurrentHeadSha() {
-        throw new Error('getCurrentHeadSha was not expected in this test.');
+        return currentHeadSha;
       },
       async getCurrentTreeHash() {
-        throw new Error('getCurrentTreeHash was not expected in this test.');
+        return currentTreeHash;
+      },
+      async resetHardToRevision(options) {
+        if (failOn('resetHardToRevision')) {
+          throw new Error('reset hard failed');
+        }
+        hardResets.push(options);
       },
       async getChangedFilesSinceBase() {
-        throw new Error('getChangedFilesSinceBase was not expected in this test.');
+        return changedFilesSinceBase;
       },
       async getCommitsSinceBase() {
         if (failOn('getCommitsSinceBase')) {
@@ -1565,15 +2234,22 @@ function createFakeGit({
         }
         return commitsSinceBase;
       },
-      async rewriteBranchWithCommitPlan() {
-        throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
+      async rewriteBranchWithCommitPlan(options) {
+        if (failOn('rewriteBranchWithCommitPlan')) {
+          throw new Error('rewrite with commit plan failed');
+        }
+        rewrites.push(options);
+        return {
+          headSha: rewrittenHeadSha,
+          treeHash: rewrittenTreeHash,
+        };
       },
     },
   };
 }
 
 /**
- * @param {{ output: unknown }} options
+ * @param {{ output: unknown | unknown[] }} options
  * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
  */
 function createFakeCodexRunner({ output }) {
@@ -1585,6 +2261,14 @@ function createFakeCodexRunner({ output }) {
     runner: {
       async run(options) {
         calls.push(options);
+        if (Array.isArray(output)) {
+          const next = output.shift();
+          if (next === undefined) {
+            throw new Error('Unexpected Codex runner call.');
+          }
+          return next;
+        }
+
         return output;
       },
     },
