@@ -204,6 +204,18 @@ _Avoid_: Agent response, stdout
 One automated review pass for a PullOps-Managed PR, counted when `pr-review` runs. If the review requests changes, `pr-address-review` may respond only when the workflow still has budget for a follow-up review to approve the resulting tree.
 _Avoid_: Retry, review attempt
 
+**Escalation Review Cycle**:
+The final additional high-tier automated review loop reserved for a PullOps-Managed PR after normal Review Cycles are exhausted. It is a distinct last-chance loop for productive late feedback, not a larger normal review budget.
+_Avoid_: Fourth retry, lenient review, budget bump
+
+**Review Follow-up Issue**:
+A GitHub issue created from an approving Escalation Review Cycle to track non-blocking work that is worth preserving outside the current pull request. It is linked back to the PullOps-Managed PR and source issue, and starts in triage rather than as agent-ready work.
+_Avoid_: Review comment, deferred blocker, automatic child issue
+
+**Human Feedback Response Cycle**:
+A separate high-tier automated loop granted by each distinct trusted human `CHANGES_REQUESTED` pull request review on a Same-Repository PullOps-Managed PR. It lets PullOps address the human feedback and run one validating review without changing the recorded Review Cycle count.
+_Avoid_: Review cycle reset, free retry, budget decrement
+
 **CI Fix Cycle**:
 One automated loop where PullOps responds to failing checks on a PullOps-Managed PR, pushes a fix, and sends the PR back through review.
 _Avoid_: Build retry, CI retry

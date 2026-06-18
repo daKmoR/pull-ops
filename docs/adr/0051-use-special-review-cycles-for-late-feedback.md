@@ -1,0 +1,9 @@
+# Use special review cycles for late feedback
+
+PullOps keeps the normal automated review budget at three Review Cycles, but adds two explicit high-tier escape valves for productive late feedback: one Escalation Review Cycle after normal Review Cycles are exhausted, and one Human Feedback Response Cycle for each distinct trusted human `CHANGES_REQUESTED` review. These cycles are tracked with explicit PullOps Workflow State markers instead of resetting or decrementing `Review cycles`, preserving the audit trail while giving real feedback one validating pass.
+
+Escalation review is a last-chance loop, not a looser review standard: the final review should approve when remaining work would not justify human intervention, may create `needs-triage` Review Follow-up Issues for non-blocking work, and then continues to PR Finalize. Human Feedback Response Cycles are unbounded per distinct trusted review id and are idempotent through recorded review ids, because human maintainer feedback is new input rather than automated review churn.
+
+Review Follow-up Issues come from structured final-review issue proposals, not from free-form `followUps` notes. Plain follow-ups remain audit-only notes, while issue proposals provide the title and body PullOps needs to create GitHub issues predictably. PullOps creates these issues as standalone `needs-triage` issues linked back to the PR and source issue, and records the created issue numbers on the original PR so reviewers can see what was externalized.
+
+Special-cycle model-tier policy belongs in central PullOps Config defaults rather than workflow YAML. `DEFAULT_PULL_OPS_CONFIG` should expose the normal review/address-review tiers and the high-tier overrides for Escalation Review Cycles and Human Feedback Response Cycles, while operation prepare logic decides which configured tier applies to the current PR state and passes the selected model to the runner.
