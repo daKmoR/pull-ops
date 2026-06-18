@@ -168,6 +168,10 @@ async function runIssueImplementDryRun(context) {
       return preparation.output;
     }
 
+    if (preparation.preparedBranch) {
+      return await dryRunPreparedIssueImplementBranch(context, preparation, runRecord);
+    }
+
     const prompt = buildIssueImplementPrompt({
       issue: preparation.issue,
       parentIssueNumber: preparation.parentIssueNumber,
@@ -361,7 +365,7 @@ async function prepareIssueImplement(context) {
 /**
  * @param {OperationRunnerContext} context
  * @param {{ directory: string }} runRecord
- * @returns {Promise<IssueImplementPreparation>}
+ * @returns {Promise<(IssueImplementPreparation & { preparedBranch?: boolean, commits?: import('../../git/types.js').GitCommit[] })>}
  */
 async function prepareIssueImplementDryRun(context, runRecord) {
   assertIssueTarget(context);
@@ -373,6 +377,7 @@ async function prepareIssueImplementDryRun(context, runRecord) {
   const prepared = buildPreparedIssueImplement(workTarget);
 
   await fetchRemoteRefsForDryRun(context, prepared);
+  const currentBranch = await readCurrentBranch(context);
   await checkoutPullOpsBranchForDryRun(context, prepared);
   await writeLocalRunArtifact(
     runRecord,
@@ -444,6 +449,17 @@ async function prepareIssueImplementDryRun(context, runRecord) {
       branchName: prepared.branchName,
       baseBranch: prepared.baseBranch,
     });
+  }
+
+  if (currentBranch === prepared.branchName) {
+    const commits = await readLocalCommitsSinceBase(context, prepared);
+    if (commits.length > 0) {
+      return {
+        ...prepared,
+        preparedBranch: true,
+        commits,
+      };
+    }
   }
 
   return prepared;
@@ -943,6 +959,60 @@ function createPreparedBranchIssueImplementOutput(preparation) {
         : subjects.map(subject => `Published local commit: ${subject}`),
     testPlan: ['Not run during publish-only; see the prepared local branch history.'],
     followUps: [],
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true, commits?: import('../../git/types.js').GitCommit[] }} preparation
+ * @param {{ directory: string }} runRecord
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function dryRunPreparedIssueImplementBranch(context, preparation, runRecord) {
+  const { issue, branchName, baseBranch } = preparation;
+  const output = createPreparedBranchIssueImplementOutput(preparation);
+  await writeLocalRunArtifact(
+    runRecord,
+    'validated-output.json',
+    `${JSON.stringify(output, null, 2)}\n`,
+  );
+
+  if (context.runGoal === 'finalized') {
+    const finalized = await runLocalFinalizedIssuePipeline(context, preparation, output, runRecord);
+    if (finalized.status === 'blocked') {
+      return finalized.output;
+    }
+
+    await writeLocalRunArtifact(runRecord, 'finalized-pr-body.md', finalized.body);
+    return {
+      status: 'accepted',
+      summary: `Completed local finalized dry-run prepared issue implementation for issue #${issue.number} on ${branchName}.`,
+      issue: {
+        number: issue.number,
+        url: issue.url,
+      },
+      branch: branchName,
+      baseBranch,
+      publicationMode: 'dry-run',
+      runGoal: 'finalized',
+      localRunRecord: runRecord.directory,
+      preparedBranch: true,
+      prFinalize: finalized.prFinalize,
+    };
+  }
+
+  return {
+    status: 'accepted',
+    summary: `Completed local dry-run prepared issue implementation for issue #${issue.number} on ${branchName}.`,
+    issue: {
+      number: issue.number,
+      url: issue.url,
+    },
+    branch: branchName,
+    baseBranch,
+    publicationMode: 'dry-run',
+    localRunRecord: runRecord.directory,
+    preparedBranch: true,
   };
 }
 

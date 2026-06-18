@@ -1489,7 +1489,89 @@ describe('runIssueImplement', () => {
     assert.match(finalizedBody, /^Umbrella PR: #7$/m);
   });
 
-  it('31: local finalized PR publication delays GitHub mutation and marks the PR ready', async () => {
+  it('31: local dry-run finalized reuses a prepared local branch without rerunning implement', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-prepared-dry-run-'));
+    const issue = createIssue({ number: 42, title: 'Finalize prepared branch', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      currentBranch: 'pullops/issue-42',
+      hasChangesResults: [false, false],
+      commitsSinceBase: [
+        {
+          sha: 'abc123',
+          subject: 'feat(issue): implement #42',
+          body: 'Refs: #42',
+          files: ['README.md'],
+        },
+      ],
+      changedFilesSinceBase: ['README.md'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Prepared branch is ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the prepared branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize prepared local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['README.md'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.preparedBranch, true);
+    assert.equal(result.runGoal, 'finalized');
+    assert.deepEqual(
+      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      ['pullops-pr-review', 'pullops-pr-finalize'],
+    );
+    assert.deepEqual(git.commits, []);
+    assert.equal(git.rewrites.length, 1);
+    assert.equal(git.rewrites[0].push, false);
+    assert.deepEqual(git.pushes, []);
+    assert.deepEqual(github.createdPullRequests, []);
+
+    const localRunRecord = String(result.localRunRecord);
+    const output = JSON.parse(
+      await readFile(join(localRunRecord, 'validated-output.json'), 'utf8'),
+    );
+    assert.deepEqual(output.changes, ['Published local commit: feat(issue): implement #42']);
+    const finalizedBody = await readFile(join(localRunRecord, 'finalized-pr-body.md'), 'utf8');
+    assert.match(finalizedBody, /Status: Ready for human merge/);
+    assert.match(finalizedBody, /^Closes: #42$/m);
+  });
+
+  it('32: local finalized PR publication delays GitHub mutation and marks the PR ready', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-'));
     const issue = createIssue({
       number: 42,
@@ -1581,7 +1663,7 @@ describe('runIssueImplement', () => {
     assert.equal(codex.calls.length, 3);
   });
 
-  it('32: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
+  it('33: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
     const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1678,7 +1760,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('33: local finalized approval commits direct review changes before finalization continues', async () => {
+  it('34: local finalized approval commits direct review changes before finalization continues', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-review-direct-changes-'));
     const issue = createIssue({ number: 42, title: 'Commit review-owned changes locally' });
     const github = createFakeGitHub({ issue });
@@ -1760,7 +1842,7 @@ describe('runIssueImplement', () => {
     ]);
   });
 
-  it('34: local finalized runs block when address-review omits local feedback coverage', async () => {
+  it('35: local finalized runs block when address-review omits local feedback coverage', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-address-coverage-'));
     const issue = createIssue({ number: 42, title: 'Cover every local feedback item', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1823,7 +1905,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('35: local finalized tree mismatch restores the reviewed head before blocking', async () => {
+  it('36: local finalized tree mismatch restores the reviewed head before blocking', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-tree-mismatch-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on finalize mismatch' });
     const github = createFakeGitHub({ issue });
@@ -1890,7 +1972,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('36: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
+  it('37: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-rewrite-failure-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on rewrite failure' });
     const github = createFakeGitHub({ issue });
