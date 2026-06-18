@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -386,7 +386,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('10: excludes local run records when committing all changes', async () => {
+  it('10: unstages local run records when committing all changes', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -406,12 +406,52 @@ describe('createGitClient', () => {
     });
 
     assert.equal(
-      calls.some(call => isGitCall(call, ['add', '--all', '--', '.', ':!.pullops/runs/**'])),
+      calls.some(call => isGitCall(call, ['add', '--all', '--', '.'])),
+      true,
+    );
+    assert.equal(
+      calls.some(call => isGitCall(call, ['reset', '--', '.pullops/runs'])),
       true,
     );
   });
 
-  it('11: ignores local run records when checking for worktree changes', async () => {
+  it('11: commits tracked changes when ignored local run records exist', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-git-ignored-runs-'));
+    await execFile('git', ['init'], { cwd });
+    await execFile('git', ['config', 'user.name', 'PullOps'], { cwd });
+    await execFile('git', ['config', 'user.email', 'pullops@example.com'], { cwd });
+    await writeFile(join(cwd, '.gitignore'), '.pullops/runs/\n');
+    await writeFile(join(cwd, 'README.md'), 'before\n');
+    await execFile('git', ['add', '.gitignore', 'README.md'], { cwd });
+    await execFile('git', ['commit', '-m', 'Initial commit'], { cwd });
+    await writeFile(join(cwd, 'README.md'), 'after\n');
+    await mkdir(join(cwd, '.pullops', 'runs', 'local-run'), { recursive: true });
+    await writeFile(join(cwd, '.pullops', 'runs', 'local-run', 'metadata.json'), '{}\n');
+
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        const result = await execFile(file, args, { cwd });
+        return {
+          stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
+          stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? ''),
+        };
+      },
+    });
+
+    await gitClient.commitAll({
+      message: 'Update README',
+      author: {
+        name: 'PullOps',
+        email: 'pullops@example.com',
+      },
+    });
+
+    const status = await execFile('git', ['status', '--porcelain'], { cwd });
+    assert.equal(status.stdout, '');
+  });
+
+  it('12: ignores local run records when checking for worktree changes', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -427,13 +467,20 @@ describe('createGitClient', () => {
     assert.equal(hasChanges, false);
     assert.equal(
       calls.some(call =>
-        isGitCall(call, ['status', '--porcelain', '--', '.', ':!.pullops/runs/**']),
+        isGitCall(call, [
+          'status',
+          '--porcelain',
+          '--',
+          '.',
+          ':!.pullops/runs',
+          ':!.pullops/runs/**',
+        ]),
       ),
       true,
     );
   });
 
-  it('12: includes untracked files in the working tree patch', async () => {
+  it('13: includes untracked files in the working tree patch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-git-patch-'));
     await execFile('git', ['init'], { cwd });
     await execFile('git', ['config', 'user.name', 'PullOps'], { cwd });
@@ -460,7 +507,7 @@ describe('createGitClient', () => {
     assert.match(patch ?? '', /\+hello from a new file/);
   });
 
-  it('13: fetches local dry-run refs without requiring GitHub Actions push auth', async () => {
+  it('14: fetches local dry-run refs without requiring GitHub Actions push auth', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -494,7 +541,7 @@ describe('createGitClient', () => {
     ]);
   });
 
-  it('14: reads the current branch name', async () => {
+  it('15: reads the current branch name', async () => {
     const gitClient = createGitClient({
       env: {},
       execFile: async (_file, args) => {
@@ -506,7 +553,7 @@ describe('createGitClient', () => {
     assert.equal(await gitClient.getCurrentBranch?.(), 'pullops/issue-15');
   });
 
-  it('15: cherry-picks finalized child commits onto a local PullOps branch', async () => {
+  it('16: cherry-picks finalized child commits onto a local PullOps branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const refs = new Set(['refs/heads/pullops/prd-7']);
@@ -559,7 +606,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('16: leaves conflicted cherry-picks inspectable on the target branch', async () => {
+  it('17: leaves conflicted cherry-picks inspectable on the target branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -610,7 +657,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('17: reads changed files since base without requiring Push auth configuration', async () => {
+  it('18: reads changed files since base without requiring Push auth configuration', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -642,7 +689,7 @@ describe('createGitClient', () => {
     ]);
   });
 
-  it('18: reads commits since base without requiring Push auth configuration', async () => {
+  it('19: reads commits since base without requiring Push auth configuration', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({

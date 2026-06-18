@@ -4,6 +4,12 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(nodeExecFile);
+const PULL_OPS_LOCAL_RUN_RECORD_PATH = '.pullops/runs';
+const PULL_OPS_WORKTREE_PATHSPEC = [
+  '.',
+  `:!${PULL_OPS_LOCAL_RUN_RECORD_PATH}`,
+  `:!${PULL_OPS_LOCAL_RUN_RECORD_PATH}/**`,
+];
 
 /**
  * @typedef {import('./types.js').GitClient} GitClient
@@ -146,7 +152,7 @@ export function createGitClient({
     async hasChanges() {
       const result = await runGit(
         execFile,
-        ['status', '--porcelain', '--', '.', ':!.pullops/runs/**'],
+        ['status', '--porcelain', '--', ...PULL_OPS_WORKTREE_PATHSPEC],
         'inspect the working tree',
       );
       return result.stdout.toString().trim() !== '';
@@ -157,10 +163,11 @@ export function createGitClient({
      * @returns {Promise<void>}
      */
     async commitAll({ message, author }) {
+      await runGit(execFile, ['add', '--all', '--', '.'], 'stage PullOps changes');
       await runGit(
         execFile,
-        ['add', '--all', '--', '.', ':!.pullops/runs/**'],
-        'stage PullOps changes',
+        ['reset', '--', PULL_OPS_LOCAL_RUN_RECORD_PATH],
+        'unstage PullOps local run records',
       );
       await runGit(
         execFile,
