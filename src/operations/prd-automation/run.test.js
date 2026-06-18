@@ -461,6 +461,49 @@ describe('runPrdAutoAdvance', () => {
     assert.deepEqual(git.checkouts, []);
     assert.deepEqual(git.pushes, []);
   });
+
+  it('10: local dry-run blocks child-issue misuse without mutating GitHub state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-misuse-'));
+    const github = createFakeGitHub({
+      issues: [
+        createIssue({
+          number: 34,
+          labels: ['pullops:prd:auto-advance'],
+          parent: issueReference(12),
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        target: {
+          type: 'issue',
+          number: 34,
+        },
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.mode, 'auto-advance');
+    assert.equal(result.publicationMode, 'dry-run');
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(github.pullRequestComments, []);
+    assert.match(String(result.summary), /PRD automation can only run on a Parent Issue/);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /PRD automation can only run on a Parent Issue/,
+    );
+  });
 });
 
 describe('resumePrdAutomationForParentIssue', () => {

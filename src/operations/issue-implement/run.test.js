@@ -1394,13 +1394,10 @@ describe('runIssueImplement', () => {
         'pullops-pr-finalize',
       ],
     );
-    assert.deepEqual(codex.calls.map(call => call.model), [
-      'model-high',
-      'model-low',
-      'model-mid',
-      'model-low',
-      'model-low',
-    ]);
+    assert.deepEqual(
+      codex.calls.map(call => call.model),
+      ['model-high', 'model-low', 'model-mid', 'model-low', 'model-low'],
+    );
     assert.deepEqual(git.pushes, []);
     assert.deepEqual(git.forcePushes, []);
     assert.equal(git.rewrites.length, 1);

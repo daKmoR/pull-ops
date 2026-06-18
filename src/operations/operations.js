@@ -178,6 +178,12 @@ export const OPERATION_LABEL_REFERENCE_NAMES = OPERATION_LABEL_REFERENCES.map(
   operation => operation.reference,
 );
 
+export const LOCAL_OPERATION_LABEL_REFERENCE_NAMES = [
+  'issue:implement',
+  'prd:auto-advance',
+  'prd:auto-complete',
+];
+
 /**
  * @param {string} name
  * @returns {WorkflowOperation | undefined}

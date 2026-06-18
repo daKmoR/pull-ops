@@ -118,12 +118,13 @@ async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, 
 
     const nativeParentIssueNumber = getNativeParentIssueNumber(parentIssue);
     if (nativeParentIssueNumber !== undefined) {
-      const result = await blockPrdAutomation(context, parentIssue, {
+      const result = await blockLocalPrdAutomation(runRecord, parentIssue, {
         reason: [
           `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
           'PRD automation can only run on a Parent Issue.',
         ].join(' '),
         mode,
+        publicationMode,
       });
       return await completeLocalPrdRunRecord(runRecord, result);
     }
@@ -513,7 +514,8 @@ async function prepareLocalPrdAutomation(
  * @returns {Promise<Record<string, unknown>>}
  */
 async function inspectLocalPrdPreparation(context, parentIssue, parentBranchName) {
-  const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(parentBranchName);
+  const existingPullRequest =
+    await context.githubClient.findOpenPullRequestByHead(parentBranchName);
   if (existingPullRequest !== undefined) {
     return {
       status: 'accepted',
@@ -1472,6 +1474,27 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
   }
 
   return parts.join(' ');
+}
+
+/**
+ * @param {{ directory: string }} runRecord
+ * @param {GitHubIssue} issue
+ * @param {{
+ *   reason: string,
+ *   mode: PrdAutomationMode,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }} options
+ * @returns {Promise<PrdAutomationResult>}
+ */
+async function blockLocalPrdAutomation(runRecord, issue, { reason, mode, publicationMode }) {
+  await writeLocalPrdRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
+  return {
+    status: 'blocked',
+    summary: reason,
+    issue: issue.number,
+    mode,
+    publicationMode,
+  };
 }
 
 /**

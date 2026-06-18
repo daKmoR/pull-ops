@@ -527,6 +527,72 @@ describe('createGitClient', () => {
       false,
     );
   });
+
+  it('14: reads changed files since base without requiring Push auth configuration', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (isGitCall({ file, args }, ['diff', '--name-only', '-z', 'origin/main...HEAD'])) {
+          return { stdout: 'src/file.js\u0000src/other.js\u0000', stderr: '' };
+        }
+
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    const changedFiles = await gitClient.getChangedFilesSinceBase({ baseBranch: 'main' });
+
+    assert.deepEqual(changedFiles, ['src/file.js', 'src/other.js']);
+    assert.deepEqual(calls, [
+      {
+        file: 'git',
+        args: ['fetch', 'origin', 'main'],
+      },
+      {
+        file: 'git',
+        args: ['diff', '--name-only', '-z', 'origin/main...HEAD'],
+      },
+    ]);
+  });
+
+  it('15: reads commits since base without requiring Push auth configuration', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    const commits = await gitClient.getCommitsSinceBase?.({ baseBranch: 'main' });
+
+    assert.equal(commits?.length, 1);
+    assert.equal(commits?.[0].sha, 'commit-one');
+    assert.equal(
+      calls.some(call =>
+        isGitCall(call, [
+          'remote',
+          'set-url',
+          'origin',
+          'https://x-access-token:undefined@github.com/acme/widgets.git',
+        ]),
+      ),
+      false,
+    );
+    assert.equal(
+      calls.some(call => isGitCall(call, ['fetch', 'origin', 'main'])),
+      true,
+    );
+  });
 });
 
 /**
@@ -534,6 +600,30 @@ describe('createGitClient', () => {
  * @returns {string}
  */
 function stdoutFor(args) {
+  if (args[0] === 'rev-list') {
+    return 'commit-one\n';
+  }
+
+  if (
+    args[0] === 'show' &&
+    args[1] === '-s' &&
+    args[2] === '--format=%B' &&
+    args[3] === 'commit-one'
+  ) {
+    return 'Test commit subject\n\nTest commit body\n';
+  }
+
+  if (
+    args[0] === 'diff-tree' &&
+    args[1] === '--no-commit-id' &&
+    args[2] === '--name-only' &&
+    args[3] === '-r' &&
+    args[4] === '-z' &&
+    args[5] === 'commit-one'
+  ) {
+    return 'src/file.js\u0000src/other.js\u0000';
+  }
+
   if (args[0] === 'rev-parse' && args[1] === 'HEAD^{tree}') {
     return 'rewritten-tree\n';
   }

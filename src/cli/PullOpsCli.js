@@ -5,6 +5,7 @@ import { validateOperationOutput } from '../operation-output/OperationOutput.js'
 import {
   getOperationLabelReference,
   getWorkflowOperation,
+  LOCAL_OPERATION_LABEL_REFERENCE_NAMES,
   OPERATION_LABEL_REFERENCE_NAMES,
   runWorkflowOperation,
   WORKFLOW_OPERATION_NAMES,
@@ -217,9 +218,7 @@ export class PullOpsCli {
       return await this.runLocalPrdAutoCompleteReference(args);
     }
 
-    throw new CliUsageError(
-      `${reference} requires "--backend github-actions" to dispatch through GitHub Actions.`,
-    );
+    throw new CliUsageError(localOperationLabelReferenceUnsupportedMessage(reference));
   }
 
   /**
@@ -799,26 +798,6 @@ function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
 /**
  * @param {string[]} args
  * @param {Set<number>} consumed
- * @returns {RunnerAdapter | undefined}
- */
-function parseOptionalRunnerAdapter(args, consumed) {
-  const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
-  if (rawRunner === undefined) {
-    return undefined;
-  }
-
-  if (!isRunnerAdapter(rawRunner)) {
-    throw new CliUsageError(
-      `Unknown runner "${rawRunner}". Expected one of: ${RUNNER_ADAPTERS.join(', ')}.`,
-    );
-  }
-
-  return rawRunner;
-}
-
-/**
- * @param {string[]} args
- * @param {Set<number>} consumed
  * @returns {boolean | undefined}
  */
 function parseRunnerRan(args, consumed) {
@@ -957,6 +936,17 @@ function isOperationLabelReferenceInput(value) {
  */
 function formatTargetKind(target) {
   return target === 'pr' ? 'pull request' : 'issue';
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function localOperationLabelReferenceUnsupportedMessage(reference) {
+  return [
+    `Local execution is currently only supported for: ${LOCAL_OPERATION_LABEL_REFERENCE_NAMES.join(', ')}.`,
+    `Use "${reference} --backend github-actions" to dispatch the canonical PullOps label through GitHub Actions.`,
+  ].join(' ');
 }
 
 /**

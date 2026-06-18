@@ -433,7 +433,6 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<string[]>}
      */
     async getChangedFilesSinceBase({ baseBranch }) {
-      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       const result = await runGit(
         execFile,
@@ -448,7 +447,6 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @returns {Promise<GitCommit[]>}
      */
     async getCommitsSinceBase({ baseBranch }) {
-      await configureAuthenticatedOrigin(execFile, env);
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       const baseRef = `origin/${baseBranch}`;
       const result = await runGit(

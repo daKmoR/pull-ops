@@ -455,14 +455,15 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.match(stderr.text, /Full PullOps labels are not accepted/);
   });
 
-  await t.test('missing backend for non-local label reference', async () => {
+  await t.test('unsupported local reference explains the limited local catalog', async () => {
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
     const exitCode = await cli.run(['run', 'pr:review', '123']);
 
     assert.equal(exitCode, 1);
-    assert.match(stderr.text, /pr:review requires "--backend github-actions"/);
+    assert.match(stderr.text, /Local execution is currently only supported for/);
+    assert.match(stderr.text, /Use "pr:review --backend github-actions"/);
   });
 
   await t.test('publish flag with github-actions backend', async () => {
@@ -524,13 +525,7 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
-    const exitCode = await cli.run([
-      'run',
-      'issue:implement',
-      '123',
-      '--runner',
-      'codex-action',
-    ]);
+    const exitCode = await cli.run(['run', 'issue:implement', '123', '--runner', 'codex-action']);
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Unknown arguments for issue:implement: --runner codex-action/);
