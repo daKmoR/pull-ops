@@ -722,6 +722,27 @@ describe('createGitClient', () => {
       true,
     );
   });
+
+  it('20: checks out an existing branch for local command restoration', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        return { stdout: '', stderr: '' };
+      },
+    });
+
+    await gitClient.checkoutBranch?.({ branchName: 'feature/local-work' });
+
+    assert.deepEqual(calls, [
+      {
+        file: 'git',
+        args: ['checkout', 'feature/local-work'],
+      },
+    ]);
+  });
 });
 
 /**

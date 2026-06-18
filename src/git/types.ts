@@ -18,6 +18,10 @@ export interface CheckoutPullOpsBranchOptions {
   baseBranch: string;
 }
 
+export interface CheckoutBranchOptions {
+  branchName: string;
+}
+
 export interface CommitAllOptions {
   message: string;
   author: GitCommitAuthor;
@@ -177,6 +181,7 @@ export interface GitClient {
   fetchRemoteRefs?(options: FetchRemoteRefsOptions): Promise<void>;
   checkoutPullOpsBranch?(options: CheckoutPullOpsBranchOptions): Promise<void>;
   getCurrentBranch?(): Promise<string>;
+  checkoutBranch?(options: CheckoutBranchOptions): Promise<void>;
   hasChanges(): Promise<boolean>;
   commitAll(options: CommitAllOptions): Promise<void>;
   commitEmpty(options: CommitEmptyOptions): Promise<void>;

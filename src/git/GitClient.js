@@ -17,6 +17,7 @@ const PULL_OPS_WORKTREE_PATHSPEC = [
  * @typedef {import('./types.js').CreateBranchOptions} CreateBranchOptions
  * @typedef {import('./types.js').FetchRemoteRefsOptions} FetchRemoteRefsOptions
  * @typedef {import('./types.js').CheckoutPullOpsBranchOptions} CheckoutPullOpsBranchOptions
+ * @typedef {import('./types.js').CheckoutBranchOptions} CheckoutBranchOptions
  * @typedef {import('./types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
@@ -144,6 +145,14 @@ export function createGitClient({
         'read the current branch name',
       );
       return result.stdout.toString().trim();
+    },
+
+    /**
+     * @param {CheckoutBranchOptions} options
+     * @returns {Promise<void>}
+     */
+    async checkoutBranch({ branchName }) {
+      await runGit(execFile, ['checkout', branchName], `restore branch ${branchName}`);
     },
 
     /**

@@ -222,6 +222,20 @@ export function getOperationLabelReference(reference) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runWorkflowOperation(context) {
+  if (context.executionBackend === 'local') {
+    return await runWithInitialBranchRestored(context, async () => {
+      return await runWorkflowOperationWithoutBranchRestore(context);
+    });
+  }
+
+  return await runWorkflowOperationWithoutBranchRestore(context);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runWorkflowOperationWithoutBranchRestore(context) {
   if (context.executionBackend === 'local' && context.target.type === 'pr') {
     return await runLocalPullRequestOperation(context);
   }
@@ -307,6 +321,91 @@ export async function runWorkflowOperation(context) {
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {() => Promise<Record<string, unknown>>} run
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runWithInitialBranchRestored(context, run) {
+  const initialBranch = await readCurrentBranchForRestore(context);
+  let output;
+  let runError;
+
+  try {
+    output = await run();
+  } catch (error) {
+    runError = error;
+  }
+
+  const restoreError = await restoreInitialBranch(context, initialBranch);
+  if (runError !== undefined) {
+    if (restoreError !== undefined) {
+      context.progress?.(
+        `Could not restore the starting branch: ${getErrorMessage(restoreError)}`,
+      );
+    }
+    throw runError;
+  }
+
+  if (restoreError !== undefined) {
+    return {
+      ...output,
+      localBranchRestore: {
+        status: 'blocked',
+        branch: initialBranch,
+        reason: getErrorMessage(restoreError),
+      },
+    };
+  }
+
+  return output ?? {};
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<string | undefined>}
+ */
+async function readCurrentBranchForRestore(context) {
+  if (context.gitClient.getCurrentBranch === undefined) {
+    return undefined;
+  }
+
+  const currentBranch = await context.gitClient.getCurrentBranch();
+  return currentBranch === '' ? undefined : currentBranch;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string | undefined} initialBranch
+ * @returns {Promise<unknown | undefined>}
+ */
+async function restoreInitialBranch(context, initialBranch) {
+  if (initialBranch === undefined) {
+    return undefined;
+  }
+
+  if (context.gitClient.getCurrentBranch === undefined) {
+    return undefined;
+  }
+
+  try {
+    const currentBranch = await context.gitClient.getCurrentBranch();
+    if (currentBranch === initialBranch) {
+      return undefined;
+    }
+
+    if (context.gitClient.checkoutBranch === undefined) {
+      return new Error('Git client does not support restoring the starting branch.');
+    }
+
+    context.progress?.(`Restoring branch ${initialBranch}.`);
+    await context.gitClient.checkoutBranch({ branchName: initialBranch });
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @param {{
  *   run: (context: OperationRunnerContext) => Promise<Record<string, unknown>>;
  *   prepare: (context: OperationRunnerContext) => Promise<Record<string, unknown>>;
@@ -343,4 +442,12 @@ function runPlaceholderOperation({ operation, target, modelTier, model }) {
     modelTier,
     model,
   };
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
