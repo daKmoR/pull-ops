@@ -637,17 +637,7 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
       };
     }
 
-    if (!(await context.gitClient.hasChanges())) {
-      const reason = 'Codex runner completed but did not leave any working tree changes to commit.';
-      failureRecorded = true;
-      await recordIssueFailure(context, issue, reason);
-      throw new Error(reason);
-    }
-
-    await context.gitClient.commitAll({
-      message: createIssueImplementCommitMessage(issue, parentIssueNumber),
-      author: GITHUB_ACTIONS_BOT_AUTHOR,
-    });
+    await commitIssueImplementation(context, { issue, parentIssueNumber });
     await context.gitClient.pushBranch({ branchName });
 
     const umbrellaPullRequestNumber = await readUmbrellaPullRequestNumber(context, {
@@ -761,16 +751,10 @@ async function finalizePreparedIssueImplementLocalPublish(
     };
   }
 
-  if (!(await context.gitClient.hasChanges())) {
-    const reason = 'Codex runner completed but did not leave any working tree changes to commit.';
-    await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
-    throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
-  }
-
-  await writePatchArtifactIfAvailable(context, runRecord);
-  await context.gitClient.commitAll({
-    message: createIssueImplementCommitMessage(issue, parentIssueNumber),
-    author: GITHUB_ACTIONS_BOT_AUTHOR,
+  await commitIssueImplementation(context, {
+    issue,
+    parentIssueNumber,
+    runRecord,
   });
 
   if (context.runGoal === 'finalized') {
@@ -1111,16 +1095,10 @@ async function finalizePreparedIssueImplementDryRun(context, preparation, rawOut
     };
   }
 
-  if (!(await context.gitClient.hasChanges())) {
-    const reason = 'Codex runner completed but did not leave any working tree changes to commit.';
-    await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
-    throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
-  }
-
-  await writePatchArtifactIfAvailable(context, runRecord);
-  await context.gitClient.commitAll({
-    message: createIssueImplementCommitMessage(issue, parentIssueNumber),
-    author: GITHUB_ACTIONS_BOT_AUTHOR,
+  await commitIssueImplementation(context, {
+    issue,
+    parentIssueNumber,
+    runRecord,
   });
 
   if (context.runGoal === 'finalized') {
@@ -1747,6 +1725,36 @@ async function commitLocalReviewChangesIfPresent(context, runRecord, issue, revi
   await writePatchArtifactIfAvailable(context, runRecord);
   await context.gitClient.commitAll({
     message: createIssueImplementReviewCommitMessage(issue, reviewOutput),
+    author: GITHUB_ACTIONS_BOT_AUTHOR,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   issue: GitHubIssue,
+ *   parentIssueNumber: number | undefined,
+ *   runRecord?: { directory: string },
+ * }} options
+ * @returns {Promise<void>}
+ */
+async function commitIssueImplementation(context, { issue, parentIssueNumber, runRecord }) {
+  const message = createIssueImplementCommitMessage(issue, parentIssueNumber);
+
+  if (await context.gitClient.hasChanges()) {
+    if (runRecord !== undefined) {
+      await writePatchArtifactIfAvailable(context, runRecord);
+    }
+
+    await context.gitClient.commitAll({
+      message,
+      author: GITHUB_ACTIONS_BOT_AUTHOR,
+    });
+    return;
+  }
+
+  await context.gitClient.commitEmpty({
+    message,
     author: GITHUB_ACTIONS_BOT_AUTHOR,
   });
 }

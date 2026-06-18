@@ -529,6 +529,54 @@ describe('runPrdAutoAdvance', () => {
       /PRD automation can only run on a Parent Issue/,
     );
   });
+
+  it('11: local PR publication continues after a no-op child implementation', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-publish-noop-child-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-advance'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, parent: issueReference(12) }),
+      ],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: [false, true] });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoAdvance(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 2);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [
+        [34, 'published'],
+        [35, 'published'],
+      ],
+    );
+    assert.deepEqual(
+      git.emptyCommits.map(commit => commit.message.split('\n')[0]),
+      ['chore(prd): prepare #12', 'feat(issue): implement #34'],
+    );
+    assert.deepEqual(
+      github.createdPullRequests.map(pullRequest => pullRequest.headBranch),
+      ['pullops/prd-12', 'pullops/prd-12-issue-34', 'pullops/prd-12-issue-35'],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+  });
 });
 
 describe('resumePrdAutomationForParentIssue', () => {
@@ -1358,7 +1406,7 @@ function createFakeGitHub({
 
 /**
  * @param {object} [options]
- * @param {boolean} [options.dirtyAfterRunner]
+ * @param {boolean | boolean[]} [options.dirtyAfterRunner]
  * @param {string[]} [options.cherryPickConflicts]
  * @param {boolean} [options.initialDirtyWorktree]
  * @returns {{
@@ -1366,6 +1414,7 @@ function createFakeGitHub({
  *   createdBranches: { branchName: string, baseBranch: string }[];
  *   checkouts: { branchName: string, baseBranch: string }[];
  *   cherryPicks: { branchName: string, baseBranch: string, commitSha: string }[];
+ *   emptyCommits: import('../../git/types.js').CommitEmptyOptions[];
  *   pushes: { branchName: string }[];
  *   currentBranch: string;
  *   markRunnerChangedWorktree(): void;
@@ -1382,21 +1431,32 @@ function createFakeGit({
   const checkouts = [];
   /** @type {{ branchName: string, baseBranch: string, commitSha: string }[]} */
   const cherryPicks = [];
+  /** @type {import('../../git/types.js').CommitEmptyOptions[]} */
+  const emptyCommits = [];
   /** @type {{ branchName: string }[]} */
   const pushes = [];
   let currentBranch = 'main';
   let dirty = initialDirtyWorktree;
+  let runnerChangeIndex = 0;
   let hasUnmergedFiles = false;
 
   return {
     createdBranches,
     checkouts,
     cherryPicks,
+    emptyCommits,
     pushes,
     get currentBranch() {
       return currentBranch;
     },
     markRunnerChangedWorktree() {
+      if (Array.isArray(dirtyAfterRunner)) {
+        const index = Math.min(runnerChangeIndex, dirtyAfterRunner.length - 1);
+        dirty = dirtyAfterRunner[index] ?? false;
+        runnerChangeIndex += 1;
+        return;
+      }
+
       dirty = dirtyAfterRunner;
     },
     client: {
@@ -1421,7 +1481,10 @@ function createFakeGit({
       async commitAll() {
         dirty = false;
       },
-      async commitEmpty() {},
+      async commitEmpty(options) {
+        emptyCommits.push(options);
+        dirty = false;
+      },
       async readWorkingTreePatch() {
         return dirty ? 'diff --git a/src/file.js b/src/file.js\n' : '';
       },
