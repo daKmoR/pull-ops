@@ -18,7 +18,7 @@ import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplet
  * @typedef {import('../../github/types.js').MergePullRequestOptions} MergePullRequestOptions
  */
 
-/** @typedef {{ issue: { number: number }, status: string }} ChildAutomationResult */
+/** @typedef {import('../../prd-automation/childCoordination.types.js').ChildAutomationResult} ChildAutomationResult */
 /** @typedef {import('../../prd-automation/childCoordination.types.js').ParentReviewResult} ParentReviewResult */
 
 describe('runPrdAutoAdvance', () => {
@@ -547,6 +547,323 @@ describe('runPrdAutoComplete', () => {
       ['already-active'],
     );
   });
+
+  it('03: local publish closes finalized child issues after merging them into the umbrella branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-publish-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          labels: [],
+          isDraft: false,
+        }),
+      ],
+      checksByRef: new Map([
+        [
+          'head-finalized',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.mode, 'auto-complete');
+    assert.equal(result.publicationMode, 'publish');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(git.cherryPicks, [
+      {
+        branchName: 'pullops/prd-12',
+        baseBranch: 'main',
+        commitSha: 'head-finalized',
+      },
+    ]);
+    assert.deepEqual(
+      git.pushes.map(push => push.branchName),
+      ['pullops/prd-12'],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status, child.mergeMethod]),
+      [[34, 'merged', 'local-cherry-pick']],
+    );
+    assert.equal(readParentPullRequest(result)?.status, 'ready-for-review');
+    assert.deepEqual(result.localNextSteps, [
+      'Umbrella PR is ready for human review; request review manually after verifying the refreshed PRD context.',
+    ]);
+  });
+
+  it('04: local publish does not cherry-pick the same finalized child twice after closing it', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-rerun-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          labels: [],
+          isDraft: false,
+        }),
+      ],
+      checksByRef: new Map([
+        [
+          'head-finalized',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+    const context = createContext({
+      cwd,
+      operation: 'prd-auto-complete',
+      executionBackend: 'local',
+      publicationMode: 'publish',
+      githubClient: github.client,
+      gitClient: git.client,
+      codexRunner: codex.runner,
+    });
+
+    await runPrdAutoComplete(context);
+    const rerun = await runPrdAutoComplete(context);
+
+    assert.deepEqual(git.cherryPicks, [
+      {
+        branchName: 'pullops/prd-12',
+        baseBranch: 'main',
+        commitSha: 'head-finalized',
+      },
+    ]);
+    assert.deepEqual(
+      readChildResults(rerun).map(child => [child.issue.number, child.status]),
+      [[34, 'closed']],
+    );
+    assert.deepEqual(rerun.localNextSteps, [
+      'Umbrella PR is ready for human review; request review manually after verifying the refreshed PRD context.',
+    ]);
+  });
+
+  it('05: local auto-complete includes local auto-advance for runnable children', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-advance-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.mode, 'auto-complete');
+    assert.equal(result.publicationMode, 'dry-run');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Child issue 34/);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'dry-run-completed']],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12-issue-34');
+    assert.deepEqual(result.localNextSteps, [
+      'Inspect local run evidence for child issue #34.',
+      'Publish with `pullops run prd:auto-complete <parent-issue-number> --publish pr` after reviewing the local branch.',
+    ]);
+  });
+
+  it('06: local auto-complete leaves waiting child PRs unmerged on the umbrella branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-waiting-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          labels: [],
+          isDraft: true,
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(git.cherryPicks, []);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'waiting']],
+    );
+    assert.deepEqual(result.localNextSteps, [
+      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+    ]);
+  });
+
+  it('07: local auto-complete reports conflicted finalized child merges and leaves the umbrella branch checked out', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-conflict-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          labels: [],
+          isDraft: false,
+        }),
+      ],
+    });
+    const git = createFakeGit({ cherryPickConflicts: ['src/conflicted.js'] });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.conflictedFiles,
+      ]),
+      [[34, 'blocked', ['src/conflicted.js']]],
+    );
+    assert.deepEqual(
+      git.cherryPicks.map(cherryPick => cherryPick.branchName),
+      ['pullops/prd-12'],
+    );
+    assert.deepEqual(git.checkouts, [
+      {
+        branchName: 'pullops/prd-12',
+        baseBranch: 'main',
+      },
+    ]);
+    assert.deepEqual(git.pushes, []);
+    assert.equal(git.currentBranch, 'pullops/prd-12');
+    assert.deepEqual(result.localNextSteps, [
+      'Resolve the blocker for child issue #34, then rerun PRD auto-complete.',
+    ]);
+  });
 });
 
 /**
@@ -867,6 +1184,10 @@ function createFakeGitHub({
       },
       async closeIssue(options) {
         closedIssues.push(options.number);
+        const issue = issuesByNumber.get(options.number);
+        if (issue !== undefined) {
+          issue.state = 'CLOSED';
+        }
       },
       async commentOnPullRequest(options) {
         pullRequestComments.push(options);
@@ -898,28 +1219,34 @@ function createFakeGitHub({
 /**
  * @param {object} [options]
  * @param {boolean} [options.dirtyAfterRunner]
+ * @param {string[]} [options.cherryPickConflicts]
  * @returns {{
  *   client: import('../../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
  *   checkouts: { branchName: string, baseBranch: string }[];
+ *   cherryPicks: { branchName: string, baseBranch: string, commitSha: string }[];
  *   pushes: { branchName: string }[];
  *   currentBranch: string;
  *   markRunnerChangedWorktree(): void;
  * }}
  */
-function createFakeGit({ dirtyAfterRunner = false } = {}) {
+function createFakeGit({ dirtyAfterRunner = false, cherryPickConflicts = [] } = {}) {
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const createdBranches = [];
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const checkouts = [];
+  /** @type {{ branchName: string, baseBranch: string, commitSha: string }[]} */
+  const cherryPicks = [];
   /** @type {{ branchName: string }[]} */
   const pushes = [];
   let currentBranch = 'main';
   let dirty = false;
+  let hasUnmergedFiles = false;
 
   return {
     createdBranches,
     checkouts,
+    cherryPicks,
     pushes,
     get currentBranch() {
       return currentBranch;
@@ -934,6 +1261,9 @@ function createFakeGit({ dirtyAfterRunner = false } = {}) {
       },
       async fetchRemoteRefs() {},
       async checkoutPullOpsBranch(options) {
+        if (hasUnmergedFiles) {
+          throw new Error('cannot checkout with unmerged files');
+        }
         checkouts.push(options);
         currentBranch = options.branchName;
       },
@@ -953,11 +1283,37 @@ function createFakeGit({ dirtyAfterRunner = false } = {}) {
       async pushBranch(options) {
         pushes.push(options);
       },
+      async cherryPickCommitOntoBranch(options) {
+        cherryPicks.push({
+          branchName: options.branchName,
+          baseBranch: options.baseBranch,
+          commitSha: options.commitSha,
+        });
+        currentBranch = options.branchName;
+        if (cherryPickConflicts.length > 0) {
+          hasUnmergedFiles = true;
+          return {
+            status: 'conflicts',
+            conflictedFiles: cherryPickConflicts,
+          };
+        }
+        hasUnmergedFiles = false;
+        return {
+          status: 'cherry-picked',
+          headSha: `integrated-${options.commitSha}`,
+          treeHash: `tree-${options.commitSha}`,
+        };
+      },
       async rebaseBranchOntoBase() {
         throw new Error('rebaseBranchOntoBase was not expected in this test.');
       },
-      async pushBranchWithLease() {
-        throw new Error('pushBranchWithLease was not expected in this test.');
+      async pushBranchWithLease(options) {
+        pushes.push(options);
+        return {
+          status: 'pushed',
+          headSha: `pushed-${options.branchName}`,
+          treeHash: `tree-${options.branchName}`,
+        };
       },
       async getCurrentHeadSha() {
         throw new Error('getCurrentHeadSha was not expected in this test.');

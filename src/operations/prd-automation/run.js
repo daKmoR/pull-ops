@@ -1,6 +1,7 @@
 import {
   coordinatePrdAutomation,
   coordinateLocalPrdAutoAdvance,
+  coordinateLocalPrdAutoComplete,
   resumePrdAutomationForParentIssue as resumePrdAutomation,
 } from '../../prd-automation/childCoordination.js';
 import { runIssueImplement } from '../issue-implement/run.js';
@@ -44,6 +45,23 @@ export async function runPrdAutoAdvance(context) {
  */
 export async function runPrdAutoComplete(context) {
   assertIssueTarget(context, 'prd-auto-complete');
+  if (context.executionBackend === 'local') {
+    return await coordinateLocalPrdAutoComplete(context, {
+      parentIssueNumber: context.target.number,
+      async runChildIssue(childIssueNumber) {
+        return await runIssueImplement({
+          ...context,
+          operation: 'issue-implement',
+          target: {
+            type: 'issue',
+            number: childIssueNumber,
+          },
+          publicationMode: context.publicationMode ?? 'dry-run',
+        });
+      },
+    });
+  }
+
   return await coordinatePrdAutomation(context, {
     parentIssueNumber: context.target.number,
     mode: 'auto-complete',

@@ -96,6 +96,24 @@ export type GitRebaseStepResult =
       conflictContext: GitConflictContext;
     };
 
+export interface CherryPickCommitOntoBranchOptions {
+  branchName: string;
+  baseBranch: string;
+  commitSha: string;
+  committer: GitCommitAuthor;
+}
+
+export type GitCherryPickResult =
+  | {
+      status: 'cherry-picked';
+      headSha: string;
+      treeHash: string;
+    }
+  | {
+      status: 'conflicts';
+      conflictedFiles: string[];
+    };
+
 export interface PushBranchWithLeaseOptions {
   branchName: string;
 }
@@ -172,6 +190,9 @@ export interface GitClient {
   readRebaseConflictContext?(
     options: ReadRebaseConflictContextOptions,
   ): Promise<GitConflictContext | undefined>;
+  cherryPickCommitOntoBranch?(
+    options: CherryPickCommitOntoBranchOptions,
+  ): Promise<GitCherryPickResult>;
   pushBranchWithLease(options: PushBranchWithLeaseOptions): Promise<GitPushWithLeaseResult>;
   getCurrentHeadSha(): Promise<string>;
   getCurrentTreeHash(): Promise<string>;

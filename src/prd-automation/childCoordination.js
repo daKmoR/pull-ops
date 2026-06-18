@@ -16,6 +16,7 @@ import {
   createParentBranchName,
   parseChildIssueBranchName,
 } from '../operations/branchNames.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../operations/githubActionsBot.js';
 import { isIssueDone, parseIssueDependencies } from '../operations/issueDependencies.js';
 import {
   createPrdPreparePullRequestBodyForIssue,
@@ -58,13 +59,47 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber, runChildIssue }) {
+  return await coordinateLocalPrdAutomation(context, {
+    parentIssueNumber,
+    mode: 'auto-advance',
+    runChildIssue,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {number} options.parentIssueNumber
+ * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @returns {Promise<PrdAutomationResult>}
+ */
+export async function coordinateLocalPrdAutoComplete(
+  context,
+  { parentIssueNumber, runChildIssue },
+) {
+  return await coordinateLocalPrdAutomation(context, {
+    parentIssueNumber,
+    mode: 'auto-complete',
+    runChildIssue,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {number} options.parentIssueNumber
+ * @param {PrdAutomationMode} options.mode
+ * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @returns {Promise<PrdAutomationResult>}
+ */
+async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, runChildIssue }) {
   const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
   if (parentIssue.state !== 'OPEN') {
     return {
       status: 'skipped',
       summary: `PRD issue #${parentIssue.number} is ${parentIssue.state.toLowerCase()}.`,
       issue: parentIssue.number,
-      mode: 'auto-advance',
+      mode,
     };
   }
 
@@ -75,7 +110,7 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
         `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
         'PRD automation can only run on a Parent Issue.',
       ].join(' '),
-      mode: 'auto-advance',
+      mode,
     });
   }
 
@@ -88,6 +123,7 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
   const publicationMode = context.publicationMode ?? 'dry-run';
   /** @type {ChildAutomationResult[]} */
   const children = [];
+  let preserveInspectableBranchState = false;
 
   if (publicationMode === 'publish') {
     await checkoutLocalPrdBase(context, { parentBranchName });
@@ -98,12 +134,19 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
       parentIssue,
       parentBranchName,
       childIssue,
+      mode,
       publicationMode,
       runChildIssue,
     });
     children.push(localResult.child);
+    preserveInspectableBranchState =
+      preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
 
-    if (publicationMode === 'publish' && localResult.restorePrdBase) {
+    if (
+      publicationMode === 'publish' &&
+      localResult.restorePrdBase &&
+      !preserveInspectableBranchState
+    ) {
       await checkoutLocalPrdBase(context, { parentBranchName });
     }
 
@@ -115,7 +158,7 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
   const refreshedPreparation =
     publicationMode === 'publish' ? await ensurePrdPrepared(context, parentIssue) : preparation;
 
-  if (publicationMode === 'publish') {
+  if (publicationMode === 'publish' && !preserveInspectableBranchState) {
     await checkoutLocalPrdBase(context, { parentBranchName });
   }
 
@@ -129,12 +172,13 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
 
   return {
     status: 'accepted',
-    summary: summarizeLocalPrdAutoAdvance({
+    summary: summarizeLocalPrdAutomation({
+      mode,
       parentIssue,
       children,
       publicationMode,
     }),
-    mode: 'auto-advance',
+    mode,
     issue: {
       number: parentIssue.number,
       url: parentIssue.url,
@@ -144,7 +188,7 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
     parentPullRequest,
     publicationMode,
     branch: parentBranchName,
-    localNextSteps: buildLocalNextSteps({ children, publicationMode, parentPullRequest }),
+    localNextSteps: buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }),
   };
 }
 
@@ -534,13 +578,14 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubIssue} options.childIssue
+ * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
  */
 async function coordinateLocalChildIssue(
   context,
-  { parentIssue, parentBranchName, childIssue, publicationMode, runChildIssue },
+  { parentIssue, parentBranchName, childIssue, mode, publicationMode, runChildIssue },
 ) {
   if (childIssue.state !== 'OPEN') {
     return localChildAutomation({
@@ -583,12 +628,25 @@ async function coordinateLocalChildIssue(
   const pullRequest = await context.githubClient.findOpenPullRequestByHead(childBranchName);
 
   if (pullRequest !== undefined) {
+    const child =
+      mode === 'auto-complete'
+        ? await coordinateLocalChildPullRequest(context, {
+            childIssue,
+            parentIssue,
+            parentBranchName,
+            pullRequest,
+            publicationMode,
+          })
+        : inspectLocalChildPullRequest({
+            childIssue,
+            parentBranchName,
+            pullRequest,
+          });
+
     return localChildAutomation({
-      child: inspectLocalChildPullRequest({
-        childIssue,
-        parentBranchName,
-        pullRequest,
-      }),
+      child,
+      stop: child.status === 'blocked',
+      restorePrdBase: publicationMode === 'publish',
     });
   }
 
@@ -668,6 +726,58 @@ function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullReques
 }
 
 /**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {GitHubIssue} options.childIssue
+ * @param {GitHubIssue} options.parentIssue
+ * @param {string} options.parentBranchName
+ * @param {GitHubPullRequest} options.pullRequest
+ * @param {'dry-run' | 'publish'} options.publicationMode
+ * @returns {Promise<ChildAutomationResult>}
+ */
+async function coordinateLocalChildPullRequest(
+  context,
+  { childIssue, parentIssue, parentBranchName, pullRequest, publicationMode },
+) {
+  if (pullRequest.baseRefName !== parentBranchName) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'skipped',
+      `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
+    );
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if (!state.managed || state.sourceIssueNumber !== childIssue.number) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'skipped',
+      `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
+    );
+  }
+
+  if (!isFinalizedForRebase(state)) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'waiting',
+      `Child PR #${pullRequest.number} is waiting for human review or merge gates.`,
+    );
+  }
+
+  return await mergeFinalizedChildPullRequestLocally(context, {
+    childIssue,
+    parentIssue,
+    parentBranchName,
+    pullRequest,
+    finalizedHeadSha: state.finalizedHeadSha,
+    publicationMode,
+  });
+}
+
+/**
  * @param {object} options
  * @param {ChildAutomationResult} options.child
  * @param {boolean} [options.stop]
@@ -676,6 +786,14 @@ function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullReques
  */
 function localChildAutomation({ child, stop = false, restorePrdBase = false }) {
   return { child, stop, restorePrdBase };
+}
+
+/**
+ * @param {ChildAutomationResult} child
+ * @returns {boolean}
+ */
+function shouldPreserveInspectableBranchState(child) {
+  return child.status === 'blocked' && (child.conflictedFiles?.length ?? 0) > 0;
 }
 
 /**
@@ -823,6 +941,117 @@ async function mergeFinalizedChildPullRequest(
     'merged',
     `Merged finalized child PR #${pullRequest.number} into PRD issue #${parentIssue.number}.`,
     { mergeMethod: 'rebase' },
+  );
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {GitHubIssue} options.childIssue
+ * @param {GitHubIssue} options.parentIssue
+ * @param {string} options.parentBranchName
+ * @param {GitHubPullRequest} options.pullRequest
+ * @param {string} options.finalizedHeadSha
+ * @param {'dry-run' | 'publish'} options.publicationMode
+ * @returns {Promise<ChildAutomationResult>}
+ */
+async function mergeFinalizedChildPullRequestLocally(
+  context,
+  { childIssue, parentIssue, parentBranchName, pullRequest, finalizedHeadSha, publicationMode },
+) {
+  if (context.gitClient.cherryPickCommitOntoBranch === undefined) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'blocked',
+      'Git client cannot locally integrate finalized child pull requests.',
+    );
+  }
+
+  if (pullRequest.isDraft) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'waiting',
+      `Child PR #${pullRequest.number} is still a draft.`,
+    );
+  }
+
+  const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
+  const checkState = classifyCheckState(checks);
+  if (checkState === 'pending') {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'waiting',
+      `Child PR #${pullRequest.number} is waiting for finalized-head checks.`,
+      { checks: checks.length },
+    );
+  }
+
+  if (checkState === 'failed') {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'blocked',
+      `Child PR #${pullRequest.number} finalized-head checks failed; repair CI before local auto-complete can merge it.`,
+      { checks: checks.length },
+    );
+  }
+
+  const integration = await context.gitClient.cherryPickCommitOntoBranch({
+    branchName: parentBranchName,
+    baseBranch: context.config.baseBranch,
+    commitSha: finalizedHeadSha,
+    committer: GITHUB_ACTIONS_BOT_AUTHOR,
+  });
+
+  if (integration.status === 'conflicts') {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'blocked',
+      `Child PR #${pullRequest.number} could not be merged locally into ${parentBranchName} without conflicts.`,
+      {
+        mergeMethod: 'local-cherry-pick',
+        conflictedFiles: integration.conflictedFiles,
+      },
+    );
+  }
+
+  if (publicationMode === 'publish') {
+    const pushResult = await context.gitClient.pushBranchWithLease({
+      branchName: parentBranchName,
+    });
+    if (pushResult.status === 'stale-lease') {
+      return childPullRequestResult(
+        childIssue,
+        pullRequest,
+        'blocked',
+        `Remote branch ${parentBranchName} changed while local auto-complete was merging child PR #${pullRequest.number}.`,
+        { mergeMethod: 'local-cherry-pick' },
+      );
+    }
+
+    await closeChildIssue(context, {
+      issue: childIssue,
+      pullRequest,
+      expectedBaseBranch: parentBranchName,
+    });
+    childIssue.state = 'CLOSED';
+  }
+
+  return childPullRequestResult(
+    childIssue,
+    pullRequest,
+    'merged',
+    `Merged finalized child PR #${pullRequest.number} locally into PRD issue #${parentIssue.number}.`,
+    {
+      mergeMethod: 'local-cherry-pick',
+      finalizedHeadSha,
+      headSha: integration.headSha,
+      treeHash: integration.treeHash,
+    },
   );
 }
 
@@ -1129,24 +1358,32 @@ function summarizePrdAutomation({ mode, parentIssue, children, parentPullRequest
 
 /**
  * @param {object} options
+ * @param {PrdAutomationMode} options.mode
  * @param {GitHubIssue} options.parentIssue
  * @param {ChildAutomationResult[]} options.children
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @returns {string}
  */
-function summarizeLocalPrdAutoAdvance({ parentIssue, children, publicationMode }) {
+function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationMode }) {
   const dryRunCompleted = countChildrenByStatus(children, 'dry-run-completed');
   const published = countChildrenByStatus(children, 'published');
+  const merged = countChildrenByStatus(children, 'merged');
   const blocked = countChildrenByStatus(children, 'blocked');
   const waiting = countChildrenByStatus(children, 'waiting');
   const readyForHumanMerge = countChildrenByStatus(children, 'ready-for-human-merge');
-  const parts = [`Ran local PRD auto-advance for issue #${parentIssue.number}.`];
+  const parts = [`Ran local PRD ${mode} for issue #${parentIssue.number}.`];
 
   if (publicationMode === 'dry-run') {
     parts.push(`${dryRunCompleted} child issue dry-run(s) completed.`);
-    parts.push('Stopped after one runnable child issue.');
+    if (dryRunCompleted > 0) {
+      parts.push('Stopped after one runnable child issue.');
+    }
   } else {
     parts.push(`${published} child issue PR(s) published.`);
+  }
+
+  if (mode === 'auto-complete') {
+    parts.push(`${merged} finalized child PR(s) merged locally.`);
   }
 
   if (blocked > 0) {
@@ -1162,28 +1399,44 @@ function summarizeLocalPrdAutoAdvance({ parentIssue, children, publicationMode }
 
 /**
  * @param {object} options
+ * @param {PrdAutomationMode} options.mode
  * @param {ChildAutomationResult[]} options.children
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @param {ParentReviewResult | undefined} options.parentPullRequest
  * @returns {string[]}
  */
-function buildLocalNextSteps({ children, publicationMode, parentPullRequest }) {
+function buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }) {
   if (publicationMode === 'dry-run') {
     const completed = children.find(child => child.status === 'dry-run-completed');
     if (completed !== undefined) {
       return [
         `Inspect local run evidence for child issue #${completed.issue.number}.`,
-        'Publish with `pullops run prd:auto-advance <parent-issue-number> --publish pr` after reviewing the local branch.',
+        `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
       ];
     }
 
-    return buildLocalFollowUpWithoutRunnableChild(parentPullRequest, publicationMode);
+    const merged = children.filter(child => child.status === 'merged');
+    if (merged.length > 0) {
+      return [
+        'Inspect the local umbrella branch with finalized child PR commits applied.',
+        `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
+      ];
+    }
+
+    return buildLocalFollowUpWithoutRunnableChild(parentPullRequest, publicationMode, mode);
   }
 
   const blocked = children.find(child => child.status === 'blocked');
   if (blocked !== undefined) {
     return [
-      `Resolve the blocker for child issue #${blocked.issue.number}, then rerun PRD auto-advance.`,
+      `Resolve the blocker for child issue #${blocked.issue.number}, then rerun PRD ${mode}.`,
+    ];
+  }
+
+  const waiting = children.find(child => child.status === 'waiting');
+  if (waiting !== undefined) {
+    return [
+      `Wait for child issue #${waiting.issue.number} to finish review or checks, then rerun PRD ${mode}.`,
     ];
   }
 
@@ -1193,15 +1446,28 @@ function buildLocalNextSteps({ children, publicationMode, parentPullRequest }) {
     ];
   }
 
+  if (parentPullRequest?.status === 'waiting') {
+    return [
+      `Wait for open Child Issues to close, then rerun PRD ${mode} before the final Umbrella PR merge.`,
+    ];
+  }
+
+  if (mode === 'auto-complete') {
+    return [
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
+    ];
+  }
+
   return ['Review and merge the published Child Issue PRs before completing the umbrella PRD PR.'];
 }
 
 /**
  * @param {ParentReviewResult | undefined} parentPullRequest
  * @param {'dry-run' | 'publish'} publicationMode
+ * @param {PrdAutomationMode} mode
  * @returns {string[]}
  */
-function buildLocalFollowUpWithoutRunnableChild(parentPullRequest, publicationMode) {
+function buildLocalFollowUpWithoutRunnableChild(parentPullRequest, publicationMode, mode) {
   if (parentPullRequest?.status === 'ready-for-review') {
     return [
       `Umbrella PR is ready for human review after local ${publicationMode}; request review manually instead of adding trigger labels.`,
@@ -1209,7 +1475,7 @@ function buildLocalFollowUpWithoutRunnableChild(parentPullRequest, publicationMo
   }
 
   if (parentPullRequest?.status === 'waiting-for-child-issues') {
-    return ['Add or reopen a native Child Issue before rerunning local PRD auto-advance.'];
+    return [`Add or reopen a native Child Issue before rerunning local PRD ${mode}.`];
   }
 
   return ['No runnable child issue was available for local dry-run.'];

@@ -22,6 +22,8 @@ const execFileAsync = promisify(nodeExecFile);
  * @typedef {import('./types.js').GitRebaseStepResult} GitRebaseStepResult
  * @typedef {import('./types.js').GitConflictContext} GitConflictContext
  * @typedef {import('./types.js').GitConflictFile} GitConflictFile
+ * @typedef {import('./types.js').CherryPickCommitOntoBranchOptions} CherryPickCommitOntoBranchOptions
+ * @typedef {import('./types.js').GitCherryPickResult} GitCherryPickResult
  * @typedef {import('./types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('./types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
@@ -323,6 +325,55 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      */
     async readRebaseConflictContext({ branchName, baseBranch }) {
       return await readRebaseConflictContext(execFile, { branchName, baseBranch });
+    },
+
+    /**
+     * @param {CherryPickCommitOntoBranchOptions} options
+     * @returns {Promise<GitCherryPickResult>}
+     */
+    async cherryPickCommitOntoBranch({ branchName, baseBranch, commitSha, committer }) {
+      await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
+      await fetchRemoteBranch(execFile, branchName, { optional: true });
+
+      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
+      } else if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${branchName}`],
+          `check out branch ${branchName}`,
+        );
+      } else {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, `origin/${baseBranch}`],
+          `create branch ${branchName}`,
+        );
+      }
+
+      try {
+        await runGit(
+          execFile,
+          withGitCommitter(['cherry-pick', commitSha], committer),
+          `cherry-pick ${commitSha} onto ${branchName}`,
+        );
+      } catch (error) {
+        const conflictedFiles = await readConflictedFiles(execFile);
+        if (conflictedFiles.length === 0) {
+          throw error;
+        }
+
+        return {
+          status: 'conflicts',
+          conflictedFiles,
+        };
+      }
+
+      return {
+        status: 'cherry-picked',
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
     },
 
     /**
