@@ -1739,6 +1739,53 @@ describe('runIssueImplement', () => {
         2,
       )}\n`,
     );
+    await writeFile(
+      join(previousRunRecord, 'follow-up-operations.json'),
+      `${JSON.stringify(['pr:review', 'pr:finalize'], null, 2)}\n`,
+    );
+    await writeFile(
+      join(previousRunRecord, '01-pr-review-evidence.json'),
+      `${JSON.stringify(
+        {
+          operation: 'pr:review',
+          output: {
+            status: 'approved',
+            summary: 'Prepared branch passed local review.',
+            comments: [],
+            replies: [],
+            directChanges: [],
+            followUps: [],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      join(previousRunRecord, '02-pr-finalize-evidence.json'),
+      `${JSON.stringify(
+        {
+          operation: 'pr:finalize',
+          output: {
+            status: 'planned',
+            summary: 'Finalized the reviewed branch.',
+            commitPlan: {
+              commits: [
+                {
+                  header: 'feat(issue): implement #42',
+                  body: ['Finalize prepared local issue implementation.'],
+                  footers: ['Closes #42'],
+                  files: ['README.md'],
+                },
+              ],
+            },
+            followUps: [],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
 
     const issue = createIssue({ number: 42, title: 'Publish finalized dry-run', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -1781,6 +1828,30 @@ describe('runIssueImplement', () => {
     assert.match(github.createdPullRequests[0].body, /Status: Ready for human merge/);
     assert.doesNotMatch(github.createdPullRequests[0].body, /Published local commit/);
     assert.deepEqual(github.readyPullRequests, [100]);
+    assert.deepEqual(
+      github.pullRequestComments.map(comment => ({
+        number: comment.number,
+        summary: comment.body.split('\n')[0],
+        operation: comment.body.match(/^Operation: (.+)$/m)?.[1],
+      })),
+      [
+        {
+          number: 100,
+          summary: 'Implemented finalized dry-run.',
+          operation: 'pullops:issue:implement',
+        },
+        {
+          number: 100,
+          summary: 'Prepared branch passed local review.',
+          operation: 'pullops:pr:review',
+        },
+        {
+          number: 100,
+          summary: 'Finalized the reviewed branch.',
+          operation: 'pullops:pr:finalize',
+        },
+      ],
+    );
 
     const publishRunRecord = String(result.localRunRecord);
     assert.notEqual(publishRunRecord, previousRunRecord);

@@ -789,6 +789,7 @@ async function finalizePreparedIssueImplementLocalPublish(
       finalizedBody: finalized.body,
       readyForReview: true,
       finalizedBranch: true,
+      followUpEvidenceRunRecord: runRecord.directory,
       summary: `Finalized and published PullOps-managed PR for issue #${issue.number}.`,
     });
   }
@@ -830,6 +831,7 @@ async function publishPreparedIssueImplementBranch(context, preparation, runReco
           readyForReview: true,
           finalizedBranch: true,
           reusedLocalRunRecord: reusableRunRecord.directory,
+          followUpEvidenceRunRecord: reusableRunRecord.directory,
           summary: `Published existing finalized local run for issue #${preparation.issue.number}.`,
         },
       );
@@ -852,6 +854,7 @@ async function publishPreparedIssueImplementBranch(context, preparation, runReco
       finalizedBody: finalized.body,
       readyForReview: true,
       finalizedBranch: true,
+      followUpEvidenceRunRecord: runRecord.directory,
       summary: `Finalized and published prepared PullOps-managed PR for issue #${preparation.issue.number}.`,
     });
   }
@@ -879,6 +882,7 @@ async function publishPreparedIssueImplementBranch(context, preparation, runReco
  *   readyForReview?: boolean,
  *   finalizedBranch?: boolean,
  *   reusedLocalRunRecord?: string,
+ *   followUpEvidenceRunRecord?: string,
  *   summary?: string,
  * }} options
  * @returns {Promise<Record<string, unknown>>}
@@ -894,6 +898,7 @@ async function publishIssueImplementPullRequest(
     readyForReview = false,
     finalizedBranch = false,
     reusedLocalRunRecord,
+    followUpEvidenceRunRecord,
     summary,
   },
 ) {
@@ -962,6 +967,12 @@ async function publishIssueImplementPullRequest(
     operation: PULL_OPS_OPERATION_LABELS.issueImplement,
     summary: output.summary,
   });
+  if (followUpEvidenceRunRecord !== undefined) {
+    await commentOnPullRequestWithLocalFollowUpEvidence(context, {
+      pullRequestNumber: pullRequest.number,
+      runRecordDirectory: followUpEvidenceRunRecord,
+    });
+  }
   await clearIssueTaskLabels(context, issue);
 
   const action = existingPullRequest === undefined ? 'Opened' : 'Updated';
@@ -1499,7 +1510,7 @@ async function runLocalFollowUpOperation(
 /**
  * @param {OperationRunnerContext} context
  * @param {string} operationName
- * @returns {{ modelTier: string, model: string }}
+ * @returns {{ modelTier: import('../../config/types.js').ModelTier, model: string }}
  */
 function resolveOperationModelSelection(context, operationName) {
   const operation = getWorkflowOperation(operationName);
@@ -2074,6 +2085,136 @@ async function readReusableFinalizedDryRunRecord(context, preparation) {
       output: output.value,
       body,
     };
+  }
+
+  return undefined;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequestNumber: number, runRecordDirectory: string }} options
+ * @returns {Promise<void>}
+ */
+async function commentOnPullRequestWithLocalFollowUpEvidence(
+  context,
+  { pullRequestNumber, runRecordDirectory },
+) {
+  const operationReferences = await readLocalFollowUpOperationReferences(runRecordDirectory);
+
+  for (const [index, operationReference] of operationReferences.entries()) {
+    const operation = readPullOpsOperationLabelFromReference(operationReference);
+    if (operation === undefined) {
+      continue;
+    }
+
+    await commentOnPullRequestWithOperationAudit(
+      createLocalFollowUpAuditContext(context, operationReference),
+      {
+        pullRequestNumber,
+        operation,
+        summary: await readLocalFollowUpEvidenceSummary(runRecordDirectory, {
+          operationReference,
+          index,
+        }),
+      },
+    );
+  }
+}
+
+/**
+ * @param {string} directory
+ * @returns {Promise<string[]>}
+ */
+async function readLocalFollowUpOperationReferences(directory) {
+  const operations = await readJsonLocalRunArtifactIfAvailable(
+    directory,
+    'follow-up-operations.json',
+  );
+  if (!Array.isArray(operations)) {
+    return [];
+  }
+
+  return operations.filter(operation => typeof operation === 'string');
+}
+
+/**
+ * @param {string} directory
+ * @param {{ operationReference: string, index: number }} options
+ * @returns {Promise<string | undefined>}
+ */
+async function readLocalFollowUpEvidenceSummary(directory, { operationReference, index }) {
+  const evidence = await readJsonLocalRunArtifactIfAvailable(
+    directory,
+    `${String(index + 1).padStart(2, '0')}-${normalizeOperationReferenceForPath(
+      operationReference,
+    )}-evidence.json`,
+  );
+  if (
+    !isRecord(evidence) ||
+    evidence.operation !== operationReference ||
+    !isRecord(evidence.output)
+  ) {
+    return undefined;
+  }
+
+  const { summary } = evidence.output;
+  return typeof summary === 'string' && summary.trim() !== '' ? summary.trim() : undefined;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} operationReference
+ * @returns {OperationRunnerContext}
+ */
+function createLocalFollowUpAuditContext(context, operationReference) {
+  const operationName = readWorkflowOperationNameFromReference(operationReference);
+  if (operationName === undefined) {
+    return context;
+  }
+
+  const modelSelection = resolveOperationModelSelection(context, operationName);
+  return {
+    ...context,
+    modelTier: modelSelection.modelTier,
+    model: modelSelection.model,
+  };
+}
+
+/**
+ * @param {string} operationReference
+ * @returns {string | undefined}
+ */
+function readPullOpsOperationLabelFromReference(operationReference) {
+  if (operationReference === 'pr:review') {
+    return PULL_OPS_OPERATION_LABELS.prReview;
+  }
+
+  if (operationReference === 'pr:address-review') {
+    return PULL_OPS_OPERATION_LABELS.prAddressReview;
+  }
+
+  if (operationReference === 'pr:finalize') {
+    return PULL_OPS_OPERATION_LABELS.prFinalize;
+  }
+
+  return undefined;
+}
+
+/**
+ * @param {string} operationReference
+ * @returns {string | undefined}
+ */
+function readWorkflowOperationNameFromReference(operationReference) {
+  if (operationReference === 'pr:review') {
+    return 'pr-review';
+  }
+
+  if (operationReference === 'pr:address-review') {
+    return 'pr-address-review';
+  }
+
+  if (operationReference === 'pr:finalize') {
+    return 'pr-finalize';
   }
 
   return undefined;
