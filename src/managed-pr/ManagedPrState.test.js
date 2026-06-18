@@ -396,6 +396,44 @@ describe('ManagedPrState', () => {
       },
     ]);
   });
+
+  it('13: clears stale finalization markers after a successful ci-fix on a ready finalized PR', async () => {
+    const github = createFakeGitHub();
+
+    await applyManagedPrTransition({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          status: 'Ready for human merge',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          reviewedTreeHash: 'tree-reviewed',
+          finalizedTreeHash: 'tree-finalized',
+          finalizedHeadSha: 'head-finalized',
+          mergeMethod: 'rebase',
+        }),
+      }),
+      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      outcome: {
+        kind: 'fixed',
+        ciFixCycle: 1,
+        maxCiFixCycles: 2,
+      },
+    });
+
+    assert.match(github.updatedBodies[0].body, /Status: CI fixed/);
+    assert.match(github.updatedBodies[0].body, /CI fix cycles: 1 \/ 2/);
+    assert.match(github.updatedBodies[0].body, /Last operation: pullops:pr:fix-ci/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Reviewed tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized tree:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Finalized head:/);
+    assert.doesNotMatch(github.updatedBodies[0].body, /Merge method:/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:review'],
+      },
+    ]);
+  });
 });
 
 /**

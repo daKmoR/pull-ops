@@ -4,6 +4,7 @@ import {
 } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
+  isFinalizedForRebase,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
@@ -183,7 +184,12 @@ async function preparePrFixCi(context) {
     };
   }
 
-  if (!manual && state.managed && !pullRequest.isDraft) {
+  if (
+    !manual &&
+    state.managed &&
+    !pullRequest.isDraft &&
+    !canAutomaticallyFixReadyFinalizedPr(state)
+  ) {
     return {
       ready: false,
       output: skipAutomaticPrFixCi(
@@ -269,6 +275,14 @@ async function preparePrFixCi(context) {
     ciFixCycle: state.ciFixCycles.current + 1,
     maxCiFixCycles: state.ciFixCycles.max,
   };
+}
+
+/**
+ * @param {import('../../managed-pr/ManagedPrState.types.js').ManagedPrState} state
+ * @returns {boolean}
+ */
+function canAutomaticallyFixReadyFinalizedPr(state) {
+  return state.status === 'Ready for human merge' && isFinalizedForRebase(state);
 }
 
 /**

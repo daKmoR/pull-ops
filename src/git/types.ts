@@ -118,6 +118,10 @@ export interface GetCommitsSinceBaseOptions {
   baseBranch: string;
 }
 
+export interface ResetHardToRevisionOptions {
+  revision: string;
+}
+
 export interface GitCommit {
   sha: string;
   subject: string;
@@ -140,6 +144,7 @@ export interface RewriteBranchWithCommitPlanOptions {
   branchName: string;
   commits: PlannedRewriteCommit[];
   author: GitCommitAuthor;
+  push?: boolean;
 }
 
 export interface RewriteBranchWithExistingCommitsOptions {
@@ -170,6 +175,7 @@ export interface GitClient {
   pushBranchWithLease(options: PushBranchWithLeaseOptions): Promise<GitPushWithLeaseResult>;
   getCurrentHeadSha(): Promise<string>;
   getCurrentTreeHash(): Promise<string>;
+  resetHardToRevision?(options: ResetHardToRevisionOptions): Promise<void>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
   getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
   rewriteBranchWithCommitPlan(

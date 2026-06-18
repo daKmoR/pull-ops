@@ -370,6 +370,14 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
     },
 
     /**
+     * @param {import('./types.js').ResetHardToRevisionOptions} options
+     * @returns {Promise<void>}
+     */
+    async resetHardToRevision({ revision }) {
+      await runGit(execFile, ['reset', '--hard', revision], `reset branch to ${revision}`);
+    },
+
+    /**
      * @param {GetChangedFilesSinceBaseOptions} options
      * @returns {Promise<string[]>}
      */
@@ -416,7 +424,7 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
      * @param {RewriteBranchWithCommitPlanOptions} options
      * @returns {Promise<GitRewriteResult>}
      */
-    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author }) {
+    async rewriteBranchWithCommitPlan({ baseBranch, branchName, commits, author, push = true }) {
       const originalHead = (
         await runGit(execFile, ['rev-parse', 'HEAD'], 'record the original branch head')
       ).stdout
@@ -450,12 +458,14 @@ export function createGitClient({ execFile = execFileAsync, env = process.env } 
         );
       }
 
-      await configureAuthenticatedOrigin(execFile, env);
-      await runGit(
-        execFile,
-        ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
-        `force-with-lease push branch ${branchName}`,
-      );
+      if (push) {
+        await configureAuthenticatedOrigin(execFile, env);
+        await runGit(
+          execFile,
+          ['push', '--force-with-lease', 'origin', `HEAD:${branchName}`],
+          `force-with-lease push branch ${branchName}`,
+        );
+      }
 
       return {
         headSha: await getCurrentHeadSha(execFile),
