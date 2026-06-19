@@ -17,6 +17,7 @@ export interface ChildAutomationResult {
   status: string;
   summary: string;
   blockedBy?: number[];
+  dependencyDecision?: ChildDependencyDecision;
   labels?: string[];
   branch?: string;
   localRunRecord?: string;
@@ -34,6 +35,13 @@ export interface ChildAutomationResult {
   finalizedHeadSha?: string;
   headSha?: string;
   treeHash?: string;
+}
+
+export interface ChildDependencyDecision {
+  blockedBy: number[];
+  satisfiedByClosedIssues: number[];
+  satisfiedByVirtualCompletions: number[];
+  remainingBlockedBy: number[];
 }
 
 export interface ParentReviewResult {
@@ -71,6 +79,8 @@ export interface PrdAutomationResult extends Record<string, unknown> {
   branch?: string;
   localRunRecord?: string;
   localNextSteps?: string[];
+  virtualCompletedChildren?: number[];
+  remainingBlockedChildren?: number[];
 }
 
 export interface ChildIssueCloseResult extends Record<string, unknown> {
