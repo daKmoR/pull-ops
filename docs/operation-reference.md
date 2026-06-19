@@ -25,8 +25,8 @@ actor, token, and audit metadata may differ from GitHub Actions execution.
 | `prd:auto-complete <parent-issue> --publish pr` | `pullops:prd:auto-complete` | PRD Issue      | for every Child Issue + create PR                      | Complete the PRD branch and publish the result            | Final Umbrella PR merge only |
 | `prd:auto-complete <parent-issue>`              |                             | PRD Issue      | for every Child Issue                                  | Complete the PRD branch locally                           | None                         |
 
-`prd:auto-advance` drains only the currently unblocked Child Issues. Human merges
-close those Child Issues and can unlock the next frontier for a later execution.
+`prd:auto-advance` drains only the currently unblocked native Child Issue frontier.
+Human merges close those Child Issues and can unlock the next frontier for a later execution.
 `prd:auto-complete` keeps advancing through those frontiers itself until the PRD
 branch is complete or blocked.
 

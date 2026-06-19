@@ -136,12 +136,17 @@ describe('runPrdAutoAdvance', () => {
     );
   });
 
-  it('03: local dry-run prepares the PRD and stops after one runnable child issue', async () => {
+  it('03: local dry-run drains the current unblocked child frontier without GitHub mutations', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-dry-run-'));
     const parent = createIssue({
       number: 12,
       labels: ['pullops:prd:auto-advance'],
-      subIssues: [issueReference(34), issueReference(35), issueReference(36)],
+      subIssues: [
+        issueReference(34),
+        issueReference(35),
+        issueReference(36),
+        issueReference(37),
+      ],
     });
     const github = createFakeGitHub({
       issues: [
@@ -152,7 +157,8 @@ describe('runPrdAutoAdvance', () => {
           parent: issueReference(12),
         }),
         createIssue({ number: 35, parent: issueReference(12) }),
-        createIssue({ number: 36, parent: issueReference(12) }),
+        createIssue({ number: 36, body: 'Blocked by: #35', parent: issueReference(12) }),
+        createIssue({ number: 37, parent: issueReference(12) }),
         createIssue({ number: 99, state: 'OPEN' }),
       ],
     });
@@ -172,11 +178,15 @@ describe('runPrdAutoAdvance', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'dry-run');
+    assert.match(result.summary, /2 child issue dry-run\(s\) completed/);
     assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
-    assert.equal(codex.calls.length, 3);
+    assert.equal(codex.calls.length, 6);
     assert.match(codex.calls[0].prompt, /Child issue 35/);
     assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
     assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.match(codex.calls[3].prompt, /Child issue 37/);
+    assert.match(codex.calls[4].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[5].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.updatedPullRequestBodies, []);
@@ -186,12 +196,18 @@ describe('runPrdAutoAdvance', () => {
       [
         [34, 'blocked'],
         [35, 'dry-run-completed'],
+        [36, 'blocked'],
+        [37, 'dry-run-completed'],
       ],
     );
     assert.deepEqual(
       git.checkouts.map(checkout => checkout.branchName),
-      ['pullops/prd-12', 'pullops/prd-12-issue-35'],
+      ['pullops/prd-12', 'pullops/prd-12-issue-35', 'pullops/prd-12-issue-37'],
     );
+    assert.deepEqual(result.localNextSteps, [
+      'Inspect local run evidence for child issues #35, #37.',
+      'Publish with `pullops run prd:auto-advance <parent-issue-number> --publish pr` after reviewing the local branch.',
+    ]);
   });
 
   it('04: local PR publication finalizes unblocked child issue PRs and restores the umbrella branch', async () => {

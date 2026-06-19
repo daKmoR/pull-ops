@@ -167,7 +167,7 @@ async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, 
         await checkoutLocalPrdBase(context, { parentBranchName });
       }
 
-      if (localResult.stop) {
+      if (mode === 'auto-complete' && localResult.stop) {
         break;
       }
     }
@@ -1455,9 +1455,6 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
 
   if (publicationMode === 'dry-run') {
     parts.push(`${dryRunCompleted} child issue dry-run(s) completed.`);
-    if (dryRunCompleted > 0) {
-      parts.push('Stopped after one runnable child issue.');
-    }
   } else {
     parts.push(`${published} child issue PR(s) published.`);
   }
@@ -1631,10 +1628,12 @@ function getErrorMessage(error) {
  */
 function buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }) {
   if (publicationMode === 'dry-run') {
-    const completed = children.find(child => child.status === 'dry-run-completed');
-    if (completed !== undefined) {
+    const completed = children.filter(child => child.status === 'dry-run-completed');
+    if (completed.length > 0) {
+      const completedIssueNumbers = completed.map(child => `#${child.issue.number}`).join(', ');
+      const completedIssueLabel = completed.length === 1 ? 'child issue' : 'child issues';
       return [
-        `Inspect local run evidence for child issue #${completed.issue.number}.`,
+        `Inspect local run evidence for ${completedIssueLabel} ${completedIssueNumbers}.`,
         `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
       ];
     }
