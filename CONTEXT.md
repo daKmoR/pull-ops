@@ -133,11 +133,11 @@ A PRD Issue whose umbrella branch and draft PullOps-Managed PR have been created
 _Avoid_: Done PRD, completed PRD
 
 **PRD Auto-Advance**:
-A PRD automation mode that prepares a PRD Issue and keeps starting unblocked Child Issues while Child Issue PR merges remain human-controlled.
+A PRD automation mode that prepares a PRD Issue and drains the currently unblocked Child Issue frontier while Child Issue PR merges remain human-controlled.
 _Avoid_: Parent auto-run, auto-coordinate
 
 **PRD Auto-Complete**:
-A PRD automation mode that includes PRD Auto-Advance and also merges finalized Child Issue PRs into the Umbrella Branch. The Umbrella PR still remains human-controlled.
+A PRD automation mode that drives a PRD Issue hands-off until all runnable Child Issues are implemented, reviewed, finalized, integrated into the Umbrella Branch, and the Umbrella PR is reviewed and finalized. The Umbrella PR still remains human-controlled for the default-branch merge.
 _Avoid_: PRD auto-merge, full auto-merge
 
 **PRD Child Coordination**:
@@ -163,6 +163,10 @@ _Avoid_: Child issue commit, direct child commit
 **Concrete Issue**:
 An issue that is directly implementable by `pullops:issue:implement` and does not own Child Issues.
 _Avoid_: Normal issue, task
+
+**Issue Dependency**:
+A `Blocked by` relationship from one issue to another issue that must close before the dependent issue can run.
+_Avoid_: Task dependency, ordering edge
 
 **Adjacent Work**:
 Work outside the literal issue text that is necessary to complete the issue correctly, such as updating shared tests or touching a directly involved module.

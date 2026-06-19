@@ -74,7 +74,7 @@ export const PULL_OPS_LABELS = [
   {
     name: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
     color: '5319E7',
-    description: 'Auto-advance a PRD and merge finalized child issue PRs.',
+    description: 'Complete a PRD branch hands-off, leaving final merge to humans.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.issueImplement,

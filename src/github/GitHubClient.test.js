@@ -26,7 +26,7 @@ describe('createGitHubClient', () => {
         [
           'pullops:prd:auto-complete',
           '5319E7',
-          'Auto-advance a PRD and merge finalized child issue PRs.',
+          'Complete a PRD branch hands-off, leaving final merge to humans.',
         ],
         [
           'pullops:issue:implement',

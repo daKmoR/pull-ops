@@ -9,10 +9,11 @@ Operation Labels request work and are namespaced by target kind:
 
 - `pullops:prd:prepare` creates or updates an umbrella branch and draft PR for a
   PRD issue.
-- `pullops:prd:auto-advance` prepares a PRD issue if needed and keeps starting
-  currently unblocked child issues.
-- `pullops:prd:auto-complete` does the same work as auto-advance and also
-  rebase-merges finalized child PRs into the PRD branch after gates pass.
+- `pullops:prd:auto-advance` prepares a PRD issue if needed and drains the
+  currently unblocked child issue frontier for individual review.
+- `pullops:prd:auto-complete` drives the PRD branch hands-off: it implements,
+  reviews, finalizes, and integrates unblocked child issues until the PRD branch
+  is complete and the umbrella PR is finalized, or until automation is blocked.
 - `pullops:issue:implement` implements one concrete issue; it does not coordinate
   or implement child issues.
 - `pullops:pr:review` runs automated review for a PullOps-managed PR.
@@ -20,6 +21,9 @@ Operation Labels request work and are namespaced by target kind:
 PullOps uses `pullops:human-required` only when automation needs maintainer
 attention. Ordinary progress and completion state lives in PullOps-managed PR
 body text and GitHub's native issue and pull request state.
+
+See [PullOps Operation Reference](./docs/operation-reference.md) for the combined
+command and label table.
 
 For the current parent/child workflow:
 
@@ -38,10 +42,25 @@ For automated parent/child orchestration, label the parent issue with
 `pullops:prd:auto-advance` or `pullops:prd:auto-complete`. Both modes keep the
 work on child branches targeting `pullops/prd-<prd-number>` and respect child
 issue `Part of: #<prd>` and `Blocked by: #<issue>` lines. Auto-advance leaves
-finalized child PR merging to humans. Auto-complete merges finalized child PRs
-into the PRD branch with the rebase method, then the deterministic
-`pr-close-child-issue` workflow closes the child issue from the merged PR event.
-The final umbrella PR merge into the default branch remains human-controlled.
+Child Issue PR review and merge decisions to humans. Auto-complete is hands-off
+for the PRD branch: it keeps running child implementation, review, finalize, and
+integration until all runnable child issues are integrated or a blocker needs
+attention. After all child issues are integrated, auto-complete reviews and
+finalizes the umbrella PR. The final umbrella PR merge into the default branch
+remains human-controlled.
+
+Local `pullops run prd:auto-complete <parent-issue-number>` keeps the CLI-wide
+dry-run default, but its dry-run should simulate the full PRD completion path
+locally instead of stopping after one child issue. Within that dry-run, a
+virtually completed child issue satisfies downstream `Blocked by` dependencies
+for later children in the same run. Use `--publish pr` to perform the same
+completion path with GitHub mutations, pushes, pull requests, and child issue
+closure.
+
+Auto-advance stops after the currently unblocked child issue frontier. Human
+Child Issue PR merges close those issues and can unblock the next frontier for a
+later execution. Auto-complete keeps advancing through those frontiers itself
+until the PRD branch is complete or blocked.
 
 `Blocked by: #<issue>` dependencies are satisfied only by closed issues, so one
 child issue can unblock another as soon as the blocking child PR has merged into
