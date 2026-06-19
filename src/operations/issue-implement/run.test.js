@@ -2338,6 +2338,7 @@ function createContext(overrides = {}) {
     operation: 'issue-implement',
     phase: 'run',
     runnerAdapter: 'codex-cli',
+    runGoal: 'operation',
     target: {
       type: 'issue',
       number: 42,

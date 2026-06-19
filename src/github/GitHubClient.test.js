@@ -31,7 +31,7 @@ describe('createGitHubClient', () => {
         [
           'pullops:issue:implement',
           '5319E7',
-          'Implement one concrete issue. Does not coordinate child issues.',
+          'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
         ],
         ['pullops:pr:review', '5319E7', 'Run PullOps automated PR review.'],
         ['pullops:pr:address-review', '5319E7', 'Address actionable PullOps PR review feedback.'],

@@ -642,7 +642,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
     );
   }
 
-  const runGoal = parseOperationRunGoal(args, consumed);
+  const runGoal = parseOperationRunGoal(args, consumed, 'finalized');
   const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
