@@ -20,7 +20,7 @@ export async function runPrdAutoAdvance(context) {
     const localContext = withDefaultLocalPrdRunGoal(context);
     return await coordinateLocalPrdAutoAdvance(localContext, {
       parentIssueNumber: localContext.target.number,
-      async runChildIssue(childIssueNumber) {
+      async runChildIssue(childIssueNumber, options = {}) {
         return await runIssueImplement({
           ...localContext,
           operation: 'issue-implement',
@@ -29,6 +29,7 @@ export async function runPrdAutoAdvance(context) {
             number: childIssueNumber,
           },
           publicationMode: localContext.publicationMode,
+          virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
     });
@@ -50,7 +51,7 @@ export async function runPrdAutoComplete(context) {
     const localContext = withDefaultLocalPrdRunGoal(context);
     return await coordinateLocalPrdAutoComplete(localContext, {
       parentIssueNumber: localContext.target.number,
-      async runChildIssue(childIssueNumber) {
+      async runChildIssue(childIssueNumber, options = {}) {
         return await runIssueImplement({
           ...localContext,
           operation: 'issue-implement',
@@ -59,6 +60,7 @@ export async function runPrdAutoComplete(context) {
             number: childIssueNumber,
           },
           publicationMode: localContext.publicationMode,
+          virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
     });

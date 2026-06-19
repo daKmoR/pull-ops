@@ -323,7 +323,7 @@ async function prepareIssueImplement(context) {
     };
   }
 
-  const blockingDependencies = await readBlockingDependencies(context, { issue });
+  const blockingDependencies = await readIssueImplementBlockingDependencies(context, issue);
   if (blockingDependencies.length > 0) {
     return {
       ready: false,
@@ -402,6 +402,7 @@ async function prepareIssueImplementDryRun(context, runRecord) {
         branch: prepared.branchName,
         baseBranch: prepared.baseBranch,
         publicationMode: 'dry-run',
+        virtualCompletedIssueNumbers: context.virtualCompletedIssueNumbers ?? [],
         runGoal: context.runGoal ?? 'operation',
         modelTier: context.modelTier,
         model: context.model,
@@ -448,7 +449,7 @@ async function prepareIssueImplementDryRun(context, runRecord) {
     });
   }
 
-  const blockingDependencies = await readBlockingDependencies(context, { issue });
+  const blockingDependencies = await readIssueImplementBlockingDependencies(context, issue);
   if (blockingDependencies.length > 0) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
@@ -561,7 +562,7 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
     });
   }
 
-  const blockingDependencies = await readBlockingDependencies(context, { issue });
+  const blockingDependencies = await readIssueImplementBlockingDependencies(context, issue);
   if (blockingDependencies.length > 0) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
@@ -575,6 +576,23 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
   }
 
   return undefined;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @returns {Promise<GitHubIssue[]>}
+ */
+async function readIssueImplementBlockingDependencies(context, issue) {
+  const blockingDependencies = await readBlockingDependencies(context, { issue });
+  if (context.executionBackend !== 'local' || context.publicationMode !== 'dry-run') {
+    return blockingDependencies;
+  }
+
+  const virtualCompletedIssueNumbers = new Set(context.virtualCompletedIssueNumbers ?? []);
+  return blockingDependencies.filter(
+    dependency => !virtualCompletedIssueNumbers.has(dependency.number),
+  );
 }
 
 /**
@@ -1999,6 +2017,7 @@ async function createLocalRunRecord(
           number: targetNumber,
         },
         publicationMode,
+        virtualCompletedIssueNumbers: context.virtualCompletedIssueNumbers ?? [],
         runGoal: context.runGoal ?? 'operation',
         createdAt: new Date().toISOString(),
       },

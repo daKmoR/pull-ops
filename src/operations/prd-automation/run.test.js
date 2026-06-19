@@ -141,12 +141,7 @@ describe('runPrdAutoAdvance', () => {
     const parent = createIssue({
       number: 12,
       labels: ['pullops:prd:auto-advance'],
-      subIssues: [
-        issueReference(34),
-        issueReference(35),
-        issueReference(36),
-        issueReference(37),
-      ],
+      subIssues: [issueReference(34), issueReference(35), issueReference(36), issueReference(37)],
     });
     const github = createFakeGitHub({
       issues: [
@@ -1072,6 +1067,158 @@ describe('runPrdAutoComplete', () => {
     assert.equal(git.currentBranch, 'pullops/prd-12');
     assert.deepEqual(result.localNextSteps, [
       'Resolve the blocker for child issue #34, then rerun PRD auto-complete.',
+    ]);
+  });
+
+  it('08: local dry-run auto-complete advances through virtual dependency frontiers', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-frontiers-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(35), issueReference(34), issueReference(36), issueReference(37)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 36, body: 'Blocked by: #35', parent: issueReference(12) }),
+        createIssue({ number: 37, body: 'Blocked by: #99', parent: issueReference(12) }),
+        createIssue({ number: 99 }),
+      ],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'dry-run');
+    assert.equal(codex.calls.length, 9);
+    assert.match(codex.calls[0].prompt, /Child issue 34/);
+    assert.match(codex.calls[3].prompt, /Child issue 35/);
+    assert.match(codex.calls[6].prompt, /Child issue 36/);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(github.pullRequestComments, []);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(github.closedIssues, []);
+    assert.deepEqual(git.pushes, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.dependencyDecision?.satisfiedByVirtualCompletions,
+        child.dependencyDecision?.remainingBlockedBy,
+      ]),
+      [
+        [34, 'dry-run-completed', undefined, undefined],
+        [35, 'dry-run-completed', [34], []],
+        [36, 'dry-run-completed', [35], []],
+        [37, 'blocked', [], [99]],
+      ],
+    );
+    assert.deepEqual(result.virtualCompletedChildren, [34, 35, 36]);
+    assert.deepEqual(result.remainingBlockedChildren, [37]);
+    assert.deepEqual(result.localNextSteps, [
+      'Inspect local run evidence for child issues #34, #35, #36.',
+      'Resolve the blocker for child issue #37, then rerun PRD auto-complete.',
+    ]);
+
+    const runRecord = String(result.localRunRecord);
+    const child35 = readChildResults(result).find(child => child.issue.number === 35);
+    assert.equal(typeof child35?.localRunRecord, 'string');
+    assert.match(runRecord, /\.pullops\/runs\/.+prd-auto-complete-12$/);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(runRecord, 'result.json'), 'utf8')).remainingBlockedChildren,
+      [37],
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(String(child35?.localRunRecord), 'metadata.json'), 'utf8'))
+        .virtualCompletedIssueNumbers,
+      [34],
+    );
+  });
+
+  it('09: local dry-run auto-complete does not virtually complete active child PRs', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-active-pr-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+      ],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: childPullRequestBody(34),
+          labels: ['pullops:pr:review'],
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.issueLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.updatedPullRequestBodies, []);
+    assert.deepEqual(github.pullRequestComments, []);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.dependencyDecision?.remainingBlockedBy,
+      ]),
+      [
+        [34, 'waiting', undefined],
+        [35, 'blocked', [34]],
+      ],
+    );
+    assert.deepEqual(result.virtualCompletedChildren, []);
+    assert.deepEqual(result.remainingBlockedChildren, [35]);
+    assert.deepEqual(result.localNextSteps, [
+      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
     ]);
   });
 });

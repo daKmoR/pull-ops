@@ -29,6 +29,13 @@ actor, token, and audit metadata may differ from GitHub Actions execution.
 Human merges close those Child Issues and can unlock the next frontier for a later execution.
 `prd:auto-complete` keeps advancing through those frontiers itself until the PRD
 branch is complete or blocked.
+Local dry-run `prd:auto-complete` simulates those later frontiers without GitHub
+mutation: each locally completed or locally integrated Child Issue virtually
+satisfies downstream `Blocked by` dependencies in the same run, and the Local
+Run Record captures child branch evidence, dependency decisions, remaining
+blocked children, and next steps. Existing active Child Issue PRs remain approval
+boundaries; local dry-run does not duplicate their work or treat them as complete
+until their managed PR state is finalized enough to integrate locally.
 
 ## Other Human Commands
 

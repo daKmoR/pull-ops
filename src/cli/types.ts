@@ -34,6 +34,7 @@ export interface OperationRunnerContext {
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
   progress?: (message: string) => void;
+  virtualCompletedIssueNumbers?: number[];
 }
 
 export interface OperationContextUsage {

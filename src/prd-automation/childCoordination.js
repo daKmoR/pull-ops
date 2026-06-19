@@ -32,6 +32,7 @@ import {
  * @typedef {import('../github/types.js').GitHubIssueReference} GitHubIssueReference
  * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('./childCoordination.types.js').ChildAutomationResult} ChildAutomationResult
+ * @typedef {import('./childCoordination.types.js').ChildDependencyDecision} ChildDependencyDecision
  * @typedef {import('./childCoordination.types.js').ChildIssueCloseResult} ChildIssueCloseResult
  * @typedef {import('./childCoordination.types.js').ChildIssuePrFacts} ChildIssuePrFacts
  * @typedef {import('./childCoordination.types.js').IssueWorkTarget} IssueWorkTarget
@@ -58,7 +59,7 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber, runChildIssue }) {
@@ -73,7 +74,7 @@ export async function coordinateLocalPrdAutoAdvance(context, { parentIssueNumber
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoComplete(
@@ -92,7 +93,7 @@ export async function coordinateLocalPrdAutoComplete(
  * @param {object} options
  * @param {number} options.parentIssueNumber
  * @param {PrdAutomationMode} options.mode
- * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @returns {Promise<PrdAutomationResult>}
  */
 async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, runChildIssue }) {
@@ -140,35 +141,49 @@ async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, 
     const childIssues = await readNativeChildIssues(context, parentIssue);
     /** @type {ChildAutomationResult[]} */
     const children = [];
+    /** @type {number[]} */
+    let virtualCompletedChildren = [];
     let preserveInspectableBranchState = false;
 
     if (publicationMode === 'publish') {
       await checkoutLocalPrdBase(context, { parentBranchName });
     }
 
-    for (const childIssue of childIssues) {
-      const localResult = await coordinateLocalChildIssue(context, {
+    if (mode === 'auto-complete' && publicationMode === 'dry-run') {
+      const dryRun = await coordinateLocalAutoCompleteDryRunChildren(context, {
         parentIssue,
         parentBranchName,
-        childIssue,
-        mode,
-        publicationMode,
+        childIssues,
         runChildIssue,
       });
-      children.push(localResult.child);
-      preserveInspectableBranchState =
-        preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
+      children.push(...dryRun.children);
+      virtualCompletedChildren = dryRun.virtualCompletedChildren;
+      preserveInspectableBranchState = dryRun.preserveInspectableBranchState;
+    } else {
+      for (const childIssue of childIssues) {
+        const localResult = await coordinateLocalChildIssue(context, {
+          parentIssue,
+          parentBranchName,
+          childIssue,
+          mode,
+          publicationMode,
+          runChildIssue,
+        });
+        children.push(localResult.child);
+        preserveInspectableBranchState =
+          preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
 
-      if (
-        publicationMode === 'publish' &&
-        localResult.restorePrdBase &&
-        !preserveInspectableBranchState
-      ) {
-        await checkoutLocalPrdBase(context, { parentBranchName });
-      }
+        if (
+          publicationMode === 'publish' &&
+          localResult.restorePrdBase &&
+          !preserveInspectableBranchState
+        ) {
+          await checkoutLocalPrdBase(context, { parentBranchName });
+        }
 
-      if (mode === 'auto-complete' && localResult.stop) {
-        break;
+        if (mode === 'auto-complete' && localResult.stop) {
+          break;
+        }
       }
     }
 
@@ -205,6 +220,10 @@ async function coordinateLocalPrdAutomation(context, { parentIssueNumber, mode, 
       parentPullRequest,
       publicationMode,
       branch: parentBranchName,
+      virtualCompletedChildren,
+      remainingBlockedChildren: children
+        .filter(child => child.status === 'blocked')
+        .map(child => child.issue.number),
       localNextSteps: buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }),
     });
   } catch (error) {
@@ -655,15 +674,164 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
  * @param {object} options
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
+ * @param {GitHubIssue[]} options.childIssues
+ * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @returns {Promise<{
+ *   children: ChildAutomationResult[],
+ *   virtualCompletedChildren: number[],
+ *   preserveInspectableBranchState: boolean,
+ * }>}
+ */
+async function coordinateLocalAutoCompleteDryRunChildren(
+  context,
+  { parentIssue, parentBranchName, childIssues, runChildIssue },
+) {
+  /** @type {ChildAutomationResult[]} */
+  const children = [];
+  /** @type {Set<number>} */
+  const pendingIssueNumbers = new Set(childIssues.map(childIssue => childIssue.number));
+  /** @type {Set<number>} */
+  const virtualCompletedIssueNumbers = new Set();
+  /** @type {ChildAutomationResult | undefined} */
+  let localBlocker;
+  let preserveInspectableBranchState = false;
+
+  while (pendingIssueNumbers.size > 0 && localBlocker === undefined) {
+    let progressed = false;
+
+    for (const childIssue of childIssues) {
+      if (!pendingIssueNumbers.has(childIssue.number)) {
+        continue;
+      }
+
+      const dependencyFacts = await readChildDependencyDecision(
+        context,
+        childIssue,
+        virtualCompletedIssueNumbers,
+      );
+      if (shouldDeferLocalDryRunChild(parentIssue, childIssue, dependencyFacts)) {
+        continue;
+      }
+
+      const localResult = await coordinateLocalChildIssue(context, {
+        parentIssue,
+        parentBranchName,
+        childIssue,
+        mode: 'auto-complete',
+        publicationMode: 'dry-run',
+        runChildIssue,
+        dependencyFacts,
+      });
+
+      recordLocalDryRunChildResult({
+        children,
+        pendingIssueNumbers,
+        virtualCompletedIssueNumbers,
+        child: localResult.child,
+      });
+      preserveInspectableBranchState =
+        preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
+      progressed = true;
+
+      if (localResult.stop) {
+        localBlocker = localResult.child;
+        break;
+      }
+    }
+
+    if (!progressed) {
+      break;
+    }
+  }
+
+  for (const childIssue of childIssues) {
+    if (!pendingIssueNumbers.has(childIssue.number)) {
+      continue;
+    }
+
+    const dependencyFacts = await readChildDependencyDecision(
+      context,
+      childIssue,
+      virtualCompletedIssueNumbers,
+    );
+    const child =
+      dependencyFacts.blockingDependencies.length > 0
+        ? blockedByDependencyChildResult(childIssue, dependencyFacts)
+        : blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker);
+    recordLocalDryRunChildResult({
+      children,
+      pendingIssueNumbers,
+      virtualCompletedIssueNumbers,
+      child,
+    });
+  }
+
+  return {
+    children,
+    virtualCompletedChildren: [...virtualCompletedIssueNumbers],
+    preserveInspectableBranchState,
+  };
+}
+
+/**
+ * @param {GitHubIssue} parentIssue
+ * @param {GitHubIssue} childIssue
+ * @param {{ blockingDependencies: GitHubIssue[] }} dependencyFacts
+ * @returns {boolean}
+ */
+function shouldDeferLocalDryRunChild(parentIssue, childIssue, dependencyFacts) {
+  return (
+    childIssue.state === 'OPEN' &&
+    getNativeParentIssueNumber(childIssue) === parentIssue.number &&
+    dependencyFacts.blockingDependencies.length > 0
+  );
+}
+
+/**
+ * @param {object} options
+ * @param {ChildAutomationResult[]} options.children
+ * @param {Set<number>} options.pendingIssueNumbers
+ * @param {Set<number>} options.virtualCompletedIssueNumbers
+ * @param {ChildAutomationResult} options.child
+ * @returns {void}
+ */
+function recordLocalDryRunChildResult({
+  children,
+  pendingIssueNumbers,
+  virtualCompletedIssueNumbers,
+  child,
+}) {
+  children.push(child);
+  pendingIssueNumbers.delete(child.issue.number);
+
+  if (isLocalDryRunVirtualCompletion(child)) {
+    virtualCompletedIssueNumbers.add(child.issue.number);
+  }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {GitHubIssue} options.parentIssue
+ * @param {string} options.parentBranchName
  * @param {GitHubIssue} options.childIssue
  * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
- * @param {(childIssueNumber: number) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} [options.dependencyFacts]
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
  */
 async function coordinateLocalChildIssue(
   context,
-  { parentIssue, parentBranchName, childIssue, mode, publicationMode, runChildIssue },
+  {
+    parentIssue,
+    parentBranchName,
+    childIssue,
+    mode,
+    publicationMode,
+    runChildIssue,
+    dependencyFacts,
+  },
 ) {
   if (childIssue.state !== 'OPEN') {
     return localChildAutomation({
@@ -682,7 +850,9 @@ async function coordinateLocalChildIssue(
     });
   }
 
-  const blockingDependencies = await findBlockingDependencies(context, childIssue);
+  const resolvedDependencyFacts =
+    dependencyFacts ?? (await readChildDependencyDecision(context, childIssue, new Set()));
+  const { blockingDependencies } = resolvedDependencyFacts;
   if (blockingDependencies.length > 0) {
     return localChildAutomation({
       child: childResult(
@@ -691,12 +861,17 @@ async function coordinateLocalChildIssue(
         `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
           blockingDependencies,
         )}.`,
-        {
-          blockedBy: blockingDependencies.map(issue => issue.number),
-        },
+        withDependencyDecision(
+          {
+            blockedBy: blockingDependencies.map(issue => issue.number),
+          },
+          resolvedDependencyFacts.decision,
+        ),
       ),
     });
   }
+
+  const dependencyDecisionExtra = createDependencyDecisionExtra(resolvedDependencyFacts.decision);
 
   const childBranchName = createIssueBranchName({
     branchPrefix: context.config.branchPrefix,
@@ -722,7 +897,10 @@ async function coordinateLocalChildIssue(
           });
 
     return localChildAutomation({
-      child,
+      child: {
+        ...child,
+        ...dependencyDecisionExtra,
+      },
       stop: child.status === 'blocked',
       restorePrdBase: publicationMode === 'publish',
     });
@@ -734,7 +912,10 @@ async function coordinateLocalChildIssue(
         childIssue,
         'already-active',
         `Child issue #${childIssue.number} already has active PullOps issue automation.`,
-        { labels: childIssue.labels },
+        {
+          labels: childIssue.labels,
+          ...dependencyDecisionExtra,
+        },
       ),
     });
   }
@@ -745,12 +926,17 @@ async function coordinateLocalChildIssue(
         childIssue,
         'human-required',
         `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
-        { labels: childIssue.labels },
+        {
+          labels: childIssue.labels,
+          ...dependencyDecisionExtra,
+        },
       ),
     });
   }
 
-  const output = await runChildIssue(childIssue.number);
+  const output = await runChildIssue(childIssue.number, {
+    virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
+  });
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
 
@@ -760,10 +946,123 @@ async function coordinateLocalChildIssue(
       pullRequest: readOutputPullRequest(output),
       localRunRecord: readOutputString(output, 'localRunRecord'),
       publicationMode,
+      ...dependencyDecisionExtra,
     }),
-    stop: publicationMode === 'dry-run' || output.status === 'blocked',
+    stop: output.status === 'blocked',
     restorePrdBase: publicationMode === 'publish',
   });
+}
+
+/**
+ * @param {GitHubIssue} childIssue
+ * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} dependencyFacts
+ * @returns {ChildAutomationResult}
+ */
+function blockedByDependencyChildResult(childIssue, dependencyFacts) {
+  const { blockingDependencies } = dependencyFacts;
+  return childResult(
+    childIssue,
+    'blocked',
+    `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(blockingDependencies)}.`,
+    withDependencyDecision(
+      {
+        blockedBy: blockingDependencies.map(issue => issue.number),
+      },
+      dependencyFacts.decision,
+    ),
+  );
+}
+
+/**
+ * @param {GitHubIssue} childIssue
+ * @param {ChildAutomationResult | undefined} localBlocker
+ * @returns {ChildAutomationResult}
+ */
+function blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker) {
+  if (localBlocker === undefined) {
+    return childResult(
+      childIssue,
+      'blocked',
+      `Child issue #${childIssue.number} was not reachable during local PRD auto-complete.`,
+    );
+  }
+
+  return childResult(
+    childIssue,
+    'blocked',
+    `Child issue #${childIssue.number} was not started because local PRD auto-complete stopped at child issue #${localBlocker.issue.number}.`,
+    { blockedBy: [localBlocker.issue.number] },
+  );
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} issue
+ * @param {ReadonlySet<number>} virtualCompletedIssueNumbers
+ * @returns {Promise<{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }>}
+ */
+async function readChildDependencyDecision(context, issue, virtualCompletedIssueNumbers) {
+  const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
+  /** @type {number[]} */
+  const satisfiedByClosedIssues = [];
+  /** @type {number[]} */
+  const satisfiedByVirtualCompletions = [];
+  /** @type {GitHubIssue[]} */
+  const blockingDependencies = [];
+
+  for (const dependencyNumber of dependencyNumbers) {
+    const dependency = await context.githubClient.getIssue(dependencyNumber);
+    if (isIssueDone(dependency)) {
+      satisfiedByClosedIssues.push(dependencyNumber);
+      continue;
+    }
+
+    if (virtualCompletedIssueNumbers.has(dependencyNumber)) {
+      satisfiedByVirtualCompletions.push(dependencyNumber);
+      continue;
+    }
+
+    blockingDependencies.push(dependency);
+  }
+
+  const remainingBlockedBy = blockingDependencies.map(dependency => dependency.number);
+  return {
+    decision: {
+      blockedBy: dependencyNumbers,
+      satisfiedByClosedIssues,
+      satisfiedByVirtualCompletions,
+      remainingBlockedBy,
+    },
+    blockingDependencies,
+  };
+}
+
+/**
+ * @param {Partial<ChildAutomationResult>} extra
+ * @param {ChildDependencyDecision} decision
+ * @returns {Partial<ChildAutomationResult>}
+ */
+function withDependencyDecision(extra, decision) {
+  return {
+    ...extra,
+    ...createDependencyDecisionExtra(decision),
+  };
+}
+
+/**
+ * @param {ChildDependencyDecision} decision
+ * @returns {Partial<ChildAutomationResult>}
+ */
+function createDependencyDecisionExtra(decision) {
+  return decision.blockedBy.length === 0 ? {} : { dependencyDecision: decision };
+}
+
+/**
+ * @param {ChildAutomationResult} child
+ * @returns {boolean}
+ */
+function isLocalDryRunVirtualCompletion(child) {
+  return child.status === 'dry-run-completed' || child.status === 'merged';
 }
 
 /**
@@ -1628,6 +1927,10 @@ function getErrorMessage(error) {
  */
 function buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }) {
   if (publicationMode === 'dry-run') {
+    if (mode === 'auto-complete') {
+      return buildLocalAutoCompleteDryRunNextSteps({ children, parentPullRequest, mode });
+    }
+
     const completed = children.filter(child => child.status === 'dry-run-completed');
     if (completed.length > 0) {
       const completedIssueNumbers = completed.map(child => `#${child.issue.number}`).join(', ');
@@ -1682,6 +1985,58 @@ function buildLocalNextSteps({ mode, children, publicationMode, parentPullReques
   }
 
   return ['Review and merge the published Child Issue PRs before completing the umbrella PRD PR.'];
+}
+
+/**
+ * @param {object} options
+ * @param {ChildAutomationResult[]} options.children
+ * @param {ParentReviewResult | undefined} options.parentPullRequest
+ * @param {PrdAutomationMode} options.mode
+ * @returns {string[]}
+ */
+function buildLocalAutoCompleteDryRunNextSteps({ children, parentPullRequest, mode }) {
+  /** @type {string[]} */
+  const steps = [];
+  const completed = children.filter(child => child.status === 'dry-run-completed');
+  const merged = children.filter(child => child.status === 'merged');
+
+  if (completed.length > 0) {
+    const completedIssueNumbers = completed.map(child => `#${child.issue.number}`).join(', ');
+    const completedIssueLabel = completed.length === 1 ? 'child issue' : 'child issues';
+    steps.push(`Inspect local run evidence for ${completedIssueLabel} ${completedIssueNumbers}.`);
+  }
+
+  const waiting = children.find(child => child.status === 'waiting');
+  if (waiting !== undefined) {
+    steps.push(
+      `Wait for child issue #${waiting.issue.number} to finish review or checks, then rerun PRD ${mode}.`,
+    );
+    return steps;
+  }
+
+  const blocked = children.find(child => child.status === 'blocked');
+  if (blocked !== undefined) {
+    steps.push(
+      `Resolve the blocker for child issue #${blocked.issue.number}, then rerun PRD ${mode}.`,
+    );
+    return steps;
+  }
+
+  if (completed.length > 0) {
+    steps.push(
+      `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
+    );
+    return steps;
+  }
+
+  if (merged.length > 0) {
+    return [
+      'Inspect the local umbrella branch with finalized child PR commits applied.',
+      `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
+    ];
+  }
+
+  return buildLocalFollowUpWithoutRunnableChild(parentPullRequest, 'dry-run', mode);
 }
 
 /**
