@@ -1076,6 +1076,19 @@ describe('runPrdAutoComplete', () => {
           isDraft: false,
         }),
       ],
+      checksByRef: new Map([
+        [
+          'head-finalized',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
     });
     const git = createFakeGit({ cherryPickConflicts: ['src/conflicted.js'] });
     const codex = createFakeCodexRunner(git);
@@ -1433,6 +1446,17 @@ describe('runPrdAutoComplete', () => {
           ],
         ],
         [
+          'head-current',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+        [
           'sha-200',
           [
             {
@@ -1473,6 +1497,7 @@ describe('runPrdAutoComplete', () => {
     assert.match(codex.calls[1].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.readyPullRequests, [101, 200]);
     assert.equal(git.cherryPicks.length, 1);
     assert.deepEqual(
@@ -1530,6 +1555,63 @@ describe('runPrdAutoComplete', () => {
         },
       ],
     );
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'waiting']],
+    );
+    assert.equal(readParentPullRequest(result)?.status, 'waiting');
+    assert.deepEqual(result.localNextSteps, [
+      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+    ]);
+  });
+
+  it('13: local publish auto-complete reruns wait for hosted checks on existing finalized child PRs', async () => {
+    const cwd = await mkdtemp(
+      join(tmpdir(), 'pullops-prd-local-auto-complete-existing-finalized-checks-'),
+    );
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: finalizedChildPullRequestBody(34),
+          isDraft: false,
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.closedIssues, []);
+    assert.deepEqual(github.mergedPullRequests, []);
+    assert.deepEqual(git.cherryPicks, []);
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
       [[34, 'waiting']],

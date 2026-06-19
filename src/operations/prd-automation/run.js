@@ -73,6 +73,7 @@ export async function runPrdAutoComplete(context) {
         return await runLocalPublishedPullRequestOperation(localContext, {
           pullRequestNumber,
           operation,
+          resumeParentPrdAutomationAfterPrFinalize: false,
         });
       },
     });
@@ -124,13 +125,25 @@ function withDefaultLocalPrdRunGoal(context) {
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
+ * @param {{
+ *   pullRequestNumber: number,
+ *   operation: 'pr-review' | 'pr-address-review' | 'pr-finalize',
+ *   resumeParentPrdAutomationAfterPrFinalize?: boolean,
+ * }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function runLocalPublishedPullRequestOperation(context, { pullRequestNumber, operation }) {
+async function runLocalPublishedPullRequestOperation(
+  context,
+  {
+    pullRequestNumber,
+    operation,
+    resumeParentPrdAutomationAfterPrFinalize,
+  },
+) {
   const operationContext = createPullRequestOperationContext(context, {
     pullRequestNumber,
     operation,
+    resumeParentPrdAutomationAfterPrFinalize,
   });
 
   if (operation === 'pr-review') {
@@ -149,10 +162,21 @@ async function runLocalPublishedPullRequestOperation(context, { pullRequestNumbe
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
+ * @param {{
+ *   pullRequestNumber: number,
+ *   operation: 'pr-review' | 'pr-address-review' | 'pr-finalize',
+ *   resumeParentPrdAutomationAfterPrFinalize?: boolean,
+ * }} options
  * @returns {OperationRunnerContext}
  */
-function createPullRequestOperationContext(context, { pullRequestNumber, operation }) {
+function createPullRequestOperationContext(
+  context,
+  {
+    pullRequestNumber,
+    operation,
+    resumeParentPrdAutomationAfterPrFinalize,
+  },
+) {
   const configKey = readPullRequestOperationConfigKey(operation);
   const modelTier = context.config.operations[configKey].modelTier;
   return {
@@ -164,6 +188,9 @@ function createPullRequestOperationContext(context, { pullRequestNumber, operati
     },
     modelTier,
     model: context.config.runner.models[modelTier],
+    ...(resumeParentPrdAutomationAfterPrFinalize === undefined
+      ? {}
+      : { resumeParentPrdAutomationAfterPrFinalize }),
   };
 }
 
