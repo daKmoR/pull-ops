@@ -7,20 +7,23 @@ This is the compact source of truth for what each PullOps command and label mean
 Human-Facing Commands and Operation Labels are two request surfaces for the same
 PullOps Operation. Commands run locally by default. Labels dispatch workflow
 execution. Commands apply labels only with `--backend github-actions`.
+For `issue:implement`, the default local path runs implementation, automated
+review, and PR finalization; `--until operation` is the explicit
+implementation-only escape hatch.
 `Equivalent label` is filled only when the command is intended to produce the
 same GitHub result as applying that label; blank means the command is a local
 dry-run or another non-equivalent variant of the operation.
 Equivalence is about the resulting repository state and workflow intent; local
 actor, token, and audit metadata may differ from GitHub Actions execution.
 
-| Operation request (`pullops run ...`)           | Equivalent label            | Target         | Flow (implement -> review -> finalize)                 | Meaning                                              | Approval needed              |
-| ----------------------------------------------- | --------------------------- | -------------- | ------------------------------------------------------ | ---------------------------------------------------- | ---------------------------- |
-| `issue:implement <issue> --publish pr`          | `pullops:issue:implement`   | Concrete Issue | yes + create PR                                        | Implement an issue for PR review                     | Issue PR approval            |
-| `issue:implement <issue>`                       |                             | Concrete Issue | yes                                                    | Implement an issue for local review                  | None                         |
-| `prd:auto-advance <parent-issue> --publish pr`  | `pullops:prd:auto-advance`  | PRD Issue      | for every currently unblocked Child Issues + create PR | Implement current unblocked frontier and publish PRs | Every Child Issue PR         |
-| `prd:auto-advance <parent-issue>`               |                             | PRD Issue      | for every currently unblocked Child Issues             | Implement current unblocked frontier locally         | None                         |
-| `prd:auto-complete <parent-issue> --publish pr` | `pullops:prd:auto-complete` | PRD Issue      | for every Child Issue + create PR                      | Complete the PRD branch and publish the result       | Final Umbrella PR merge only |
-| `prd:auto-complete <parent-issue>`              |                             | PRD Issue      | for every Child Issue                                  | Complete the PRD branch locally                      | None                         |
+| Operation request (`pullops run ...`)           | Equivalent label            | Target         | Flow (implement -> review -> finalize)                 | Meaning                                                   | Approval needed              |
+| ----------------------------------------------- | --------------------------- | -------------- | ------------------------------------------------------ | --------------------------------------------------------- | ---------------------------- |
+| `issue:implement <issue> --publish pr`          | `pullops:issue:implement`   | Concrete Issue | implement -> review -> finalize -> create/update PR    | Implement an issue for PR review after local finalization | Issue PR approval            |
+| `issue:implement <issue>`                       |                             | Concrete Issue | implement -> review -> finalize                        | Implement an issue for local review and finalization      | None                         |
+| `prd:auto-advance <parent-issue> --publish pr`  | `pullops:prd:auto-advance`  | PRD Issue      | for every currently unblocked Child Issues + create PR | Implement current unblocked frontier and publish PRs      | Every Child Issue PR         |
+| `prd:auto-advance <parent-issue>`               |                             | PRD Issue      | for every currently unblocked Child Issues             | Implement current unblocked frontier locally              | None                         |
+| `prd:auto-complete <parent-issue> --publish pr` | `pullops:prd:auto-complete` | PRD Issue      | for every Child Issue + create PR                      | Complete the PRD branch and publish the result            | Final Umbrella PR merge only |
+| `prd:auto-complete <parent-issue>`              |                             | PRD Issue      | for every Child Issue                                  | Complete the PRD branch locally                           | None                         |
 
 `prd:auto-advance` drains only the currently unblocked Child Issues. Human merges
 close those Child Issues and can unlock the next frontier for a later execution.
@@ -50,7 +53,7 @@ through GitHub Actions.
 | Operation request (`pullops run ...`)                          | Equivalent label               | Target                                    | Flow                                                  | Meaning                                   |
 | -------------------------------------------------------------- | ------------------------------ | ----------------------------------------- | ----------------------------------------------------- | ----------------------------------------- |
 | `prd:prepare <parent-issue> --backend github-actions`          | `pullops:prd:prepare`          | PRD Issue                                 | prepare Umbrella Branch -> create/update Umbrella PR  | Dispatch PRD preparation.                 |
-| `issue:implement <issue> --backend github-actions`             | `pullops:issue:implement`      | Concrete Issue                            | implement -> review -> finalize -> create PR          | Dispatch issue implementation.            |
+| `issue:implement <issue> --backend github-actions`             | `pullops:issue:implement`      | Concrete Issue                            | implement -> review -> finalize -> create/update PR   | Dispatch issue implementation.            |
 | `prd:auto-advance <parent-issue> --backend github-actions`     | `pullops:prd:auto-advance`     | PRD Issue                                 | for every currently unblocked Child Issue + create PR | Dispatch PRD auto-advance.                |
 | `prd:auto-complete <parent-issue> --backend github-actions`    | `pullops:prd:auto-complete`    | PRD Issue                                 | for every Child Issue + create PR + integrate         | Dispatch PRD auto-complete.               |
 | `pr:review <pull-request> --backend github-actions`            | `pullops:pr:review`            | PullOps-Managed PR                        | review                                                | Dispatch automated PR review.             |

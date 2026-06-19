@@ -79,7 +79,8 @@ export const PULL_OPS_LABELS = [
   {
     name: PULL_OPS_OPERATION_LABELS.issueImplement,
     color: '5319E7',
-    description: 'Implement one concrete issue. Does not coordinate child issues.',
+    description:
+      'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.prReview,

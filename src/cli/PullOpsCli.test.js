@@ -213,7 +213,7 @@ test('run operation refreshes an existing GitHub Actions label before reapplying
   });
 });
 
-test('run issue:implement defaults to local dry-run operation execution', async () => {
+test('run issue:implement defaults to local finalized dry-run execution', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {import('../github/types.js').EditLabelsOptions[]} */
@@ -232,8 +232,9 @@ test('run issue:implement defaults to local dry-run operation execution', async 
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local dry-run accepted',
+        summary: 'local finalized dry-run accepted',
         publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
         target: context.target,
       };
     },
@@ -247,15 +248,16 @@ test('run issue:implement defaults to local dry-run operation execution', async 
   assert.equal(runnerCalls[0].operation, 'issue-implement');
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'dry-run');
-  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
   assert.equal(runnerCalls[0].runnerAdapter, 'codex-cli');
   runnerCalls[0].progress?.('Starting Codex runner.');
   assert.equal(stderr.text, '[pullops] Starting Codex runner.\n');
   assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local dry-run accepted',
+    summary: 'local finalized dry-run accepted',
     publicationMode: 'dry-run',
+    runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
 });
@@ -272,6 +274,7 @@ test('run issue:implement accepts local PR publication', async () => {
         status: 'accepted',
         summary: 'local PR publication accepted',
         publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
         target: context.target,
       };
     },
@@ -283,10 +286,54 @@ test('run issue:implement accepts local PR publication', async () => {
   assert.equal(runnerCalls.length, 1);
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'local PR publication accepted',
     publicationMode: 'publish',
+    runGoal: 'finalized',
+    target: { type: 'issue', number: 123 },
+  });
+});
+
+test('run issue:implement allows explicit operation-only local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local operation-only PR publication accepted',
+        publicationMode: context.publicationMode,
+        runGoal: context.runGoal,
+        target: context.target,
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'issue:implement',
+    '123',
+    '--publish',
+    'pr',
+    '--until',
+    'operation',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'local operation-only PR publication accepted',
+    publicationMode: 'publish',
+    runGoal: 'operation',
     target: { type: 'issue', number: 123 },
   });
 });
