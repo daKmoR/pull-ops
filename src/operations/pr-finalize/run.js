@@ -1413,8 +1413,8 @@ async function completeFinalizedHeadChecks(
     parentIssueNumber === undefined
       ? undefined
       : context.resumeParentPrdAutomationAfterPrFinalize === false
-      ? undefined
-      : await resumePrdAutomationForParentIssue(context, parentIssueNumber);
+        ? undefined
+        : await resumePrdAutomationForParentIssue(context, parentIssueNumber);
 
   return {
     status: 'accepted',

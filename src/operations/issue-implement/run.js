@@ -652,6 +652,8 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
         status: 'blocked',
         summary: validatedOutput.value.summary,
         issue: issue.number,
+        blockedPhase: 'implementation',
+        blockedOperation: 'issue:implement',
       };
     }
 
@@ -765,6 +767,8 @@ async function finalizePreparedIssueImplementLocalPublish(
       branch: branchName,
       baseBranch: preparation.baseBranch,
       publicationMode: 'publish',
+      blockedPhase: 'implementation',
+      blockedOperation: 'issue:implement',
       localRunRecord: runRecord.directory,
     };
   }
@@ -1109,6 +1113,8 @@ async function finalizePreparedIssueImplementDryRun(context, preparation, rawOut
       branch: branchName,
       baseBranch,
       publicationMode: 'dry-run',
+      blockedPhase: 'implementation',
+      blockedOperation: 'issue:implement',
       localRunRecord: runRecord.directory,
     };
   }
@@ -1203,7 +1209,13 @@ async function runLocalFinalizedIssuePipeline(
       validate: validatePrReviewOutput,
     });
     if (!reviewOutput.valid) {
-      return await blockLocalFinalizedRun(context, runRecord, preparation, reviewOutput.reason);
+      return await blockLocalFinalizedRun(context, {
+        runRecord,
+        preparation,
+        phase: 'review',
+        operationReference: 'pr:review',
+        reason: reviewOutput.reason,
+      });
     }
 
     operations.push('pr:review');
@@ -1220,13 +1232,14 @@ async function runLocalFinalizedIssuePipeline(
     });
 
     if (reviewOutput.value.status === 'blocked') {
-      return await blockLocalFinalizedRun(
-        context,
+      return await blockLocalFinalizedRun(context, {
         runRecord,
         preparation,
-        reviewOutput.value.failureReason,
-        reviewOutput.value.summary,
-      );
+        phase: 'review',
+        operationReference: 'pr:review',
+        reason: reviewOutput.value.failureReason,
+        summary: reviewOutput.value.summary,
+      });
     }
 
     await commitLocalReviewChangesIfPresent(
@@ -1243,12 +1256,13 @@ async function runLocalFinalizedIssuePipeline(
     }
 
     if (reviewCycle >= maxReviewCycles) {
-      return await blockLocalFinalizedRun(
-        context,
+      return await blockLocalFinalizedRun(context, {
         runRecord,
         preparation,
-        `Review Cycles are exhausted (${reviewCycle} / ${maxReviewCycles}).`,
-      );
+        phase: 'review',
+        operationReference: 'pr:review',
+        reason: `Review Cycles are exhausted (${reviewCycle} / ${maxReviewCycles}).`,
+      });
     }
 
     const addressPrompt = await buildLocalFollowUpPrompt(context, {
@@ -1268,7 +1282,13 @@ async function runLocalFinalizedIssuePipeline(
       validate: validatePrAddressReviewOutput,
     });
     if (!addressOutput.valid) {
-      return await blockLocalFinalizedRun(context, runRecord, preparation, addressOutput.reason);
+      return await blockLocalFinalizedRun(context, {
+        runRecord,
+        preparation,
+        phase: 'address-review',
+        operationReference: 'pr:address-review',
+        reason: addressOutput.reason,
+      });
     }
 
     operations.push('pr:address-review');
@@ -1285,13 +1305,14 @@ async function runLocalFinalizedIssuePipeline(
     });
 
     if (addressOutput.value.status === 'blocked') {
-      return await blockLocalFinalizedRun(
-        context,
+      return await blockLocalFinalizedRun(context, {
         runRecord,
         preparation,
-        addressOutput.value.failureReason,
-        addressOutput.value.summary,
-      );
+        phase: 'address-review',
+        operationReference: 'pr:address-review',
+        reason: addressOutput.value.failureReason,
+        summary: addressOutput.value.summary,
+      });
     }
 
     const addressCoverage = validateAddressReviewFeedbackCoverage(
@@ -1299,12 +1320,13 @@ async function runLocalFinalizedIssuePipeline(
       createLocalReviewFeedbackIds(reviewOutput.value),
     );
     if (!addressCoverage.valid) {
-      return await blockLocalFinalizedRun(
-        context,
+      return await blockLocalFinalizedRun(context, {
         runRecord,
         preparation,
-        `Invalid Address Review Output: ${addressCoverage.reason}`,
-      );
+        phase: 'address-review',
+        operationReference: 'pr:address-review',
+        reason: `Invalid Address Review Output: ${addressCoverage.reason}`,
+      });
     }
 
     if (await context.gitClient.hasChanges()) {
@@ -1332,7 +1354,13 @@ async function runLocalFinalizedIssuePipeline(
     validate: validatePrFinalizeOutput,
   });
   if (!finalizeOutput.valid) {
-    return await blockLocalFinalizedRun(context, runRecord, preparation, finalizeOutput.reason);
+    return await blockLocalFinalizedRun(context, {
+      runRecord,
+      preparation,
+      phase: 'finalization',
+      operationReference: 'pr:finalize',
+      reason: finalizeOutput.reason,
+    });
   }
 
   operations.push('pr:finalize');
@@ -1349,13 +1377,14 @@ async function runLocalFinalizedIssuePipeline(
   });
 
   if (finalizeOutput.value.status === 'blocked') {
-    return await blockLocalFinalizedRun(
-      context,
+    return await blockLocalFinalizedRun(context, {
       runRecord,
       preparation,
-      finalizeOutput.value.failureReason,
-      finalizeOutput.value.summary,
-    );
+      phase: 'finalization',
+      operationReference: 'pr:finalize',
+      reason: finalizeOutput.value.failureReason,
+      summary: finalizeOutput.value.summary,
+    });
   }
 
   const changedFiles = await context.gitClient.getChangedFilesSinceBase(
@@ -1366,12 +1395,13 @@ async function runLocalFinalizedIssuePipeline(
     changedFiles,
   });
   if (!commitPlan.valid) {
-    return await blockLocalFinalizedRun(
-      context,
+    return await blockLocalFinalizedRun(context, {
       runRecord,
       preparation,
-      `Invalid PR Finalize Planner Output: ${commitPlan.reason}`,
-    );
+      phase: 'finalization',
+      operationReference: 'pr:finalize',
+      reason: `Invalid PR Finalize Planner Output: ${commitPlan.reason}`,
+    });
   }
 
   const reviewedHeadSha = await readLocalFinalizedHeadSha(context);
@@ -1637,13 +1667,19 @@ async function writeLocalFollowUpEvidence(runRecord, operationReference, index, 
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
- * @param {IssueImplementPreparation & { ready: true }} preparation
- * @param {string} reason
- * @param {string} [summary]
+ * @param {object} options
+ * @param {{ directory: string }} options.runRecord
+ * @param {IssueImplementPreparation & { ready: true }} options.preparation
+ * @param {string} options.phase
+ * @param {string} options.operationReference
+ * @param {string} options.reason
+ * @param {string} [options.summary]
  * @returns {Promise<{ status: 'blocked', output: Record<string, unknown> }>}
  */
-async function blockLocalFinalizedRun(context, runRecord, preparation, reason, summary = reason) {
+async function blockLocalFinalizedRun(
+  context,
+  { runRecord, preparation, phase, operationReference, reason, summary = reason },
+) {
   await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
   return {
     status: 'blocked',
@@ -1655,6 +1691,8 @@ async function blockLocalFinalizedRun(context, runRecord, preparation, reason, s
       baseBranch: preparation.baseBranch,
       publicationMode: context.publicationMode ?? 'dry-run',
       runGoal: 'finalized',
+      blockedPhase: phase,
+      blockedOperation: operationReference,
       localRunRecord: runRecord.directory,
     },
   };
@@ -1725,7 +1763,13 @@ async function blockLocalFinalizedRewriteFailure(
     ].join(' ');
   }
 
-  return await blockLocalFinalizedRun(context, runRecord, preparation, blockReason);
+  return await blockLocalFinalizedRun(context, {
+    runRecord,
+    preparation,
+    phase: 'finalization',
+    operationReference: 'pr:finalize',
+    reason: blockReason,
+  });
 }
 
 /**
