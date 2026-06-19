@@ -16,6 +16,8 @@ Responsibilities:
 - Defer feedback only when it is stale, irrelevant, or outside this PR, and include a reason.
 - Keep changes focused on the linked issue and the supplied feedback.
 
+Use /implement
+
 Do not create commits, push, approve, request changes, edit labels, update the PR body, or post GitHub comments. PullOps will do those after validating your output.
 
 Final response must be only JSON:

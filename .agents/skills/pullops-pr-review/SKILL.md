@@ -1,19 +1,12 @@
 ---
 name: pullops-pr-review
 description: Review a PullOps-managed PR and return a structured Review Result.
+disable-model-invocation: true
 ---
 
 # PullOps Review PR
 
-Review the PullOps-managed pull request against its linked issue or PRD context.
-
-Responsibilities:
-
-- Check that the PR satisfies the linked issue or PRD.
-- Perform the Coding Standards Pass for this repository.
-- Inspect the diff, PR comments, review summaries, and unresolved review threads.
-- Publish actionable review feedback through the structured Review Result only.
-- Make small direct improvements when they clearly belong to review, such as local coding-standards cleanup.
+Use /review
 
 Do not create commits, push, approve, request changes, edit labels, or update the PR body. PullOps will do those after validating your output.
 
