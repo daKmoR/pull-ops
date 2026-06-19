@@ -28,6 +28,7 @@ import {
  * @typedef {import('../../git/types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('../../git/types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
  * @typedef {import('../../git/types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
+ * @typedef {import('../../git/types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../../git/types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('../../git/types.js').ResetHardToRevisionOptions} ResetHardToRevisionOptions
@@ -2341,6 +2342,99 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.pushes, []);
     assert.equal(github.createdPullRequests.length, 0);
   });
+
+  it('40: local finalized PR publication reports stale branch leases as blocked publication', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-stale-lease-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Publish finalized PR',
+      labels: [],
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequests: [
+        {
+          number: 7,
+          title: 'Umbrella PR',
+          url: 'https://github.com/acme/widgets/pull/7',
+          headRefName: 'pullops/prd-1',
+          body: '',
+          isDraft: true,
+        },
+      ],
+    });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, false, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+      pushBranchWithLeaseResults: [{ status: 'stale-lease' }],
+    });
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented finalized publication.',
+          changes: ['Added delayed publication.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Refs: #42', 'PRD: #1'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.branch, 'pullops/prd-1-issue-42');
+    assert.equal(result.baseBranch, 'pullops/prd-1');
+    assert.equal(result.blockedPhase, 'publication');
+    assert.equal(result.blockedOperation, 'issue:implement');
+    assert.match(String(result.summary), /Remote branch pullops\/prd-1-issue-42 changed/);
+    assert.equal(github.createdPullRequests.length, 0);
+    assert.deepEqual(github.readyPullRequests, []);
+    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/prd-1-issue-42' }]);
+    assert.match(
+      await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
+      /Remote branch pullops\/prd-1-issue-42 changed/,
+    );
+  });
 });
 
 /**
@@ -2552,6 +2646,7 @@ function createFakeGitHub({
  *   currentHeadSha?: string,
  *   rewrittenTreeHash?: string,
  *   rewrittenHeadSha?: string,
+ *   pushBranchWithLeaseResults?: GitPushWithLeaseResult[],
  * }} [options]
  * @returns {{
  *   branches: CreateBranchOptions[];
@@ -2580,6 +2675,7 @@ function createFakeGit({
   currentHeadSha = 'head-current',
   rewrittenTreeHash = currentTreeHash,
   rewrittenHeadSha = currentHeadSha,
+  pushBranchWithLeaseResults = [],
 } = {}) {
   /** @type {CreateBranchOptions[]} */
   const branches = [];
@@ -2694,6 +2790,11 @@ function createFakeGit({
           throw new Error('push with lease failed');
         }
         forcePushes.push(options);
+        const nextResult = pushBranchWithLeaseResults.shift();
+        if (nextResult !== undefined) {
+          return nextResult;
+        }
+
         return {
           status: 'pushed',
           headSha: currentHeadSha,

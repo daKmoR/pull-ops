@@ -931,9 +931,25 @@ async function publishIssueImplementPullRequest(
   if (finalizedBranch) {
     const pushResult = await context.gitClient.pushBranchWithLease({ branchName });
     if (pushResult.status === 'stale-lease') {
-      throw new Error(
-        `Remote branch ${branchName} changed during finalized publication. Local Run Record: ${localRunRecord}`,
+      const reason = `Remote branch ${branchName} changed during finalized publication.`;
+      await writeLocalRunArtifact(
+        { directory: localRunRecord },
+        'failure-reason.txt',
+        `${reason}\n`,
       );
+      return {
+        status: 'blocked',
+        summary: reason,
+        failureReason: reason,
+        issue: issue.number,
+        branch: branchName,
+        baseBranch,
+        publicationMode: context.publicationMode ?? 'publish',
+        runGoal: 'finalized',
+        blockedPhase: 'publication',
+        blockedOperation: 'issue:implement',
+        localRunRecord,
+      };
     }
   } else {
     await context.gitClient.pushBranch({ branchName });
