@@ -45,6 +45,9 @@ import {
 /** @type {ReadonlySet<string>} */
 const ACTIVE_CHILD_ISSUE_LABELS = new Set([PULL_OPS_OPERATION_LABELS.issueImplement]);
 
+/** @type {ReadonlySet<string>} */
+const STALE_STATUS_LABELS = new Set(PULL_OPS_STALE_STATUS_LABEL_NAMES);
+
 /**
  * @param {OperationRunnerContext} context
  * @param {{ parentIssueNumber: number, mode: PrdAutomationMode }} options
@@ -61,17 +64,24 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @param {number} options.parentIssueNumber
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoAdvance(
   context,
-  { parentIssueNumber, runChildIssue, runParentPullRequestOperation },
+  {
+    parentIssueNumber,
+    runChildIssue,
+    runParentPullRequestOperation,
+    runChildPullRequestOperation,
+  },
 ) {
   return await coordinateLocalPrdAutomation(context, {
     parentIssueNumber,
     mode: 'auto-advance',
     runChildIssue,
     runParentPullRequestOperation,
+    runChildPullRequestOperation,
   });
 }
 
@@ -81,17 +91,24 @@ export async function coordinateLocalPrdAutoAdvance(
  * @param {number} options.parentIssueNumber
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoComplete(
   context,
-  { parentIssueNumber, runChildIssue, runParentPullRequestOperation },
+  {
+    parentIssueNumber,
+    runChildIssue,
+    runParentPullRequestOperation,
+    runChildPullRequestOperation,
+  },
 ) {
   return await coordinateLocalPrdAutomation(context, {
     parentIssueNumber,
     mode: 'auto-complete',
     runChildIssue,
     runParentPullRequestOperation,
+    runChildPullRequestOperation,
   });
 }
 
@@ -102,11 +119,18 @@ export async function coordinateLocalPrdAutoComplete(
  * @param {PrdAutomationMode} options.mode
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
  * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 async function coordinateLocalPrdAutomation(
   context,
-  { parentIssueNumber, mode, runChildIssue, runParentPullRequestOperation },
+  {
+    parentIssueNumber,
+    mode,
+    runChildIssue,
+    runParentPullRequestOperation,
+    runChildPullRequestOperation,
+  },
 ) {
   const publicationMode = context.publicationMode ?? 'dry-run';
   const operationReference = readLocalPrdOperationReference(mode);
@@ -176,6 +200,7 @@ async function coordinateLocalPrdAutomation(
         parentBranchName,
         childIssues,
         runChildIssue,
+        runChildPullRequestOperation,
       });
       children.push(...published.children);
       preserveInspectableBranchState = published.preserveInspectableBranchState;
@@ -188,6 +213,7 @@ async function coordinateLocalPrdAutomation(
           mode,
           publicationMode,
           runChildIssue,
+          runChildPullRequestOperation,
         });
         children.push(localResult.child);
         preserveInspectableBranchState =
@@ -834,6 +860,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
  *   preserveInspectableBranchState: boolean,
@@ -841,7 +868,13 @@ async function coordinateLocalAutoCompleteDryRunChildren(
  */
 async function coordinateLocalAutoCompletePublishChildren(
   context,
-  { parentIssue, parentBranchName, childIssues, runChildIssue },
+  {
+    parentIssue,
+    parentBranchName,
+    childIssues,
+    runChildIssue,
+    runChildPullRequestOperation,
+  },
 ) {
   /** @type {ChildAutomationResult[]} */
   const children = [];
@@ -871,6 +904,7 @@ async function coordinateLocalAutoCompletePublishChildren(
         mode: 'auto-complete',
         publicationMode: 'publish',
         runChildIssue,
+        runChildPullRequestOperation,
         dependencyFacts,
       });
       children.push(localResult.child);
@@ -959,6 +993,7 @@ function recordLocalDryRunChildResult({
  * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} [options.dependencyFacts]
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
  */
@@ -971,6 +1006,7 @@ async function coordinateLocalChildIssue(
     mode,
     publicationMode,
     runChildIssue,
+    runChildPullRequestOperation,
     dependencyFacts,
   },
 ) {
@@ -1030,6 +1066,7 @@ async function coordinateLocalChildIssue(
             parentBranchName,
             pullRequest,
             publicationMode,
+            runChildPullRequestOperation,
           })
         : inspectLocalChildPullRequest({
             childIssue,
@@ -1111,6 +1148,8 @@ async function coordinateLocalChildIssue(
       parentBranchName,
       pullRequest,
       publicationMode,
+      runChildPullRequestOperation,
+      requireFinalizedHeadChecks: true,
     });
     return localChildAutomation({
       child: {
@@ -1288,11 +1327,21 @@ function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullReques
  * @param {string} options.parentBranchName
  * @param {GitHubPullRequest} options.pullRequest
  * @param {'dry-run' | 'publish'} options.publicationMode
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {boolean} [options.requireFinalizedHeadChecks]
  * @returns {Promise<ChildAutomationResult>}
  */
 async function coordinateLocalChildPullRequest(
   context,
-  { childIssue, parentIssue, parentBranchName, pullRequest, publicationMode },
+  {
+    childIssue,
+    parentIssue,
+    parentBranchName,
+    pullRequest,
+    publicationMode,
+    runChildPullRequestOperation,
+    requireFinalizedHeadChecks = false,
+  },
 ) {
   if (pullRequest.baseRefName !== parentBranchName) {
     return childPullRequestResult(
@@ -1314,6 +1363,17 @@ async function coordinateLocalChildPullRequest(
   }
 
   if (!isFinalizedForRebase(state)) {
+    if (publicationMode === 'publish' && runChildPullRequestOperation !== undefined) {
+      return await continuePublishedLocalChildPullRequest(context, {
+        childIssue,
+        parentIssue,
+        parentBranchName,
+        pullRequest,
+        runChildPullRequestOperation,
+        requireFinalizedHeadChecks,
+      });
+    }
+
     return childPullRequestResult(
       childIssue,
       pullRequest,
@@ -1329,7 +1389,116 @@ async function coordinateLocalChildPullRequest(
     pullRequest,
     finalizedHeadSha: state.finalizedHeadSha,
     publicationMode,
+    requireFinalizedHeadChecks,
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {GitHubIssue} options.childIssue
+ * @param {GitHubIssue} options.parentIssue
+ * @param {string} options.parentBranchName
+ * @param {GitHubPullRequest} options.pullRequest
+ * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} options.runChildPullRequestOperation
+ * @param {boolean} options.requireFinalizedHeadChecks
+ * @returns {Promise<ChildAutomationResult>}
+ */
+async function continuePublishedLocalChildPullRequest(
+  context,
+  {
+    childIssue,
+    parentIssue,
+    parentBranchName,
+    pullRequest,
+    runChildPullRequestOperation,
+    requireFinalizedHeadChecks,
+  },
+) {
+  /** @type {GitHubPullRequest} */
+  let currentPullRequest = pullRequest;
+
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    const nextOperation = selectLocalChildPullRequestOperation(currentPullRequest);
+    if (nextOperation === undefined) {
+      break;
+    }
+
+    if (!isLocalChildPullRequestOperation(nextOperation)) {
+      return childPullRequestResult(
+        childIssue,
+        currentPullRequest,
+        'blocked',
+        `Child PR #${currentPullRequest.number} needs ${nextOperation} before local auto-complete can continue.`,
+        {
+          nextOperation,
+        },
+      );
+    }
+
+    const output = await runChildPullRequestOperation(currentPullRequest.number, nextOperation);
+    if (output.status === 'blocked' || output.status === 'refused') {
+      return childPullRequestResult(
+        childIssue,
+        currentPullRequest,
+        'blocked',
+        String(output.summary ?? `Child PR #${currentPullRequest.number} could not continue.`),
+        {
+          nextOperation,
+        },
+      );
+    }
+
+    const finalized = readRecordProperty(output, 'prFinalize');
+    if (finalized?.waiting === true) {
+      return childPullRequestResult(
+        childIssue,
+        currentPullRequest,
+        'waiting',
+        String(
+          output.summary ??
+            `Child PR #${currentPullRequest.number} is waiting for finalized-head checks.`,
+        ),
+        {
+          nextOperation,
+        },
+      );
+    }
+
+    currentPullRequest = await context.githubClient.getPullRequest(currentPullRequest.number);
+    const state = readManagedPrState(currentPullRequest.body);
+    if (isFinalizedForRebase(state)) {
+      return await mergeFinalizedChildPullRequestLocally(context, {
+        childIssue,
+        parentIssue,
+        parentBranchName,
+        pullRequest: currentPullRequest,
+        finalizedHeadSha: state.finalizedHeadSha,
+        publicationMode: 'publish',
+        requireFinalizedHeadChecks,
+      });
+    }
+  }
+
+  const state = readManagedPrState(currentPullRequest.body);
+  if (isFinalizedForRebase(state)) {
+    return await mergeFinalizedChildPullRequestLocally(context, {
+      childIssue,
+      parentIssue,
+      parentBranchName,
+      pullRequest: currentPullRequest,
+      finalizedHeadSha: state.finalizedHeadSha,
+      publicationMode: 'publish',
+      requireFinalizedHeadChecks,
+    });
+  }
+
+  return childPullRequestResult(
+    childIssue,
+    currentPullRequest,
+    'waiting',
+    `Child PR #${currentPullRequest.number} is waiting for human review or merge gates.`,
+  );
 }
 
 /**
@@ -1508,11 +1677,20 @@ async function mergeFinalizedChildPullRequest(
  * @param {GitHubPullRequest} options.pullRequest
  * @param {string} options.finalizedHeadSha
  * @param {'dry-run' | 'publish'} options.publicationMode
+ * @param {boolean} [options.requireFinalizedHeadChecks]
  * @returns {Promise<ChildAutomationResult>}
  */
 async function mergeFinalizedChildPullRequestLocally(
   context,
-  { childIssue, parentIssue, parentBranchName, pullRequest, finalizedHeadSha, publicationMode },
+  {
+    childIssue,
+    parentIssue,
+    parentBranchName,
+    pullRequest,
+    finalizedHeadSha,
+    publicationMode,
+    requireFinalizedHeadChecks = false,
+  },
 ) {
   if (context.gitClient.cherryPickCommitOntoBranch === undefined) {
     return childPullRequestResult(
@@ -1534,6 +1712,16 @@ async function mergeFinalizedChildPullRequestLocally(
 
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyCheckState(checks);
+  if (checkState === 'absent' && requireFinalizedHeadChecks) {
+    return childPullRequestResult(
+      childIssue,
+      pullRequest,
+      'waiting',
+      `Child PR #${pullRequest.number} is waiting for finalized-head checks to appear.`,
+      { checks: checks.length },
+    );
+  }
+
   if (checkState === 'pending') {
     return childPullRequestResult(
       childIssue,
@@ -2065,6 +2253,69 @@ function readPrdAutomationMode(labels) {
  */
 function hasAnyLabel(labels, candidates) {
   return labels.some(label => candidates.has(label));
+}
+
+/** @type {ReadonlySet<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+const LOCAL_CHILD_PULL_REQUEST_OPERATIONS = new Set([
+  'pr-review',
+  'pr-address-review',
+  'pr-finalize',
+]);
+
+/**
+ * @param {string} operation
+ * @returns {operation is 'pr-review' | 'pr-address-review' | 'pr-finalize'}
+ */
+function isLocalChildPullRequestOperation(operation) {
+  return LOCAL_CHILD_PULL_REQUEST_OPERATIONS.has(
+    /** @type {'pr-review' | 'pr-address-review' | 'pr-finalize'} */ (operation),
+  );
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @returns {string | undefined}
+ */
+function selectLocalChildPullRequestOperation(pullRequest) {
+  const labels = pullRequest.labels ?? [];
+  for (const label of labels) {
+    if (STALE_STATUS_LABELS.has(label) || label === PULL_OPS_STATUS_LABELS.humanRequired) {
+      continue;
+    }
+
+    if (
+      label.startsWith('pullops:pr:') &&
+      label !== PULL_OPS_OPERATION_LABELS.prReview &&
+      label !== PULL_OPS_OPERATION_LABELS.prAddressReview &&
+      label !== PULL_OPS_OPERATION_LABELS.prFinalize
+    ) {
+      return label;
+    }
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if (isFinalizedForRebase(state)) {
+    return undefined;
+  }
+
+  if (state.reviewedTreeHash !== undefined || state.status === 'Review approved') {
+    return 'pr-finalize';
+  }
+
+  if (state.status === 'Changes requested') {
+    return 'pr-address-review';
+  }
+
+  if (
+    state.status === 'Review feedback addressed' ||
+    state.status === 'Draft automation' ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.issueImplement ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+  ) {
+    return 'pr-review';
+  }
+
+  return undefined;
 }
 
 /**
