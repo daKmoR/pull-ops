@@ -14,8 +14,8 @@ Operation Labels request work and are namespaced by target kind:
 - `pullops:prd:auto-complete` drives the PRD branch hands-off: it implements,
   reviews, finalizes, and integrates unblocked child issues until the PRD branch
   is complete and the umbrella PR is finalized, or until automation is blocked.
-- `pullops:issue:implement` implements one concrete issue; it does not coordinate
-  or implement child issues.
+- `pullops:issue:implement` implements one concrete issue through review and
+  finalization; it does not coordinate or implement child issues.
 - `pullops:pr:review` runs automated review for a PullOps-managed PR.
 
 PullOps uses `pullops:human-required` only when automation needs maintainer
