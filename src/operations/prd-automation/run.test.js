@@ -965,7 +965,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('05: local auto-complete includes local auto-advance for runnable children', async () => {
+  it('05: local auto-complete integrates finalized dry-run child branches locally', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-advance-'));
     const parent = createIssue({
       number: 12,
@@ -1000,11 +1000,19 @@ describe('runPrdAutoComplete', () => {
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
-      [[34, 'dry-run-completed']],
+      [[34, 'merged']],
     );
-    assert.equal(git.currentBranch, 'pullops/prd-12-issue-34');
+    assert.deepEqual(git.cherryPicks, [
+      {
+        branchName: 'pullops/prd-12',
+        baseBranch: 'main',
+        commitSha: 'head-current',
+      },
+    ]);
+    assert.equal(git.currentBranch, 'pullops/prd-12');
     assert.deepEqual(result.localNextSteps, [
       'Inspect local run evidence for child issue #34.',
+      'Inspect the local umbrella branch with finalized child commits applied.',
       'Publish with `pullops run prd:auto-complete <parent-issue-number> --publish pr` after reviewing the local branch.',
     ]);
   });
@@ -1198,16 +1206,26 @@ describe('runPrdAutoComplete', () => {
         child.dependencyDecision?.remainingBlockedBy,
       ]),
       [
-        [34, 'dry-run-completed', undefined, undefined],
-        [35, 'dry-run-completed', [34], []],
-        [36, 'dry-run-completed', [35], []],
+        [34, 'merged', undefined, undefined],
+        [35, 'merged', [34], []],
+        [36, 'merged', [35], []],
         [37, 'blocked', [], [99]],
       ],
     );
+    assert.deepEqual(
+      git.cherryPicks.map(cherryPick => [cherryPick.branchName, cherryPick.commitSha]),
+      [
+        ['pullops/prd-12', 'head-current'],
+        ['pullops/prd-12', 'head-current'],
+        ['pullops/prd-12', 'head-current'],
+      ],
+    );
+    assert.equal(git.currentBranch, 'pullops/prd-12');
     assert.deepEqual(result.virtualCompletedChildren, [34, 35, 36]);
     assert.deepEqual(result.remainingBlockedChildren, [37]);
     assert.deepEqual(result.localNextSteps, [
       'Inspect local run evidence for child issues #34, #35, #36.',
+      'Inspect the local umbrella branch with finalized child commits applied.',
       'Resolve the blocker for child issue #37, then rerun PRD auto-complete.',
     ]);
 
@@ -1779,9 +1797,17 @@ describe('runPrdAutoComplete', () => {
       ]),
       [
         [34, 'dry-run-completed', undefined, undefined],
-        [35, 'dry-run-completed', [34], []],
+        [35, 'merged', [34], []],
       ],
     );
+    assert.deepEqual(git.cherryPicks, [
+      {
+        branchName: 'pullops/prd-12',
+        baseBranch: 'main',
+        commitSha: 'head-current',
+      },
+    ]);
+    assert.equal(git.currentBranch, 'pullops/prd-12');
     assert.deepEqual(result.virtualCompletedChildren, [34, 35]);
     assert.deepEqual(result.remainingBlockedChildren, []);
     assert.deepEqual(git.branchApplicationChecks, [

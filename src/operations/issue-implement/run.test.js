@@ -1243,7 +1243,7 @@ describe('runIssueImplement', () => {
       },
     });
     const git = createFakeGit({
-      currentBranch: 'pullops/issue-42',
+      currentBranch: 'main',
       hasChangesResults: [false, false],
       commitsSinceBase: [
         {
@@ -1561,6 +1561,7 @@ describe('runIssueImplement', () => {
       codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
       ['pullops-pr-review', 'pullops-pr-finalize'],
     );
+    assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.deepEqual(git.commits, []);
     assert.equal(git.rewrites.length, 1);
     assert.equal(git.rewrites[0].push, false);

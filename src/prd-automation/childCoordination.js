@@ -234,6 +234,10 @@ async function coordinateLocalPrdAutomation(
       await checkoutLocalPrdBase(context, { parentBranchName });
     }
 
+    const parentReviewFacts =
+      completeThroughDependencyFrontiers && publicationMode === 'dry-run'
+        ? createLocalDryRunParentReviewFacts({ parentIssue, childIssues, children })
+        : { parentIssue, childIssues };
     const parentPullRequest =
       completeThroughDependencyFrontiers &&
       publicationMode === 'publish' &&
@@ -246,10 +250,10 @@ async function coordinateLocalPrdAutomation(
             runParentPullRequestOperation,
           })
         : await requestUmbrellaReviewIfComplete(context, {
-            parentIssue,
+            parentIssue: parentReviewFacts.parentIssue,
             parentIssueNumber: parentIssue.number,
             parentBranchName,
-            childIssues,
+            childIssues: parentReviewFacts.childIssues,
             requestReview: false,
           });
 
@@ -875,6 +879,41 @@ async function coordinateLocalAutoCompleteDryRunChildren(
 }
 
 /**
+ * @param {object} options
+ * @param {GitHubIssue} options.parentIssue
+ * @param {GitHubIssue[]} options.childIssues
+ * @param {ChildAutomationResult[]} options.children
+ * @returns {{ parentIssue: GitHubIssue, childIssues: GitHubIssue[] }}
+ */
+function createLocalDryRunParentReviewFacts({ parentIssue, childIssues, children }) {
+  const completedIssueNumbers = new Set(
+    children.filter(isLocalDryRunVirtualCompletion).map(child => child.issue.number),
+  );
+
+  return {
+    parentIssue: {
+      ...parentIssue,
+      subIssues: parentIssue.subIssues.map(reference =>
+        completedIssueNumbers.has(reference.number)
+          ? {
+              ...reference,
+              state: 'CLOSED',
+            }
+          : reference,
+      ),
+    },
+    childIssues: childIssues.map(childIssue =>
+      completedIssueNumbers.has(childIssue.number)
+        ? {
+            ...childIssue,
+            state: 'CLOSED',
+          }
+        : childIssue,
+    ),
+  };
+}
+
+/**
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {GitHubIssue} options.parentIssue
@@ -1214,6 +1253,24 @@ async function coordinateLocalChildIssue(
     },
   });
 
+  if (mode === 'auto-complete' && publicationMode === 'dry-run' && output.status !== 'blocked') {
+    const integrated = await integrateLocalDryRunChildBranch(context, {
+      parentBranchName,
+      childIssue,
+      childBranchName: child.branch ?? childBranchName,
+      output,
+      localRunRecord: child.localRunRecord,
+    });
+    return localChildAutomation({
+      child: {
+        ...integrated,
+        ...dependencyDecisionExtra,
+      },
+      stop: integrated.status === 'blocked',
+      restorePrdBase: true,
+    });
+  }
+
   if (mode === 'auto-complete' && publicationMode === 'publish' && output.status !== 'blocked') {
     const pullRequest = await context.githubClient.findOpenPullRequestByHead(childBranchName);
     if (pullRequest === undefined) {
@@ -1257,6 +1314,111 @@ async function coordinateLocalChildIssue(
     stop: output.status === 'blocked',
     restorePrdBase: publicationMode === 'publish',
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {string} options.parentBranchName
+ * @param {GitHubIssue} options.childIssue
+ * @param {string} options.childBranchName
+ * @param {Record<string, unknown>} options.output
+ * @param {string | undefined} options.localRunRecord
+ * @returns {Promise<ChildAutomationResult>}
+ */
+async function integrateLocalDryRunChildBranch(
+  context,
+  { parentBranchName, childIssue, childBranchName, output, localRunRecord },
+) {
+  if (context.gitClient.cherryPickCommitOntoBranch === undefined) {
+    return childResult({
+      issue: childIssue,
+      status: 'blocked',
+      summary: 'Git client cannot locally integrate finalized child dry-run branches.',
+      extra: {
+        branch: childBranchName,
+        publicationMode: 'dry-run',
+        ...(localRunRecord === undefined ? {} : { localRunRecord }),
+        blockedPhase: 'integration',
+      },
+    });
+  }
+
+  const finalizedHeadSha = await readLocalDryRunChildFinalizedHeadSha(context, {
+    childBranchName,
+    output,
+  });
+  if (finalizedHeadSha === undefined) {
+    return childResult({
+      issue: childIssue,
+      status: 'blocked',
+      summary: `Child issue #${childIssue.number} completed locally, but PullOps could not identify the finalized child branch head.`,
+      extra: {
+        branch: childBranchName,
+        publicationMode: 'dry-run',
+        ...(localRunRecord === undefined ? {} : { localRunRecord }),
+        blockedPhase: 'integration',
+      },
+    });
+  }
+
+  const integration = await context.gitClient.cherryPickCommitOntoBranch({
+    branchName: parentBranchName,
+    baseBranch: context.config.baseBranch,
+    commitSha: finalizedHeadSha,
+    committer: GITHUB_ACTIONS_BOT_AUTHOR,
+  });
+
+  if (integration.status === 'conflicts') {
+    return childResult({
+      issue: childIssue,
+      status: 'blocked',
+      summary: `Child issue #${childIssue.number} could not be merged locally into ${parentBranchName} without conflicts.`,
+      extra: {
+        branch: childBranchName,
+        publicationMode: 'dry-run',
+        ...(localRunRecord === undefined ? {} : { localRunRecord }),
+        mergeMethod: 'local-cherry-pick',
+        conflictedFiles: integration.conflictedFiles,
+        blockedPhase: 'integration',
+      },
+    });
+  }
+
+  return childResult({
+    issue: childIssue,
+    status: 'merged',
+    summary: `Merged finalized local dry-run child issue #${childIssue.number} into ${parentBranchName}.`,
+    extra: {
+      branch: childBranchName,
+      publicationMode: 'dry-run',
+      ...(localRunRecord === undefined ? {} : { localRunRecord }),
+      mergeMethod: 'local-cherry-pick',
+      finalizedHeadSha,
+      headSha: integration.headSha,
+      treeHash: integration.treeHash,
+    },
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ childBranchName: string, output: Record<string, unknown> }} options
+ * @returns {Promise<string | undefined>}
+ */
+async function readLocalDryRunChildFinalizedHeadSha(context, { childBranchName, output }) {
+  const prFinalize = readRecordProperty(output, 'prFinalize');
+  const finalizedHead = prFinalize?.finalizedHead;
+  if (typeof finalizedHead === 'string' && finalizedHead.trim() !== '') {
+    return finalizedHead;
+  }
+
+  const currentBranch = await context.gitClient.getCurrentBranch?.();
+  if (currentBranch !== undefined && currentBranch !== childBranchName) {
+    return undefined;
+  }
+
+  return await context.gitClient.getCurrentHeadSha();
 }
 
 /**
@@ -2586,13 +2748,17 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
   const parts = [`Ran local PRD ${mode} for issue #${parentIssue.number}.`];
 
   if (publicationMode === 'dry-run') {
-    parts.push(`${dryRunCompleted} child issue dry-run(s) completed.`);
+    parts.push(`${dryRunCompleted + merged} child issue dry-run(s) completed.`);
   } else {
     parts.push(`${published} child issue PR(s) published.`);
   }
 
   if (mode === 'auto-complete') {
-    parts.push(`${merged} finalized child PR(s) merged locally.`);
+    parts.push(
+      publicationMode === 'dry-run'
+        ? `${merged} finalized child branch(es) merged locally.`
+        : `${merged} finalized child PR(s) merged locally.`,
+    );
   }
 
   if (blocked > 0) {
@@ -2841,13 +3007,19 @@ function buildLocalNextSteps({ mode, children, publicationMode, parentPullReques
 function buildLocalAutoCompleteDryRunNextSteps({ children, parentPullRequest, mode }) {
   /** @type {string[]} */
   const steps = [];
-  const completed = children.filter(child => child.status === 'dry-run-completed');
   const merged = children.filter(child => child.status === 'merged');
+  const completed = children.filter(
+    child => child.status === 'dry-run-completed' || child.status === 'merged',
+  );
 
   if (completed.length > 0) {
     const completedIssueNumbers = completed.map(child => `#${child.issue.number}`).join(', ');
     const completedIssueLabel = completed.length === 1 ? 'child issue' : 'child issues';
     steps.push(`Inspect local run evidence for ${completedIssueLabel} ${completedIssueNumbers}.`);
+  }
+
+  if (merged.length > 0) {
+    steps.push('Inspect the local umbrella branch with finalized child commits applied.');
   }
 
   const waiting = children.find(child => child.status === 'waiting');
@@ -2871,13 +3043,6 @@ function buildLocalAutoCompleteDryRunNextSteps({ children, parentPullRequest, mo
       `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
     );
     return steps;
-  }
-
-  if (merged.length > 0) {
-    return [
-      'Inspect the local umbrella branch with finalized child PR commits applied.',
-      `Publish with \`pullops run prd:${mode} <parent-issue-number> --publish pr\` after reviewing the local branch.`,
-    ];
   }
 
   return buildLocalFollowUpWithoutRunnableChild(parentPullRequest, 'dry-run', mode);
