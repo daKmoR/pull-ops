@@ -178,7 +178,7 @@ describe('runPrdAutoAdvance', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'dry-run');
-    assert.match(result.summary, /2 child issue dry-run\(s\) completed/);
+    assert.match(String(result.summary), /2 child issue dry-run\(s\) completed/);
     assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
     assert.equal(codex.calls.length, 6);
     assert.match(codex.calls[0].prompt, /Child issue 35/);
