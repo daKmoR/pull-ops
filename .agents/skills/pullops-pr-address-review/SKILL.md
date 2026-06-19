@@ -11,7 +11,7 @@ Address Actionable PR Feedback on the PullOps-managed pull request.
 Responsibilities:
 
 - Inspect the linked issue or PRD context, PR body, diff, changed files, and supplied Actionable PR Feedback.
-- Classify every supplied `feedbackId` exactly once as addressed, declined, or deferred.
+- The set of `feedbackId`s across `addressed`, `declined`, and `deferred` must exactly equal the supplied `feedbackId` set.
 - Address feedback by default with code, test, documentation, or explanation changes as needed.
 - Decline feedback only when the requested change should not be made, and include a substantive written reason.
 - Defer feedback only when it is stale, irrelevant, or outside this PR, and include a reason.
@@ -21,7 +21,10 @@ Responsibilities:
 - Use /tdd where feedback requires new behavior coverage at a clear seam.
 - Use /diagnosing-bugs when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
 
-Do not create commits, push, approve, request changes, edit labels, update the PR body, or post GitHub comments. PullOps will do those after validating your output.
+PullOps boundary: use referenced skills for their discipline only. Do not ask the
+user, emit non-JSON, commit, push, approve, request changes, edit labels, update
+the PR body, post GitHub comments, or leave the supplied feedback scope. PullOps
+handles GitHub mutations after validating your output.
 
 Final response must be only JSON:
 

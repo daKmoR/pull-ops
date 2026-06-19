@@ -38,6 +38,7 @@ export function buildPrFixCiPrompt({ pullRequest, issue, reviewContext, diff, ch
     '',
     'Constraints:',
     '- Review the Check Failure Classification before making code changes.',
+    '- Echo every supplied checkId exactly once with its supplied classification and a rationale.',
     '- Only repair checks classified as formatting, lint, type, test, or build.',
     '- If a repair would require weakening tests, deleting assertions, bypassing checks, or working around missing secrets or infrastructure failures, return blocked instead of changing code.',
     '- Keep changes focused on the failed checks and the pull request diff.',

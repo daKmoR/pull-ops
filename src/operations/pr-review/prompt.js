@@ -46,7 +46,7 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
     '- Review the PR against the linked issue or PRD context and the current diff.',
     '- Include inline comments only for changed lines from the diff.',
     '- Use commentId values from unresolved review threads when replying to existing feedback.',
-    '- You may make small direct improvements in the working tree when they are clearly review-owned.',
+    '- You may make small direct improvements in the working tree when they are clearly review-owned and do not change PR scope.',
     '- Do not create commits, push, approve, request changes, or edit GitHub labels; PullOps will do that after validating your output.',
     '',
     'Final response must be only JSON in this shape:',

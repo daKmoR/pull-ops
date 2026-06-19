@@ -15,6 +15,9 @@ Do not create commits, push, approve, request changes, edit labels, or update th
 
 Inline comments must use changed lines from the supplied diff. Replies must use `commentId` values from unresolved review threads.
 
+You may make small direct improvements in the working tree only when they are
+clearly review-owned and do not change PR scope. Record them in `directChanges`.
+
 Final response must be only JSON:
 
 ```json

@@ -12,10 +12,9 @@ history itself.
 
 Responsibilities:
 
-- Read the Parent Issue context, closed native Child Issues, PR body, changed-file list, and current commit history.
+- Read the supplied Parent Issue context, closed native Child Issues, PR body, changed-file list, and current commit history.
 - Propose a structured Commit Plan that groups the supplied changed files into the final Logical Commit Stack.
-- Assign every supplied changed file to exactly one planned commit.
-- Do not include files that were not supplied.
+- The concatenated planned commit `files` arrays must exactly equal the supplied changed-file list; do not omit, duplicate, or invent files.
 - Prefer one Child Issue Commit per closed native Child Issue represented by the files.
 - Include parent-level commits only for explicit PRD-level files.
 

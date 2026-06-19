@@ -46,6 +46,7 @@ export function buildPrResolveConflictsPrompt({
     '- Remove all Git conflict markers from resolved files.',
     '- Preserve the linked issue intent and both sides of the rebase unless the conflict makes that impossible.',
     '- Run focused verification when the repository state allows it.',
+    '- resolvedFiles must exactly equal the supplied conflicted file list.',
     '- Do not stage files; leave staging and `git rebase --continue` to PullOps.',
     '- Do not create commits, push, edit labels, update the PR body, or post GitHub comments; PullOps will continue the rebase and push after validating your output.',
     '',

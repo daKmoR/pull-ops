@@ -13,6 +13,9 @@ Use the conflict-resolution discipline from /resolving-merge-conflicts:
 - Resolve every conflict marker while preserving both intents where possible.
 - Run focused checks when the repository state allows it.
 
+The `resolvedFiles` array must exactly equal the supplied conflicted file list;
+do not omit, duplicate, or invent paths.
+
 Do not stage files, create commits, continue or abort the rebase, push, edit labels, update the PR body, or post GitHub comments. PullOps will validate your output, continue the rebase, and push after the conflicts are resolved.
 
 Final response must be only JSON:

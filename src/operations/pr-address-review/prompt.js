@@ -44,7 +44,7 @@ export function buildAddressPrReviewompt({
     formatFeedbackItems(feedbackItems),
     '',
     'Constraints:',
-    '- Classify every feedbackId exactly once as addressed, declined, or deferred.',
+    '- The feedbackIds across addressed, declined, and deferred must exactly equal the supplied feedbackId set.',
     '- Address feedback by default with code, test, documentation, or explanation changes as needed.',
     '- Decline feedback only when the requested change should not be made, and include a substantive reason.',
     '- Defer feedback only when it is stale, irrelevant, or outside this PR, and include a reason.',
