@@ -751,7 +751,7 @@ describe('runPrdAutoComplete', () => {
     );
   });
 
-  it('03: local publish closes finalized child issues after merging them into the umbrella branch', async () => {
+  it('03: local publish closes finalized child issues and PRs after integrating them into the umbrella branch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-publish-'));
     const parent = createIssue({
       number: 12,
@@ -832,6 +832,7 @@ describe('runPrdAutoComplete', () => {
     assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.closedPullRequests, [101]);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 200,
@@ -1418,6 +1419,7 @@ describe('runPrdAutoComplete', () => {
       ],
     );
     assert.deepEqual(github.closedIssues, [34, 35]);
+    assert.deepEqual(github.closedPullRequests, [302, 303]);
     assert.deepEqual(
       readChildResults(result).map(child => [
         child.issue.number,
@@ -1554,6 +1556,7 @@ describe('runPrdAutoComplete', () => {
     assert.match(codex.calls[1].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.closedPullRequests, [101]);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.readyPullRequests, [101, 200]);
     assert.equal(git.cherryPicks.length, 1);
@@ -1564,7 +1567,7 @@ describe('runPrdAutoComplete', () => {
     assert.equal(readParentPullRequest(result)?.status, 'finalized');
   });
 
-  it('12: local publish auto-complete waits for hosted checks on newly published child PRs', async () => {
+  it('12: local publish auto-complete integrates newly published child PRs when hosted checks are absent', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-new-pr-checks-'));
     const parent = createIssue({
       number: 12,
@@ -1574,7 +1577,17 @@ describe('runPrdAutoComplete', () => {
     const github = createFakeGitHub({
       issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
     });
-    const git = createFakeGit({ dirtyAfterRunner: true });
+    const git = createFakeGit({
+      dirtyAfterRunner: true,
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
     const codex = createFakeCodexRunner(git);
 
     const result = await runPrdAutoComplete(
@@ -1590,12 +1603,17 @@ describe('runPrdAutoComplete', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 3);
+    assert.equal(codex.calls.length, 4);
     assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
     assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
     assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
-    assert.deepEqual(github.closedIssues, []);
-    assert.deepEqual(git.cherryPicks, []);
+    assert.match(codex.calls[3].prompt, /Review PullOps-managed PR #301/);
+    assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.closedPullRequests, [302]);
+    assert.deepEqual(
+      git.cherryPicks.map(cherryPick => cherryPick.branchName),
+      ['pullops/prd-12'],
+    );
     assert.deepEqual(
       github.createdPullRequests.map(pullRequest => ({
         baseBranch: pullRequest.baseBranch,
@@ -1614,15 +1632,15 @@ describe('runPrdAutoComplete', () => {
     );
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
-      [[34, 'waiting']],
+      [[34, 'merged']],
     );
-    assert.equal(readParentPullRequest(result)?.status, 'waiting');
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
     assert.deepEqual(result.localNextSteps, [
-      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
     ]);
   });
 
-  it('13: local publish auto-complete reruns wait for hosted checks on existing finalized child PRs', async () => {
+  it('13: local publish auto-complete reruns integrate existing finalized child PRs when hosted checks are absent', async () => {
     const cwd = await mkdtemp(
       join(tmpdir(), 'pullops-prd-local-auto-complete-existing-finalized-checks-'),
     );
@@ -1649,7 +1667,16 @@ describe('runPrdAutoComplete', () => {
         }),
       ],
     });
-    const git = createFakeGit();
+    const git = createFakeGit({
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
     const codex = createFakeCodexRunner(git);
 
     const result = await runPrdAutoComplete(
@@ -1665,17 +1692,22 @@ describe('runPrdAutoComplete', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
-    assert.deepEqual(github.closedIssues, []);
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.closedPullRequests, [101]);
     assert.deepEqual(github.mergedPullRequests, []);
-    assert.deepEqual(git.cherryPicks, []);
+    assert.deepEqual(
+      git.cherryPicks.map(cherryPick => cherryPick.branchName),
+      ['pullops/prd-12'],
+    );
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
-      [[34, 'waiting']],
+      [[34, 'merged']],
     );
-    assert.equal(readParentPullRequest(result)?.status, 'waiting');
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
     assert.deepEqual(result.localNextSteps, [
-      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
     ]);
   });
 
@@ -2069,6 +2101,7 @@ function readParentPullRequest(result) {
  *   pullRequestReviews: import('../../github/types.js').PublishPullRequestReviewOptions[];
  *   mergedPullRequests: MergePullRequestOptions[];
  *   closedIssues: number[];
+ *   closedPullRequests: number[];
  *   readyPullRequests: number[];
  * }}
  */
@@ -2106,6 +2139,8 @@ function createFakeGitHub({
   /** @type {number[]} */
   const closedIssues = [];
   /** @type {number[]} */
+  const closedPullRequests = [];
+  /** @type {number[]} */
   const readyPullRequests = [];
 
   return {
@@ -2118,6 +2153,7 @@ function createFakeGitHub({
     pullRequestReviews,
     mergedPullRequests,
     closedIssues,
+    closedPullRequests,
     readyPullRequests,
     client: {
       async ensureLabels() {
@@ -2161,7 +2197,8 @@ function createFakeGitHub({
         };
       },
       async findOpenPullRequestByHead(headBranch) {
-        return pullRequestsByHead.get(headBranch);
+        const pullRequest = pullRequestsByHead.get(headBranch);
+        return pullRequest?.state === 'CLOSED' ? undefined : pullRequest;
       },
       async findIssuesByBodyReference() {
         return bodyReferences;
@@ -2219,6 +2256,13 @@ function createFakeGitHub({
         const issue = issuesByNumber.get(options.number);
         if (issue !== undefined) {
           issue.state = 'CLOSED';
+        }
+      },
+      async closePullRequest(options) {
+        closedPullRequests.push(options.number);
+        const pullRequest = pullRequestsByNumber.get(options.number);
+        if (pullRequest !== undefined) {
+          pullRequest.state = 'CLOSED';
         }
       },
       async commentOnPullRequest(options) {

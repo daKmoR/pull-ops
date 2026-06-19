@@ -181,6 +181,7 @@ function createPullRequestOperationContext(
     },
     modelTier,
     model: context.config.runner.models[modelTier],
+    ...(operation === 'pr-finalize' ? { allowAbsentReviewedHeadChecks: true } : {}),
     ...(resumeParentPrdAutomationAfterPrFinalize === undefined
       ? {}
       : { resumeParentPrdAutomationAfterPrFinalize }),

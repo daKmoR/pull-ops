@@ -402,6 +402,9 @@ describe('createGitHubClient', () => {
       number: 42,
       comment: 'Child PR merged into the PRD branch.',
     });
+    await client.closePullRequest?.({
+      number: 100,
+    });
     await client.mergePullRequest?.({
       number: 100,
       method: 'rebase',
@@ -453,6 +456,7 @@ describe('createGitHubClient', () => {
         'graphql',
         'issues.createComment',
         'issues.update',
+        'pulls.update',
         'pulls.merge',
         'graphql',
         'graphql',
@@ -462,8 +466,13 @@ describe('createGitHubClient', () => {
       ],
     );
     assert.deepEqual(calls[5].params, { pullRequestId: 'PR_100' });
-    assert.deepEqual(calls[9].params, { threadId: 'PRRT_1' });
-    assert.deepEqual(calls[10].params, {
+    assert.deepEqual(calls[8].params, {
+      ...TEST_REPOSITORY,
+      pull_number: 100,
+      state: 'closed',
+    });
+    assert.deepEqual(calls[10].params, { threadId: 'PRRT_1' });
+    assert.deepEqual(calls[11].params, {
       pullRequestReviewId: 'PRR_1',
       message: 'PullOps addressed the requested changes.',
     });

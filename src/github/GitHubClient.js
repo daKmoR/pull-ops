@@ -24,6 +24,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
  * @typedef {import('./types.js').CloseIssueOptions} CloseIssueOptions
+ * @typedef {import('./types.js').ClosePullRequestOptions} ClosePullRequestOptions
  * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('./types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
@@ -364,6 +365,19 @@ export function createGitHubClient({
         ...repository,
         pull_number: number,
         merge_method: method,
+      });
+    },
+
+    /**
+     * @param {ClosePullRequestOptions} options
+     * @returns {Promise<void>}
+     */
+    async closePullRequest({ number }) {
+      const repository = getRepository();
+      await api.rest.pulls.update({
+        ...repository,
+        pull_number: number,
+        state: 'closed',
       });
     },
 

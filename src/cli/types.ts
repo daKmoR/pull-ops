@@ -20,6 +20,7 @@ export interface OperationRunnerContext {
   publicationMode?: PublicationMode;
   runGoal?: OperationRunGoal;
   resumeParentPrdAutomationAfterPrFinalize?: boolean;
+  allowAbsentReviewedHeadChecks?: boolean;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;

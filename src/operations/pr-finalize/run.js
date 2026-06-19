@@ -282,7 +282,7 @@ async function preparePrFinalize(context) {
 
   const reviewedHeadChecks = await context.githubClient.getPullRequestChecksForRef(currentHeadSha);
   const reviewedHeadCheckState = classifyCheckState(reviewedHeadChecks);
-  if (reviewedHeadCheckState === 'absent') {
+  if (reviewedHeadCheckState === 'absent' && context.allowAbsentReviewedHeadChecks !== true) {
     return {
       ready: false,
       output: await blockPullRequest(

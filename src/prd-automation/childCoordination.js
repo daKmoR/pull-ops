@@ -1188,7 +1188,6 @@ async function coordinateLocalChildIssue(
             pullRequest,
             publicationMode,
             runChildPullRequestOperation,
-            requireFinalizedHeadChecks: publicationMode === 'publish',
           })
         : inspectLocalChildPullRequest({
             childIssue,
@@ -1295,7 +1294,6 @@ async function coordinateLocalChildIssue(
       pullRequest,
       publicationMode,
       runChildPullRequestOperation,
-      requireFinalizedHeadChecks: true,
     });
     return localChildAutomation({
       child: {
@@ -1582,7 +1580,6 @@ function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullReques
  * @param {GitHubPullRequest} options.pullRequest
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
- * @param {boolean} [options.requireFinalizedHeadChecks]
  * @returns {Promise<ChildAutomationResult>}
  */
 async function coordinateLocalChildPullRequest(
@@ -1594,7 +1591,6 @@ async function coordinateLocalChildPullRequest(
     pullRequest,
     publicationMode,
     runChildPullRequestOperation,
-    requireFinalizedHeadChecks = false,
   },
 ) {
   if (pullRequest.baseRefName !== parentBranchName) {
@@ -1624,7 +1620,6 @@ async function coordinateLocalChildPullRequest(
         parentBranchName,
         pullRequest,
         runChildPullRequestOperation,
-        requireFinalizedHeadChecks,
       });
     }
 
@@ -1643,7 +1638,6 @@ async function coordinateLocalChildPullRequest(
     pullRequest,
     finalizedHeadSha: state.finalizedHeadSha,
     publicationMode,
-    requireFinalizedHeadChecks,
   });
 }
 
@@ -1655,19 +1649,11 @@ async function coordinateLocalChildPullRequest(
  * @param {string} options.parentBranchName
  * @param {GitHubPullRequest} options.pullRequest
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} options.runChildPullRequestOperation
- * @param {boolean} options.requireFinalizedHeadChecks
  * @returns {Promise<ChildAutomationResult>}
  */
 async function continuePublishedLocalChildPullRequest(
   context,
-  {
-    childIssue,
-    parentIssue,
-    parentBranchName,
-    pullRequest,
-    runChildPullRequestOperation,
-    requireFinalizedHeadChecks,
-  },
+  { childIssue, parentIssue, parentBranchName, pullRequest, runChildPullRequestOperation },
 ) {
   /** @type {GitHubPullRequest} */
   let currentPullRequest = pullRequest;
@@ -1745,7 +1731,6 @@ async function continuePublishedLocalChildPullRequest(
         pullRequest: currentPullRequest,
         finalizedHeadSha: state.finalizedHeadSha,
         publicationMode: 'publish',
-        requireFinalizedHeadChecks,
       });
     }
   }
@@ -1759,7 +1744,6 @@ async function continuePublishedLocalChildPullRequest(
       pullRequest: currentPullRequest,
       finalizedHeadSha: state.finalizedHeadSha,
       publicationMode: 'publish',
-      requireFinalizedHeadChecks,
     });
   }
 
@@ -1951,20 +1935,11 @@ async function mergeFinalizedChildPullRequest(
  * @param {GitHubPullRequest} options.pullRequest
  * @param {string} options.finalizedHeadSha
  * @param {'dry-run' | 'publish'} options.publicationMode
- * @param {boolean} [options.requireFinalizedHeadChecks]
  * @returns {Promise<ChildAutomationResult>}
  */
 async function mergeFinalizedChildPullRequestLocally(
   context,
-  {
-    childIssue,
-    parentIssue,
-    parentBranchName,
-    pullRequest,
-    finalizedHeadSha,
-    publicationMode,
-    requireFinalizedHeadChecks = false,
-  },
+  { childIssue, parentIssue, parentBranchName, pullRequest, finalizedHeadSha, publicationMode },
 ) {
   if (context.gitClient.cherryPickCommitOntoBranch === undefined) {
     return childPullRequestResult({
@@ -1993,16 +1968,6 @@ async function mergeFinalizedChildPullRequestLocally(
 
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyCheckState(checks);
-  if (checkState === 'absent' && requireFinalizedHeadChecks) {
-    return childPullRequestResult({
-      issue: childIssue,
-      pullRequest,
-      status: 'waiting',
-      summary: `Child PR #${pullRequest.number} is waiting for finalized-head checks to appear.`,
-      extra: { checks: checks.length, blockedPhase: 'checks', blockedOperation: 'pr:finalize' },
-    });
-  }
-
   if (checkState === 'pending') {
     return childPullRequestResult({
       issue: childIssue,
@@ -2063,6 +2028,7 @@ async function mergeFinalizedChildPullRequestLocally(
       pullRequest,
       expectedBaseBranch: parentBranchName,
     });
+    await closeIntegratedChildPullRequest(context, { pullRequest });
     childIssue.state = 'CLOSED';
     markParentChildIssueReferenceClosed(parentIssue, childIssue.number);
   }
@@ -2079,6 +2045,19 @@ async function mergeFinalizedChildPullRequestLocally(
       treeHash: integration.treeHash,
     },
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequest: GitHubPullRequest }} options
+ * @returns {Promise<void>}
+ */
+async function closeIntegratedChildPullRequest(context, { pullRequest }) {
+  if (context.githubClient.closePullRequest === undefined) {
+    return;
+  }
+
+  await context.githubClient.closePullRequest({ number: pullRequest.number });
 }
 
 /**

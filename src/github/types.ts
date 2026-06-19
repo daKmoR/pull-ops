@@ -102,6 +102,10 @@ export interface CloseIssueOptions {
   comment: string;
 }
 
+export interface ClosePullRequestOptions {
+  number: number;
+}
+
 export interface CommentOnPullRequestOptions {
   number: number;
   body: string;
@@ -203,6 +207,7 @@ export interface GitHubClient {
   removeLabelsFromPullRequest(options: EditLabelsOptions): Promise<void>;
   commentOnIssue(options: CommentOnIssueOptions): Promise<void>;
   closeIssue(options: CloseIssueOptions): Promise<void>;
+  closePullRequest?(options: ClosePullRequestOptions): Promise<void>;
   commentOnPullRequest(options: CommentOnPullRequestOptions): Promise<void>;
   updatePullRequestBody(options: UpdatePullRequestBodyOptions): Promise<void>;
   markPullRequestReadyForReview(number: number): Promise<void>;
