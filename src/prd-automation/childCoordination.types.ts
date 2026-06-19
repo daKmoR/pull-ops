@@ -17,6 +17,8 @@ export interface ChildAutomationResult {
   status: string;
   summary: string;
   blockedBy?: number[];
+  blockedPhase?: string;
+  blockedOperation?: string;
   dependencyDecision?: ChildDependencyDecision;
   labels?: string[];
   branch?: string;

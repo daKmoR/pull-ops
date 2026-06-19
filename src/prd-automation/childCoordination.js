@@ -40,6 +40,8 @@ import {
  * @typedef {import('./childCoordination.types.js').ParentReviewResult} ParentReviewResult
  * @typedef {import('./childCoordination.types.js').PrdAutomationMode} PrdAutomationMode
  * @typedef {import('./childCoordination.types.js').PrdAutomationResult} PrdAutomationResult
+ * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
+ * @typedef {{ pullRequestNumber: number, operation: PullRequestOperationName }} PullRequestOperationRequest
  */
 
 /** @type {ReadonlySet<string>} */
@@ -63,18 +65,13 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @param {object} options
  * @param {number} options.parentIssueNumber
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoAdvance(
   context,
-  {
-    parentIssueNumber,
-    runChildIssue,
-    runParentPullRequestOperation,
-    runChildPullRequestOperation,
-  },
+  { parentIssueNumber, runChildIssue, runParentPullRequestOperation, runChildPullRequestOperation },
 ) {
   return await coordinateLocalPrdAutomation(context, {
     parentIssueNumber,
@@ -90,18 +87,13 @@ export async function coordinateLocalPrdAutoAdvance(
  * @param {object} options
  * @param {number} options.parentIssueNumber
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 export async function coordinateLocalPrdAutoComplete(
   context,
-  {
-    parentIssueNumber,
-    runChildIssue,
-    runParentPullRequestOperation,
-    runChildPullRequestOperation,
-  },
+  { parentIssueNumber, runChildIssue, runParentPullRequestOperation, runChildPullRequestOperation },
 ) {
   return await coordinateLocalPrdAutomation(context, {
     parentIssueNumber,
@@ -118,8 +110,8 @@ export async function coordinateLocalPrdAutoComplete(
  * @param {number} options.parentIssueNumber
  * @param {PrdAutomationMode} options.mode
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
  */
 async function coordinateLocalPrdAutomation(
@@ -179,12 +171,14 @@ async function coordinateLocalPrdAutomation(
     /** @type {number[]} */
     let virtualCompletedChildren = [];
     let preserveInspectableBranchState = false;
+    const completeThroughDependencyFrontiers =
+      mode === 'auto-complete' && context.runGoal !== 'operation';
 
     if (publicationMode === 'publish') {
       await checkoutLocalPrdBase(context, { parentBranchName });
     }
 
-    if (mode === 'auto-complete' && publicationMode === 'dry-run') {
+    if (completeThroughDependencyFrontiers && publicationMode === 'dry-run') {
       const dryRun = await coordinateLocalAutoCompleteDryRunChildren(context, {
         parentIssue,
         parentBranchName,
@@ -194,7 +188,7 @@ async function coordinateLocalPrdAutomation(
       children.push(...dryRun.children);
       virtualCompletedChildren = dryRun.virtualCompletedChildren;
       preserveInspectableBranchState = dryRun.preserveInspectableBranchState;
-    } else if (mode === 'auto-complete' && publicationMode === 'publish') {
+    } else if (completeThroughDependencyFrontiers && publicationMode === 'publish') {
       const published = await coordinateLocalAutoCompletePublishChildren(context, {
         parentIssue,
         parentBranchName,
@@ -210,7 +204,7 @@ async function coordinateLocalPrdAutomation(
           parentIssue,
           parentBranchName,
           childIssue,
-          mode,
+          mode: completeThroughDependencyFrontiers ? mode : 'auto-advance',
           publicationMode,
           runChildIssue,
           runChildPullRequestOperation,
@@ -227,7 +221,7 @@ async function coordinateLocalPrdAutomation(
           await checkoutLocalPrdBase(context, { parentBranchName });
         }
 
-        if (mode === 'auto-complete' && localResult.stop) {
+        if (completeThroughDependencyFrontiers && localResult.stop) {
           break;
         }
       }
@@ -241,7 +235,9 @@ async function coordinateLocalPrdAutomation(
     }
 
     const parentPullRequest =
-      mode === 'auto-complete' && publicationMode === 'publish' && !preserveInspectableBranchState
+      completeThroughDependencyFrontiers &&
+      publicationMode === 'publish' &&
+      !preserveInspectableBranchState
         ? await completePublishedLocalUmbrellaPullRequest(context, {
             parentIssue,
             parentIssueNumber: parentIssue.number,
@@ -675,30 +671,34 @@ async function readNativeChildIssues(context, parentIssue) {
  */
 async function coordinateChildIssue(context, { parentIssue, parentBranchName, childIssue, mode }) {
   if (childIssue.state !== 'OPEN') {
-    return childResult(childIssue, 'closed', `Child issue #${childIssue.number} is closed.`);
+    return childResult({
+      issue: childIssue,
+      status: 'closed',
+      summary: `Child issue #${childIssue.number} is closed.`,
+    });
   }
 
   const parentIssueNumber = getNativeParentIssueNumber(childIssue);
   if (parentIssueNumber !== parentIssue.number) {
-    return childResult(
-      childIssue,
-      'skipped',
-      `Issue #${childIssue.number} is not part of PRD issue #${parentIssue.number}.`,
-    );
+    return childResult({
+      issue: childIssue,
+      status: 'skipped',
+      summary: `Issue #${childIssue.number} is not part of PRD issue #${parentIssue.number}.`,
+    });
   }
 
   const blockingDependencies = await findBlockingDependencies(context, childIssue);
   if (blockingDependencies.length > 0) {
-    return childResult(
-      childIssue,
-      'blocked',
-      `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
+    return childResult({
+      issue: childIssue,
+      status: 'blocked',
+      summary: `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
         blockingDependencies,
       )}.`,
-      {
+      extra: {
         blockedBy: blockingDependencies.map(issue => issue.number),
       },
-    );
+    });
   }
 
   const childBranchName = createIssueBranchName({
@@ -719,21 +719,21 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
   }
 
   if (hasAnyLabel(childIssue.labels, ACTIVE_CHILD_ISSUE_LABELS)) {
-    return childResult(
-      childIssue,
-      'already-active',
-      `Child issue #${childIssue.number} already has active PullOps issue automation.`,
-      { labels: childIssue.labels },
-    );
+    return childResult({
+      issue: childIssue,
+      status: 'already-active',
+      summary: `Child issue #${childIssue.number} already has active PullOps issue automation.`,
+      extra: { labels: childIssue.labels },
+    });
   }
 
   if (childIssue.labels.includes(PULL_OPS_STATUS_LABELS.humanRequired)) {
-    return childResult(
-      childIssue,
-      'human-required',
-      `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
-      { labels: childIssue.labels },
-    );
+    return childResult({
+      issue: childIssue,
+      status: 'human-required',
+      summary: `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
+      extra: { labels: childIssue.labels },
+    });
   }
 
   await context.githubClient.addLabelsToIssue({
@@ -741,12 +741,12 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
     labels: [PULL_OPS_OPERATION_LABELS.issueImplement],
   });
 
-  return childResult(
-    childIssue,
-    'started',
-    `Started implementation for unblocked child issue #${childIssue.number}.`,
-    { branch: childBranchName },
-  );
+  return childResult({
+    issue: childIssue,
+    status: 'started',
+    summary: `Started implementation for unblocked child issue #${childIssue.number}.`,
+    extra: { branch: childBranchName },
+  });
 }
 
 /**
@@ -784,12 +784,17 @@ async function coordinateLocalAutoCompleteDryRunChildren(
         continue;
       }
 
-      const dependencyFacts = await readChildDependencyDecision(
-        context,
-        childIssue,
+      const dependencyFacts = await readChildDependencyDecision(context, {
+        issue: childIssue,
         virtualCompletedIssueNumbers,
-      );
-      if (shouldDeferLocalAutoCompleteChild(parentIssue, childIssue, dependencyFacts)) {
+      });
+      if (
+        shouldDeferLocalAutoCompleteChild({
+          parentIssue,
+          childIssue,
+          dependencyFacts,
+        })
+      ) {
         continue;
       }
 
@@ -829,11 +834,10 @@ async function coordinateLocalAutoCompleteDryRunChildren(
       continue;
     }
 
-    const dependencyFacts = await readChildDependencyDecision(
-      context,
-      childIssue,
+    const dependencyFacts = await readChildDependencyDecision(context, {
+      issue: childIssue,
       virtualCompletedIssueNumbers,
-    );
+    });
     const child =
       dependencyFacts.blockingDependencies.length > 0
         ? blockedByDependencyChildResult(childIssue, dependencyFacts)
@@ -860,7 +864,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
  *   preserveInspectableBranchState: boolean,
@@ -868,13 +872,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
  */
 async function coordinateLocalAutoCompletePublishChildren(
   context,
-  {
-    parentIssue,
-    parentBranchName,
-    childIssues,
-    runChildIssue,
-    runChildPullRequestOperation,
-  },
+  { parentIssue, parentBranchName, childIssues, runChildIssue, runChildPullRequestOperation },
 ) {
   /** @type {ChildAutomationResult[]} */
   const children = [];
@@ -892,8 +890,17 @@ async function coordinateLocalAutoCompletePublishChildren(
         continue;
       }
 
-      const dependencyFacts = await readChildDependencyDecision(context, childIssue, new Set());
-      if (shouldDeferLocalAutoCompleteChild(parentIssue, childIssue, dependencyFacts)) {
+      const dependencyFacts = await readChildDependencyDecision(context, {
+        issue: childIssue,
+        virtualCompletedIssueNumbers: new Set(),
+      });
+      if (
+        shouldDeferLocalAutoCompleteChild({
+          parentIssue,
+          childIssue,
+          dependencyFacts,
+        })
+      ) {
         continue;
       }
 
@@ -933,7 +940,10 @@ async function coordinateLocalAutoCompletePublishChildren(
       continue;
     }
 
-    const dependencyFacts = await readChildDependencyDecision(context, childIssue, new Set());
+    const dependencyFacts = await readChildDependencyDecision(context, {
+      issue: childIssue,
+      virtualCompletedIssueNumbers: new Set(),
+    });
     children.push(
       dependencyFacts.blockingDependencies.length > 0
         ? blockedByDependencyChildResult(childIssue, dependencyFacts)
@@ -949,12 +959,13 @@ async function coordinateLocalAutoCompletePublishChildren(
 }
 
 /**
- * @param {GitHubIssue} parentIssue
- * @param {GitHubIssue} childIssue
- * @param {{ blockingDependencies: GitHubIssue[] }} dependencyFacts
+ * @param {object} options
+ * @param {GitHubIssue} options.parentIssue
+ * @param {GitHubIssue} options.childIssue
+ * @param {{ blockingDependencies: GitHubIssue[] }} options.dependencyFacts
  * @returns {boolean}
  */
-function shouldDeferLocalAutoCompleteChild(parentIssue, childIssue, dependencyFacts) {
+function shouldDeferLocalAutoCompleteChild({ parentIssue, childIssue, dependencyFacts }) {
   return (
     childIssue.state === 'OPEN' &&
     getNativeParentIssueNumber(childIssue) === parentIssue.number &&
@@ -993,7 +1004,7 @@ function recordLocalDryRunChildResult({
  * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
  * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} [options.dependencyFacts]
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
  */
@@ -1012,39 +1023,47 @@ async function coordinateLocalChildIssue(
 ) {
   if (childIssue.state !== 'OPEN') {
     return localChildAutomation({
-      child: childResult(childIssue, 'closed', `Child issue #${childIssue.number} is closed.`),
+      child: childResult({
+        issue: childIssue,
+        status: 'closed',
+        summary: `Child issue #${childIssue.number} is closed.`,
+      }),
     });
   }
 
   const parentIssueNumber = getNativeParentIssueNumber(childIssue);
   if (parentIssueNumber !== parentIssue.number) {
     return localChildAutomation({
-      child: childResult(
-        childIssue,
-        'skipped',
-        `Issue #${childIssue.number} is not part of PRD issue #${parentIssue.number}.`,
-      ),
+      child: childResult({
+        issue: childIssue,
+        status: 'skipped',
+        summary: `Issue #${childIssue.number} is not part of PRD issue #${parentIssue.number}.`,
+      }),
     });
   }
 
   const resolvedDependencyFacts =
-    dependencyFacts ?? (await readChildDependencyDecision(context, childIssue, new Set()));
+    dependencyFacts ??
+    (await readChildDependencyDecision(context, {
+      issue: childIssue,
+      virtualCompletedIssueNumbers: new Set(),
+    }));
   const { blockingDependencies } = resolvedDependencyFacts;
   if (blockingDependencies.length > 0) {
     return localChildAutomation({
-      child: childResult(
-        childIssue,
-        'blocked',
-        `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
+      child: childResult({
+        issue: childIssue,
+        status: 'blocked',
+        summary: `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
           blockingDependencies,
         )}.`,
-        withDependencyDecision(
+        extra: withDependencyDecision(
           {
             blockedBy: blockingDependencies.map(issue => issue.number),
           },
           resolvedDependencyFacts.decision,
         ),
-      ),
+      }),
     });
   }
 
@@ -1087,29 +1106,29 @@ async function coordinateLocalChildIssue(
 
   if (hasAnyLabel(childIssue.labels, ACTIVE_CHILD_ISSUE_LABELS)) {
     return localChildAutomation({
-      child: childResult(
-        childIssue,
-        'already-active',
-        `Child issue #${childIssue.number} already has active PullOps issue automation.`,
-        {
+      child: childResult({
+        issue: childIssue,
+        status: 'already-active',
+        summary: `Child issue #${childIssue.number} already has active PullOps issue automation.`,
+        extra: {
           labels: childIssue.labels,
           ...dependencyDecisionExtra,
         },
-      ),
+      }),
     });
   }
 
   if (childIssue.labels.includes(PULL_OPS_STATUS_LABELS.humanRequired)) {
     return localChildAutomation({
-      child: childResult(
-        childIssue,
-        'human-required',
-        `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
-        {
+      child: childResult({
+        issue: childIssue,
+        status: 'human-required',
+        summary: `Child issue #${childIssue.number} needs human attention before PullOps automation can continue.`,
+        extra: {
           labels: childIssue.labels,
           ...dependencyDecisionExtra,
         },
-      ),
+      }),
     });
   }
 
@@ -1118,12 +1137,18 @@ async function coordinateLocalChildIssue(
   });
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
-  const child = childResult(childIssue, status, String(output.summary), {
-    branch: readOutputBranch(output, childBranchName),
-    pullRequest: readOutputPullRequest(output),
-    localRunRecord: readOutputString(output, 'localRunRecord'),
-    publicationMode,
-    ...dependencyDecisionExtra,
+  const child = childResult({
+    issue: childIssue,
+    status,
+    summary: String(output.summary),
+    extra: {
+      branch: readOutputBranch(output, childBranchName),
+      pullRequest: readOutputPullRequest(output),
+      localRunRecord: readOutputString(output, 'localRunRecord'),
+      publicationMode,
+      ...readOutputBlocker(output),
+      ...dependencyDecisionExtra,
+    },
   });
 
   if (mode === 'auto-complete' && publicationMode === 'publish' && output.status !== 'blocked') {
@@ -1178,17 +1203,19 @@ async function coordinateLocalChildIssue(
  */
 function blockedByDependencyChildResult(childIssue, dependencyFacts) {
   const { blockingDependencies } = dependencyFacts;
-  return childResult(
-    childIssue,
-    'blocked',
-    `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(blockingDependencies)}.`,
-    withDependencyDecision(
+  return childResult({
+    issue: childIssue,
+    status: 'blocked',
+    summary: `Child issue #${childIssue.number} is blocked by ${formatIssueNumbers(
+      blockingDependencies,
+    )}.`,
+    extra: withDependencyDecision(
       {
         blockedBy: blockingDependencies.map(issue => issue.number),
       },
       dependencyFacts.decision,
     ),
-  );
+  });
 }
 
 /**
@@ -1198,28 +1225,29 @@ function blockedByDependencyChildResult(childIssue, dependencyFacts) {
  */
 function blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker) {
   if (localBlocker === undefined) {
-    return childResult(
-      childIssue,
-      'blocked',
-      `Child issue #${childIssue.number} was not reachable during local PRD auto-complete.`,
-    );
+    return childResult({
+      issue: childIssue,
+      status: 'blocked',
+      summary: `Child issue #${childIssue.number} was not reachable during local PRD auto-complete.`,
+    });
   }
 
-  return childResult(
-    childIssue,
-    'blocked',
-    `Child issue #${childIssue.number} was not started because local PRD auto-complete stopped at child issue #${localBlocker.issue.number}.`,
-    { blockedBy: [localBlocker.issue.number] },
-  );
+  return childResult({
+    issue: childIssue,
+    status: 'blocked',
+    summary: `Child issue #${childIssue.number} was not started because local PRD auto-complete stopped at child issue #${localBlocker.issue.number}.`,
+    extra: { blockedBy: [localBlocker.issue.number] },
+  });
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @param {GitHubIssue} issue
- * @param {ReadonlySet<number>} virtualCompletedIssueNumbers
+ * @param {object} options
+ * @param {GitHubIssue} options.issue
+ * @param {ReadonlySet<number>} options.virtualCompletedIssueNumbers
  * @returns {Promise<{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }>}
  */
-async function readChildDependencyDecision(context, issue, virtualCompletedIssueNumbers) {
+async function readChildDependencyDecision(context, { issue, virtualCompletedIssueNumbers }) {
   const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
   /** @type {number[]} */
   const satisfiedByClosedIssues = [];
@@ -1292,32 +1320,32 @@ function isLocalDryRunVirtualCompletion(child) {
  */
 function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullRequest }) {
   if (pullRequest.baseRefName !== parentBranchName) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
+    });
   }
 
   const state = readManagedPrState(pullRequest.body);
   if (!state.managed || state.sourceIssueNumber !== childIssue.number) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
+    });
   }
 
-  return childPullRequestResult(
-    childIssue,
+  return childPullRequestResult({
+    issue: childIssue,
     pullRequest,
-    isFinalizedForRebase(state) ? 'ready-for-human-merge' : 'waiting',
-    isFinalizedForRebase(state)
+    status: isFinalizedForRebase(state) ? 'ready-for-human-merge' : 'waiting',
+    summary: isFinalizedForRebase(state)
       ? `Child PR #${pullRequest.number} is finalized for human merge.`
       : `Child PR #${pullRequest.number} is waiting for human review or merge gates.`,
-  );
+  });
 }
 
 /**
@@ -1328,7 +1356,7 @@ function inspectLocalChildPullRequest({ childIssue, parentBranchName, pullReques
  * @param {string} options.parentBranchName
  * @param {GitHubPullRequest} options.pullRequest
  * @param {'dry-run' | 'publish'} options.publicationMode
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @param {boolean} [options.requireFinalizedHeadChecks]
  * @returns {Promise<ChildAutomationResult>}
  */
@@ -1345,22 +1373,22 @@ async function coordinateLocalChildPullRequest(
   },
 ) {
   if (pullRequest.baseRefName !== parentBranchName) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
+    });
   }
 
   const state = readManagedPrState(pullRequest.body);
   if (!state.managed || state.sourceIssueNumber !== childIssue.number) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
+    });
   }
 
   if (!isFinalizedForRebase(state)) {
@@ -1375,12 +1403,12 @@ async function coordinateLocalChildPullRequest(
       });
     }
 
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is waiting for human review or merge gates.`,
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is waiting for human review or merge gates.`,
+    });
   }
 
   return await mergeFinalizedChildPullRequestLocally(context, {
@@ -1401,7 +1429,7 @@ async function coordinateLocalChildPullRequest(
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubPullRequest} options.pullRequest
- * @param {(pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>} options.runChildPullRequestOperation
+ * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} options.runChildPullRequestOperation
  * @param {boolean} options.requireFinalizedHeadChecks
  * @returns {Promise<ChildAutomationResult>}
  */
@@ -1426,44 +1454,60 @@ async function continuePublishedLocalChildPullRequest(
     }
 
     if (!isLocalChildPullRequestOperation(nextOperation)) {
-      return childPullRequestResult(
-        childIssue,
-        currentPullRequest,
-        'blocked',
-        `Child PR #${currentPullRequest.number} needs ${nextOperation} before local auto-complete can continue.`,
-        {
+      return childPullRequestResult({
+        issue: childIssue,
+        pullRequest: currentPullRequest,
+        status: 'blocked',
+        summary: `Child PR #${currentPullRequest.number} needs ${nextOperation} before local auto-complete can continue.`,
+        extra: {
           nextOperation,
+          blockedPhase: 'pull-request-automation',
+          blockedOperation: nextOperation,
         },
-      );
+      });
     }
 
-    const output = await runChildPullRequestOperation(currentPullRequest.number, nextOperation);
+    const output = await runChildPullRequestOperation({
+      pullRequestNumber: currentPullRequest.number,
+      operation: nextOperation,
+    });
     if (output.status === 'blocked' || output.status === 'refused') {
-      return childPullRequestResult(
-        childIssue,
-        currentPullRequest,
-        'blocked',
-        String(output.summary ?? `Child PR #${currentPullRequest.number} could not continue.`),
-        {
+      const blockedPhase =
+        readOutputString(output, 'blockedPhase') ?? phaseForPullRequestOperation(nextOperation);
+      const blockedOperation =
+        readOutputString(output, 'blockedOperation') ??
+        operationReferenceForPullRequestOperation(nextOperation);
+      return childPullRequestResult({
+        issue: childIssue,
+        pullRequest: currentPullRequest,
+        status: 'blocked',
+        summary: String(
+          output.summary ?? `Child PR #${currentPullRequest.number} could not continue.`,
+        ),
+        extra: {
           nextOperation,
+          blockedPhase,
+          blockedOperation,
         },
-      );
+      });
     }
 
     const finalized = readRecordProperty(output, 'prFinalize');
     if (finalized?.waiting === true) {
-      return childPullRequestResult(
-        childIssue,
-        currentPullRequest,
-        'waiting',
-        String(
+      return childPullRequestResult({
+        issue: childIssue,
+        pullRequest: currentPullRequest,
+        status: 'waiting',
+        summary: String(
           output.summary ??
             `Child PR #${currentPullRequest.number} is waiting for finalized-head checks.`,
         ),
-        {
+        extra: {
           nextOperation,
+          blockedPhase: 'checks',
+          blockedOperation: 'pr:finalize',
         },
-      );
+      });
     }
 
     currentPullRequest = await context.githubClient.getPullRequest(currentPullRequest.number);
@@ -1494,12 +1538,16 @@ async function continuePublishedLocalChildPullRequest(
     });
   }
 
-  return childPullRequestResult(
-    childIssue,
-    currentPullRequest,
-    'waiting',
-    `Child PR #${currentPullRequest.number} is waiting for human review or merge gates.`,
-  );
+  return childPullRequestResult({
+    issue: childIssue,
+    pullRequest: currentPullRequest,
+    status: 'waiting',
+    summary: `Child PR #${currentPullRequest.number} is waiting for human review or merge gates.`,
+    extra: {
+      blockedPhase: 'review',
+      blockedOperation: 'pr:review',
+    },
+  });
 }
 
 /**
@@ -1536,22 +1584,22 @@ async function coordinateChildPullRequest(
   { childIssue, parentIssue, parentBranchName, pullRequest, mode },
 ) {
   if (pullRequest.baseRefName !== parentBranchName) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} does not target ${parentBranchName}.`,
+    });
   }
 
   const state = readManagedPrState(pullRequest.body);
   if (!state.managed || state.sourceIssueNumber !== childIssue.number) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'skipped',
-      `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
-    );
+      status: 'skipped',
+      summary: `Child PR #${pullRequest.number} is not the PullOps-managed PR for child issue #${childIssue.number}.`,
+    });
   }
 
   if (mode === 'auto-complete' && isFinalizedForRebase(state)) {
@@ -1569,33 +1617,33 @@ async function coordinateChildPullRequest(
   });
 
   if (workflow.status === 'resumed') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'resumed',
-      `Resumed child PR #${pullRequest.number} with ${workflow.nextOperation}.`,
-      { nextOperation: workflow.nextOperation },
-    );
+      status: 'resumed',
+      summary: `Resumed child PR #${pullRequest.number} with ${workflow.nextOperation}.`,
+      extra: { nextOperation: workflow.nextOperation },
+    });
   }
 
   if (workflow.status === 'already-active') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'already-active',
-      `Child PR #${pullRequest.number} already has active PullOps PR automation.`,
-      { labels: workflow.labels ?? [] },
-    );
+      status: 'already-active',
+      summary: `Child PR #${pullRequest.number} already has active PullOps PR automation.`,
+      extra: { labels: workflow.labels ?? [] },
+    });
   }
 
-  return childPullRequestResult(
-    childIssue,
+  return childPullRequestResult({
+    issue: childIssue,
     pullRequest,
-    isFinalizedForRebase(state) ? 'ready-for-human-merge' : 'waiting',
-    isFinalizedForRebase(state)
+    status: isFinalizedForRebase(state) ? 'ready-for-human-merge' : 'waiting',
+    summary: isFinalizedForRebase(state)
       ? `Child PR #${pullRequest.number} is finalized for human merge.`
       : `Child PR #${pullRequest.number} is waiting for human attention.`,
-  );
+  });
 }
 
 /**
@@ -1612,33 +1660,33 @@ async function mergeFinalizedChildPullRequest(
   { childIssue, parentIssue, pullRequest, finalizedHeadSha },
 ) {
   if (context.githubClient.mergePullRequest === undefined) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'blocked',
-      'GitHub client cannot merge pull requests.',
-    );
+      status: 'blocked',
+      summary: 'GitHub client cannot merge pull requests.',
+    });
   }
 
   if (pullRequest.isDraft) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is still a draft.`,
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is still a draft.`,
+    });
   }
 
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyCheckState(checks);
   if (checkState === 'pending') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is waiting for finalized-head checks.`,
-      { checks: checks.length },
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is waiting for finalized-head checks.`,
+      extra: { checks: checks.length },
+    });
   }
 
   if (checkState === 'failed') {
@@ -1646,13 +1694,13 @@ async function mergeFinalizedChildPullRequest(
       number: pullRequest.number,
       labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
     });
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'routed-to-ci-repair',
-      `Child PR #${pullRequest.number} finalized-head checks failed; routed to CI repair.`,
-      { checks: checks.length },
-    );
+      status: 'routed-to-ci-repair',
+      summary: `Child PR #${pullRequest.number} finalized-head checks failed; routed to CI repair.`,
+      extra: { checks: checks.length },
+    });
   }
 
   await context.githubClient.mergePullRequest({
@@ -1660,13 +1708,13 @@ async function mergeFinalizedChildPullRequest(
     method: 'rebase',
   });
 
-  return childPullRequestResult(
-    childIssue,
+  return childPullRequestResult({
+    issue: childIssue,
     pullRequest,
-    'merged',
-    `Merged finalized child PR #${pullRequest.number} into PRD issue #${parentIssue.number}.`,
-    { mergeMethod: 'rebase' },
-  );
+    status: 'merged',
+    summary: `Merged finalized child PR #${pullRequest.number} into PRD issue #${parentIssue.number}.`,
+    extra: { mergeMethod: 'rebase' },
+  });
 }
 
 /**
@@ -1694,53 +1742,60 @@ async function mergeFinalizedChildPullRequestLocally(
   },
 ) {
   if (context.gitClient.cherryPickCommitOntoBranch === undefined) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'blocked',
-      'Git client cannot locally integrate finalized child pull requests.',
-    );
+      status: 'blocked',
+      summary: 'Git client cannot locally integrate finalized child pull requests.',
+      extra: {
+        blockedPhase: 'integration',
+      },
+    });
   }
 
   if (pullRequest.isDraft) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is still a draft.`,
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is still a draft.`,
+      extra: {
+        blockedPhase: 'review',
+        blockedOperation: 'pr:review',
+      },
+    });
   }
 
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
   const checkState = classifyCheckState(checks);
   if (checkState === 'absent' && requireFinalizedHeadChecks) {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is waiting for finalized-head checks to appear.`,
-      { checks: checks.length },
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is waiting for finalized-head checks to appear.`,
+      extra: { checks: checks.length, blockedPhase: 'checks', blockedOperation: 'pr:finalize' },
+    });
   }
 
   if (checkState === 'pending') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'waiting',
-      `Child PR #${pullRequest.number} is waiting for finalized-head checks.`,
-      { checks: checks.length },
-    );
+      status: 'waiting',
+      summary: `Child PR #${pullRequest.number} is waiting for finalized-head checks.`,
+      extra: { checks: checks.length, blockedPhase: 'checks', blockedOperation: 'pr:finalize' },
+    });
   }
 
   if (checkState === 'failed') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'blocked',
-      `Child PR #${pullRequest.number} finalized-head checks failed; repair CI before local auto-complete can merge it.`,
-      { checks: checks.length },
-    );
+      status: 'blocked',
+      summary: `Child PR #${pullRequest.number} finalized-head checks failed; repair CI before local auto-complete can merge it.`,
+      extra: { checks: checks.length, blockedPhase: 'checks', blockedOperation: 'pr:finalize' },
+    });
   }
 
   const integration = await context.gitClient.cherryPickCommitOntoBranch({
@@ -1751,16 +1806,17 @@ async function mergeFinalizedChildPullRequestLocally(
   });
 
   if (integration.status === 'conflicts') {
-    return childPullRequestResult(
-      childIssue,
+    return childPullRequestResult({
+      issue: childIssue,
       pullRequest,
-      'blocked',
-      `Child PR #${pullRequest.number} could not be merged locally into ${parentBranchName} without conflicts.`,
-      {
+      status: 'blocked',
+      summary: `Child PR #${pullRequest.number} could not be merged locally into ${parentBranchName} without conflicts.`,
+      extra: {
         mergeMethod: 'local-cherry-pick',
         conflictedFiles: integration.conflictedFiles,
+        blockedPhase: 'integration',
       },
-    );
+    });
   }
 
   if (publicationMode === 'publish') {
@@ -1768,13 +1824,13 @@ async function mergeFinalizedChildPullRequestLocally(
       branchName: parentBranchName,
     });
     if (pushResult.status === 'stale-lease') {
-      return childPullRequestResult(
-        childIssue,
+      return childPullRequestResult({
+        issue: childIssue,
         pullRequest,
-        'blocked',
-        `Remote branch ${parentBranchName} changed while local auto-complete was merging child PR #${pullRequest.number}.`,
-        { mergeMethod: 'local-cherry-pick' },
-      );
+        status: 'blocked',
+        summary: `Remote branch ${parentBranchName} changed while local auto-complete was merging child PR #${pullRequest.number}.`,
+        extra: { mergeMethod: 'local-cherry-pick', blockedPhase: 'integration' },
+      });
     }
 
     await closeChildIssue(context, {
@@ -1786,18 +1842,18 @@ async function mergeFinalizedChildPullRequestLocally(
     markParentChildIssueReferenceClosed(parentIssue, childIssue.number);
   }
 
-  return childPullRequestResult(
-    childIssue,
+  return childPullRequestResult({
+    issue: childIssue,
     pullRequest,
-    'merged',
-    `Merged finalized child PR #${pullRequest.number} locally into PRD issue #${parentIssue.number}.`,
-    {
+    status: 'merged',
+    summary: `Merged finalized child PR #${pullRequest.number} locally into PRD issue #${parentIssue.number}.`,
+    extra: {
       mergeMethod: 'local-cherry-pick',
       finalizedHeadSha,
       headSha: integration.headSha,
       treeHash: integration.treeHash,
     },
-  );
+  });
 }
 
 /**
@@ -1955,7 +2011,7 @@ function inspectManagedPrForLocalReview(pullRequest) {
  *   parentIssueNumber: number,
  *   parentBranchName: string,
  *   childIssues: GitHubIssue[],
- *   runParentPullRequestOperation?: (pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize') => Promise<Record<string, unknown>>,
+ *   runParentPullRequestOperation?: (request: PullRequestOperationRequest) => Promise<Record<string, unknown>>,
  * }} options
  * @returns {Promise<ParentReviewResult>}
  */
@@ -2000,7 +2056,10 @@ async function completePublishedLocalUmbrellaPullRequest(
   const localRunRecords = [];
 
   for (let reviewCycle = 0; reviewCycle < 3; reviewCycle += 1) {
-    review = await runParentPullRequestOperation(pullRequestNumber, 'pr-review');
+    review = await runParentPullRequestOperation({
+      pullRequestNumber,
+      operation: 'pr-review',
+    });
     recordParentOperationRunRecord(localRunRecords, review);
     if (review.status === 'blocked' || review.status === 'refused') {
       return completeBlockedPublishedUmbrellaPullRequest(inspected, {
@@ -2026,10 +2085,10 @@ async function completePublishedLocalUmbrellaPullRequest(
       });
     }
 
-    const addressReview = await runParentPullRequestOperation(
+    const addressReview = await runParentPullRequestOperation({
       pullRequestNumber,
-      'pr-address-review',
-    );
+      operation: 'pr-address-review',
+    });
     addressReviews.push(addressReview);
     recordParentOperationRunRecord(localRunRecords, addressReview);
     if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
@@ -2054,7 +2113,10 @@ async function completePublishedLocalUmbrellaPullRequest(
     });
   }
 
-  const finalize = await runParentPullRequestOperation(pullRequestNumber, 'pr-finalize');
+  const finalize = await runParentPullRequestOperation({
+    pullRequestNumber,
+    operation: 'pr-finalize',
+  });
   recordParentOperationRunRecord(localRunRecords, finalize);
 
   if (finalize.status === 'blocked' || finalize.status === 'refused') {
@@ -2320,13 +2382,46 @@ function selectLocalChildPullRequestOperation(pullRequest) {
 }
 
 /**
- * @param {GitHubIssue} issue
- * @param {string} status
- * @param {string} summary
- * @param {Partial<ChildAutomationResult>} [extra]
+ * @param {PullRequestOperationName} operation
+ * @returns {'review' | 'address-review' | 'finalization'}
+ */
+function phaseForPullRequestOperation(operation) {
+  if (operation === 'pr-review') {
+    return 'review';
+  }
+
+  if (operation === 'pr-address-review') {
+    return 'address-review';
+  }
+
+  return 'finalization';
+}
+
+/**
+ * @param {PullRequestOperationName} operation
+ * @returns {'pr:review' | 'pr:address-review' | 'pr:finalize'}
+ */
+function operationReferenceForPullRequestOperation(operation) {
+  if (operation === 'pr-review') {
+    return 'pr:review';
+  }
+
+  if (operation === 'pr-address-review') {
+    return 'pr:address-review';
+  }
+
+  return 'pr:finalize';
+}
+
+/**
+ * @param {object} options
+ * @param {GitHubIssue} options.issue
+ * @param {string} options.status
+ * @param {string} options.summary
+ * @param {Partial<ChildAutomationResult>} [options.extra]
  * @returns {ChildAutomationResult}
  */
-function childResult(issue, status, summary, extra = {}) {
+function childResult({ issue, status, summary, extra = {} }) {
   return {
     issue: {
       number: issue.number,
@@ -2339,17 +2434,23 @@ function childResult(issue, status, summary, extra = {}) {
 }
 
 /**
- * @param {GitHubIssue} issue
- * @param {GitHubPullRequest} pullRequest
- * @param {string} status
- * @param {string} summary
- * @param {Partial<ChildAutomationResult>} [extra]
+ * @param {object} options
+ * @param {GitHubIssue} options.issue
+ * @param {GitHubPullRequest} options.pullRequest
+ * @param {string} options.status
+ * @param {string} options.summary
+ * @param {Partial<ChildAutomationResult>} [options.extra]
  * @returns {ChildAutomationResult}
  */
-function childPullRequestResult(issue, pullRequest, status, summary, extra = {}) {
-  return childResult(issue, status, summary, {
-    pullRequest: formatPullRequest(pullRequest),
-    ...extra,
+function childPullRequestResult({ issue, pullRequest, status, summary, extra = {} }) {
+  return childResult({
+    issue,
+    status,
+    summary,
+    extra: {
+      pullRequest: formatPullRequest(pullRequest),
+      ...extra,
+    },
   });
 }
 
@@ -2787,6 +2888,19 @@ function readOutputBranch(output, fallback) {
 function readOutputString(output, key) {
   const value = output[key];
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * @param {Record<string, unknown>} output
+ * @returns {Partial<ChildAutomationResult>}
+ */
+function readOutputBlocker(output) {
+  const blockedPhase = readOutputString(output, 'blockedPhase');
+  const blockedOperation = readOutputString(output, 'blockedOperation');
+  return {
+    ...(blockedPhase === undefined ? {} : { blockedPhase }),
+    ...(blockedOperation === undefined ? {} : { blockedOperation }),
+  };
 }
 
 /**

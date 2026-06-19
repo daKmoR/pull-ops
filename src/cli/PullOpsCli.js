@@ -642,7 +642,11 @@ function parseLocalIssueImplementReferenceArgs(args) {
     );
   }
 
-  const runGoal = parseOperationRunGoal(args, consumed, 'finalized');
+  const runGoal = parseOperationRunGoal({
+    args,
+    consumed,
+    defaultRunGoal: 'finalized',
+  });
   const publicationMode = parsePublicationMode(args, consumed);
   const remaining = args.filter((value, argIndex) => {
     void value;
@@ -693,7 +697,11 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   }
 
   const publicationMode = parsePublicationMode(args, consumed);
-  const runGoal = parseOperationRunGoal(args, consumed, 'finalized');
+  const runGoal = parseOperationRunGoal({
+    args,
+    consumed,
+    defaultRunGoal: 'finalized',
+  });
   const remaining = args.filter((value, argIndex) => {
     void value;
     return !consumed.has(argIndex);
@@ -797,12 +805,13 @@ function parsePublicationMode(args, consumed) {
 }
 
 /**
- * @param {string[]} args
- * @param {Set<number>} consumed
- * @param {import('./types.js').OperationRunGoal} [defaultRunGoal]
+ * @param {object} options
+ * @param {string[]} options.args
+ * @param {Set<number>} options.consumed
+ * @param {import('./types.js').OperationRunGoal} [options.defaultRunGoal]
  * @returns {import('./types.js').OperationRunGoal}
  */
-function parseOperationRunGoal(args, consumed, defaultRunGoal = 'operation') {
+function parseOperationRunGoal({ args, consumed, defaultRunGoal = 'operation' }) {
   const rawRunGoal = parseOptionalStringOption(args, '--until', consumed);
   if (rawRunGoal === undefined) {
     return defaultRunGoal;

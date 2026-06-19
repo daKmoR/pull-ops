@@ -8,6 +8,7 @@ import { runIssueImplement } from '../issue-implement/run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
  */
 
 /**
@@ -63,13 +64,13 @@ export async function runPrdAutoComplete(context) {
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
-      async runParentPullRequestOperation(pullRequestNumber, operation) {
+      async runParentPullRequestOperation({ pullRequestNumber, operation }) {
         return await runLocalPublishedPullRequestOperation(localContext, {
           pullRequestNumber,
           operation,
         });
       },
-      async runChildPullRequestOperation(pullRequestNumber, operation) {
+      async runChildPullRequestOperation({ pullRequestNumber, operation }) {
         return await runLocalPublishedPullRequestOperation(localContext, {
           pullRequestNumber,
           operation,
@@ -127,18 +128,14 @@ function withDefaultLocalPrdRunGoal(context) {
  * @param {OperationRunnerContext} context
  * @param {{
  *   pullRequestNumber: number,
- *   operation: 'pr-review' | 'pr-address-review' | 'pr-finalize',
+ *   operation: PullRequestOperationName,
  *   resumeParentPrdAutomationAfterPrFinalize?: boolean,
  * }} options
  * @returns {Promise<Record<string, unknown>>}
  */
 async function runLocalPublishedPullRequestOperation(
   context,
-  {
-    pullRequestNumber,
-    operation,
-    resumeParentPrdAutomationAfterPrFinalize,
-  },
+  { pullRequestNumber, operation, resumeParentPrdAutomationAfterPrFinalize },
 ) {
   const operationContext = createPullRequestOperationContext(context, {
     pullRequestNumber,
@@ -164,18 +161,14 @@ async function runLocalPublishedPullRequestOperation(
  * @param {OperationRunnerContext} context
  * @param {{
  *   pullRequestNumber: number,
- *   operation: 'pr-review' | 'pr-address-review' | 'pr-finalize',
+ *   operation: PullRequestOperationName,
  *   resumeParentPrdAutomationAfterPrFinalize?: boolean,
  * }} options
  * @returns {OperationRunnerContext}
  */
 function createPullRequestOperationContext(
   context,
-  {
-    pullRequestNumber,
-    operation,
-    resumeParentPrdAutomationAfterPrFinalize,
-  },
+  { pullRequestNumber, operation, resumeParentPrdAutomationAfterPrFinalize },
 ) {
   const configKey = readPullRequestOperationConfigKey(operation);
   const modelTier = context.config.operations[configKey].modelTier;
@@ -195,7 +188,7 @@ function createPullRequestOperationContext(
 }
 
 /**
- * @param {'pr-review' | 'pr-address-review' | 'pr-finalize'} operation
+ * @param {PullRequestOperationName} operation
  * @returns {'prReview' | 'prAddressReview' | 'prFinalize'}
  */
 function readPullRequestOperationConfigKey(operation) {

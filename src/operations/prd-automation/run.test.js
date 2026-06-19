@@ -802,7 +802,13 @@ describe('runPrdAutoComplete', () => {
       ]),
     });
     const git = createFakeGit({
-      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
     const codex = createFakeCodexRunner(git);
@@ -914,7 +920,13 @@ describe('runPrdAutoComplete', () => {
       ]),
     });
     const git = createFakeGit({
-      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
     const codex = createFakeCodexRunner(git);
@@ -1325,8 +1337,16 @@ describe('runPrdAutoComplete', () => {
     const git = createFakeGit({
       dirtyAfterRunner: true,
       commitsSinceBase: [
-        childCommit(34, 12, 'src/child-34.js'),
-        childCommit(35, 12, 'src/child-35.js'),
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+        childCommit({
+          childIssueNumber: 35,
+          parentIssueNumber: 12,
+          file: 'src/child-35.js',
+        }),
       ],
       changedFilesSinceBase: ['src/child-34.js', 'src/child-35.js'],
     });
@@ -1470,7 +1490,13 @@ describe('runPrdAutoComplete', () => {
       ]),
     });
     const git = createFakeGit({
-      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
     const codex = createFakeCodexRunner(git);
@@ -1620,6 +1646,93 @@ describe('runPrdAutoComplete', () => {
     assert.deepEqual(result.localNextSteps, [
       'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
     ]);
+  });
+
+  it('14: operation-only local auto-complete does not virtually unblock later child issues', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-operation-only-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+      ],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'operation',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Child issue 34/);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.dependencyDecision?.remainingBlockedBy,
+      ]),
+      [
+        [34, 'dry-run-completed', undefined],
+        [35, 'blocked', [34]],
+      ],
+    );
+    assert.deepEqual(result.virtualCompletedChildren, []);
+    assert.deepEqual(result.remainingBlockedChildren, [35]);
+  });
+
+  it('15: finalized local auto-complete reports the child phase that blocked', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-blocked-phase-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunnerWithBlockedReview({ git });
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 2);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.blockedPhase,
+        child.blockedOperation,
+      ]),
+      [[34, 'blocked', 'review', 'pr:review']],
+    );
+    assert.deepEqual(result.remainingBlockedChildren, [34]);
   });
 });
 
@@ -1799,12 +1912,13 @@ function parentPullRequestBody(issueNumber) {
 }
 
 /**
- * @param {number} childIssueNumber
- * @param {number} parentIssueNumber
- * @param {string} file
+ * @param {object} options
+ * @param {number} options.childIssueNumber
+ * @param {number} options.parentIssueNumber
+ * @param {string} options.file
  * @returns {import('../../git/types.js').GitCommit}
  */
-function childCommit(childIssueNumber, parentIssueNumber, file) {
+function childCommit({ childIssueNumber, parentIssueNumber, file }) {
   return {
     sha: `child-${childIssueNumber}`,
     subject: `feat(issue): implement #${childIssueNumber}`,
@@ -2242,6 +2356,48 @@ function createFakeCodexRunner(git) {
         }
 
         git?.markRunnerChangedWorktree();
+        return {
+          status: 'implemented',
+          summary: `Implemented child issue run ${calls.length}.`,
+          changes: [`Changed child issue run ${calls.length}.`],
+          testPlan: ['Not run in fake test.'],
+          followUps: [],
+        };
+      },
+    },
+  };
+}
+
+/**
+ * @param {object} options
+ * @param {{ markRunnerChangedWorktree(): void }} options.git
+ * @returns {{
+ *   runner: import('../../runner/types.js').CodexRunner;
+ *   calls: { cwd: string, command: string, model: string, prompt: string }[];
+ * }}
+ */
+function createFakeCodexRunnerWithBlockedReview({ git }) {
+  /** @type {{ cwd: string, command: string, model: string, prompt: string }[]} */
+  const calls = [];
+
+  return {
+    calls,
+    runner: {
+      async run(options) {
+        calls.push(options);
+        if (options.prompt.includes('Use the pullops-pr-review skill.')) {
+          return {
+            status: 'blocked',
+            summary: 'Review could not complete.',
+            failureReason: 'Review phase blocked.',
+            comments: [],
+            replies: [],
+            directChanges: [],
+            followUps: [],
+          };
+        }
+
+        git.markRunnerChangedWorktree();
         return {
           status: 'implemented',
           summary: `Implemented child issue run ${calls.length}.`,
