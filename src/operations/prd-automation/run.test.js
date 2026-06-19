@@ -1296,6 +1296,17 @@ describe('runPrdAutoComplete', () => {
             },
           ],
         ],
+        [
+          'head-current',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
       ]),
     });
     const git = createFakeGit({
@@ -1383,6 +1394,150 @@ describe('runPrdAutoComplete', () => {
       ),
       true,
     );
+  });
+
+  it('11: local publish auto-complete resumes an existing child PR through review and finalize', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-existing-pr-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: childPullRequestBody(34),
+          isDraft: true,
+        }),
+      ],
+      checksByRef: new Map([
+        [
+          'sha-101',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+        [
+          'sha-200',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit({
+      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(
+      codex.calls.some(call => call.prompt.includes('Use the pullops-issue-implement skill.')),
+      false,
+    );
+    assert.equal(codex.calls.length, 2);
+    assert.match(codex.calls[0].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[1].prompt, /Review PullOps-managed PR #200/);
+    assert.deepEqual(github.createdPullRequests, []);
+    assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.readyPullRequests, [101, 200]);
+    assert.equal(git.cherryPicks.length, 1);
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'merged']],
+    );
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
+  });
+
+  it('12: local publish auto-complete waits for hosted checks on newly published child PRs', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-new-pr-checks-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 3);
+    assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.deepEqual(github.closedIssues, []);
+    assert.deepEqual(git.cherryPicks, []);
+    assert.deepEqual(
+      github.createdPullRequests.map(pullRequest => ({
+        baseBranch: pullRequest.baseBranch,
+        headBranch: pullRequest.headBranch,
+      })),
+      [
+        {
+          baseBranch: 'main',
+          headBranch: 'pullops/prd-12',
+        },
+        {
+          baseBranch: 'pullops/prd-12',
+          headBranch: 'pullops/prd-12-issue-34',
+        },
+      ],
+    );
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'waiting']],
+    );
+    assert.equal(readParentPullRequest(result)?.status, 'waiting');
+    assert.deepEqual(result.localNextSteps, [
+      'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+    ]);
   });
 });
 

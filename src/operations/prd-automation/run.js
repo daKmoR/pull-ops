@@ -64,7 +64,13 @@ export async function runPrdAutoComplete(context) {
         });
       },
       async runParentPullRequestOperation(pullRequestNumber, operation) {
-        return await runLocalPublishedParentPullRequestOperation(localContext, {
+        return await runLocalPublishedPullRequestOperation(localContext, {
+          pullRequestNumber,
+          operation,
+        });
+      },
+      async runChildPullRequestOperation(pullRequestNumber, operation) {
+        return await runLocalPublishedPullRequestOperation(localContext, {
           pullRequestNumber,
           operation,
         });
@@ -121,11 +127,8 @@ function withDefaultLocalPrdRunGoal(context) {
  * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function runLocalPublishedParentPullRequestOperation(
-  context,
-  { pullRequestNumber, operation },
-) {
-  const operationContext = createParentPullRequestOperationContext(context, {
+async function runLocalPublishedPullRequestOperation(context, { pullRequestNumber, operation }) {
+  const operationContext = createPullRequestOperationContext(context, {
     pullRequestNumber,
     operation,
   });
@@ -149,8 +152,8 @@ async function runLocalPublishedParentPullRequestOperation(
  * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
  * @returns {OperationRunnerContext}
  */
-function createParentPullRequestOperationContext(context, { pullRequestNumber, operation }) {
-  const configKey = readParentPullRequestOperationConfigKey(operation);
+function createPullRequestOperationContext(context, { pullRequestNumber, operation }) {
+  const configKey = readPullRequestOperationConfigKey(operation);
   const modelTier = context.config.operations[configKey].modelTier;
   return {
     ...context,
@@ -168,7 +171,7 @@ function createParentPullRequestOperationContext(context, { pullRequestNumber, o
  * @param {'pr-review' | 'pr-address-review' | 'pr-finalize'} operation
  * @returns {'prReview' | 'prAddressReview' | 'prFinalize'}
  */
-function readParentPullRequestOperationConfigKey(operation) {
+function readPullRequestOperationConfigKey(operation) {
   if (operation === 'pr-review') {
     return 'prReview';
   }
