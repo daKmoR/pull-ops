@@ -142,6 +142,12 @@ export interface GetCommitsSinceBaseOptions {
   preferLocalBase?: boolean;
 }
 
+export interface HasUnappliedCommitsSinceBaseOptions {
+  branchName: string;
+  baseBranch: string;
+  preferLocalBase?: boolean;
+}
+
 export interface ResetHardToRevisionOptions {
   revision: string;
 }
@@ -207,6 +213,7 @@ export interface GitClient {
   resetHardToRevision?(options: ResetHardToRevisionOptions): Promise<void>;
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
   getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
+  hasUnappliedCommitsSinceBase?(options: HasUnappliedCommitsSinceBaseOptions): Promise<boolean>;
   rewriteBranchWithCommitPlan(
     options: RewriteBranchWithCommitPlanOptions,
   ): Promise<GitRewriteResult>;

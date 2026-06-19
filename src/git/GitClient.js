@@ -35,6 +35,7 @@ const PULL_OPS_WORKTREE_PATHSPEC = [
  * @typedef {import('./types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
  * @typedef {import('./types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
+ * @typedef {import('./types.js').HasUnappliedCommitsSinceBaseOptions} HasUnappliedCommitsSinceBaseOptions
  * @typedef {import('./types.js').GitCommit} GitCommit
  * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
  * @typedef {import('./types.js').RewriteBranchWithExistingCommitsOptions} RewriteBranchWithExistingCommitsOptions
@@ -529,6 +530,63 @@ export function createGitClient({
     },
 
     /**
+     * @param {HasUnappliedCommitsSinceBaseOptions} options
+     * @returns {Promise<boolean>}
+     */
+    async hasUnappliedCommitsSinceBase({ branchName, baseBranch, preferLocalBase = false }) {
+      const baseRef = await resolveBaseReference(execFile, baseBranch, {
+        preferLocalBase,
+        refreshRemote: true,
+      });
+      await fetchRemoteBranch(execFile, branchName, { optional: true });
+      const branchRef = await resolveBranchReference(execFile, branchName);
+      if (branchRef === undefined) {
+        return true;
+      }
+
+      const rightSideCommitCount = Number(
+        (
+          await runGit(
+            execFile,
+            ['rev-list', '--right-only', '--count', `${baseRef}...${branchRef}`],
+            `count child-side commits from ${branchName} since ${baseBranch}`,
+          )
+        ).stdout
+          .toString()
+          .trim(),
+      );
+      if (rightSideCommitCount === 0) {
+        return true;
+      }
+
+      const result = await runGit(
+        execFile,
+        [
+          'log',
+          '--cherry-pick',
+          '--right-only',
+          '--no-merges',
+          '--format=%H',
+          `${baseRef}...${branchRef}`,
+        ],
+        `inspect unapplied commits from ${branchName} onto ${baseBranch}`,
+      );
+      const shas = result.stdout
+        .toString()
+        .split('\n')
+        .map(sha => sha.trim())
+        .filter(Boolean);
+
+      for (const sha of shas) {
+        if ((await readCommit(execFile, sha)).files.length > 0) {
+          return true;
+        }
+      }
+
+      return false;
+    },
+
+    /**
      * @param {RewriteBranchWithCommitPlanOptions} options
      * @returns {Promise<GitRewriteResult>}
      */
@@ -648,6 +706,23 @@ async function resolveBaseReference(execFile, baseBranch, { preferLocalBase, ref
   }
 
   return `origin/${baseBranch}`;
+}
+
+/**
+ * @param {ExecFile} execFile
+ * @param {string} branchName
+ * @returns {Promise<string | undefined>}
+ */
+async function resolveBranchReference(execFile, branchName) {
+  if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+    return branchName;
+  }
+
+  if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+    return `origin/${branchName}`;
+  }
+
+  return undefined;
 }
 
 /**

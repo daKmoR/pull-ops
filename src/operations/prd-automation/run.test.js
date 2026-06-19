@@ -1734,6 +1734,69 @@ describe('runPrdAutoComplete', () => {
     );
     assert.deepEqual(result.remainingBlockedChildren, [34]);
   });
+
+  it('16: local dry-run auto-complete virtually completes already-integrated child branches', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-integrated-child-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+      ],
+    });
+    const git = createFakeGit({
+      dirtyAfterRunner: true,
+      branchesWithoutUnappliedCommits: ['pullops/prd-12-issue-34'],
+    });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 3);
+    assert.match(codex.calls[0].prompt, /Child issue 35/);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.dependencyDecision?.satisfiedByVirtualCompletions,
+        child.dependencyDecision?.remainingBlockedBy,
+      ]),
+      [
+        [34, 'dry-run-completed', undefined, undefined],
+        [35, 'dry-run-completed', [34], []],
+      ],
+    );
+    assert.deepEqual(result.virtualCompletedChildren, [34, 35]);
+    assert.deepEqual(result.remainingBlockedChildren, []);
+    assert.deepEqual(git.branchApplicationChecks, [
+      {
+        branchName: 'pullops/prd-12-issue-34',
+        baseBranch: 'pullops/prd-12',
+        preferLocalBase: true,
+      },
+      {
+        branchName: 'pullops/prd-12-issue-35',
+        baseBranch: 'pullops/prd-12',
+        preferLocalBase: true,
+      },
+    ]);
+  });
 });
 
 /**
@@ -2156,10 +2219,12 @@ function createFakeGitHub({
  * @param {boolean} [options.initialDirtyWorktree]
  * @param {import('../../git/types.js').GitCommit[]} [options.commitsSinceBase]
  * @param {string[]} [options.changedFilesSinceBase]
+ * @param {string[]} [options.branchesWithoutUnappliedCommits]
  * @returns {{
  *   client: import('../../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
  *   checkouts: { branchName: string, baseBranch: string }[];
+ *   branchApplicationChecks: import('../../git/types.js').HasUnappliedCommitsSinceBaseOptions[];
  *   cherryPicks: { branchName: string, baseBranch: string, commitSha: string }[];
  *   rewrites: import('../../git/types.js').RewriteBranchWithCommitPlanOptions[];
  *   emptyCommits: import('../../git/types.js').CommitEmptyOptions[];
@@ -2174,11 +2239,14 @@ function createFakeGit({
   initialDirtyWorktree = false,
   commitsSinceBase = [],
   changedFilesSinceBase = ['src/file.js'],
+  branchesWithoutUnappliedCommits = [],
 } = {}) {
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const createdBranches = [];
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const checkouts = [];
+  /** @type {import('../../git/types.js').HasUnappliedCommitsSinceBaseOptions[]} */
+  const branchApplicationChecks = [];
   /** @type {{ branchName: string, baseBranch: string, commitSha: string }[]} */
   const cherryPicks = [];
   /** @type {import('../../git/types.js').RewriteBranchWithCommitPlanOptions[]} */
@@ -2195,6 +2263,7 @@ function createFakeGit({
   return {
     createdBranches,
     checkouts,
+    branchApplicationChecks,
     cherryPicks,
     rewrites,
     emptyCommits,
@@ -2227,6 +2296,10 @@ function createFakeGit({
       },
       async getCurrentBranch() {
         return currentBranch;
+      },
+      async hasUnappliedCommitsSinceBase(options) {
+        branchApplicationChecks.push(options);
+        return !branchesWithoutUnappliedCommits.includes(options.branchName);
       },
       async hasChanges() {
         return dirty;

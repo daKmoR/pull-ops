@@ -806,6 +806,121 @@ describe('createGitClient', () => {
     assert.equal(countGitCalls(calls, ['rev-list', '--reverse', 'pullops/prd-7..HEAD']), 1);
     assert.equal(countGitCalls(calls, ['reset', '--hard', 'pullops/prd-7']), 1);
   });
+
+  it('22: detects whether child branch commits are already applied to a preferred local base', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set([
+      'refs/heads/pullops/prd-7',
+      'refs/remotes/origin/pullops/prd-7-issue-42',
+      'refs/remotes/origin/pullops/prd-7-issue-43',
+    ]);
+    const gitClient = createGitClient({
+      env: {},
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        if (
+          isGitCall({ file, args }, [
+            'rev-list',
+            '--right-only',
+            '--count',
+            'pullops/prd-7...origin/pullops/prd-7-issue-42',
+          ])
+        ) {
+          return { stdout: '2\n', stderr: '' };
+        }
+
+        if (
+          isGitCall({ file, args }, [
+            'log',
+            '--cherry-pick',
+            '--right-only',
+            '--no-merges',
+            '--format=%H',
+            'pullops/prd-7...origin/pullops/prd-7-issue-42',
+          ])
+        ) {
+          return { stdout: 'empty-commit\n', stderr: '' };
+        }
+
+        if (
+          isGitCall({ file, args }, [
+            'rev-list',
+            '--right-only',
+            '--count',
+            'pullops/prd-7...origin/pullops/prd-7-issue-43',
+          ])
+        ) {
+          return { stdout: '1\n', stderr: '' };
+        }
+
+        if (
+          isGitCall({ file, args }, [
+            'log',
+            '--cherry-pick',
+            '--right-only',
+            '--no-merges',
+            '--format=%H',
+            'pullops/prd-7...origin/pullops/prd-7-issue-43',
+          ])
+        ) {
+          return { stdout: 'commit-one\n', stderr: '' };
+        }
+
+        if (
+          isGitCall({ file, args }, [
+            'diff-tree',
+            '--no-commit-id',
+            '--name-only',
+            '-r',
+            '-z',
+            'empty-commit',
+          ])
+        ) {
+          return { stdout: '', stderr: '' };
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    assert.equal(
+      await gitClient.hasUnappliedCommitsSinceBase?.({
+        branchName: 'pullops/prd-7-issue-42',
+        baseBranch: 'pullops/prd-7',
+        preferLocalBase: true,
+      }),
+      false,
+    );
+    assert.equal(
+      await gitClient.hasUnappliedCommitsSinceBase?.({
+        branchName: 'pullops/prd-7-issue-43',
+        baseBranch: 'pullops/prd-7',
+        preferLocalBase: true,
+      }),
+      true,
+    );
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
+    assert.equal(
+      countGitCalls(calls, [
+        'fetch',
+        'origin',
+        '+refs/heads/pullops/prd-7-issue-42:refs/remotes/origin/pullops/prd-7-issue-42',
+      ]),
+      1,
+    );
+  });
 });
 
 /**

@@ -798,6 +798,23 @@ async function coordinateLocalAutoCompleteDryRunChildren(
         continue;
       }
 
+      const alreadyIntegrated = await readAlreadyIntegratedLocalDryRunChild(context, {
+        parentIssue,
+        parentBranchName,
+        childIssue,
+        dependencyFacts,
+      });
+      if (alreadyIntegrated !== undefined) {
+        recordLocalDryRunChildResult({
+          children,
+          pendingIssueNumbers,
+          virtualCompletedIssueNumbers,
+          child: alreadyIntegrated,
+        });
+        progressed = true;
+        continue;
+      }
+
       const localResult = await coordinateLocalChildIssue(context, {
         parentIssue,
         parentBranchName,
@@ -993,6 +1010,52 @@ function recordLocalDryRunChildResult({
   if (isLocalDryRunVirtualCompletion(child)) {
     virtualCompletedIssueNumbers.add(child.issue.number);
   }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {object} options
+ * @param {GitHubIssue} options.parentIssue
+ * @param {string} options.parentBranchName
+ * @param {GitHubIssue} options.childIssue
+ * @param {{ decision: ChildDependencyDecision }} options.dependencyFacts
+ * @returns {Promise<ChildAutomationResult | undefined>}
+ */
+async function readAlreadyIntegratedLocalDryRunChild(
+  context,
+  { parentIssue, parentBranchName, childIssue, dependencyFacts },
+) {
+  if (context.gitClient.hasUnappliedCommitsSinceBase === undefined) {
+    return undefined;
+  }
+
+  const childBranchName = createIssueBranchName({
+    branchPrefix: context.config.branchPrefix,
+    parentNumber: parentIssue.number,
+    issueNumber: childIssue.number,
+  });
+  const hasUnappliedCommits = await context.gitClient.hasUnappliedCommitsSinceBase({
+    branchName: childBranchName,
+    baseBranch: parentBranchName,
+    preferLocalBase: true,
+  });
+  if (hasUnappliedCommits) {
+    return undefined;
+  }
+
+  return childResult({
+    issue: childIssue,
+    status: 'dry-run-completed',
+    summary: [
+      `Child issue #${childIssue.number} already has no unapplied commits relative to`,
+      `${parentBranchName}; treating it as completed for local PRD auto-complete.`,
+    ].join(' '),
+    extra: {
+      branch: childBranchName,
+      publicationMode: 'dry-run',
+      ...createDependencyDecisionExtra(dependencyFacts.decision),
+    },
+  });
 }
 
 /**
