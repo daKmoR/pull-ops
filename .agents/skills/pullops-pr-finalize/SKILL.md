@@ -1,6 +1,7 @@
 ---
 name: pullops-pr-finalize
 description: Propose history grouping and commit messages only for ambiguous PullOps PR Finalize histories.
+disable-model-invocation: true
 ---
 
 # PullOps PR Finalize
@@ -44,7 +45,7 @@ Final response must be only JSON:
       {
         "header": "feat(issue): implement #42",
         "body": ["Explain the logical change in this commit."],
-        "footers": ["Refs: #42"],
+        "footers": ["Refs: #42", "PRD: #7"],
         "files": ["src/example.js", "src/example.test.js"]
       }
     ]

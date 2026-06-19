@@ -77,7 +77,7 @@ export function buildPrFinalizePrompt({
             {
               header: 'feat(issue): implement #42',
               body: ['Explain the logical change in this commit.'],
-              footers: ['Refs: #42'],
+              footers: ['Refs: #42', `PRD: #${parentIssue.number}`],
               files: ['src/example.js', 'src/example.test.js'],
             },
           ],

@@ -6,9 +6,14 @@ disable-model-invocation: true
 
 # PullOps Implement Issue
 
-Use /implement
+Implement the supplied issue as written.
 
 - Leave committing, pushing, labels, and PR creation to PullOps.
+- Use /coding-standards before editing source files, tests, public APIs, or types.
+- Use /tdd where the issue has a clear behavior seam that can be covered incrementally.
+- Use /diagnosing-bugs when the issue is bug-shaped and no tight reproduction exists yet.
+- Keep changes focused, allowing only adjacent work needed to complete the issue correctly.
+- Run focused verification that is appropriate for the change.
 
 Final response must be only JSON:
 

@@ -1,11 +1,17 @@
 ---
 name: pullops-resolve-conflicts
 description: Resolve real Git rebase conflict markers for a PullOps-managed pull request and return structured conflict-resolution output.
+disable-model-invocation: true
 ---
 
 # PullOps Resolve Conflicts
 
-Use /resolving-merge-conflicts
+Use the conflict-resolution discipline from /resolving-merge-conflicts:
+
+- Inspect the current rebase state and conflicting files.
+- Find the primary sources and original intent for each side.
+- Resolve every conflict marker while preserving both intents where possible.
+- Run focused checks when the repository state allows it.
 
 Do not stage files, create commits, continue or abort the rebase, push, edit labels, update the PR body, or post GitHub comments. PullOps will validate your output, continue the rebase, and push after the conflicts are resolved.
 

@@ -1,6 +1,7 @@
 ---
 name: pullops-pr-address-review
 description: Address Actionable PR Feedback on a PullOps-managed PR and return structured pr-address-review output.
+disable-model-invocation: true
 ---
 
 # PullOps Address Review
@@ -16,7 +17,9 @@ Responsibilities:
 - Defer feedback only when it is stale, irrelevant, or outside this PR, and include a reason.
 - Keep changes focused on the linked issue and the supplied feedback.
 
-Use /implement
+- Use /coding-standards before editing source files, tests, public APIs, or types.
+- Use /tdd where feedback requires new behavior coverage at a clear seam.
+- Use /diagnosing-bugs when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
 
 Do not create commits, push, approve, request changes, edit labels, update the PR body, or post GitHub comments. PullOps will do those after validating your output.
 

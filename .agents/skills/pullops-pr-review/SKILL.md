@@ -6,7 +6,10 @@ disable-model-invocation: true
 
 # PullOps Review PR
 
-Use /review
+Run two review passes over the supplied PullOps-managed PR:
+
+- Standards: use /coding-standards and report actionable violations in the JSON comments.
+- Spec: compare the diff to the linked issue or PRD context and report missing, wrong, or out-of-scope behavior in the JSON comments.
 
 Do not create commits, push, approve, request changes, edit labels, or update the PR body. PullOps will do those after validating your output.
 

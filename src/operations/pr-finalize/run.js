@@ -1098,6 +1098,8 @@ async function completePrFinalizePlannerFallback(context, preparation, rawOutput
   const commitPlan = validatePlannerCommitPlan({
     plannedCommits: validatedOutput.value.commitPlan.commits,
     changedFiles: preparation.changedFiles,
+    parentIssueNumber: preparation.sourceIssueNumber,
+    childIssueNumbers: preparation.childIssues.map(childIssue => childIssue.number),
   });
   if (!commitPlan.valid) {
     const reason = `Invalid PR Finalize Planner Output: ${commitPlan.reason}`;
