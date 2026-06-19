@@ -921,6 +921,73 @@ describe('createGitClient', () => {
       1,
     );
   });
+
+  it('23: rebases an existing child branch onto a preferred local base without fetching the base', async () => {
+    /** @type {Array<{ file: string, args: string[] }>} */
+    const calls = [];
+    const refs = new Set(['refs/heads/pullops/prd-7', 'refs/heads/pullops/prd-7-issue-42']);
+    const gitClient = createGitClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      execFile: async (file, args) => {
+        calls.push({ file, args });
+        if (args[0] === 'show-ref') {
+          const ref = args.at(-1);
+          if (typeof ref === 'string' && refs.has(ref)) {
+            return { stdout: '', stderr: '' };
+          }
+
+          const error = new Error('missing ref');
+          Object.assign(error, { code: 1 });
+          throw error;
+        }
+
+        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/prd-7'])) {
+          const error = new Error('missing remote ref');
+          Object.assign(error, {
+            stderr: "fatal: couldn't find remote ref pullops/prd-7",
+          });
+          throw error;
+        }
+
+        return { stdout: stdoutFor(args), stderr: '' };
+      },
+    });
+
+    const result = await gitClient.rebaseExistingBranchOntoBase?.({
+      branchName: 'pullops/prd-7-issue-42',
+      baseBranch: 'pullops/prd-7',
+      committer: {
+        name: 'github-actions[bot]',
+        email: '41898282+github-actions[bot]@users.noreply.github.com',
+      },
+      preferLocalBase: true,
+    });
+
+    assert.equal(result?.status, 'rebased');
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
+    assert.equal(
+      countGitCalls(calls, [
+        'fetch',
+        'origin',
+        '+refs/heads/pullops/prd-7-issue-42:refs/remotes/origin/pullops/prd-7-issue-42',
+      ]),
+      1,
+    );
+    assert.equal(countGitCalls(calls, ['checkout', 'pullops/prd-7-issue-42']), 1);
+    assert.equal(
+      countGitCalls(calls, [
+        '-c',
+        'user.name=github-actions[bot]',
+        '-c',
+        'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+        'rebase',
+        'pullops/prd-7',
+      ]),
+      1,
+    );
+  });
 });
 
 /**

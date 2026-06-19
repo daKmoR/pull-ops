@@ -461,7 +461,12 @@ async function prepareIssueImplementDryRun(context, runRecord) {
     });
   }
 
-  if (currentBranch === prepared.branchName) {
+  const synced = await syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, prepared);
+  if (synced !== undefined) {
+    return synced;
+  }
+
+  if (currentBranch === prepared.branchName || prepared.parentIssueNumber !== undefined) {
     const commits = await readLocalCommitsSinceBase(context, prepared);
     if (commits.length > 0) {
       return {
@@ -500,6 +505,11 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
   const blocked = await readIssueImplementLocalBlock(context, prepared, issue, runRecord);
   if (blocked !== undefined) {
     return blocked;
+  }
+
+  const synced = await syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, prepared);
+  if (synced !== undefined) {
+    return synced;
   }
 
   const commits = await readLocalCommitsSinceBase(context, prepared);
@@ -2341,6 +2351,43 @@ async function checkoutPullOpsBranchForDryRun(context, preparation) {
   await context.gitClient.checkoutPullOpsBranch({
     branchName: preparation.branchName,
     baseBranch: preparation.baseBranch,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ directory: string }} runRecord
+ * @param {GitHubIssue} issue
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {Promise<IssueImplementPreparation | undefined>}
+ */
+async function syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, preparation) {
+  if (
+    preparation.parentIssueNumber === undefined ||
+    context.gitClient.rebaseExistingBranchOntoBase === undefined
+  ) {
+    return undefined;
+  }
+
+  const result = await context.gitClient.rebaseExistingBranchOntoBase({
+    branchName: preparation.branchName,
+    baseBranch: preparation.baseBranch,
+    committer: GITHUB_ACTIONS_BOT_AUTHOR,
+    ...(context.publicationMode === 'dry-run' ? { preferLocalBase: true } : {}),
+  });
+
+  if (result.status !== 'conflicts') {
+    return undefined;
+  }
+
+  return await blockIssueDryRun(runRecord, issue, {
+    reason: [
+      `Issue branch ${preparation.branchName} could not be rebased onto`,
+      `${preparation.baseBranch} without conflicts.`,
+    ].join(' '),
+    branchName: preparation.branchName,
+    baseBranch: preparation.baseBranch,
+    publicationMode: context.publicationMode ?? 'dry-run',
   });
 }
 

@@ -22,7 +22,9 @@ const PULL_OPS_WORKTREE_PATHSPEC = [
  * @typedef {import('./types.js').CommitEmptyOptions} CommitEmptyOptions
  * @typedef {import('./types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('./types.js').RebaseBranchOntoBaseOptions} RebaseBranchOntoBaseOptions
+ * @typedef {import('./types.js').RebaseExistingBranchOntoBaseOptions} RebaseExistingBranchOntoBaseOptions
  * @typedef {import('./types.js').GitRebaseResult} GitRebaseResult
+ * @typedef {import('./types.js').GitRebaseExistingBranchResult} GitRebaseExistingBranchResult
  * @typedef {import('./types.js').StartRebaseBranchOntoBaseOptions} StartRebaseBranchOntoBaseOptions
  * @typedef {import('./types.js').ContinueRebaseOptions} ContinueRebaseOptions
  * @typedef {import('./types.js').ReadRebaseConflictContextOptions} ReadRebaseConflictContextOptions
@@ -275,6 +277,70 @@ export function createGitClient({
         await runGit(
           execFile,
           withGitCommitter(['rebase', `origin/${baseBranch}`], committer),
+          `rebase branch ${branchName} onto ${baseBranch}`,
+        );
+      } catch (error) {
+        const conflictedFiles = await readConflictedFiles(execFile);
+        if (conflictedFiles.length === 0) {
+          throw error;
+        }
+
+        await runGit(
+          execFile,
+          ['rebase', '--abort'],
+          `abort conflicted rebase of branch ${branchName}`,
+        );
+        return {
+          status: 'conflicts',
+          conflictedFiles,
+        };
+      }
+
+      return {
+        status: 'rebased',
+        headSha: await getCurrentHeadSha(execFile),
+        treeHash: await getCurrentTreeHash(execFile),
+      };
+    },
+
+    /**
+     * @param {RebaseExistingBranchOntoBaseOptions} options
+     * @returns {Promise<GitRebaseExistingBranchResult>}
+     */
+    async rebaseExistingBranchOntoBase({
+      branchName,
+      baseBranch,
+      committer,
+      preferLocalBase = false,
+    }) {
+      if (!preferLocalBase) {
+        await configureAuthenticatedOrigin(execFile, env);
+      }
+
+      const baseRef = await resolveBaseReference(execFile, baseBranch, {
+        preferLocalBase,
+        refreshRemote: !preferLocalBase,
+      });
+      await fetchRemoteBranch(execFile, branchName, { optional: true });
+      const branchRef = await resolveBranchReference(execFile, branchName);
+      if (branchRef === undefined) {
+        return { status: 'missing' };
+      }
+
+      if (branchRef === branchName) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
+      } else {
+        await runGit(
+          execFile,
+          ['checkout', '-B', branchName, branchRef],
+          `check out branch ${branchName}`,
+        );
+      }
+
+      try {
+        await runGit(
+          execFile,
+          withGitCommitter(['rebase', baseRef], committer),
           `rebase branch ${branchName} onto ${baseBranch}`,
         );
       } catch (error) {

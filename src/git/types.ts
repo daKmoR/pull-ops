@@ -42,6 +42,13 @@ export interface RebaseBranchOntoBaseOptions {
   committer: GitCommitAuthor;
 }
 
+export interface RebaseExistingBranchOntoBaseOptions {
+  branchName: string;
+  baseBranch: string;
+  committer: GitCommitAuthor;
+  preferLocalBase?: boolean;
+}
+
 export interface StartRebaseBranchOntoBaseOptions {
   branchName: string;
   baseBranch: string;
@@ -87,6 +94,12 @@ export type GitRebaseResult =
   | {
       status: 'conflicts';
       conflictedFiles: string[];
+    };
+
+export type GitRebaseExistingBranchResult =
+  | GitRebaseResult
+  | {
+      status: 'missing';
     };
 
 export type GitRebaseStepResult =
@@ -197,6 +210,9 @@ export interface GitClient {
   readWorkingTreePatch?(): Promise<string>;
   pushBranch(options: PushBranchOptions): Promise<void>;
   rebaseBranchOntoBase(options: RebaseBranchOntoBaseOptions): Promise<GitRebaseResult>;
+  rebaseExistingBranchOntoBase?(
+    options: RebaseExistingBranchOntoBaseOptions,
+  ): Promise<GitRebaseExistingBranchResult>;
   startRebaseBranchOntoBase?(
     options: StartRebaseBranchOntoBaseOptions,
   ): Promise<GitRebaseStepResult>;

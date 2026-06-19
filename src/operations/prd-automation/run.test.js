@@ -1220,6 +1220,19 @@ describe('runPrdAutoComplete', () => {
         ['pullops/prd-12', 'head-current'],
       ],
     );
+    assert.deepEqual(
+      git.rebases.map(rebase => [rebase.branchName, rebase.baseBranch, rebase.preferLocalBase]),
+      [
+        ['pullops/prd-12-issue-34', 'pullops/prd-12', true],
+        ['pullops/prd-12-issue-35', 'pullops/prd-12', true],
+        ['pullops/prd-12-issue-36', 'pullops/prd-12', true],
+      ],
+    );
+    assert.equal(
+      git.events.indexOf('rebase:pullops/prd-12-issue-35:pullops/prd-12') >
+        git.events.indexOf('cherry-pick:pullops/prd-12:head-current'),
+      true,
+    );
     assert.equal(git.currentBranch, 'pullops/prd-12');
     assert.deepEqual(result.virtualCompletedChildren, [34, 35, 36]);
     assert.deepEqual(result.remainingBlockedChildren, [37]);
@@ -2252,6 +2265,8 @@ function createFakeGitHub({
  *   checkouts: { branchName: string, baseBranch: string }[];
  *   branchApplicationChecks: import('../../git/types.js').HasUnappliedCommitsSinceBaseOptions[];
  *   cherryPicks: { branchName: string, baseBranch: string, commitSha: string }[];
+ *   rebases: import('../../git/types.js').RebaseExistingBranchOntoBaseOptions[];
+ *   events: string[];
  *   rewrites: import('../../git/types.js').RewriteBranchWithCommitPlanOptions[];
  *   emptyCommits: import('../../git/types.js').CommitEmptyOptions[];
  *   pushes: { branchName: string }[];
@@ -2275,6 +2290,10 @@ function createFakeGit({
   const branchApplicationChecks = [];
   /** @type {{ branchName: string, baseBranch: string, commitSha: string }[]} */
   const cherryPicks = [];
+  /** @type {import('../../git/types.js').RebaseExistingBranchOntoBaseOptions[]} */
+  const rebases = [];
+  /** @type {string[]} */
+  const events = [];
   /** @type {import('../../git/types.js').RewriteBranchWithCommitPlanOptions[]} */
   const rewrites = [];
   /** @type {import('../../git/types.js').CommitEmptyOptions[]} */
@@ -2291,6 +2310,8 @@ function createFakeGit({
     checkouts,
     branchApplicationChecks,
     cherryPicks,
+    rebases,
+    events,
     rewrites,
     emptyCommits,
     pushes,
@@ -2318,6 +2339,7 @@ function createFakeGit({
           throw new Error('cannot checkout with unmerged files');
         }
         checkouts.push(options);
+        events.push(`checkout:${options.branchName}`);
         currentBranch = options.branchName;
       },
       async getCurrentBranch() {
@@ -2349,6 +2371,7 @@ function createFakeGit({
           baseBranch: options.baseBranch,
           commitSha: options.commitSha,
         });
+        events.push(`cherry-pick:${options.branchName}:${options.commitSha}`);
         currentBranch = options.branchName;
         if (cherryPickConflicts.length > 0) {
           hasUnmergedFiles = true;
@@ -2366,6 +2389,16 @@ function createFakeGit({
       },
       async rebaseBranchOntoBase() {
         throw new Error('rebaseBranchOntoBase was not expected in this test.');
+      },
+      async rebaseExistingBranchOntoBase(options) {
+        rebases.push(options);
+        events.push(`rebase:${options.branchName}:${options.baseBranch}`);
+        currentBranch = options.branchName;
+        return {
+          status: 'rebased',
+          headSha: 'head-current',
+          treeHash: 'tree-current',
+        };
       },
       async pushBranchWithLease(options) {
         pushes.push(options);

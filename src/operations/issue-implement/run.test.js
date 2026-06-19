@@ -2316,12 +2316,21 @@ describe('runIssueImplement', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.baseBranch, 'pullops/prd-1');
+    assert.deepEqual(git.rebases, [
+      {
+        branchName: 'pullops/prd-1-issue-42',
+        baseBranch: 'pullops/prd-1',
+        committer: GITHUB_ACTIONS_BOT_AUTHOR,
+        preferLocalBase: true,
+      },
+    ]);
     assert.deepEqual(git.changedFileRequests, [
       { baseBranch: 'pullops/prd-1', preferLocalBase: true },
       { baseBranch: 'pullops/prd-1', preferLocalBase: true },
       { baseBranch: 'pullops/prd-1', preferLocalBase: true },
     ]);
     assert.deepEqual(git.commitListRequests, [
+      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
       { baseBranch: 'pullops/prd-1', preferLocalBase: true },
       { baseBranch: 'pullops/prd-1', preferLocalBase: true },
     ]);
@@ -2550,6 +2559,7 @@ function createFakeGitHub({
  *   checkouts: CheckoutPullOpsBranchOptions[];
  *   commits: CommitAllOptions[];
  *   emptyCommits: CommitEmptyOptions[];
+ *   rebases: import('../../git/types.js').RebaseExistingBranchOntoBaseOptions[];
  *   changedFileRequests: GetChangedFilesSinceBaseOptions[];
  *   commitListRequests: GetCommitsSinceBaseOptions[];
  *   pushes: PushBranchOptions[];
@@ -2581,6 +2591,8 @@ function createFakeGit({
   const commits = [];
   /** @type {CommitEmptyOptions[]} */
   const emptyCommits = [];
+  /** @type {import('../../git/types.js').RebaseExistingBranchOntoBaseOptions[]} */
+  const rebases = [];
   /** @type {GetChangedFilesSinceBaseOptions[]} */
   const changedFileRequests = [];
   /** @type {GetCommitsSinceBaseOptions[]} */
@@ -2600,6 +2612,7 @@ function createFakeGit({
     checkouts,
     commits,
     emptyCommits,
+    rebases,
     changedFileRequests,
     commitListRequests,
     pushes,
@@ -2661,6 +2674,20 @@ function createFakeGit({
       },
       async rebaseBranchOntoBase() {
         throw new Error('rebaseBranchOntoBase was not expected in this test.');
+      },
+      async rebaseExistingBranchOntoBase(options) {
+        if (failOn('rebaseExistingBranchOntoBase')) {
+          return {
+            status: 'conflicts',
+            conflictedFiles: ['src/conflicted.js'],
+          };
+        }
+        rebases.push(options);
+        return {
+          status: 'rebased',
+          headSha: currentHeadSha,
+          treeHash: currentTreeHash,
+        };
       },
       async pushBranchWithLease(options) {
         if (failOn('pushBranchWithLease')) {
