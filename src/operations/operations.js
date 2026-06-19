@@ -338,9 +338,7 @@ async function runWithInitialBranchRestored(context, run) {
   const restoreError = await restoreInitialBranch(context, initialBranch);
   if (runError !== undefined) {
     if (restoreError !== undefined) {
-      context.progress?.(
-        `Could not restore the starting branch: ${getErrorMessage(restoreError)}`,
-      );
+      context.progress?.(`Could not restore the starting branch: ${getErrorMessage(restoreError)}`);
     }
     throw runError;
   }

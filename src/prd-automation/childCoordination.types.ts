@@ -46,6 +46,7 @@ export interface ChildDependencyDecision {
 
 export interface ParentReviewResult {
   status: string;
+  summary?: string;
   issue?: {
     number: number;
     url: string;
@@ -60,6 +61,10 @@ export interface ParentReviewResult {
   };
   labels?: string[];
   nextOperation?: string;
+  review?: Record<string, unknown>;
+  addressReviews?: Record<string, unknown>[];
+  finalize?: Record<string, unknown>;
+  localRunRecords?: string[];
 }
 
 export interface PrdAutomationResult extends Record<string, unknown> {

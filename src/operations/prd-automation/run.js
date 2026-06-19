@@ -63,6 +63,12 @@ export async function runPrdAutoComplete(context) {
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
+      async runParentPullRequestOperation(pullRequestNumber, operation) {
+        return await runLocalPublishedParentPullRequestOperation(localContext, {
+          pullRequestNumber,
+          operation,
+        });
+      },
     });
   }
 
@@ -108,4 +114,68 @@ function withDefaultLocalPrdRunGoal(context) {
     publicationMode,
     runGoal: context.runGoal ?? 'finalized',
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPublishedParentPullRequestOperation(
+  context,
+  { pullRequestNumber, operation },
+) {
+  const operationContext = createParentPullRequestOperationContext(context, {
+    pullRequestNumber,
+    operation,
+  });
+
+  if (operation === 'pr-review') {
+    const { runPrReview } = await import('../pr-review/run.js');
+    return await runPrReview(operationContext);
+  }
+
+  if (operation === 'pr-address-review') {
+    const { runPrAddressReview } = await import('../pr-address-review/run.js');
+    return await runPrAddressReview(operationContext);
+  }
+
+  const { runPrFinalize } = await import('../pr-finalize/run.js');
+  return await runPrFinalize(operationContext);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequestNumber: number, operation: 'pr-review' | 'pr-address-review' | 'pr-finalize' }} options
+ * @returns {OperationRunnerContext}
+ */
+function createParentPullRequestOperationContext(context, { pullRequestNumber, operation }) {
+  const configKey = readParentPullRequestOperationConfigKey(operation);
+  const modelTier = context.config.operations[configKey].modelTier;
+  return {
+    ...context,
+    operation,
+    target: {
+      type: 'pr',
+      number: pullRequestNumber,
+    },
+    modelTier,
+    model: context.config.runner.models[modelTier],
+  };
+}
+
+/**
+ * @param {'pr-review' | 'pr-address-review' | 'pr-finalize'} operation
+ * @returns {'prReview' | 'prAddressReview' | 'prFinalize'}
+ */
+function readParentPullRequestOperationConfigKey(operation) {
+  if (operation === 'pr-review') {
+    return 'prReview';
+  }
+
+  if (operation === 'pr-address-review') {
+    return 'prAddressReview';
+  }
+
+  return 'prFinalize';
 }
