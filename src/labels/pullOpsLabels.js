@@ -69,7 +69,7 @@ export const PULL_OPS_LABELS = [
   {
     name: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
     color: '5319E7',
-    description: 'Prepare a PRD and keep starting unblocked child issues.',
+    description: 'Prepare a PRD and drain the current unblocked child frontier.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.prdAutoComplete,

@@ -27,7 +27,13 @@ describe('PRD Child Coordination', () => {
     const parent = createIssue({
       number: 12,
       labels: ['pullops:prd:auto-advance'],
-      subIssues: [issueReference(34), issueReference(35), issueReference(36), issueReference(37)],
+      subIssues: [
+        issueReference(34),
+        issueReference(35),
+        issueReference(36),
+        issueReference(37),
+        issueReference(38),
+      ],
     });
     const github = createFakeGitHub({
       issues: [
@@ -44,6 +50,7 @@ describe('PRD Child Coordination', () => {
           labels: ['pullops:issue:implement'],
           parent: issueReference(12),
         }),
+        createIssue({ number: 38, parent: issueReference(12) }),
         createIssue({ number: 99, body: 'Part of: #12' }),
       ],
     });
@@ -67,15 +74,16 @@ describe('PRD Child Coordination', () => {
         baseBranch: 'main',
       },
     ]);
-    assert.deepEqual(
-      github.issueLabelsAdded.filter(edit => edit.number === 34),
-      [
-        {
-          number: 34,
-          labels: ['pullops:issue:implement'],
-        },
-      ],
-    );
+    assert.deepEqual(github.issueLabelsAdded, [
+      {
+        number: 34,
+        labels: ['pullops:issue:implement'],
+      },
+      {
+        number: 38,
+        labels: ['pullops:issue:implement'],
+      },
+    ]);
     assert.match(github.createdPullRequests[0].body, /^Kind: Umbrella PR$/m);
     assert.match(github.createdPullRequests[0].body, /^Child PRs: none yet$/m);
     assert.deepEqual(
@@ -85,6 +93,7 @@ describe('PRD Child Coordination', () => {
         [35, 'blocked'],
         [36, 'closed'],
         [37, 'already-active'],
+        [38, 'started'],
       ],
     );
   });
