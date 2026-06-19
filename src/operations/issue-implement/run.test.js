@@ -1075,7 +1075,7 @@ describe('runIssueImplement', () => {
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented local PR publication.',
-        changes: ['Added local publish behavior.'],
+        changes: ['Added local publish behavior.', '', '  '],
         testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
       }),
     });
@@ -1148,6 +1148,10 @@ describe('runIssueImplement', () => {
       await readFile(join(String(result.localRunRecord), 'metadata.json'), 'utf8'),
     );
     assert.equal(metadata.publicationMode, 'publish');
+    const validatedOutput = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'validated-output.json'), 'utf8'),
+    );
+    assert.deepEqual(validatedOutput.changes, ['Added local publish behavior.']);
   });
 
   it('26: local PR publication publishes a clean prepared branch without rerunning the runner', async () => {

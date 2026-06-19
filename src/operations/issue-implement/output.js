@@ -46,7 +46,7 @@ export function validateIssueImplementOutput(input) {
     };
   }
 
-  const changes = readStringArray(result.value.changes, 'Operation Output.changes');
+  const changes = readStringArray(result.value.changes, 'Operation Output.changes', true);
   if (!changes.valid) {
     return changes;
   }
@@ -79,22 +79,36 @@ export function validateIssueImplementOutput(input) {
 /**
  * @param {unknown} value
  * @param {string} path
+ * @param {boolean} [ignoreEmptyItems]
  * @returns {{ valid: true, value: string[] } | { valid: false, reason: string }}
  */
-function readStringArray(value, path) {
+function readStringArray(value, path, ignoreEmptyItems = false) {
   if (!Array.isArray(value)) {
     return invalid(`${path} must be an array.`);
   }
 
-  const normalized = value.map(item => (typeof item === 'string' ? item.trim() : item));
-  const invalidIndex = normalized.findIndex(item => typeof item !== 'string' || item === '');
-  if (invalidIndex !== -1) {
-    return invalid(`${path}[${invalidIndex}] must be a non-empty string.`);
+  /** @type {string[]} */
+  const normalized = [];
+  for (const [index, item] of value.entries()) {
+    if (typeof item !== 'string') {
+      return invalid(`${path}[${index}] must be a non-empty string.`);
+    }
+
+    const trimmed = item.trim();
+    if (trimmed === '') {
+      if (ignoreEmptyItems) {
+        continue;
+      }
+
+      return invalid(`${path}[${index}] must be a non-empty string.`);
+    }
+
+    normalized.push(trimmed);
   }
 
   return {
     valid: true,
-    value: /** @type {string[]} */ (normalized),
+    value: normalized,
   };
 }
 
