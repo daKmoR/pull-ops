@@ -19,6 +19,7 @@ export interface OperationRunnerContext {
   executionBackend?: ExecutionBackend;
   publicationMode?: PublicationMode;
   runGoal?: OperationRunGoal;
+  resumeParentPrdAutomationAfterPrFinalize?: boolean;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;

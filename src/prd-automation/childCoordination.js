@@ -1067,6 +1067,7 @@ async function coordinateLocalChildIssue(
             pullRequest,
             publicationMode,
             runChildPullRequestOperation,
+            requireFinalizedHeadChecks: publicationMode === 'publish',
           })
         : inspectLocalChildPullRequest({
             childIssue,

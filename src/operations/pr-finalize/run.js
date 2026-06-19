@@ -1412,6 +1412,8 @@ async function completeFinalizedHeadChecks(
   const prdAutomation =
     parentIssueNumber === undefined
       ? undefined
+      : context.resumeParentPrdAutomationAfterPrFinalize === false
+      ? undefined
       : await resumePrdAutomationForParentIssue(context, parentIssueNumber);
 
   return {
