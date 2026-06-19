@@ -21,12 +21,12 @@ describe('createGitHubClient', () => {
         [
           'pullops:prd:auto-advance',
           '5319E7',
-          'Prepare a PRD and keep starting unblocked child issues.',
+          'Prepare a PRD and drain the current unblocked child frontier.',
         ],
         [
           'pullops:prd:auto-complete',
           '5319E7',
-          'Complete a PRD branch hands-off, leaving final merge to humans.',
+          'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge the umbrella PR.',
         ],
         [
           'pullops:issue:implement',

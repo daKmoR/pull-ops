@@ -788,9 +788,23 @@ describe('runPrdAutoComplete', () => {
             },
           ],
         ],
+        [
+          'sha-200',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
       ]),
     });
-    const git = createFakeGit();
+    const git = createFakeGit({
+      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
     const codex = createFakeCodexRunner(git);
 
     const result = await runPrdAutoComplete(
@@ -808,10 +822,21 @@ describe('runPrdAutoComplete', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.mode, 'auto-complete');
     assert.equal(result.publicationMode, 'publish');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
-    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 200,
+        labels: ['pullops:pr:finalize'],
+      },
+    ]);
+    assert.deepEqual(
+      github.pullRequestLabelsRemoved.map(edit => edit.number),
+      [200, 200],
+    );
+    assert.deepEqual(github.readyPullRequests, [200]);
     assert.deepEqual(git.cherryPicks, [
       {
         branchName: 'pullops/prd-12',
@@ -821,6 +846,10 @@ describe('runPrdAutoComplete', () => {
     ]);
     assert.deepEqual(
       git.pushes.map(push => push.branchName),
+      ['pullops/prd-12', 'pullops/prd-12'],
+    );
+    assert.deepEqual(
+      git.rewrites.map(rewrite => rewrite.branchName),
       ['pullops/prd-12'],
     );
     assert.equal(git.currentBranch, 'pullops/prd-12');
@@ -828,9 +857,9 @@ describe('runPrdAutoComplete', () => {
       readChildResults(result).map(child => [child.issue.number, child.status, child.mergeMethod]),
       [[34, 'merged', 'local-cherry-pick']],
     );
-    assert.equal(readParentPullRequest(result)?.status, 'ready-for-review');
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
     assert.deepEqual(result.localNextSteps, [
-      'Umbrella PR is ready for human review; request review manually after verifying the refreshed PRD context.',
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
     ]);
   });
 
@@ -871,9 +900,23 @@ describe('runPrdAutoComplete', () => {
             },
           ],
         ],
+        [
+          'sha-200',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
       ]),
     });
-    const git = createFakeGit();
+    const git = createFakeGit({
+      commitsSinceBase: [childCommit(34, 12, 'src/child-34.js')],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
     const codex = createFakeCodexRunner(git);
     const context = createContext({
       cwd,
@@ -895,12 +938,18 @@ describe('runPrdAutoComplete', () => {
         commitSha: 'head-finalized',
       },
     ]);
+    assert.equal(codex.calls.length, 1);
+    assert.deepEqual(
+      git.rewrites.map(rewrite => rewrite.branchName),
+      ['pullops/prd-12'],
+    );
     assert.deepEqual(
       readChildResults(rerun).map(child => [child.issue.number, child.status]),
       [[34, 'closed']],
     );
+    assert.equal(readParentPullRequest(rerun)?.status, 'finalized');
     assert.deepEqual(rerun.localNextSteps, [
-      'Umbrella PR is ready for human review; request review manually after verifying the refreshed PRD context.',
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
     ]);
   });
 
@@ -1221,6 +1270,120 @@ describe('runPrdAutoComplete', () => {
       'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
     ]);
   });
+
+  it('10: local publish auto-complete integrates newly published child PRs through dependency frontiers', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-publish-frontier-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(35), issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+        createIssue({ number: 34, parent: issueReference(12) }),
+      ],
+      checksByRef: new Map([
+        [
+          'sha-301',
+          [
+            {
+              name: 'CI',
+              state: 'success',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit({
+      dirtyAfterRunner: true,
+      commitsSinceBase: [
+        childCommit(34, 12, 'src/child-34.js'),
+        childCommit(35, 12, 'src/child-35.js'),
+      ],
+      changedFilesSinceBase: ['src/child-34.js', 'src/child-35.js'],
+    });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.publicationMode, 'publish');
+    assert.deepEqual(
+      github.createdPullRequests.map(pullRequest => ({
+        baseBranch: pullRequest.baseBranch,
+        headBranch: pullRequest.headBranch,
+      })),
+      [
+        {
+          baseBranch: 'main',
+          headBranch: 'pullops/prd-12',
+        },
+        {
+          baseBranch: 'pullops/prd-12',
+          headBranch: 'pullops/prd-12-issue-34',
+        },
+        {
+          baseBranch: 'pullops/prd-12',
+          headBranch: 'pullops/prd-12-issue-35',
+        },
+      ],
+    );
+    assert.deepEqual(github.closedIssues, [34, 35]);
+    assert.deepEqual(
+      readChildResults(result).map(child => [
+        child.issue.number,
+        child.status,
+        child.dependencyDecision?.satisfiedByClosedIssues,
+      ]),
+      [
+        [34, 'merged', undefined],
+        [35, 'merged', [34]],
+      ],
+    );
+    assert.deepEqual(
+      git.cherryPicks.map(cherryPick => cherryPick.branchName),
+      ['pullops/prd-12', 'pullops/prd-12'],
+    );
+    assert.deepEqual(
+      git.rewrites.map(rewrite => [rewrite.branchName, rewrite.commits.length]),
+      [
+        ['pullops/prd-12-issue-34', 1],
+        ['pullops/prd-12-issue-35', 1],
+        ['pullops/prd-12', 2],
+      ],
+    );
+    assert.deepEqual(github.readyPullRequests, [302, 303, 301]);
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
+    assert.deepEqual(result.localNextSteps, [
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
+    ]);
+    assert.equal(
+      github.createdPullRequests.some(
+        pullRequest => pullRequest.headBranch === 'pullops/prd-12-issue-34',
+      ),
+      true,
+    );
+    assert.equal(
+      github.createdPullRequests.some(
+        pullRequest => pullRequest.headBranch === 'pullops/prd-12-issue-35',
+      ),
+      true,
+    );
+  });
 });
 
 /**
@@ -1399,6 +1562,28 @@ function parentPullRequestBody(issueNumber) {
 }
 
 /**
+ * @param {number} childIssueNumber
+ * @param {number} parentIssueNumber
+ * @param {string} file
+ * @returns {import('../../git/types.js').GitCommit}
+ */
+function childCommit(childIssueNumber, parentIssueNumber, file) {
+  return {
+    sha: `child-${childIssueNumber}`,
+    subject: `feat(issue): implement #${childIssueNumber}`,
+    body: [
+      `feat(issue): implement #${childIssueNumber}`,
+      '',
+      `Finalize Child Issue #${childIssueNumber} for rebase merge into PRD #${parentIssueNumber}.`,
+      '',
+      `Refs: #${childIssueNumber}`,
+      `PRD: #${parentIssueNumber}`,
+    ].join('\n'),
+    files: [file],
+  };
+}
+
+/**
  * @param {Record<string, unknown>} result
  * @returns {ChildAutomationResult[]}
  */
@@ -1424,9 +1609,11 @@ function readParentPullRequest(result) {
  *   client: import('../../github/types.js').GitHubClient;
  *   issueLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
+ *   pullRequestLabelsRemoved: EditLabelsOptions[];
  *   createdPullRequests: CreateDraftPullRequestOptions[];
  *   updatedPullRequestBodies: { number: number, body: string }[];
  *   pullRequestComments: { number: number, body: string }[];
+ *   pullRequestReviews: import('../../github/types.js').PublishPullRequestReviewOptions[];
  *   mergedPullRequests: MergePullRequestOptions[];
  *   closedIssues: number[];
  *   readyPullRequests: number[];
@@ -1442,18 +1629,25 @@ function createFakeGitHub({
   const pullRequestsByHead = new Map(
     pullRequests.map(pullRequest => [pullRequest.headRefName, pullRequest]),
   );
+  const pullRequestsByNumber = new Map(
+    pullRequests.map(pullRequest => [pullRequest.number, pullRequest]),
+  );
   /** @type {EditLabelsOptions[]} */
   const issueLabelsAdded = [];
   /** @type {EditLabelsOptions[]} */
   const issueLabelsRemoved = [];
   /** @type {EditLabelsOptions[]} */
   const pullRequestLabelsAdded = [];
+  /** @type {EditLabelsOptions[]} */
+  const pullRequestLabelsRemoved = [];
   /** @type {CreateDraftPullRequestOptions[]} */
   const createdPullRequests = [];
   /** @type {{ number: number, body: string }[]} */
   const updatedPullRequestBodies = [];
   /** @type {{ number: number, body: string }[]} */
   const pullRequestComments = [];
+  /** @type {import('../../github/types.js').PublishPullRequestReviewOptions[]} */
+  const pullRequestReviews = [];
   /** @type {MergePullRequestOptions[]} */
   const mergedPullRequests = [];
   /** @type {number[]} */
@@ -1464,9 +1658,11 @@ function createFakeGitHub({
   return {
     issueLabelsAdded,
     pullRequestLabelsAdded,
+    pullRequestLabelsRemoved,
     createdPullRequests,
     updatedPullRequestBodies,
     pullRequestComments,
+    pullRequestReviews,
     mergedPullRequests,
     closedIssues,
     readyPullRequests,
@@ -1485,8 +1681,12 @@ function createFakeGitHub({
         }
         return issue;
       },
-      async getPullRequest() {
-        throw new Error('getPullRequest was not expected in this test.');
+      async getPullRequest(number) {
+        const pullRequest = pullRequestsByNumber.get(number);
+        if (pullRequest === undefined) {
+          throw new Error(`Unexpected pull request lookup #${number}.`);
+        }
+        return pullRequest;
       },
       async getPullRequestChecks() {
         throw new Error('getPullRequestChecks was not expected in this test.');
@@ -1495,10 +1695,17 @@ function createFakeGitHub({
         return checksByRef.get(ref) ?? [];
       },
       async getPullRequestReviewContext() {
-        throw new Error('getPullRequestReviewContext was not expected in this test.');
+        return {
+          comments: [],
+          reviews: [],
+          unresolvedThreads: [],
+          files: [],
+        };
       },
       async getPullRequestDiff() {
-        throw new Error('getPullRequestDiff was not expected in this test.');
+        return {
+          patch: 'diff --git a/src/file.js b/src/file.js\n',
+        };
       },
       async findOpenPullRequestByHead(headBranch) {
         return pullRequestsByHead.get(headBranch);
@@ -1515,6 +1722,7 @@ function createFakeGitHub({
           body: options.body,
         });
         pullRequestsByHead.set(options.headBranch, pullRequest);
+        pullRequestsByNumber.set(pullRequest.number, pullRequest);
         return pullRequest;
       },
       async mergePullRequest(options) {
@@ -1536,9 +1744,19 @@ function createFakeGitHub({
       },
       async addLabelsToPullRequest(options) {
         pullRequestLabelsAdded.push(options);
+        const pullRequest = pullRequestsByNumber.get(options.number);
+        if (pullRequest !== undefined) {
+          pullRequest.labels = [...new Set([...(pullRequest.labels ?? []), ...options.labels])];
+        }
       },
-      async removeLabelsFromPullRequest() {
-        throw new Error('removeLabelsFromPullRequest was not expected in this test.');
+      async removeLabelsFromPullRequest(options) {
+        pullRequestLabelsRemoved.push(options);
+        const pullRequest = pullRequestsByNumber.get(options.number);
+        if (pullRequest !== undefined) {
+          pullRequest.labels = (pullRequest.labels ?? []).filter(
+            label => !options.labels.includes(label),
+          );
+        }
       },
       async commentOnIssue() {
         throw new Error('commentOnIssue was not expected in this test.');
@@ -1555,22 +1773,20 @@ function createFakeGitHub({
       },
       async updatePullRequestBody(options) {
         updatedPullRequestBodies.push(options);
-        for (const pullRequest of pullRequestsByHead.values()) {
-          if (pullRequest.number === options.number) {
-            pullRequest.body = options.body;
-          }
+        const pullRequest = pullRequestsByNumber.get(options.number);
+        if (pullRequest !== undefined) {
+          pullRequest.body = options.body;
         }
       },
       async markPullRequestReadyForReview(number) {
         readyPullRequests.push(number);
-        for (const pullRequest of pullRequestsByHead.values()) {
-          if (pullRequest.number === number) {
-            pullRequest.isDraft = false;
-          }
+        const pullRequest = pullRequestsByNumber.get(number);
+        if (pullRequest !== undefined) {
+          pullRequest.isDraft = false;
         }
       },
-      async publishPullRequestReview() {
-        throw new Error('publishPullRequestReview was not expected in this test.');
+      async publishPullRequestReview(options) {
+        pullRequestReviews.push(options);
       },
       async replyToPullRequestReviewComment() {
         throw new Error('replyToPullRequestReviewComment was not expected in this test.');
@@ -1587,11 +1803,14 @@ function createFakeGitHub({
  * @param {boolean | boolean[]} [options.dirtyAfterRunner]
  * @param {string[]} [options.cherryPickConflicts]
  * @param {boolean} [options.initialDirtyWorktree]
+ * @param {import('../../git/types.js').GitCommit[]} [options.commitsSinceBase]
+ * @param {string[]} [options.changedFilesSinceBase]
  * @returns {{
  *   client: import('../../git/types.js').GitClient;
  *   createdBranches: { branchName: string, baseBranch: string }[];
  *   checkouts: { branchName: string, baseBranch: string }[];
  *   cherryPicks: { branchName: string, baseBranch: string, commitSha: string }[];
+ *   rewrites: import('../../git/types.js').RewriteBranchWithCommitPlanOptions[];
  *   emptyCommits: import('../../git/types.js').CommitEmptyOptions[];
  *   pushes: { branchName: string }[];
  *   currentBranch: string;
@@ -1602,6 +1821,8 @@ function createFakeGit({
   dirtyAfterRunner = false,
   cherryPickConflicts = [],
   initialDirtyWorktree = false,
+  commitsSinceBase = [],
+  changedFilesSinceBase = ['src/file.js'],
 } = {}) {
   /** @type {{ branchName: string, baseBranch: string }[]} */
   const createdBranches = [];
@@ -1609,6 +1830,8 @@ function createFakeGit({
   const checkouts = [];
   /** @type {{ branchName: string, baseBranch: string, commitSha: string }[]} */
   const cherryPicks = [];
+  /** @type {import('../../git/types.js').RewriteBranchWithCommitPlanOptions[]} */
+  const rewrites = [];
   /** @type {import('../../git/types.js').CommitEmptyOptions[]} */
   const emptyCommits = [];
   /** @type {{ branchName: string }[]} */
@@ -1622,6 +1845,7 @@ function createFakeGit({
     createdBranches,
     checkouts,
     cherryPicks,
+    rewrites,
     emptyCommits,
     pushes,
     get currentBranch() {
@@ -1708,19 +1932,31 @@ function createFakeGit({
         return 'tree-current';
       },
       async getChangedFilesSinceBase() {
-        return ['src/file.js'];
+        return isFakeParentBranch(currentBranch) ? changedFilesSinceBase : ['src/file.js'];
       },
-      async rewriteBranchWithCommitPlan() {
+      async rewriteBranchWithCommitPlan(options) {
+        rewrites.push(options);
+        if (options.push !== false) {
+          pushes.push({ branchName: options.branchName });
+        }
         return {
           headSha: 'head-current',
           treeHash: 'tree-current',
         };
       },
       async getCommitsSinceBase() {
-        return [];
+        return isFakeParentBranch(currentBranch) ? commitsSinceBase : [];
       },
     },
   };
+}
+
+/**
+ * @param {string} branchName
+ * @returns {boolean}
+ */
+function isFakeParentBranch(branchName) {
+  return /^pullops\/prd-\d+$/.test(branchName);
 }
 
 /**
