@@ -99,6 +99,7 @@ async function completeBranchUpdate(
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'updated',
       },
@@ -144,6 +145,7 @@ async function handOffConflicts(context, pullRequest, rebaseResult, { baseBranch
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'conflicts-found',
         baseBranch,
@@ -233,6 +235,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'blocked',
         reason,

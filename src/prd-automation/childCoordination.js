@@ -228,7 +228,9 @@ async function coordinateLocalPrdAutomation(
     }
 
     const refreshedPreparation =
-      publicationMode === 'publish' ? await ensurePrdPrepared(context, parentIssue) : preparation;
+      publicationMode === 'publish' && didIntegrateChildWork(children)
+        ? await ensurePrdPrepared(context, parentIssue, { forceRefresh: true })
+        : preparation;
 
     if (publicationMode === 'publish' && !preserveInspectableBranchState) {
       await checkoutLocalPrdBase(context, { parentBranchName });
@@ -550,21 +552,27 @@ async function coordinateParentIssue(context, { parentIssue, mode }) {
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubIssue} parentIssue
+ * @param {{ forceRefresh?: boolean }} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
-async function ensurePrdPrepared(context, parentIssue) {
+async function ensurePrdPrepared(context, parentIssue, { forceRefresh = false } = {}) {
   const branchName = createParentBranchName({
     branchPrefix: context.config.branchPrefix,
     parentNumber: parentIssue.number,
   });
   const existingPullRequest = await context.githubClient.findOpenPullRequestByHead(branchName);
+  const existingState =
+    existingPullRequest === undefined ? undefined : readManagedPrState(existingPullRequest.body);
   if (
     existingPullRequest !== undefined &&
-    isFinalizedForRebase(readManagedPrState(existingPullRequest.body))
+    existingState !== undefined &&
+    !forceRefresh &&
+    (isFinalizedForRebase(existingState) ||
+      selectLocalParentPullRequestOperation(existingPullRequest) !== 'pr-review')
   ) {
     return {
       status: 'accepted',
-      summary: `Umbrella PR #${existingPullRequest.number} for parent issue #${parentIssue.number} is already finalized.`,
+      summary: `Umbrella PR #${existingPullRequest.number} for parent issue #${parentIssue.number} is already prepared.`,
       issue: {
         number: parentIssue.number,
         url: parentIssue.url,
@@ -586,6 +594,14 @@ async function ensurePrdPrepared(context, parentIssue) {
       number: parentIssue.number,
     },
   });
+}
+
+/**
+ * @param {ChildAutomationResult[]} children
+ * @returns {boolean}
+ */
+function didIntegrateChildWork(children) {
+  return children.some(child => child.status === 'merged');
 }
 
 /**
@@ -2146,7 +2162,8 @@ async function requestUmbrellaReviewIfComplete(
   }
 
   let reviewPullRequest = pullRequest;
-  if (resolvedParentIssue !== undefined) {
+  const nextLocalOperation = selectLocalParentPullRequestOperation(pullRequest);
+  if (resolvedParentIssue !== undefined && nextLocalOperation === 'pr-review') {
     const refreshedBody = await createPrdPreparePullRequestBodyForIssue(context, {
       issue: resolvedParentIssue,
       branchName,
@@ -2201,6 +2218,23 @@ function inspectManagedPrForLocalReview(pullRequest) {
     };
   }
 
+  const nextOperation = selectLocalParentPullRequestOperation(pullRequest);
+  if (nextOperation === 'pr-finalize') {
+    return {
+      status: 'ready-for-finalize',
+      pullRequest: formatPullRequest(pullRequest),
+      nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    };
+  }
+
+  if (nextOperation === 'pr-address-review') {
+    return {
+      status: 'ready-for-address-review',
+      pullRequest: formatPullRequest(pullRequest),
+      nextOperation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    };
+  }
+
   return {
     status: 'ready-for-review',
     pullRequest: formatPullRequest(pullRequest),
@@ -2231,7 +2265,7 @@ async function completePublishedLocalUmbrellaPullRequest(
     requestReview: false,
   });
 
-  if (inspected.status !== 'ready-for-review') {
+  if (!isPublishedUmbrellaOperationReady(inspected.status)) {
     return inspected;
   }
 
@@ -2259,36 +2293,7 @@ async function completePublishedLocalUmbrellaPullRequest(
   /** @type {string[]} */
   const localRunRecords = [];
 
-  for (let reviewCycle = 0; reviewCycle < 3; reviewCycle += 1) {
-    review = await runParentPullRequestOperation({
-      pullRequestNumber,
-      operation: 'pr-review',
-    });
-    recordParentOperationRunRecord(localRunRecords, review);
-    if (review.status === 'blocked' || review.status === 'refused') {
-      return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-        review,
-        addressReviews,
-        localRunRecords,
-        summary: String(
-          review.summary ?? `Umbrella PR review blocked on PR #${pullRequestNumber}.`,
-        ),
-      });
-    }
-
-    if (review.reviewResult === 'approved') {
-      break;
-    }
-
-    if (review.reviewResult !== 'changes_requested') {
-      return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-        review,
-        addressReviews,
-        localRunRecords,
-        summary: `Umbrella PR review did not approve PR #${pullRequestNumber}.`,
-      });
-    }
-
+  if (inspected.status === 'ready-for-address-review') {
     const addressReview = await runParentPullRequestOperation({
       pullRequestNumber,
       operation: 'pr-address-review',
@@ -2308,7 +2313,58 @@ async function completePublishedLocalUmbrellaPullRequest(
     }
   }
 
-  if (review?.reviewResult !== 'approved') {
+  if (inspected.status !== 'ready-for-finalize') {
+    for (let reviewCycle = 0; reviewCycle < 3; reviewCycle += 1) {
+      review = await runParentPullRequestOperation({
+        pullRequestNumber,
+        operation: 'pr-review',
+      });
+      recordParentOperationRunRecord(localRunRecords, review);
+      if (review.status === 'blocked' || review.status === 'refused') {
+        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+          review,
+          addressReviews,
+          localRunRecords,
+          summary: String(
+            review.summary ?? `Umbrella PR review blocked on PR #${pullRequestNumber}.`,
+          ),
+        });
+      }
+
+      if (review.reviewResult === 'approved') {
+        break;
+      }
+
+      if (review.reviewResult !== 'changes_requested') {
+        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+          review,
+          addressReviews,
+          localRunRecords,
+          summary: `Umbrella PR review did not approve PR #${pullRequestNumber}.`,
+        });
+      }
+
+      const addressReview = await runParentPullRequestOperation({
+        pullRequestNumber,
+        operation: 'pr-address-review',
+      });
+      addressReviews.push(addressReview);
+      recordParentOperationRunRecord(localRunRecords, addressReview);
+      if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
+        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+          review,
+          addressReviews,
+          localRunRecords,
+          summary: String(
+            addressReview.summary ??
+              `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
+          ),
+        });
+      }
+    }
+  }
+
+  if (inspected.status !== 'ready-for-finalize' && review?.reviewResult !== 'approved') {
     return completeBlockedPublishedUmbrellaPullRequest(inspected, {
       review,
       addressReviews,
@@ -2583,6 +2639,49 @@ function selectLocalChildPullRequestOperation(pullRequest) {
   }
 
   return undefined;
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @returns {'pr-review' | 'pr-address-review' | 'pr-finalize' | undefined}
+ */
+function selectLocalParentPullRequestOperation(pullRequest) {
+  const state = readManagedPrState(pullRequest.body);
+  if (isFinalizedForRebase(state)) {
+    return undefined;
+  }
+
+  if (state.reviewedTreeHash !== undefined || state.status === 'Review approved') {
+    return 'pr-finalize';
+  }
+
+  if (state.status === 'Changes requested') {
+    return 'pr-address-review';
+  }
+
+  if (
+    state.status === 'Review feedback addressed' ||
+    state.status === 'Review required' ||
+    state.status === 'Draft parent preparation' ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.prdPrepare ||
+    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+  ) {
+    return 'pr-review';
+  }
+
+  return 'pr-review';
+}
+
+/**
+ * @param {string} status
+ * @returns {boolean}
+ */
+function isPublishedUmbrellaOperationReady(status) {
+  return (
+    status === 'ready-for-review' ||
+    status === 'ready-for-address-review' ||
+    status === 'ready-for-finalize'
+  );
 }
 
 /**
@@ -2964,7 +3063,7 @@ function buildLocalNextSteps({ mode, children, publicationMode, parentPullReques
   }
 
   if (parentPullRequest?.status === 'waiting') {
-    return ['Wait for Umbrella PR checks or automation to finish, then rerun PRD auto-complete.'];
+    return ['Wait for Umbrella PR checks to finish, then rerun PRD auto-complete.'];
   }
 
   if (mode === 'auto-complete') {

@@ -114,6 +114,7 @@ export interface ApplyManagedPrTransitionOptions {
   pullRequest: GitHubPullRequest;
   operation: string;
   outcome: ManagedPrTransitionOutcome;
+  suppressFollowUpOperationLabels?: boolean;
 }
 
 export interface RefusePrOperationTargetOptions {

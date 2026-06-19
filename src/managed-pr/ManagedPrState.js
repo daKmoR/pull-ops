@@ -295,6 +295,7 @@ export async function applyManagedPrTransition({
   pullRequest,
   operation,
   outcome,
+  suppressFollowUpOperationLabels = false,
 }) {
   assertPrOperation(operation);
 
@@ -305,7 +306,11 @@ export async function applyManagedPrTransition({
     );
   }
 
-  const transition = createTransition({ body: pullRequest.body, operation, outcome, state });
+  const transition = suppressFollowUpOperationLabels
+    ? withoutFollowUpOperationLabels(
+        createTransition({ body: pullRequest.body, operation, outcome, state }),
+      )
+    : createTransition({ body: pullRequest.body, operation, outcome, state });
   await executeTransition({
     githubClient,
     outputDirectory,
@@ -322,6 +327,20 @@ export async function applyManagedPrTransition({
       ? {}
       : { nextOperationLabel: transition.nextOperationLabel }),
     ...(transition.statusLabel === undefined ? {} : { statusLabel: transition.statusLabel }),
+  };
+}
+
+/**
+ * @param {InternalTransition} transition
+ * @returns {InternalTransition}
+ */
+function withoutFollowUpOperationLabels(transition) {
+  return {
+    ...transition,
+    addLabelsAfterRemove: transition.addLabelsAfterRemove.filter(
+      label => !PR_OPERATION_LABELS.has(label),
+    ),
+    nextOperationLabel: undefined,
   };
 }
 

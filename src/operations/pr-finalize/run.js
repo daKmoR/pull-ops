@@ -1400,6 +1400,7 @@ async function completeFinalizedHeadChecks(
       body: readyBody,
     },
     operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'ready',
       finalizedTreeHash,
@@ -1606,6 +1607,7 @@ async function routePullRequestToReview(context, pullRequest, reason) {
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'route-to-review',
       reason,
@@ -1638,6 +1640,7 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'route-to-ci-fix',
       reason,
@@ -1731,6 +1734,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,

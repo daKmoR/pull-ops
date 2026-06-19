@@ -387,6 +387,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
         outputDirectory: context.outputDirectory,
         pullRequest,
         operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+        suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
         outcome: {
           kind: 'fixed',
           ciFixCycle,
@@ -553,6 +554,7 @@ async function completeNoFailedChecks(context, pullRequest, { managed }) {
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'no-failed-checks',
       },
@@ -615,6 +617,7 @@ async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFi
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,
@@ -729,6 +732,7 @@ async function recordPullRequestFailure(
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,

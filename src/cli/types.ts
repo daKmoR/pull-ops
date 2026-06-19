@@ -21,6 +21,7 @@ export interface OperationRunnerContext {
   runGoal?: OperationRunGoal;
   resumeParentPrdAutomationAfterPrFinalize?: boolean;
   allowAbsentReviewedHeadChecks?: boolean;
+  suppressFollowUpOperationLabels?: boolean;
   target: OperationTarget;
   cwd: string;
   config: PullOpsConfig;

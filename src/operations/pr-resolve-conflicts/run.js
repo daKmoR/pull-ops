@@ -514,6 +514,7 @@ async function completeResolvedRebase(context, preparation, rebaseResult, { conf
       outputDirectory: context.outputDirectory,
       pullRequest: preparation.pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'resolved',
       },
@@ -637,6 +638,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'blocked',
         reason,

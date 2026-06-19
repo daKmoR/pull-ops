@@ -315,6 +315,7 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'addressed',
         reviewCycle,
@@ -638,6 +639,7 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,
@@ -710,6 +712,7 @@ async function recordPullRequestFailure(
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,

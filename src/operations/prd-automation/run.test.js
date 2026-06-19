@@ -833,12 +833,7 @@ describe('runPrdAutoComplete', () => {
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 200,
-        labels: ['pullops:pr:finalize'],
-      },
-    ]);
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(
       github.pullRequestLabelsRemoved.map(edit => edit.number),
       [200, 200],
@@ -966,7 +961,165 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('05: local auto-complete integrates finalized dry-run child branches locally', async () => {
+  it('05: local publish waits for parent checks without adding workflow trigger labels', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-parent-checks-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [
+        {
+          ...issueReference(34),
+          state: 'CLOSED',
+        },
+      ],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({
+          number: 34,
+          state: 'CLOSED',
+          parent: issueReference(12),
+        }),
+      ],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+      ],
+      checksByRef: new Map([
+        [
+          'head-current',
+          [
+            {
+              name: 'CI',
+              state: 'queued',
+              conclusion: undefined,
+              bucket: 'pending',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit({
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.equal(readParentPullRequest(result)?.status, 'waiting');
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(result.localNextSteps, [
+      'Wait for Umbrella PR checks to finish, then rerun PRD auto-complete.',
+    ]);
+  });
+
+  it('06: local publish resumes reviewed parent PRs at finalization without rerunning review', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-parent-resume-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [
+        {
+          ...issueReference(34),
+          state: 'CLOSED',
+        },
+      ],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({
+          number: 34,
+          state: 'CLOSED',
+          parent: issueReference(12),
+        }),
+      ],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: reviewedParentPullRequestBody(12),
+        }),
+      ],
+      checksByRef: new Map([
+        [
+          'head-current',
+          [
+            {
+              name: 'CI',
+              state: 'completed',
+              conclusion: 'success',
+              bucket: 'pass',
+            },
+          ],
+        ],
+      ]),
+    });
+    const git = createFakeGit({
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/child-34.js',
+        }),
+      ],
+      changedFilesSinceBase: ['src/child-34.js'],
+    });
+    const codex = createFakeCodexRunner(git);
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 0);
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
+    assert.deepEqual(github.pullRequestLabelsAdded, []);
+    assert.deepEqual(github.readyPullRequests, [200]);
+    assert.match(
+      github.updatedPullRequestBodies.at(-1)?.body ?? '',
+      /Status: Ready for human merge/,
+    );
+    assert.deepEqual(result.localNextSteps, [
+      'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
+    ]);
+  });
+
+  it('07: local auto-complete integrates finalized dry-run child branches locally', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-advance-'));
     const parent = createIssue({
       number: 12,
@@ -1018,7 +1171,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('06: local auto-complete leaves waiting child PRs unmerged on the umbrella branch', async () => {
+  it('08: local auto-complete leaves waiting child PRs unmerged on the umbrella branch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-waiting-'));
     const parent = createIssue({
       number: 12,
@@ -1072,7 +1225,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('07: local auto-complete reports conflicted finalized child merges and leaves the umbrella branch checked out', async () => {
+  it('09: local auto-complete reports conflicted finalized child merges and leaves the umbrella branch checked out', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-conflict-'));
     const parent = createIssue({
       number: 12,
@@ -1153,7 +1306,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('08: local dry-run auto-complete advances through virtual dependency frontiers', async () => {
+  it('10: local dry-run auto-complete advances through virtual dependency frontiers', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-frontiers-'));
     const parent = createIssue({
       number: 12,
@@ -1258,7 +1411,7 @@ describe('runPrdAutoComplete', () => {
     );
   });
 
-  it('09: local dry-run auto-complete does not virtually complete active child PRs', async () => {
+  it('11: local dry-run auto-complete does not virtually complete active child PRs', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-active-pr-'));
     const parent = createIssue({
       number: 12,
@@ -1328,7 +1481,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('10: local publish auto-complete integrates newly published child PRs through dependency frontiers', async () => {
+  it('12: local publish auto-complete integrates newly published child PRs through dependency frontiers', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-publish-frontier-'));
     const parent = createIssue({
       number: 12,
@@ -1462,7 +1615,7 @@ describe('runPrdAutoComplete', () => {
     );
   });
 
-  it('11: local publish auto-complete resumes an existing child PR through review and finalize', async () => {
+  it('13: local publish auto-complete resumes an existing child PR through review and finalize', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-existing-pr-'));
     const parent = createIssue({
       number: 12,
@@ -1567,7 +1720,7 @@ describe('runPrdAutoComplete', () => {
     assert.equal(readParentPullRequest(result)?.status, 'finalized');
   });
 
-  it('12: local publish auto-complete integrates newly published child PRs when hosted checks are absent', async () => {
+  it('14: local publish auto-complete integrates newly published child PRs when hosted checks are absent', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-new-pr-checks-'));
     const parent = createIssue({
       number: 12,
@@ -1640,7 +1793,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('13: local publish auto-complete reruns integrate existing finalized child PRs when hosted checks are absent', async () => {
+  it('15: local publish auto-complete reruns integrate existing finalized child PRs when hosted checks are absent', async () => {
     const cwd = await mkdtemp(
       join(tmpdir(), 'pullops-prd-local-auto-complete-existing-finalized-checks-'),
     );
@@ -1711,7 +1864,7 @@ describe('runPrdAutoComplete', () => {
     ]);
   });
 
-  it('14: operation-only local auto-complete does not virtually unblock later child issues', async () => {
+  it('16: operation-only local auto-complete does not virtually unblock later child issues', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-operation-only-'));
     const parent = createIssue({
       number: 12,
@@ -1759,7 +1912,7 @@ describe('runPrdAutoComplete', () => {
     assert.deepEqual(result.remainingBlockedChildren, [35]);
   });
 
-  it('15: finalized local auto-complete reports the child phase that blocked', async () => {
+  it('17: finalized local auto-complete reports the child phase that blocked', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-blocked-phase-'));
     const parent = createIssue({
       number: 12,
@@ -1798,7 +1951,7 @@ describe('runPrdAutoComplete', () => {
     assert.deepEqual(result.remainingBlockedChildren, [34]);
   });
 
-  it('16: local dry-run auto-complete virtually completes already-integrated child branches', async () => {
+  it('18: local dry-run auto-complete virtually completes already-integrated child branches', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-integrated-child-'));
     const parent = createIssue({
       number: 12,
@@ -2040,6 +2193,29 @@ function parentPullRequestBody(issueNumber) {
     '',
     `Source: Parent Issue #${issueNumber}`,
     'Last operation: pullops:prd:prepare',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {number} issueNumber
+ * @returns {string}
+ */
+function reviewedParentPullRequestBody(issueNumber) {
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Source: Parent Issue #${issueNumber}`,
+    'Review cycles: 1 / 3',
+    'Reviewed tree: tree-current',
+    'Last operation: pullops:pr:review',
     '',
     '</details>',
   ].join('\n');

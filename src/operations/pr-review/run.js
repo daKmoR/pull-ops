@@ -314,6 +314,7 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       outputDirectory: context.outputDirectory,
       pullRequest,
       operation: PULL_OPS_OPERATION_LABELS.prReview,
+      suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome:
         reviewResult.status === 'approved'
           ? {
@@ -487,6 +488,7 @@ async function recordPullRequestFailure(
     outputDirectory: context.outputDirectory,
     pullRequest,
     operation: PULL_OPS_OPERATION_LABELS.prReview,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
       reason,
