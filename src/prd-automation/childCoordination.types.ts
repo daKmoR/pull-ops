@@ -2,6 +2,24 @@ import type { GitHubIssue, GitHubIssueReference } from '../github/types.js';
 
 export type PrdAutomationMode = 'auto-advance' | 'auto-complete';
 
+export interface PrdAutomationRunBlocker {
+  targetKind: 'issue' | 'pull-request';
+  targetNumber?: number;
+  phase: string;
+  operationLabelReference?: string;
+  reason: string;
+  message: string;
+  retryable: boolean;
+}
+
+export interface PrdAutomationSuggestedCommandAction {
+  kind: 'command';
+  description: string;
+  argv: string[];
+  approvalRequired: boolean;
+  approvalReason?: string;
+}
+
 export interface IssueWorkTarget {
   issue: GitHubIssue;
   parentIssueNumber?: number;
@@ -72,6 +90,9 @@ export interface ParentReviewResult {
 export interface PrdAutomationResult extends Record<string, unknown> {
   status: string;
   summary: string;
+  displayMessage?: string;
+  failureReason?: string;
+  refusalReason?: string;
   mode?: PrdAutomationMode;
   issue?:
     | {
@@ -86,6 +107,9 @@ export interface PrdAutomationResult extends Record<string, unknown> {
   branch?: string;
   localRunRecord?: string;
   localNextSteps?: string[];
+  nextSteps?: string[];
+  blockers?: PrdAutomationRunBlocker[];
+  suggestedActions?: PrdAutomationSuggestedCommandAction[];
   virtualCompletedChildren?: number[];
   remainingBlockedChildren?: number[];
 }
