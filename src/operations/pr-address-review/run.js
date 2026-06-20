@@ -210,6 +210,13 @@ async function preparePrAddressReview(context) {
     };
   }
 
+  if (context.reviewId !== undefined && hasProcessedHumanFeedbackReviewId(state, context.reviewId)) {
+    return {
+      ready: false,
+      output: skipProcessedHumanFeedbackReview(pullRequest, context.reviewId),
+    };
+  }
+
   if (state.sourceIssueNumber === undefined) {
     return {
       ready: false,
@@ -251,6 +258,32 @@ async function preparePrAddressReview(context) {
     feedbackItems,
     reviewCycle: state.reviewCycles.current,
     maxReviewCycles: state.reviewCycles.max,
+  };
+}
+
+/**
+ * @param {import('../../managed-pr/ManagedPrState.types.js').ManagedPrState} state
+ * @param {string} reviewId
+ * @returns {boolean}
+ */
+function hasProcessedHumanFeedbackReviewId(state, reviewId) {
+  return state.processedHumanFeedbackReviewIds?.includes(reviewId) ?? false;
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @param {string} reviewId
+ * @returns {Record<string, unknown>}
+ */
+function skipProcessedHumanFeedbackReview(pullRequest, reviewId) {
+  return {
+    status: 'blocked',
+    summary: `Trusted requested-change review ${reviewId} on PR #${pullRequest.number} has already been processed; skipping this Human Feedback Response Cycle.`,
+    reviewMode: 'blocked',
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
   };
 }
 
