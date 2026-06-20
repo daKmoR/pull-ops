@@ -99,6 +99,39 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
   });
 });
 
+test('run pr-address-review accepts a trusted review id', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'pr-address-review',
+    '--pr',
+    '456',
+    '--review-id',
+    'PRR_requested',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].reviewId, 'PRR_requested');
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'operation accepted',
+  });
+});
+
 test('run operation accepts every workflow-facing operation shape', async () => {
   for (const operation of WORKFLOW_OPERATIONS) {
     /** @type {OperationRunnerContext[]} */

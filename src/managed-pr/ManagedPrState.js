@@ -16,6 +16,7 @@ import {
  * @typedef {import('./ManagedPrState.types.js').ManagedPrStateSectionOptions} ManagedPrStateSectionOptions
  * @typedef {import('./ManagedPrState.types.js').ManagedPrTransitionOutcome} ManagedPrTransitionOutcome
  * @typedef {import('./ManagedPrState.types.js').ManagedPrTransitionResult} ManagedPrTransitionResult
+ * @typedef {import('./ManagedPrState.types.js').ManagedPrReviewMode} ManagedPrReviewMode
  * @typedef {import('./ManagedPrState.types.js').ManagedPrWorkflowOptions} ManagedPrWorkflowOptions
  * @typedef {import('./ManagedPrState.types.js').ManagedPrWorkflowResult} ManagedPrWorkflowResult
  * @typedef {import('./ManagedPrState.types.js').RefusePrOperationTargetOptions} RefusePrOperationTargetOptions
@@ -24,6 +25,7 @@ import {
 
 export const DEFAULT_MAX_REVIEW_CYCLES = 3;
 export const DEFAULT_MAX_CI_FIX_CYCLES = 2;
+export const DEFAULT_MAX_ESCALATION_REVIEW_CYCLES = 1;
 
 /** @type {ReadonlySet<string>} */
 const PR_OPERATION_LABELS = new Set([
@@ -42,6 +44,154 @@ const ACTIVE_PULL_OPS_PR_LABELS = new Set([
 ]);
 
 /**
+ * @returns {{ current: number, max: number }}
+ */
+function createExhaustedEscalationReviewCycles() {
+  return {
+    current: DEFAULT_MAX_ESCALATION_REVIEW_CYCLES,
+    max: DEFAULT_MAX_ESCALATION_REVIEW_CYCLES,
+  };
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @returns {boolean}
+ */
+function hasEscalationReviewCapacity(state) {
+  return (
+    state.escalationReviewCycles !== undefined &&
+    state.escalationReviewCycles.current < state.escalationReviewCycles.max
+  );
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @param {string} reviewId
+ * @returns {boolean}
+ */
+function isHumanFeedbackReviewProcessed(state, reviewId) {
+  return state.processedHumanFeedbackReviewIds?.includes(reviewId) ?? false;
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @returns {boolean}
+ */
+function isPendingHumanFeedbackResponse(state) {
+  const pendingReviewId = state.pendingHumanFeedbackReviewId;
+  if (pendingReviewId === undefined) {
+    return false;
+  }
+
+  return !isHumanFeedbackReviewProcessed(state, pendingReviewId);
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @param {ManagedPrReviewMode | undefined} explicitReviewMode
+ * @returns {ManagedPrReviewMode}
+ */
+function resolveCompletedPrReviewMode(state, explicitReviewMode) {
+  if (explicitReviewMode !== undefined) {
+    return explicitReviewMode;
+  }
+
+  if (isPendingHumanFeedbackResponse(state)) {
+    return 'human-feedback-response';
+  }
+
+  if (state.reviewCycles.current >= state.reviewCycles.max && hasEscalationReviewCapacity(state)) {
+    return 'escalation';
+  }
+
+  return 'normal';
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @param {ManagedPrReviewMode | undefined} reviewMode
+ * @param {'approved' | 'changes-requested' | undefined} reviewResult
+ * @returns {Pick<
+ *   UpdateManagedPrStateOptions,
+ *   | 'escalationReviewCycles'
+ *   | 'humanFeedbackResponseCycles'
+ *   | 'processedHumanFeedbackReviewIds'
+ *   | 'pendingHumanFeedbackReviewId'
+ * >}
+ */
+function createPrReviewSpecialStateUpdate(state, reviewMode, reviewResult) {
+  const resolvedReviewMode = resolveCompletedPrReviewMode(state, reviewMode);
+  if (resolvedReviewMode === 'escalation') {
+    // Count the special cycle when escalation review closes out the loop, not on the
+    // first changes-requested pass that sends the PR back through address-review.
+    const shouldCountEscalationReview =
+      reviewResult === 'approved' ||
+      state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview;
+
+    if (!shouldCountEscalationReview) {
+      return {};
+    }
+
+    const escalationReviewCycles =
+      state.escalationReviewCycles ?? createExhaustedEscalationReviewCycles();
+
+    return {
+      escalationReviewCycles: {
+        current: Math.min(escalationReviewCycles.current + 1, escalationReviewCycles.max),
+        max: escalationReviewCycles.max,
+      },
+    };
+  }
+
+  if (resolvedReviewMode !== 'human-feedback-response') {
+    return {};
+  }
+
+  const pendingReviewId = state.pendingHumanFeedbackReviewId;
+  if (pendingReviewId === undefined || isHumanFeedbackReviewProcessed(state, pendingReviewId)) {
+    return {};
+  }
+
+  const processedHumanFeedbackReviewIds = state.processedHumanFeedbackReviewIds ?? [];
+  const nextProcessedHumanFeedbackReviewIds = processedHumanFeedbackReviewIds.includes(
+    pendingReviewId,
+  )
+    ? processedHumanFeedbackReviewIds
+    : [...processedHumanFeedbackReviewIds, pendingReviewId];
+
+  return {
+    humanFeedbackResponseCycles:
+      (state.humanFeedbackResponseCycles ?? processedHumanFeedbackReviewIds.length) + 1,
+    processedHumanFeedbackReviewIds: nextProcessedHumanFeedbackReviewIds,
+    pendingHumanFeedbackReviewId: 'none',
+  };
+}
+
+/**
+ * @param {ManagedPrState} state
+ * @param {string | undefined} reviewId
+ * @returns {Pick<UpdateManagedPrStateOptions, 'pendingHumanFeedbackReviewId'>}
+ */
+function createPrAddressReviewSpecialStateUpdate(state, reviewId) {
+  if (reviewId === undefined || isHumanFeedbackReviewProcessed(state, reviewId)) {
+    return {};
+  }
+
+  const pendingReviewId = state.pendingHumanFeedbackReviewId;
+  if (
+    pendingReviewId !== undefined &&
+    pendingReviewId !== reviewId &&
+    !isHumanFeedbackReviewProcessed(state, pendingReviewId)
+  ) {
+    return {};
+  }
+
+  return {
+    pendingHumanFeedbackReviewId: reviewId,
+  };
+}
+
+/**
  * @param {string} body
  * @returns {ManagedPrState}
  */
@@ -49,6 +199,11 @@ export function readManagedPrState(body) {
   const pullOpsState = readPullOpsStateMarker(body);
   const workflowState = readWorkflowStateBlock(body) ?? '';
   const source = readSource({ body, workflowState });
+  const humanFeedbackResponseStateMarkersPresent =
+    hasHumanFeedbackResponseStateMarkers(workflowState);
+  const processedHumanFeedbackReviewIds = readProcessedHumanFeedbackReviewIds(workflowState);
+  const humanFeedbackResponseCycles =
+    readHumanFeedbackResponseCycles(workflowState) ?? processedHumanFeedbackReviewIds?.length;
 
   return {
     managed: pullOpsState.managed,
@@ -65,6 +220,12 @@ export function readManagedPrState(body) {
     finalizedHeadSha: readMarker(workflowState, 'Finalized head:'),
     mergeMethod: readMarker(workflowState, 'Merge method:'),
     reviewCycles: readReviewCycles(workflowState),
+    escalationReviewCycles: readEscalationReviewCycles(workflowState),
+    humanFeedbackResponseStateMarkersPresent,
+    ...(humanFeedbackResponseCycles === undefined ? {} : { humanFeedbackResponseCycles }),
+    ...(processedHumanFeedbackReviewIds === undefined ? {} : { processedHumanFeedbackReviewIds }),
+    pendingHumanFeedbackReviewId: readPendingHumanFeedbackReviewId(workflowState),
+    reviewFollowUpIssueNumbers: readReviewFollowUpIssueNumbers(workflowState),
     ciFixCycles: readCiFixCycles(workflowState),
   };
 }
@@ -182,13 +343,38 @@ export function createManagedPrStateSection({
   source,
   lastOperation,
   reviewCycles,
+  escalationReviewCycles,
+  humanFeedbackResponseCycles,
+  processedHumanFeedbackReviewIds,
+  pendingHumanFeedbackReviewId,
+  reviewFollowUpIssueNumbers,
   ciFixCycles,
 }) {
+  const resolvedProcessedIds = processedHumanFeedbackReviewIds ?? [];
+  const resolvedHumanFeedbackResponseCycles =
+    humanFeedbackResponseCycles ?? resolvedProcessedIds.length;
+  const resolvedPendingHumanFeedbackReviewId =
+    pendingHumanFeedbackReviewId === undefined ? 'none' : pendingHumanFeedbackReviewId;
+  const resolvedEscalationReviewCycles = escalationReviewCycles ?? {
+    current: 0,
+    max: DEFAULT_MAX_ESCALATION_REVIEW_CYCLES,
+  };
   const workflowState = [
     formatSourceLine(source),
     ...(reviewCycles === undefined
       ? []
       : [`Review cycles: ${reviewCycles.current} / ${reviewCycles.max}`]),
+    `Escalation review cycles: ${resolvedEscalationReviewCycles.current} / ${resolvedEscalationReviewCycles.max}`,
+    `Human feedback response cycles: ${resolvedHumanFeedbackResponseCycles}`,
+    `Processed human feedback review ids: ${formatHumanFeedbackReviewIds(resolvedProcessedIds)}`,
+    `Pending human feedback review id: ${resolvedPendingHumanFeedbackReviewId}`,
+    ...(reviewFollowUpIssueNumbers === undefined
+      ? []
+      : [
+          `Review follow-up issue numbers: ${formatReviewFollowUpIssueNumbers(
+            reviewFollowUpIssueNumbers,
+          )}`,
+        ]),
     ...(ciFixCycles === undefined
       ? []
       : [`CI fix cycles: ${ciFixCycles.current} / ${ciFixCycles.max}`]),
@@ -214,6 +400,11 @@ export function updateManagedPrState({
   status,
   lastOperation,
   reviewCycles,
+  escalationReviewCycles,
+  humanFeedbackResponseCycles,
+  processedHumanFeedbackReviewIds,
+  pendingHumanFeedbackReviewId,
+  reviewFollowUpIssueNumbers,
   ciFixCycles,
   reviewedTreeHash,
   finalizedTreeHash,
@@ -223,7 +414,23 @@ export function updateManagedPrState({
 }) {
   let updated = body.trimEnd();
   let workflowState = readWorkflowStateBlock(updated) ?? '';
-  let workflowStateChanged = false;
+  const currentState = readManagedPrState(body);
+  const resolvedEscalationReviewCycles =
+    escalationReviewCycles ??
+    currentState.escalationReviewCycles ??
+    createExhaustedEscalationReviewCycles();
+  const resolvedProcessedHumanFeedbackReviewIds =
+    processedHumanFeedbackReviewIds ?? currentState.processedHumanFeedbackReviewIds ?? [];
+  const resolvedHumanFeedbackResponseCycles =
+    humanFeedbackResponseCycles ??
+    currentState.humanFeedbackResponseCycles ??
+    resolvedProcessedHumanFeedbackReviewIds.length;
+  const resolvedPendingHumanFeedbackReviewId =
+    pendingHumanFeedbackReviewId !== undefined
+      ? pendingHumanFeedbackReviewId
+      : currentState.pendingHumanFeedbackReviewId;
+  const resolvedReviewFollowUpIssueNumbers =
+    reviewFollowUpIssueNumbers ?? currentState.reviewFollowUpIssueNumbers;
 
   if (status !== undefined) {
     updated = upsertLine(updated, 'Status:', status);
@@ -235,7 +442,6 @@ export function updateManagedPrState({
       'Review cycles:',
       `${reviewCycles.current} / ${reviewCycles.max}`,
     );
-    workflowStateChanged = true;
   }
 
   if (ciFixCycles !== undefined) {
@@ -244,43 +450,62 @@ export function updateManagedPrState({
       'CI fix cycles:',
       `${ciFixCycles.current} / ${ciFixCycles.max}`,
     );
-    workflowStateChanged = true;
   }
 
   if (shouldRemoveMergePreparationMarkers) {
     updated = removeMergePreparationMarkersOutsideWorkflowStateBlock(updated);
     workflowState = removeMergePreparationMarkers(workflowState);
-    workflowStateChanged = true;
+  }
+
+  workflowState = upsertLine(
+    workflowState,
+    'Escalation review cycles:',
+    `${resolvedEscalationReviewCycles.current} / ${resolvedEscalationReviewCycles.max}`,
+  );
+  workflowState = upsertLine(
+    workflowState,
+    'Human feedback response cycles:',
+    String(resolvedHumanFeedbackResponseCycles),
+  );
+  workflowState = upsertLine(
+    workflowState,
+    'Processed human feedback review ids:',
+    formatHumanFeedbackReviewIds(resolvedProcessedHumanFeedbackReviewIds),
+  );
+  workflowState = upsertLine(
+    workflowState,
+    'Pending human feedback review id:',
+    resolvedPendingHumanFeedbackReviewId ?? 'none',
+  );
+  if (resolvedReviewFollowUpIssueNumbers !== undefined) {
+    workflowState = upsertLine(
+      workflowState,
+      'Review follow-up issue numbers:',
+      formatReviewFollowUpIssueNumbers(resolvedReviewFollowUpIssueNumbers),
+    );
   }
 
   if (reviewedTreeHash !== undefined) {
     workflowState = upsertLine(workflowState, 'Reviewed tree:', reviewedTreeHash);
-    workflowStateChanged = true;
   }
 
   if (finalizedTreeHash !== undefined) {
     workflowState = upsertLine(workflowState, 'Finalized tree:', finalizedTreeHash);
-    workflowStateChanged = true;
   }
 
   if (finalizedHeadSha !== undefined) {
     workflowState = upsertLine(workflowState, 'Finalized head:', finalizedHeadSha);
-    workflowStateChanged = true;
   }
 
   if (mergeMethod !== undefined) {
     workflowState = upsertLine(workflowState, 'Merge method:', mergeMethod);
-    workflowStateChanged = true;
   }
 
   if (lastOperation !== undefined) {
     workflowState = upsertLine(workflowState, 'Last operation:', lastOperation);
-    workflowStateChanged = true;
   }
 
-  if (workflowStateChanged) {
-    updated = replaceWorkflowStateBlock(updated, workflowState);
-  }
+  updated = replaceWorkflowStateBlock(updated, workflowState);
 
   return `${updated}\n`;
 }
@@ -419,6 +644,7 @@ function createTransition({ body, operation, outcome, state }) {
           current: outcome.reviewCycle,
           max: outcome.maxReviewCycles,
         },
+        ...createPrAddressReviewSpecialStateUpdate(state, outcome.reviewId),
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
@@ -460,6 +686,14 @@ function createTransition({ body, operation, outcome, state }) {
  * @returns {InternalTransition}
  */
 function createPrReviewTransition({ body, outcome, state }) {
+  const specialStateUpdate = createPrReviewSpecialStateUpdate(
+    state,
+    outcome.kind === 'approved' || outcome.kind === 'changes-requested'
+      ? outcome.reviewMode
+      : undefined,
+    outcome.kind === 'approved' || outcome.kind === 'changes-requested' ? outcome.kind : undefined,
+  );
+
   if (outcome.kind === 'approved') {
     const finalizedReview = state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize;
     return {
@@ -470,7 +704,9 @@ function createPrReviewTransition({ body, outcome, state }) {
           current: outcome.reviewCycle,
           max: outcome.maxReviewCycles,
         },
+        ...specialStateUpdate,
         reviewedTreeHash: outcome.reviewedTreeHash,
+        reviewFollowUpIssueNumbers: outcome.reviewFollowUpIssueNumbers,
         lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
       }),
       removeLabels: labelsForSuccessfulOperation(
@@ -497,6 +733,7 @@ function createPrReviewTransition({ body, outcome, state }) {
         current: outcome.reviewCycle,
         max: outcome.maxReviewCycles,
       },
+      ...specialStateUpdate,
       removeMergePreparationMarkers: true,
       lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
     }),
@@ -1199,6 +1436,116 @@ function readCiFixCycles(body) {
 
 /**
  * @param {string} body
+ * @returns {{ current: number, max: number } | undefined}
+ */
+function readEscalationReviewCycles(body) {
+  const match = body.match(/^Escalation review cycles:\s*(\d+)\s*\/\s*(\d+)\s*$/im);
+  if (match?.[1] === undefined || match[2] === undefined) {
+    return undefined;
+  }
+
+  return {
+    current: Number(match[1]),
+    max: Number(match[2]),
+  };
+}
+
+/**
+ * @param {string} body
+ * @returns {boolean}
+ */
+function hasHumanFeedbackResponseStateMarkers(body) {
+  return (
+    /^Human feedback response cycles:\s*\d+\s*$/im.test(body) &&
+    /^Processed human feedback review ids:\s*.+$/im.test(body) &&
+    /^Pending human feedback review id:\s*.+$/im.test(body)
+  );
+}
+
+/**
+ * @param {string} body
+ * @returns {number | undefined}
+ */
+function readHumanFeedbackResponseCycles(body) {
+  const match = body.match(/^Human feedback response cycles:\s*(\d+)\s*$/im);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  return Number(match[1]);
+}
+
+/**
+ * @param {string} body
+ * @returns {string[] | undefined}
+ */
+function readProcessedHumanFeedbackReviewIds(body) {
+  const match = body.match(/^Processed human feedback review ids:\s*(.+?)\s*$/im);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  const value = match[1].trim();
+  if (value === '' || value.toLowerCase() === 'none') {
+    return [];
+  }
+
+  return value
+    .split(/\s*,\s*/)
+    .map(reviewId => reviewId.trim())
+    .filter(reviewId => reviewId !== '');
+}
+
+/**
+ * @param {string} body
+ * @returns {string | undefined}
+ */
+function readPendingHumanFeedbackReviewId(body) {
+  const match = body.match(/^Pending human feedback review id:\s*(.+?)\s*$/im);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  const value = match[1].trim();
+  if (value === '' || value.toLowerCase() === 'none') {
+    return undefined;
+  }
+
+  return value;
+}
+
+/**
+ * @param {string} body
+ * @returns {number[] | undefined}
+ */
+function readReviewFollowUpIssueNumbers(body) {
+  const match = body.match(/^Review follow-up issue numbers:\s*(.+?)\s*$/im);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  const value = match[1].trim();
+  if (value === '' || value.toLowerCase() === 'none') {
+    return [];
+  }
+
+  const issueNumbers = value.split(/\s*,\s*/).map(item => item.trim());
+  const parsed = [];
+
+  for (const issueNumber of issueNumbers) {
+    const issueMatch = issueNumber.match(/^#?(\d+)$/);
+    if (issueMatch?.[1] === undefined) {
+      return undefined;
+    }
+
+    parsed.push(Number(issueMatch[1]));
+  }
+
+  return parsed;
+}
+
+/**
+ * @param {string} body
  * @param {string} prefix
  * @param {string} value
  * @returns {string}
@@ -1241,4 +1588,28 @@ function removeLine(body, prefix) {
  */
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * @param {string[] | undefined} reviewIds
+ * @returns {string}
+ */
+function formatHumanFeedbackReviewIds(reviewIds) {
+  if (reviewIds === undefined || reviewIds.length === 0) {
+    return 'none';
+  }
+
+  return reviewIds.join(', ');
+}
+
+/**
+ * @param {number[] | undefined} issueNumbers
+ * @returns {string}
+ */
+function formatReviewFollowUpIssueNumbers(issueNumbers) {
+  if (issueNumbers === undefined || issueNumbers.length === 0) {
+    return 'none';
+  }
+
+  return issueNumbers.map(issueNumber => `#${issueNumber}`).join(', ');
 }

@@ -5,9 +5,20 @@ export interface ManagedPrCycleState {
   max: number;
 }
 
+export interface ManagedPrSpecialReviewState {
+  escalationReviewCycles?: ManagedPrCycleState;
+  humanFeedbackResponseStateMarkersPresent?: boolean;
+  humanFeedbackResponseCycles?: number;
+  processedHumanFeedbackReviewIds?: string[];
+  pendingHumanFeedbackReviewId?: string;
+  reviewFollowUpIssueNumbers?: number[];
+}
+
+export type ManagedPrReviewMode = 'normal' | 'escalation' | 'human-feedback-response';
+
 export type ManagedPrSourceKind = 'issue' | 'parentIssue';
 
-export interface ManagedPrState {
+export interface ManagedPrState extends ManagedPrSpecialReviewState {
   managed: boolean;
   status?: string;
   sourceIssueNumber?: number;
@@ -21,7 +32,7 @@ export interface ManagedPrState {
   ciFixCycles: ManagedPrCycleState;
 }
 
-export interface ManagedPrStateSectionOptions {
+export interface ManagedPrStateSectionOptions extends ManagedPrSpecialReviewState {
   status: string;
   source: {
     kind: ManagedPrSourceKind;
@@ -37,7 +48,7 @@ export interface ManagedPrStateSectionOptions {
   ciFixCycles?: ManagedPrCycleState;
 }
 
-export interface UpdateManagedPrStateOptions {
+export interface UpdateManagedPrStateOptions extends ManagedPrSpecialReviewState {
   body: string;
   status?: string;
   lastOperation?: string;
@@ -56,16 +67,20 @@ export type ManagedPrTransitionOutcome =
       reviewCycle: number;
       maxReviewCycles: number;
       reviewedTreeHash?: string;
+      reviewMode?: ManagedPrReviewMode;
+      reviewFollowUpIssueNumbers?: number[];
     }
   | {
       kind: 'changes-requested';
       reviewCycle: number;
       maxReviewCycles: number;
+      reviewMode?: ManagedPrReviewMode;
     }
   | {
       kind: 'addressed';
       reviewCycle: number;
       maxReviewCycles: number;
+      reviewId?: string;
     }
   | {
       kind: 'fixed';

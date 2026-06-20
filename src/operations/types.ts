@@ -28,3 +28,7 @@ export interface OperationLabelReference {
   target: WorkflowTarget;
   label: string;
 }
+
+export type ReviewMode = 'normal' | 'escalation' | 'human-feedback-response' | 'blocked';
+
+export type SelectableReviewMode = Exclude<ReviewMode, 'blocked'>;
