@@ -1,3 +1,6 @@
+import { writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
@@ -10,6 +13,7 @@ import {
   runWorkflowOperation,
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
+import { createLocalPrdAutoCompleteEventStream } from '../operations/prd-automation/eventStream.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 
@@ -463,6 +467,7 @@ export class PullOpsCli {
       runnerAdapter,
       runnerRan: undefined,
     });
+    const startedAt = new Date();
     const output = await this.operationRunner({
       operation: operation.name,
       phase: 'run',
@@ -486,6 +491,16 @@ export class PullOpsCli {
       contextUsage: readContextUsage(this.env),
       progress: this.progress,
     });
+
+    if (parsedArgs.eventsFormat === 'jsonl') {
+      await this.writeLocalPrdAutoCompleteEventStream(output, {
+        targetNumber: parsedArgs.targetNumber,
+        startedAt,
+        finishedAt: new Date(),
+        operationLabelReference: readRequiredOperationLabelReferenceLabel('prd:auto-complete'),
+      });
+      return 0;
+    }
 
     this.writeValidatedJson(output);
     return 0;
@@ -526,6 +541,49 @@ export class PullOpsCli {
     }
 
     this.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
+  }
+
+  /**
+   * @param {unknown} output
+   * @param {{
+   *   targetNumber: number,
+   *   startedAt: Date,
+   *   finishedAt: Date,
+   *   operationLabelReference: string,
+   }} options
+   * @returns {Promise<void>}
+   */
+  async writeLocalPrdAutoCompleteEventStream(
+    output,
+    { targetNumber, startedAt, finishedAt, operationLabelReference },
+  ) {
+    const result = validateOperationOutput(output, COMMAND_OUTPUT_CONTRACT);
+    if (!result.valid) {
+      throw new Error(`Invalid Operation Output: ${result.reason}`);
+    }
+
+    const localRunRecord = readRequiredString(result.value.localRunRecord, 'Operation Output.localRunRecord');
+    const runId = basename(localRunRecord);
+    const stream = createLocalPrdAutoCompleteEventStream(
+      /** @type {import('../prd-automation/childCoordination.types.js').PrdAutomationResult} */ (result.value),
+      {
+        operation: 'prd-auto-complete',
+        operationLabelReference,
+        runId,
+        target: {
+          type: 'issue',
+          number: targetNumber,
+        },
+        startedAt,
+        finishedAt,
+        contextUsage: readContextUsage(this.env),
+      },
+    );
+
+    const eventsJsonl = `${stream.eventsJsonl}\n`;
+    await writeFile(join(localRunRecord, 'events.jsonl'), eventsJsonl);
+    await writeFile(join(localRunRecord, 'result.json'), `${JSON.stringify(stream.summary, null, 2)}\n`);
+    this.stdout.write(eventsJsonl);
   }
 
   /**
@@ -586,6 +644,7 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
 function parseGitHubActionsOperationLabelArgs(args, reference) {
   rejectGitHubActionsLocalOnlyFlag(args, '--publish');
   rejectGitHubActionsLocalOnlyFlag(args, '--until');
+  rejectGitHubActionsLocalOnlyFlag(args, '--events');
 
   const consumed = new Set();
   const backend = parseRequiredGitHubActionsBackend(args, reference, consumed);
@@ -697,6 +756,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  *   runGoal: import('./types.js').OperationRunGoal,
+ *   eventsFormat?: 'jsonl',
  * }}
  */
 function parseLocalPrdAutomationReferenceArgs(args, reference) {
@@ -706,6 +766,17 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     throw new CliUsageError(
       `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
     );
+  }
+
+  const eventsFormat = parseOptionalStringOption(args, '--events', consumed);
+  if (eventsFormat !== undefined) {
+    if (reference !== 'prd:auto-complete') {
+      throw new CliUsageError(`--events jsonl is only supported for local prd:auto-complete.`);
+    }
+
+    if (eventsFormat !== 'jsonl') {
+      throw new CliUsageError(`Unsupported events format "${eventsFormat}". Expected "--events jsonl".`);
+    }
   }
 
   const publicationMode = parsePublicationMode(args, consumed);
@@ -741,6 +812,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     targetNumber,
     publicationMode,
     runGoal,
+    ...(eventsFormat === undefined ? {} : { eventsFormat }),
   };
 }
 
@@ -871,7 +943,7 @@ function parseRequiredGitHubActionsBackend(args, reference, consumed) {
 
 /**
  * @param {string[]} args
- * @param {'--publish' | '--until'} flag
+ * @param {'--publish' | '--until' | '--events'} flag
  */
 function rejectGitHubActionsLocalOnlyFlag(args, flag) {
   if (args.includes(flag)) {
@@ -1115,7 +1187,7 @@ function usage() {
     'Usage:',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
-    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
@@ -1148,6 +1220,32 @@ function summarizeEnsureLabelsResult(total, result) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} fieldName
+ * @returns {string}
+ */
+function readRequiredString(value, fieldName) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${fieldName} must be a non-empty string.`);
+  }
+
+  return value;
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function readRequiredOperationLabelReferenceLabel(reference) {
+  const operation = getOperationLabelReference(reference);
+  if (operation === undefined) {
+    throw new Error(`Unknown operation label reference "${reference}".`);
+  }
+
+  return operation.label;
 }
 
 class CliUsageError extends Error {}
