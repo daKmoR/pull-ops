@@ -17,6 +17,8 @@ Responsibilities:
 - The concatenated planned commit `files` arrays must exactly equal the supplied changed-file list; do not omit, duplicate, or invent files.
 - Prefer one Child Issue Commit per closed native Child Issue represented by the files.
 - Include parent-level commits only for explicit PRD-level files.
+- Include `commitPlan.justification` only when grouping is not one commit per
+  closed Child Issue, and make it a non-empty explanation when included.
 
 Commit message rules:
 
@@ -39,7 +41,6 @@ Final response must be only JSON:
   "status": "planned",
   "summary": "One sentence summary of the history grouping plan.",
   "commitPlan": {
-    "justification": "Required when grouping is not one commit per closed Child Issue.",
     "commits": [
       {
         "header": "feat(issue): implement #42",

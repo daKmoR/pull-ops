@@ -117,7 +117,7 @@ function readCommitPlan(value, path) {
   const justification =
     value.justification === undefined
       ? undefined
-      : readNonEmptyString(value.justification, `${path}.justification`);
+      : readOptionalNonEmptyString(value.justification, `${path}.justification`);
   if (justification !== undefined && !justification.valid) {
     return justification;
   }
@@ -125,10 +125,30 @@ function readCommitPlan(value, path) {
   return {
     valid: true,
     value: {
-      ...(justification === undefined ? {} : { justification: justification.value }),
+      ...(justification === undefined || justification.value === undefined
+        ? {}
+        : { justification: justification.value }),
       commits: commits.value,
     },
   };
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {{ valid: true, value?: string } | { valid: false, reason: string }}
+ */
+function readOptionalNonEmptyString(value, path) {
+  if (typeof value !== 'string') {
+    return invalid(`${path} must be a string when provided.`);
+  }
+
+  const normalized = value.trim();
+  if (normalized === '') {
+    return { valid: true };
+  }
+
+  return { valid: true, value: normalized };
 }
 
 /**

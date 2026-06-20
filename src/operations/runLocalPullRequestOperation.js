@@ -586,6 +586,7 @@ function buildLocalPrFinalizePrompt({ pullRequest, issue, reviewContext, changed
     '',
     'Planner constraints:',
     '- Each changed file must appear in exactly one commit files array, and no unchanged files may appear.',
+    '- Include commitPlan.justification only when grouping is not obvious, and make it a non-empty explanation when included.',
     '- Commit headers must be conventional commit headers.',
     `- Commit footers must include a relevant Refs: #<issue> footer, usually Refs: #${issue.number}.`,
     '- Return blocked if you cannot propose a safe grouping from the supplied information.',
@@ -596,7 +597,6 @@ function buildLocalPrFinalizePrompt({ pullRequest, issue, reviewContext, changed
         status: 'planned',
         summary: 'One sentence summary of the history grouping plan.',
         commitPlan: {
-          justification: 'Required when grouping is not obvious.',
           commits: [
             {
               header: 'feat(issue): implement #42',
