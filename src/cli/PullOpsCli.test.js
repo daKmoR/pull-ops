@@ -9,6 +9,7 @@ import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  */
 
@@ -828,6 +829,74 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
+test('run prd:auto-complete emits refused jsonl event streams for local guardrails', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-refused-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    githubClient: createFakeGitHubClient({
+      async getIssue(number) {
+        if (number !== 34) {
+          throw new Error(`Unexpected issue lookup #${number}.`);
+        }
+
+        return createGitHubIssue({
+          number: 34,
+          parent: {
+            number: 12,
+            relationshipSource: 'native',
+          },
+        });
+      },
+    }),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        return false;
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '34', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'phase.completed', 'run.summary'],
+  );
+  assert.equal(summaryEvent.operationLabelReference, 'pullops:prd:auto-complete');
+  assert.deepEqual(summaryEvent.target, { type: 'issue', number: 34 });
+  assert.equal(events[2].childCounts.total, 0);
+  assert.equal(summaryEvent.status, 'refused');
+  assert.equal(summaryEvent.reason, 'wrong-target');
+  assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
+  assert.deepEqual(summaryEvent.nextSteps, ['Run PRD auto-complete on Parent Issue #12 instead.']);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Run PRD auto-complete on Parent Issue #12 instead.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '12'],
+      approvalRequired: false,
+    },
+  ]);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
 test('run prd:auto-advance rejects jsonl event streams', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({ stderr });
@@ -1365,6 +1434,49 @@ function createFakeGitHubClient(overrides = {}) {
     },
     async resolvePullRequestReviewThread() {
       throw new Error('resolvePullRequestReviewThread was not expected in this test.');
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * @param {Partial<GitClient>} [overrides]
+ * @returns {GitClient}
+ */
+function createFakeGitClient(overrides = {}) {
+  return {
+    async createBranch() {
+      throw new Error('createBranch was not expected in this test.');
+    },
+    async hasChanges() {
+      return false;
+    },
+    async commitAll() {
+      throw new Error('commitAll was not expected in this test.');
+    },
+    async commitEmpty() {
+      throw new Error('commitEmpty was not expected in this test.');
+    },
+    async pushBranch() {
+      throw new Error('pushBranch was not expected in this test.');
+    },
+    async rebaseBranchOntoBase() {
+      throw new Error('rebaseBranchOntoBase was not expected in this test.');
+    },
+    async pushBranchWithLease() {
+      throw new Error('pushBranchWithLease was not expected in this test.');
+    },
+    async getCurrentHeadSha() {
+      throw new Error('getCurrentHeadSha was not expected in this test.');
+    },
+    async getCurrentTreeHash() {
+      throw new Error('getCurrentTreeHash was not expected in this test.');
+    },
+    async getChangedFilesSinceBase() {
+      throw new Error('getChangedFilesSinceBase was not expected in this test.');
+    },
+    async rewriteBranchWithCommitPlan() {
+      throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
     },
     ...overrides,
   };

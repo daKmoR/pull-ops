@@ -192,7 +192,7 @@ export class PullOpsCli {
     });
 
     this.writeValidatedJson(output);
-    return 0;
+    return readOperationExitCode(output);
   }
 
   /**
@@ -499,11 +499,11 @@ export class PullOpsCli {
         finishedAt: new Date(),
         operationLabelReference: readRequiredOperationLabelReferenceLabel('prd:auto-complete'),
       });
-      return 0;
+      return readOperationExitCode(output);
     }
 
     this.writeValidatedJson(output);
-    return 0;
+    return readOperationExitCode(output);
   }
 
   /**
@@ -1092,6 +1092,30 @@ function readContextUsage(env) {
   }
 
   return { used, limit };
+}
+
+/**
+ * @param {unknown} output
+ * @returns {0 | 1}
+ */
+function readOperationExitCode(output) {
+  if (typeof output === 'string') {
+    try {
+      output = JSON.parse(output);
+    } catch {
+      return 0;
+    }
+  }
+
+  return isRecord(output) && output.status === 'refused' ? 1 : 0;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

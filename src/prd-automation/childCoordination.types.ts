@@ -90,6 +90,8 @@ export interface ParentReviewResult {
 export interface PrdAutomationResult extends Record<string, unknown> {
   status: string;
   summary: string;
+  displayMessage?: string;
+  refusalReason?: string;
   mode?: PrdAutomationMode;
   issue?:
     | {

@@ -146,7 +146,7 @@ async function coordinateLocalPrdAutomation(
 
     const nativeParentIssueNumber = getNativeParentIssueNumber(parentIssue);
     if (nativeParentIssueNumber !== undefined) {
-      const result = await blockLocalPrdAutomation(runRecord, parentIssue, {
+      const result = await refuseLocalPrdAutomation(runRecord, parentIssue, {
         reason: [
           `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
           'PRD automation can only run on a Parent Issue.',
@@ -2860,14 +2860,34 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
  * }} options
  * @returns {Promise<PrdAutomationResult>}
  */
-async function blockLocalPrdAutomation(runRecord, issue, { reason, mode, publicationMode }) {
+async function refuseLocalPrdAutomation(runRecord, issue, { reason, mode, publicationMode }) {
+  const targetNumber = issue.parent?.number ?? issue.number;
+  const operationReference = readLocalPrdOperationReference(mode);
+  const nextStep = `Run PRD ${mode} on Parent Issue #${targetNumber} instead.`;
   await writeLocalPrdRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
   return {
-    status: 'blocked',
+    status: 'refused',
     summary: reason,
+    displayMessage: reason,
+    refusalReason: 'wrong-target',
     issue: issue.number,
     mode,
     publicationMode,
+    nextSteps: [nextStep],
+    suggestedActions: [
+      {
+        kind: 'command',
+        description: nextStep,
+        argv: [
+          'pullops',
+          'run',
+          operationReference,
+          String(targetNumber),
+          ...(publicationMode === 'publish' ? ['--publish', 'pr'] : []),
+        ],
+        approvalRequired: false,
+      },
+    ],
   };
 }
 
