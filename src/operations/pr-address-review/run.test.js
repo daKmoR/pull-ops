@@ -667,6 +667,53 @@ describe('runPrAddressReview', () => {
     assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
     assert.match(github.updatedBodies[0].body, /Pending human feedback review id: PRR_requested/);
   });
+
+  it('10: skips an already processed trusted requested-change review id without rerunning Codex', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialPullRequestBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '1 / 1',
+          humanFeedbackResponseCycles: 1,
+          processedHumanFeedbackReviewIds: 'PRR_requested',
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'This output should not be used.',
+        addressed: [],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: [],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        reviewId: 'PRR_requested',
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.reviewMode, 'blocked');
+    assert.match(
+      String(result.summary),
+      /Trusted requested-change review PRR_requested on PR #100 has already been processed/,
+    );
+    assert.equal(codex.calls.length, 0);
+    assert.equal(github.updatedBodies.length, 0);
+    assert.equal(github.pullRequestLabelsAdded.length, 0);
+    assert.equal(github.comments.length, 0);
+  });
 });
 
 /**
@@ -745,6 +792,7 @@ function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
  * @param {{
  *   reviewCycles?: string;
  *   escalationReviewCycles?: string;
+ *   humanFeedbackResponseCycles?: number;
  *   processedHumanFeedbackReviewIds?: string;
  *   pendingHumanFeedbackReviewId?: string;
  *   includeEscalationReviewCycles?: boolean;
@@ -755,6 +803,7 @@ function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
 function createSpecialPullRequestBody({
   reviewCycles = '3 / 3',
   escalationReviewCycles = '0 / 1',
+  humanFeedbackResponseCycles = 0,
   processedHumanFeedbackReviewIds = 'none',
   pendingHumanFeedbackReviewId = 'none',
   includeEscalationReviewCycles = true,
@@ -779,7 +828,7 @@ function createSpecialPullRequestBody({
       : []),
     ...(includeHumanFeedbackMarkers
       ? [
-          'Human feedback response cycles: 0',
+          `Human feedback response cycles: ${humanFeedbackResponseCycles}`,
           `Processed human feedback review ids: ${processedHumanFeedbackReviewIds}`,
           `Pending human feedback review id: ${pendingHumanFeedbackReviewId}`,
         ]

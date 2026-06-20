@@ -934,6 +934,61 @@ describe('runPrReview', () => {
     assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
   });
+
+  it('18: counts a distinct human feedback review id separately after an earlier one was already processed', async () => {
+    const config = structuredClone(DEFAULT_PULL_OPS_CONFIG);
+    config.runner.models = {
+      high: 'gpt-special-high',
+      mid: 'gpt-special-mid',
+      low: 'gpt-special-low',
+    };
+    config.operations.prReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          humanFeedbackResponseCycles: 1,
+          processedHumanFeedbackReviewIds: 'review-111',
+          pendingHumanFeedbackReviewId: 'review-222',
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the next human feedback response.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        config,
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'human-feedback-response');
+    assert.equal(result.modelTier, 'mid');
+    assert.equal(result.model, 'gpt-special-mid');
+    assert.equal(codex.calls[0].model, 'gpt-special-mid');
+    assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 2/);
+    assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: review-111, review-222/);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
+  });
 });
 
 /**
@@ -1004,6 +1059,7 @@ function createPullRequest(overrides = {}) {
  * @param {{
  *   reviewCycles?: string;
  *   escalationReviewCycles?: string;
+ *   humanFeedbackResponseCycles?: number;
  *   processedHumanFeedbackReviewIds?: string;
  *   pendingHumanFeedbackReviewId?: string;
  *   includeEscalationReviewCycles?: boolean;
@@ -1014,6 +1070,7 @@ function createPullRequest(overrides = {}) {
 function createSpecialReviewBody({
   reviewCycles = '3 / 3',
   escalationReviewCycles = '0 / 1',
+  humanFeedbackResponseCycles = 0,
   processedHumanFeedbackReviewIds = 'none',
   pendingHumanFeedbackReviewId = 'none',
   includeEscalationReviewCycles = true,
@@ -1038,7 +1095,7 @@ function createSpecialReviewBody({
       : []),
     ...(includeHumanFeedbackMarkers
       ? [
-          'Human feedback response cycles: 0',
+          `Human feedback response cycles: ${humanFeedbackResponseCycles}`,
           `Processed human feedback review ids: ${processedHumanFeedbackReviewIds}`,
           `Pending human feedback review id: ${pendingHumanFeedbackReviewId}`,
         ]
