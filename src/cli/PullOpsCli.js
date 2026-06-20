@@ -468,42 +468,67 @@ export class PullOpsCli {
       runnerRan: undefined,
     });
     const startedAt = new Date();
-    const output = await this.operationRunner({
-      operation: operation.name,
-      phase: 'run',
-      runnerAdapter,
-      executionBackend: 'local',
-      publicationMode: parsedArgs.publicationMode,
-      runGoal: parsedArgs.runGoal,
-      target: {
-        type: 'issue',
-        number: parsedArgs.targetNumber,
-      },
-      cwd: this.cwd,
-      config,
-      modelTier: operationConfig.modelTier,
-      model,
-      githubClient: this.githubClient,
-      gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
-      triggerActor: this.env.GITHUB_ACTOR,
-      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
-      contextUsage: readContextUsage(this.env),
-      progress: this.progress,
-    });
+    try {
+      const output = await this.operationRunner({
+        operation: operation.name,
+        phase: 'run',
+        runnerAdapter,
+        executionBackend: 'local',
+        publicationMode: parsedArgs.publicationMode,
+        runGoal: parsedArgs.runGoal,
+        target: {
+          type: 'issue',
+          number: parsedArgs.targetNumber,
+        },
+        cwd: this.cwd,
+        config,
+        modelTier: operationConfig.modelTier,
+        model,
+        githubClient: this.githubClient,
+        gitClient: this.gitClient,
+        codexRunner: this.codexRunner,
+        triggerActor: this.env.GITHUB_ACTOR,
+        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+        contextUsage: readContextUsage(this.env),
+        progress: this.progress,
+      });
 
-    if (parsedArgs.eventsFormat === 'jsonl') {
-      await this.writeLocalPrdAutoCompleteEventStream(output, {
+      if (parsedArgs.eventsFormat === 'jsonl') {
+        await this.writeLocalPrdAutoCompleteEventStream(output, {
+          targetNumber: parsedArgs.targetNumber,
+          startedAt,
+          finishedAt: new Date(),
+          operationLabelReference: readRequiredOperationLabelReferenceLabel('prd:auto-complete'),
+        });
+        return readOperationExitCode(output);
+      }
+
+      this.writeValidatedJson(output);
+      return readOperationExitCode(output);
+    } catch (error) {
+      if (parsedArgs.eventsFormat !== 'jsonl') {
+        throw error;
+      }
+
+      const localRunRecord = readLocalRunRecordFromError(error);
+      if (localRunRecord === undefined) {
+        throw error;
+      }
+
+      const failedOutput = createLocalPrdAutoCompleteFailureOutput({
+        error,
+        localRunRecord,
+        targetNumber: parsedArgs.targetNumber,
+        publicationMode: parsedArgs.publicationMode,
+      });
+      await this.writeLocalPrdAutoCompleteEventStream(failedOutput, {
         targetNumber: parsedArgs.targetNumber,
         startedAt,
         finishedAt: new Date(),
         operationLabelReference: readRequiredOperationLabelReferenceLabel('prd:auto-complete'),
       });
-      return readOperationExitCode(output);
+      return readOperationExitCode(failedOutput);
     }
-
-    this.writeValidatedJson(output);
-    return readOperationExitCode(output);
   }
 
   /**
@@ -1107,7 +1132,7 @@ function readOperationExitCode(output) {
     }
   }
 
-  return isRecord(output) && output.status === 'refused' ? 1 : 0;
+  return isRecord(output) && (output.status === 'refused' || output.status === 'failed') ? 1 : 0;
 }
 
 /**
@@ -1280,6 +1305,52 @@ function readRequiredOperationLabelReferenceLabel(reference) {
   }
 
   return operation.label;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string | undefined}
+ */
+function readLocalRunRecordFromError(error) {
+  if (
+    isRecord(error) &&
+    typeof error.localRunRecord === 'string' &&
+    error.localRunRecord.trim() !== ''
+  ) {
+    return error.localRunRecord.trim();
+  }
+
+  const match = getErrorMessage(error).match(/Local Run Record:\s*(.+)$/);
+  return match === null ? undefined : match[1].trim();
+}
+
+/**
+ * @param {{
+ *   error: unknown,
+ *   localRunRecord: string,
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }} options
+ * @returns {Record<string, unknown>}
+ */
+function createLocalPrdAutoCompleteFailureOutput({
+  error,
+  localRunRecord,
+  targetNumber,
+  publicationMode,
+}) {
+  const failureReason = getErrorMessage(error).trim() || 'Unexpected runtime or tool failure.';
+  const summary = `Local PRD auto-complete for issue #${targetNumber} failed unexpectedly.`;
+
+  return {
+    status: 'failed',
+    summary,
+    displayMessage: summary,
+    failureReason,
+    mode: 'auto-complete',
+    publicationMode,
+    localRunRecord,
+  };
 }
 
 class CliUsageError extends Error {}

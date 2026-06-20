@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
@@ -895,6 +895,84 @@ test('run prd:auto-complete emits refused jsonl event streams for local guardrai
   assert.equal(eventsJsonl, stdout.text);
   const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits failed jsonl event streams for unexpected runtime errors', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-failed-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+      PULLOPS_CONTEXT_LIMIT_TOKENS: '40',
+    },
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        throw new Error('git exploded');
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(events.map(event => event.event), ['run.started', 'phase.started', 'run.summary']);
+  assert.equal(events[0].runId, summaryEvent.runId);
+  assert.equal(events[0].operationLabelReference, 'pullops:prd:auto-complete');
+  assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
+  assert.equal(events[1].phase, 'child-coordination');
+  assert.equal(events[1].message, 'Coordinating 0 child issue(s) for issue #123.');
+  assert.equal(summaryEvent.status, 'failed');
+  assert.equal(summaryEvent.summary, 'Local PRD auto-complete for issue #123 failed unexpectedly.');
+  assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
+  assert.equal(summaryEvent.failureReason, 'git exploded');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /git exploded/);
+});
+
+test('run prd:auto-complete does not overwrite an older run record when a jsonl run fails before exposing its local run record', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-truncated-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const staleRunRecord = join(cwd, '.pullops', 'runs', '2026-06-20T000000000Z-prd-auto-complete-123');
+  await mkdir(staleRunRecord, { recursive: true });
+  await writeFile(join(staleRunRecord, 'events.jsonl'), '{"event":"stale"}\n');
+  await writeFile(join(staleRunRecord, 'result.json'), '{"status":"accepted"}\n');
+
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    operationRunner: async () => {
+      throw new Error('runner exploded before run record creation');
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stdout.text, '');
+  assert.match(stderr.text, /runner exploded before run record creation/);
+  assert.equal(await readFile(join(staleRunRecord, 'events.jsonl'), 'utf8'), '{"event":"stale"}\n');
+  assert.equal(await readFile(join(staleRunRecord, 'result.json'), 'utf8'), '{"status":"accepted"}\n');
 });
 
 test('run prd:auto-advance rejects jsonl event streams', async () => {

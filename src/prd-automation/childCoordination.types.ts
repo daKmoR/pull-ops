@@ -91,6 +91,7 @@ export interface PrdAutomationResult extends Record<string, unknown> {
   status: string;
   summary: string;
   displayMessage?: string;
+  failureReason?: string;
   refusalReason?: string;
   mode?: PrdAutomationMode;
   issue?:
