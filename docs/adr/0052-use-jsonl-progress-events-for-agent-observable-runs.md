@@ -1,6 +1,6 @@
 # Use JSONL progress events for agent-observable runs
 
-Long-running PullOps Human-Facing Commands need an agent-observable output surface that does not require agents to ingest verbose logs for 30 minute to 2 hour runs. PullOps will expose bounded domain-level JSON Lines progress events for this mode, with the terminal event carrying the PullOps Run Summary, so an observing agent can parse one stdout stream incrementally and treat `run.summary` as the final machine-readable result. In event-stream mode stdout is machine-only; human-readable logs must go to stderr or the Local Run Record. Plain final-result JSON can remain a separate compact mode, but the long-running progress contract is a single parseable event stream rather than mixed progress JSONL plus a separate summary document. The terminal summary must include run duration as machine-readable milliseconds, optional start and finish timestamps, and known context usage centered on used tokens so long-running completions can be reported without reopening verbose artifacts.
+Long-running PullOps Human-Facing Commands need an agent-observable output surface that does not require agents to ingest verbose logs for 30 minute to 2 hour runs. PullOps will expose bounded domain-level JSON Lines progress events for this mode, with the terminal event carrying the PullOps Run Summary, so an observing agent can parse one stdout stream incrementally and treat `run.summary` as the final machine-readable result. In event-stream mode stdout is machine-only; human-readable logs must go to stderr or the Local Run Record. Plain final-result JSON can remain a separate compact mode, but the long-running progress contract is a single parseable event stream rather than mixed progress JSONL plus a separate summary document. The terminal summary must include run duration as machine-readable milliseconds, optional start and finish timestamps, and known context usage centered on used tokens so long-running completions can be reported without reopening verbose artifacts. When runner usage is unavailable, the terminal payload still includes `contextUsage: null` instead of omitting the field or estimating values.
 
 Terminal `run.summary.status` uses PullOps' broad operation outcome vocabulary: `accepted`, `blocked`, `refused`, or `failed`. `accepted` means PullOps completed the requested run path successfully, even when a later human merge is still intentionally pending; `blocked` means PullOps needs maintainer or external action; `refused` means the target failed guardrails; and `failed` means an unexpected tool or runtime error interrupted the run.
 
@@ -23,6 +23,12 @@ Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `pha
 Terminal summaries use a uniform `blockers` array instead of relying only on prose or operation-specific fields such as blocked issue numbers. Each blocker identifies its target kind, number where available, phase, Operation Label Reference when applicable, machine-readable reason, display message, and whether retrying later is expected to help.
 
 Terminal summaries include both display-oriented `nextSteps` strings and structured `suggestedActions`. Observing agents may use `nextSteps` for human updates, but automation decisions should use `suggestedActions` rather than scraping commands out of prose. Suggested command actions use argv arrays rather than shell strings so PullOps does not encode quoting, chaining, or shell parsing behavior in the agent-facing contract.
+
+Examples:
+
+- Known usage with limit: `"contextUsage": { "used": 1200, "limit": 200000 }`
+- Known usage without limit: `"contextUsage": { "used": 1200 }`
+- Unknown usage: `"contextUsage": null`
 
 Suggested actions are advisory. Each action declares whether it requires approval and why, leaving the observing agent or human operator to apply its own autonomy policy instead of making the PullOps CLI responsible for deciding which follow-up actions may run automatically.
 

@@ -1112,11 +1112,11 @@ function readContextUsage(env) {
   const used = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_USED_TOKENS);
   const limit = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_LIMIT_TOKENS);
 
-  if (used === undefined || limit === undefined) {
+  if (used === undefined) {
     return undefined;
   }
 
-  return { used, limit };
+  return limit === undefined ? { used } : { used, limit };
 }
 
 /**

@@ -43,7 +43,7 @@ export interface OperationRunnerContext {
 
 export interface OperationContextUsage {
   used: number;
-  limit: number;
+  limit?: number;
 }
 
 export type OperationPhase = 'run' | 'prepare' | 'finalize';

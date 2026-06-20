@@ -15,7 +15,7 @@
  *   target: { type: 'issue', number: number },
  *   startedAt: Date,
  *   finishedAt: Date,
- *   contextUsage?: OperationContextUsage,
+ *   contextUsage?: OperationContextUsage | null,
  * }} options
  * @returns {{
  *   events: Record<string, unknown>[],
@@ -251,7 +251,7 @@ function readChildProgressEventName(child) {
  *   target: { type: 'issue', number: number },
  *   startedAt: Date,
  *   finishedAt: Date,
- *   contextUsage?: OperationContextUsage,
+ *   contextUsage?: OperationContextUsage | null,
  * }} options
  * @param {ChildAutomationResult[]} children
  * @returns {Record<string, unknown>}
@@ -268,7 +268,7 @@ function createTerminalSummary(result, options, children) {
       target: options.target,
       ...(result.mode === undefined ? {} : { mode: result.mode }),
       ...(result.publicationMode === undefined ? {} : { publicationMode: result.publicationMode }),
-      ...(options.contextUsage === undefined ? {} : { contextUsage: options.contextUsage }),
+      contextUsage: options.contextUsage ?? null,
       startedAt: options.startedAt.toISOString(),
       finishedAt: options.finishedAt.toISOString(),
       durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
@@ -288,7 +288,7 @@ function createTerminalSummary(result, options, children) {
       target: options.target,
       ...(result.mode === undefined ? {} : { mode: result.mode }),
       ...(result.publicationMode === undefined ? {} : { publicationMode: result.publicationMode }),
-      ...(options.contextUsage === undefined ? {} : { contextUsage: options.contextUsage }),
+      contextUsage: options.contextUsage ?? null,
       startedAt: options.startedAt.toISOString(),
       finishedAt: options.finishedAt.toISOString(),
       durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
@@ -311,7 +311,7 @@ function createTerminalSummary(result, options, children) {
     target: options.target,
     ...(result.mode === undefined ? {} : { mode: result.mode }),
     ...(result.publicationMode === undefined ? {} : { publicationMode: result.publicationMode }),
-    ...(options.contextUsage === undefined ? {} : { contextUsage: options.contextUsage }),
+    contextUsage: options.contextUsage ?? null,
     startedAt: options.startedAt.toISOString(),
     finishedAt: options.finishedAt.toISOString(),
     durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
@@ -340,7 +340,7 @@ function createTerminalSummary(result, options, children) {
  *   target: { type: 'issue', number: number },
  *   startedAt: Date,
  *   finishedAt: Date,
- *   contextUsage?: OperationContextUsage,
+ *   contextUsage?: OperationContextUsage | null,
  * }} options
  * @returns {Record<string, unknown>[]}
  */
@@ -595,7 +595,7 @@ function readTerminalSuggestedActions(result) {
  *   target: { type: 'issue', number: number },
  *   startedAt: Date,
  *   finishedAt: Date,
- *   contextUsage?: OperationContextUsage,
+ *   contextUsage?: OperationContextUsage | null,
  * }} options
  * @returns {Record<string, unknown>[]}
  */
@@ -761,7 +761,7 @@ function normalizeOperationLabelReference(reference) {
  *   target: { type: 'issue', number: number },
  *   startedAt: Date,
  *   finishedAt: Date,
- *   contextUsage?: OperationContextUsage,
+ *   contextUsage?: OperationContextUsage | null,
  * }} options
  * @returns {Record<string, unknown>}
  */

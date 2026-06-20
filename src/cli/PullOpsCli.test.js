@@ -725,6 +725,124 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
+test('run prd:auto-complete emits used-only context usage when the runner limit is unavailable', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const runRecord = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-used-context-'));
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+    },
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [],
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+  assert.deepEqual(runnerCalls[0].contextUsage, { used: 12 });
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.equal(summaryEvent.event, 'run.summary');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12 });
+
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits null context usage when runner usage is unavailable', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const runRecord = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-unknown-context-'));
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {},
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [],
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.equal(summaryEvent.event, 'run.summary');
+  assert.equal(Object.hasOwn(summaryEvent, 'contextUsage'), true);
+  assert.equal(summaryEvent.contextUsage, null);
+
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
 test('run prd:auto-complete emits blocked jsonl event streams for local waits', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
