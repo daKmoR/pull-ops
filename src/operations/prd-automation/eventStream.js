@@ -255,6 +255,28 @@ function readChildProgressEventName(child) {
  * @returns {Record<string, unknown>}
  */
 function createTerminalSummary(result, options, children) {
+  if (result.status === 'refused') {
+    return {
+      ...result,
+      schemaVersion: 1,
+      event: 'run.summary',
+      runId: options.runId,
+      operation: options.operation,
+      operationLabelReference: options.operationLabelReference,
+      target: options.target,
+      ...(result.mode === undefined ? {} : { mode: result.mode }),
+      ...(result.publicationMode === undefined ? {} : { publicationMode: result.publicationMode }),
+      ...(options.contextUsage === undefined ? {} : { contextUsage: options.contextUsage }),
+      startedAt: options.startedAt.toISOString(),
+      finishedAt: options.finishedAt.toISOString(),
+      durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
+      reason: readTerminalRefusalReason(result),
+      displayMessage: readTerminalDisplayMessage(result),
+      nextSteps: readTerminalNextSteps(result),
+      suggestedActions: readTerminalSuggestedActions(result),
+    };
+  }
+
   const blockers = collectTerminalBlockers(result, children, options);
   const blocked = result.status === 'blocked' || blockers.length > 0;
   const summary = {
@@ -486,7 +508,50 @@ function readParentWaitingEvent(parentPullRequest) {
  * @returns {string[]}
  */
 function readTerminalNextSteps(result) {
+  if (Array.isArray(result.nextSteps)) {
+    return result.nextSteps;
+  }
+
   return Array.isArray(result.localNextSteps) ? result.localNextSteps : [];
+}
+
+/**
+ * @param {PrdAutomationResult} result
+ * @returns {string}
+ */
+function readTerminalRefusalReason(result) {
+  return typeof result.refusalReason === 'string' && result.refusalReason.trim() !== ''
+    ? result.refusalReason
+    : 'refused';
+}
+
+/**
+ * @param {PrdAutomationResult} result
+ * @returns {string}
+ */
+function readTerminalDisplayMessage(result) {
+  return typeof result.displayMessage === 'string' && result.displayMessage.trim() !== ''
+    ? result.displayMessage
+    : String(result.summary);
+}
+
+/**
+ * @param {PrdAutomationResult} result
+ * @returns {Record<string, unknown>[]}
+ */
+function readTerminalSuggestedActions(result) {
+  if (!Array.isArray(result.suggestedActions)) {
+    return [];
+  }
+
+  return result.suggestedActions.map(action =>
+    createSuggestedCommandAction({
+      description: action.description,
+      argv: action.argv,
+      approvalRequired: action.approvalRequired,
+      ...(action.approvalReason === undefined ? {} : { approvalReason: action.approvalReason }),
+    }),
+  );
 }
 
 /**

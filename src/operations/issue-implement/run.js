@@ -1346,6 +1346,7 @@ async function runLocalFinalizedIssuePipeline(
       createLocalReviewFeedbackIds(reviewOutput.value),
     );
     if (!addressCoverage.valid) {
+      await commitLocalAddressReviewChangesIfPresent(context, runRecord, preparation.issue);
       return await blockLocalFinalizedRun(context, {
         runRecord,
         preparation,
@@ -1355,13 +1356,7 @@ async function runLocalFinalizedIssuePipeline(
       });
     }
 
-    if (await context.gitClient.hasChanges()) {
-      await writePatchArtifactIfAvailable(context, runRecord);
-      await context.gitClient.commitAll({
-        message: createIssueImplementReviewAddressCommitMessage(preparation.issue),
-        author: GITHUB_ACTIONS_BOT_AUTHOR,
-      });
-    }
+    await commitLocalAddressReviewChangesIfPresent(context, runRecord, preparation.issue);
   }
 
   const finalizePrompt = await buildLocalFollowUpPrompt(context, {
@@ -1813,6 +1808,24 @@ async function commitLocalReviewChangesIfPresent(context, runRecord, issue, revi
   await writePatchArtifactIfAvailable(context, runRecord);
   await context.gitClient.commitAll({
     message: createIssueImplementReviewCommitMessage(issue, reviewOutput),
+    author: GITHUB_ACTIONS_BOT_AUTHOR,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ directory: string }} runRecord
+ * @param {GitHubIssue} issue
+ * @returns {Promise<void>}
+ */
+async function commitLocalAddressReviewChangesIfPresent(context, runRecord, issue) {
+  if (!(await context.gitClient.hasChanges())) {
+    return;
+  }
+
+  await writePatchArtifactIfAvailable(context, runRecord);
+  await context.gitClient.commitAll({
+    message: createIssueImplementReviewAddressCommitMessage(issue),
     author: GITHUB_ACTIONS_BOT_AUTHOR,
   });
 }
