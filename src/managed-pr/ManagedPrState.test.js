@@ -12,6 +12,7 @@ import {
   requestManagedPrReview,
   resumeManagedPrWorkflow,
   refusePrOperationTarget,
+  updateManagedPrState,
 } from './ManagedPrState.js';
 
 /**
@@ -55,9 +56,17 @@ describe('ManagedPrState', () => {
     assert.equal(state.lastOperation, PULL_OPS_OPERATION_LABELS.issueImplement);
     assert.deepEqual(state.reviewCycles, { current: 0, max: 3 });
     assert.deepEqual(state.ciFixCycles, { current: 0, max: 2 });
+    assert.deepEqual(state.escalationReviewCycles, { current: 0, max: 1 });
+    assert.equal(state.humanFeedbackResponseCycles, 0);
+    assert.deepEqual(state.processedHumanFeedbackReviewIds, []);
+    assert.equal(state.pendingHumanFeedbackReviewId, undefined);
     assert.match(section, /^Managed: yes$/m);
     assert.doesNotMatch(section, /Managed PR: yes/);
     assert.match(section, /<summary>PullOps workflow state<\/summary>/);
+    assert.match(section, /Escalation review cycles: 0 \/ 1/);
+    assert.match(section, /Human feedback response cycles: 0/);
+    assert.match(section, /Processed human feedback review ids: none/);
+    assert.match(section, /Pending human feedback review id: none/);
     assert.doesNotMatch(section, /Triggered by:/);
     assert.doesNotMatch(section, /Model tier:/);
   });
@@ -94,6 +103,42 @@ describe('ManagedPrState', () => {
     assert.equal(oldGrammarState.status, 'Draft automation');
     assert.deepEqual(oldGrammarState.reviewCycles, { current: 0, max: 3 });
     assert.deepEqual(oldGrammarState.ciFixCycles, { current: 0, max: 2 });
+    assert.equal(oldGrammarState.escalationReviewCycles, undefined);
+    assert.equal(oldGrammarState.humanFeedbackResponseCycles, undefined);
+    assert.equal(oldGrammarState.processedHumanFeedbackReviewIds, undefined);
+    assert.equal(oldGrammarState.pendingHumanFeedbackReviewId, undefined);
+  });
+
+  it('15: parses and updates explicit special-review markers in the workflow state block', () => {
+    const updatedBody = updateManagedPrState({
+      body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+      status: 'Draft automation',
+      reviewCycles: {
+        current: 3,
+        max: 3,
+      },
+      escalationReviewCycles: {
+        current: 1,
+        max: 1,
+      },
+      humanFeedbackResponseCycles: 2,
+      processedHumanFeedbackReviewIds: ['review-1', 'review-2'],
+      pendingHumanFeedbackReviewId: 'review-3',
+      lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+    });
+
+    assert.match(updatedBody, /Escalation review cycles: 1 \/ 1/);
+    assert.match(updatedBody, /Human feedback response cycles: 2/);
+    assert.match(updatedBody, /Processed human feedback review ids: review-1, review-2/);
+    assert.match(updatedBody, /Pending human feedback review id: review-3/);
+    assert.match(updatedBody, /Review cycles: 3 \/ 3/);
+
+    const state = readManagedPrState(updatedBody);
+    assert.deepEqual(state.reviewCycles, { current: 3, max: 3 });
+    assert.deepEqual(state.escalationReviewCycles, { current: 1, max: 1 });
+    assert.equal(state.humanFeedbackResponseCycles, 2);
+    assert.deepEqual(state.processedHumanFeedbackReviewIds, ['review-1', 'review-2']);
+    assert.equal(state.pendingHumanFeedbackReviewId, 'review-3');
   });
 
   it('03: applies approved review transitions and routes to finalize', async () => {

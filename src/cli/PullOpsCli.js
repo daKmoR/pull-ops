@@ -179,6 +179,7 @@ export class PullOpsCli {
       gitClient: this.gitClient,
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
+      reviewId: parsedArgs.reviewId,
       outputDirectory: this.env.OUTPUT_DIR,
       codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
       runnerRan: parsedArgs.runnerRan,
@@ -539,7 +540,13 @@ export class PullOpsCli {
  * @param {string[]} args
  * @param {import('../operations/types.js').WorkflowOperation} operation
  * @param {RunnerAdapter} defaultRunnerAdapter
- * @returns {{ targetNumber: number, phase: OperationPhase, runnerAdapter: RunnerAdapter, runnerRan?: boolean }}
+ * @returns {{
+ *   targetNumber: number,
+ *   phase: OperationPhase,
+ *   runnerAdapter: RunnerAdapter,
+ *   runnerRan?: boolean,
+ *   reviewId?: string,
+ * }}
  */
 function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
   const consumed = new Set();
@@ -547,6 +554,10 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
   const phase = parseOperationPhase(args, consumed);
   const runnerAdapter = parseRunnerAdapter(args, defaultRunnerAdapter, consumed);
   const runnerRan = parseRunnerRan(args, consumed);
+  const reviewId =
+    operation.name === 'pr-address-review'
+      ? parseOptionalStringOption(args, '--review-id', consumed)
+      : undefined;
 
   validateRunnerLifecycle({ operationName: operation.name, phase, runnerAdapter, runnerRan });
 
@@ -563,6 +574,7 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
     phase,
     runnerAdapter,
     ...(runnerRan === undefined ? {} : { runnerRan }),
+    ...(reviewId === undefined ? {} : { reviewId }),
   };
 }
 

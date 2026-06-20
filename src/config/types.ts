@@ -13,6 +13,11 @@ export interface OperationConfig {
   modelTier: ModelTier;
 }
 
+export interface ReviewOperationConfig extends OperationConfig {
+  escalationModelTier: ModelTier;
+  humanFeedbackResponseModelTier: ModelTier;
+}
+
 export interface PrFinalizeOperationConfig extends OperationConfig {
   aiHistoryCleanup: boolean;
 }
@@ -26,7 +31,9 @@ export type OperationsConfig = {
     ? PrFinalizeOperationConfig
     : Key extends 'prResolveConflicts'
       ? PrResolveConflictsOperationConfig
-      : OperationConfig;
+      : Key extends 'prReview' | 'prAddressReview'
+        ? ReviewOperationConfig
+        : OperationConfig;
 };
 
 export interface PullOpsConfig {
@@ -46,6 +53,11 @@ export interface UserOperationConfig {
   modelTier?: unknown;
 }
 
+export interface UserReviewOperationConfig extends UserOperationConfig {
+  escalationModelTier?: unknown;
+  humanFeedbackResponseModelTier?: unknown;
+}
+
 export interface UserPrFinalizeOperationConfig extends UserOperationConfig {
   aiHistoryCleanup?: unknown;
 }
@@ -59,7 +71,9 @@ export type UserOperationsConfig = Partial<{
     ? UserPrFinalizeOperationConfig
     : Key extends 'prResolveConflicts'
       ? UserPrResolveConflictsOperationConfig
-      : UserOperationConfig;
+      : Key extends 'prReview' | 'prAddressReview'
+        ? UserReviewOperationConfig
+        : UserOperationConfig;
 }>;
 
 export interface UserPullOpsConfig {

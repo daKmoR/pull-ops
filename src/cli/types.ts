@@ -31,6 +31,7 @@ export interface OperationRunnerContext {
   gitClient: GitClient;
   codexRunner: CodexRunner;
   triggerActor?: string;
+  reviewId?: string;
   outputDirectory?: string;
   codexActionOutcome?: string;
   runnerRan?: boolean;

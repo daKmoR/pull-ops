@@ -1363,8 +1363,16 @@ describe('runIssueImplement', () => {
       },
       operations: {
         ...DEFAULT_PULL_OPS_CONFIG.operations,
-        prReview: { modelTier: 'low' },
-        prAddressReview: { modelTier: 'mid' },
+        prReview: {
+          modelTier: 'low',
+          escalationModelTier: 'high',
+          humanFeedbackResponseModelTier: 'high',
+        },
+        prAddressReview: {
+          modelTier: 'mid',
+          escalationModelTier: 'high',
+          humanFeedbackResponseModelTier: 'high',
+        },
         prFinalize: {
           ...DEFAULT_PULL_OPS_CONFIG.operations.prFinalize,
           modelTier: 'low',
