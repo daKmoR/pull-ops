@@ -84,6 +84,26 @@ _Avoid_: Publication mode, operation label
 A visible, gitignored `.pullops/runs/<timestamp>-<operation-label-reference>-<target-number>/` directory where local execution records artifacts from one PullOps run.
 _Avoid_: Hidden cache, audit store
 
+**PullOps Progress Event**:
+A bounded machine-readable status update from a long-running Human-Facing Command, intended for tools to observe progress without reading verbose logs.
+_Avoid_: Log line, heartbeat, console output
+
+**PullOps Run Summary**:
+The final machine-readable outcome of a Human-Facing Command, identifying status, target, resulting run records, blockers, and next steps.
+_Avoid_: CLI footer, agent response, verbose output
+
+**PullOps Run Blocker**:
+A structured reason a PullOps run cannot continue without maintainer action, external completion, or a later retry.
+_Avoid_: Error message, failed log line, blocked issue number
+
+**Run Duration**:
+The measured elapsed time for one PullOps run, reported in machine-readable milliseconds and optionally anchored by start and finish timestamps.
+_Avoid_: Human duration string, timeout
+
+**Context Usage**:
+The known runner-reported token usage for a PullOps run, centered on used tokens and optionally including a context limit. Unknown usage stays unknown rather than being estimated.
+_Avoid_: Billing tokens, cost estimate, guessed usage
+
 **Operation Run Goal**:
 The Run Goal where PullOps runs exactly the requested Operation Label Reference and then stops.
 _Avoid_: One-shot mode
