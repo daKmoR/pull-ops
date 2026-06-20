@@ -110,6 +110,7 @@ function resolveCompletedPrReviewMode(state, explicitReviewMode) {
 /**
  * @param {ManagedPrState} state
  * @param {ManagedPrReviewMode | undefined} reviewMode
+ * @param {'approved' | 'changes-requested' | undefined} reviewResult
  * @returns {Pick<
  *   UpdateManagedPrStateOptions,
  *   | 'escalationReviewCycles'
@@ -118,9 +119,19 @@ function resolveCompletedPrReviewMode(state, explicitReviewMode) {
  *   | 'pendingHumanFeedbackReviewId'
  * >}
  */
-function createPrReviewSpecialStateUpdate(state, reviewMode) {
+function createPrReviewSpecialStateUpdate(state, reviewMode, reviewResult) {
   const resolvedReviewMode = resolveCompletedPrReviewMode(state, reviewMode);
   if (resolvedReviewMode === 'escalation') {
+    // Count the special cycle when escalation review closes out the loop, not on the
+    // first changes-requested pass that sends the PR back through address-review.
+    const shouldCountEscalationReview =
+      reviewResult === 'approved' ||
+      state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview;
+
+    if (!shouldCountEscalationReview) {
+      return {};
+    }
+
     const escalationReviewCycles =
       state.escalationReviewCycles ?? createExhaustedEscalationReviewCycles();
 
@@ -649,6 +660,7 @@ function createPrReviewTransition({ body, outcome, state }) {
     outcome.kind === 'approved' || outcome.kind === 'changes-requested'
       ? outcome.reviewMode
       : undefined,
+    outcome.kind === 'approved' || outcome.kind === 'changes-requested' ? outcome.kind : undefined,
   );
 
   if (outcome.kind === 'approved') {

@@ -11,6 +11,7 @@ import {
   runPrReviewCodexActionFinalize,
   runPrReviewCodexActionPrepare,
 } from './run.js';
+import { runPrAddressReview } from '../pr-address-review/run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -753,6 +754,185 @@ describe('runPrReview', () => {
     assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 0/);
     assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: none/);
     assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
+  });
+
+  it('16: keeps the escalation cycle available across address-review until the validating review completes', async () => {
+    const config = structuredClone(DEFAULT_PULL_OPS_CONFIG);
+    config.runner.models = {
+      high: 'gpt-special-high',
+      mid: 'gpt-special-mid',
+      low: 'gpt-special-low',
+    };
+    config.operations.prReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+    config.operations.prAddressReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+
+    const reviewContext = createReviewContext();
+    const diff = createDiff();
+
+    const firstGithub = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext,
+      diff,
+    });
+    const firstCodex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'changes_requested',
+        summary: 'The PR needs one more change before the escalation follow-up.',
+        comments: [],
+        directChanges: [],
+      }),
+    });
+
+    const firstResult = await runPrReview(
+      createContext({
+        config,
+        githubClient: firstGithub.client,
+        codexRunner: firstCodex.runner,
+      }),
+    );
+
+    assert.equal(firstResult.reviewMode, 'escalation');
+    assert.equal(firstResult.modelTier, 'high');
+    assert.equal(firstResult.model, 'gpt-special-high');
+    assert.equal(firstCodex.calls[0].model, 'gpt-special-high');
+    assert.match(firstGithub.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(firstGithub.updatedBodies[0].body, /Escalation review cycles: 0 \/ 1/);
+    assert.deepEqual(firstGithub.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:address-review'],
+      },
+    ]);
+
+    const secondGithub = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: firstGithub.updatedBodies[0].body,
+      }),
+      reviewContext,
+      diff,
+    });
+    const secondCodex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Addressed the remaining review feedback.',
+        addressed: [
+          {
+            feedbackId: 'thread:9001',
+            response: 'Updated the implementation to cover the inline concern.',
+          },
+          {
+            feedbackId: 'comment:1',
+            response: 'Clarified the behavior requested in the top-level comment.',
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: [],
+      }),
+    });
+
+    const secondResult = await runPrAddressReview(
+      createContext({
+        operation: 'pr-address-review',
+        config,
+        githubClient: secondGithub.client,
+        codexRunner: secondCodex.runner,
+      }),
+    );
+
+    assert.equal(secondResult.reviewMode, 'escalation');
+    assert.equal(secondResult.modelTier, 'high');
+    assert.equal(secondResult.model, 'gpt-special-high');
+    assert.equal(secondCodex.calls[0].model, 'gpt-special-high');
+    assert.match(secondGithub.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(secondGithub.updatedBodies[0].body, /Escalation review cycles: 0 \/ 1/);
+    assert.deepEqual(secondGithub.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:review'],
+      },
+    ]);
+
+    const thirdGithub = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: secondGithub.updatedBodies[0].body,
+      }),
+      reviewContext,
+      diff,
+    });
+    const thirdCodex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the escalation review.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const thirdResult = await runPrReview(
+      createContext({
+        config,
+        githubClient: thirdGithub.client,
+        codexRunner: thirdCodex.runner,
+      }),
+    );
+
+    assert.equal(thirdResult.reviewMode, 'escalation');
+    assert.equal(thirdResult.modelTier, 'high');
+    assert.equal(thirdResult.model, 'gpt-special-high');
+    assert.equal(thirdCodex.calls[0].model, 'gpt-special-high');
+    assert.match(thirdGithub.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(thirdGithub.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+    assert.deepEqual(thirdGithub.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:finalize'],
+      },
+    ]);
+  });
+
+  it('17: blocks after the escalation cycle is exhausted and no other special cycle applies', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '1 / 1',
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.reviewMode, 'blocked');
+    assert.equal(codex.calls.length, 0);
+    assert.match(String(result.summary), /Review cycle budget exhausted/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
   });
 });
 
