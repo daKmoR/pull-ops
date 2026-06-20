@@ -248,6 +248,89 @@ describe('PRD Child Coordination', () => {
     ]);
   });
 
+  it('03b: local auto-complete follows Umbrella PR finalize routes back to review', async () => {
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [
+        {
+          ...issueReference(34),
+          state: 'CLOSED',
+        },
+      ],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, state: 'CLOSED', parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: reviewApprovedParentPullRequestBody(12),
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    git.client.hasChanges = async () => false;
+    git.client.fetchRemoteRefs = async () => {};
+    git.client.checkoutPullOpsBranch = async () => {};
+    /** @type {Array<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+    const operations = [];
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-parent-finalize-route-'));
+
+    const result = await coordinateLocalPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+      }),
+      {
+        parentIssueNumber: 12,
+        async runChildIssue() {
+          throw new Error('runChildIssue was not expected in this test.');
+        },
+        async runParentPullRequestOperation(request) {
+          operations.push(request.operation);
+
+          if (request.operation === 'pr-finalize') {
+            const finalizeCount = operations.filter(
+              operation => operation === 'pr-finalize',
+            ).length;
+            return finalizeCount === 1
+              ? {
+                  status: 'accepted',
+                  summary: 'Routed back to review.',
+                  prFinalize: {
+                    routedTo: 'pullops:pr:review',
+                  },
+                }
+              : {
+                  status: 'accepted',
+                  summary: 'Finalized.',
+                };
+          }
+
+          if (request.operation === 'pr-review') {
+            return {
+              status: 'accepted',
+              summary: 'Approved.',
+              reviewResult: 'approved',
+            };
+          }
+
+          throw new Error(`Unexpected parent PR operation ${request.operation}.`);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.parentPullRequest?.status, 'finalized');
+    assert.deepEqual(operations, ['pr-finalize', 'pr-review', 'pr-finalize']);
+  });
+
   it('04: close-child requests Umbrella PR review even without an active automation mode', async () => {
     const childIssue = createIssue({
       number: 42,
@@ -543,6 +626,28 @@ function changesRequestedParentPullRequestBody(issueNumber) {
     '<summary>PullOps workflow state</summary>',
     '',
     `Source: Parent Issue #${issueNumber}`,
+    'Last operation: pullops:pr:review',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {number} issueNumber
+ * @returns {string}
+ */
+function reviewApprovedParentPullRequestBody(issueNumber) {
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Source: Parent Issue #${issueNumber}`,
+    'Reviewed tree: tree-reviewed',
     'Last operation: pullops:pr:review',
     '',
     '</details>',
