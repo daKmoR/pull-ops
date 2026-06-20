@@ -46,30 +46,32 @@ export function createLocalPrdAutoCompleteEventStream(result, options) {
     message: `Coordinating ${children.length} child issue(s) for issue #${options.target.number}.`,
   });
 
-  for (const child of children) {
-    pushEvent(events, identity, 'child.started', {
-      phase: 'child-coordination',
-      childIssue: child.issue,
-      message: `Coordinating child issue #${child.issue.number}.`,
-    });
-    pushEvent(events, identity, readChildProgressEventName(child), {
-      phase: 'child-coordination',
-      childIssue: child.issue,
-      status: child.status,
-      message: child.summary,
-      ...projectChildResult(child),
-    });
-  }
+  if (result.status !== 'failed') {
+    for (const child of children) {
+      pushEvent(events, identity, 'child.started', {
+        phase: 'child-coordination',
+        childIssue: child.issue,
+        message: `Coordinating child issue #${child.issue.number}.`,
+      });
+      pushEvent(events, identity, readChildProgressEventName(child), {
+        phase: 'child-coordination',
+        childIssue: child.issue,
+        status: child.status,
+        message: child.summary,
+        ...projectChildResult(child),
+      });
+    }
 
-  pushEvent(events, identity, 'phase.completed', {
-    phase: 'child-coordination',
-    childCounts: summarizeChildCounts(children),
-    message: summarizeChildCoordination(children, options.target.number),
-  });
+    pushEvent(events, identity, 'phase.completed', {
+      phase: 'child-coordination',
+      childCounts: summarizeChildCounts(children),
+      message: summarizeChildCoordination(children, options.target.number),
+    });
 
-  const parentWaitingEvent = readParentWaitingEvent(result.parentPullRequest);
-  if (parentWaitingEvent !== undefined) {
-    pushEvent(events, identity, 'waiting', parentWaitingEvent);
+    const parentWaitingEvent = readParentWaitingEvent(result.parentPullRequest);
+    if (parentWaitingEvent !== undefined) {
+      pushEvent(events, identity, 'waiting', parentWaitingEvent);
+    }
   }
 
   const summary = createTerminalSummary(result, options, children);
@@ -255,6 +257,26 @@ function readChildProgressEventName(child) {
  * @returns {Record<string, unknown>}
  */
 function createTerminalSummary(result, options, children) {
+  if (result.status === 'failed') {
+    return {
+      ...result,
+      schemaVersion: 1,
+      event: 'run.summary',
+      runId: options.runId,
+      operation: options.operation,
+      operationLabelReference: options.operationLabelReference,
+      target: options.target,
+      ...(result.mode === undefined ? {} : { mode: result.mode }),
+      ...(result.publicationMode === undefined ? {} : { publicationMode: result.publicationMode }),
+      ...(options.contextUsage === undefined ? {} : { contextUsage: options.contextUsage }),
+      startedAt: options.startedAt.toISOString(),
+      finishedAt: options.finishedAt.toISOString(),
+      durationMs: Math.max(0, options.finishedAt.getTime() - options.startedAt.getTime()),
+      displayMessage: readTerminalDisplayMessage(result),
+      failureReason: readTerminalFailureReason(result),
+    };
+  }
+
   if (result.status === 'refused') {
     return {
       ...result,
@@ -532,6 +554,16 @@ function readTerminalRefusalReason(result) {
 function readTerminalDisplayMessage(result) {
   return typeof result.displayMessage === 'string' && result.displayMessage.trim() !== ''
     ? result.displayMessage
+    : String(result.summary);
+}
+
+/**
+ * @param {PrdAutomationResult} result
+ * @returns {string}
+ */
+function readTerminalFailureReason(result) {
+  return typeof result.failureReason === 'string' && result.failureReason.trim() !== ''
+    ? result.failureReason
     : String(result.summary);
 }
 

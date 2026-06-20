@@ -285,7 +285,7 @@ async function coordinateLocalPrdAutomation(
     });
   } catch (error) {
     await writeLocalPrdRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
-    throw error;
+    throw attachLocalRunRecordToError(error, runRecord.directory);
   }
 }
 
@@ -3012,6 +3012,19 @@ async function writeLocalPrdRunArtifact(runRecord, fileName, contents) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} localRunRecord
+ * @returns {unknown}
+ */
+function attachLocalRunRecordToError(error, localRunRecord) {
+  if (typeof error === 'object' && error !== null) {
+    return Object.assign(error, { localRunRecord });
+  }
+
+  return Object.assign(new Error(getErrorMessage(error)), { localRunRecord });
 }
 
 /**
