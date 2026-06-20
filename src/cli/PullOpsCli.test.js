@@ -647,8 +647,12 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
             status: 'blocked',
             summary: 'Child issue #35 is blocked by #99.',
             blockedBy: [99],
-            blockedPhase: 'dependency',
-            blockedOperation: 'pr:review',
+            dependencyDecision: {
+              blockedBy: [99],
+              satisfiedByClosedIssues: [],
+              satisfiedByVirtualCompletions: [],
+              remainingBlockedBy: [99],
+            },
           },
         ],
         parentPullRequest: {
@@ -713,6 +717,110 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
   assert.equal(summaryEvent.operationLabelReference, 'pullops:prd:auto-complete');
   assert.equal(summaryEvent.status, 'accepted');
   assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
+
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits blocked jsonl event streams for local waits', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const runRecord = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-blocked-events-'));
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete reached a waiting boundary',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [
+          {
+            issue: {
+              number: 34,
+              url: 'https://github.test/issues/34',
+            },
+            status: 'waiting',
+            summary: 'Child PR #101 is waiting for human review or merge gates.',
+            pullRequest: {
+              number: 101,
+              url: 'https://github.test/pull/101',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-34',
+            },
+            blockedPhase: 'review',
+            blockedOperation: 'pr:review',
+          },
+        ],
+        localRunRecord: runRecord,
+        localNextSteps: [
+          'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+        ],
+        remainingBlockedChildren: [34],
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--events',
+    'jsonl',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'child.started', 'waiting', 'phase.completed', 'run.summary'],
+  );
+  assert.equal(events[3].status, 'waiting');
+  assert.deepEqual(events[4].childCounts, { total: 1, completed: 0, blocked: 0, waiting: 1 });
+  assert.equal(summaryEvent.status, 'blocked');
+  assert.deepEqual(summaryEvent.blockers, [
+    {
+      targetKind: 'pull-request',
+      targetNumber: 101,
+      phase: 'review',
+      operationLabelReference: 'pr:review',
+      reason: 'review-wait',
+      message: 'Child PR #101 is waiting for human review or merge gates.',
+      retryable: true,
+    },
+  ]);
+  assert.deepEqual(summaryEvent.nextSteps, [
+    'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+  ]);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Rerun PRD auto-complete after the waiting boundary clears.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '123', '--publish', 'pr'],
+      approvalRequired: false,
+    },
+  ]);
 
   const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
   assert.equal(eventsJsonl, stdout.text);

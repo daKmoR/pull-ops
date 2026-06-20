@@ -562,10 +562,15 @@ export class PullOpsCli {
       throw new Error(`Invalid Operation Output: ${result.reason}`);
     }
 
-    const localRunRecord = readRequiredString(result.value.localRunRecord, 'Operation Output.localRunRecord');
+    const localRunRecord = readRequiredString(
+      result.value.localRunRecord,
+      'Operation Output.localRunRecord',
+    );
     const runId = basename(localRunRecord);
     const stream = createLocalPrdAutoCompleteEventStream(
-      /** @type {import('../prd-automation/childCoordination.types.js').PrdAutomationResult} */ (result.value),
+      /** @type {import('../prd-automation/childCoordination.types.js').PrdAutomationResult} */ (
+        result.value
+      ),
       {
         operation: 'prd-auto-complete',
         operationLabelReference,
@@ -582,7 +587,10 @@ export class PullOpsCli {
 
     const eventsJsonl = `${stream.eventsJsonl}\n`;
     await writeFile(join(localRunRecord, 'events.jsonl'), eventsJsonl);
-    await writeFile(join(localRunRecord, 'result.json'), `${JSON.stringify(stream.summary, null, 2)}\n`);
+    await writeFile(
+      join(localRunRecord, 'result.json'),
+      `${JSON.stringify(stream.summary, null, 2)}\n`,
+    );
     this.stdout.write(eventsJsonl);
   }
 
@@ -775,7 +783,9 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     }
 
     if (eventsFormat !== 'jsonl') {
-      throw new CliUsageError(`Unsupported events format "${eventsFormat}". Expected "--events jsonl".`);
+      throw new CliUsageError(
+        `Unsupported events format "${eventsFormat}". Expected "--events jsonl".`,
+      );
     }
   }
 
