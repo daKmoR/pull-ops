@@ -61,6 +61,7 @@ export function buildPrFinalizePrompt({
     '- Each changed file must appear in exactly one commit files array, and no unchanged files may appear.',
     '- Prefer one commit per closed native Child Issue represented by the files.',
     '- Include parent-level commits only for explicit PRD-level files.',
+    '- Include commitPlan.justification only when grouping is not one commit per closed Child Issue, and make it a non-empty explanation when included.',
     '- Commit headers must be conventional commit headers.',
     `- Child Issue commit footers must include Refs: #<child> and PRD: #${parentIssue.number}.`,
     `- Parent-level commit footers must include Refs: #${parentIssue.number}.`,
@@ -72,7 +73,6 @@ export function buildPrFinalizePrompt({
         status: 'planned',
         summary: 'One sentence summary of the history grouping plan.',
         commitPlan: {
-          justification: 'Required when grouping is not one commit per closed Child Issue.',
           commits: [
             {
               header: 'feat(issue): implement #42',

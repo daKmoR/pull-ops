@@ -718,7 +718,9 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner({ output: createPlannerOutput() });
+    const codex = createFakeCodexRunner({
+      output: createPlannerOutput({ justification: '' }),
+    });
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -982,7 +984,7 @@ function createConfig({ prFinalize } = {}) {
 }
 
 /**
- * @param {{ commits?: ReturnType<typeof createPlannerCommit>[] }} [options]
+ * @param {{ commits?: ReturnType<typeof createPlannerCommit>[], justification?: string }} [options]
  * @returns {string}
  */
 function createPlannerOutput({
@@ -990,11 +992,13 @@ function createPlannerOutput({
     createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
     createPlannerCommit({ issueNumber: 22, files: ['src/child-22.js'] }),
   ],
+  justification,
 } = {}) {
   return JSON.stringify({
     status: 'planned',
     summary: 'Group ambiguous PRD history by closed Child Issue.',
     commitPlan: {
+      ...(justification === undefined ? {} : { justification }),
       commits,
     },
     followUps: [],
