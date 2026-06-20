@@ -15,6 +15,11 @@ import {
   commentOnPullRequestWithOperationAudit,
 } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
+import {
+  determinePrAddressReviewMode,
+  findBlockingPendingHumanFeedbackReviewId,
+  resolveReviewModelSelection,
+} from '../reviewSelection.js';
 import { collectPrAddressReviewFeedback } from './feedback.js';
 import { validateAddressReviewFeedbackCoverage } from './feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from './output.js';
@@ -51,13 +56,15 @@ export async function runPrAddressReview(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   let rawOutput;
 
   try {
     rawOutput = await context.codexRunner.run({
       cwd: context.cwd,
       command: context.config.runner.command,
-      model: context.model,
+      model: executionContext.model,
       prompt: buildAddressPrReviewompt({
         pullRequest: preparation.pullRequest,
         issue: preparation.issue,
@@ -75,7 +82,7 @@ export async function runPrAddressReview(context) {
     throw error;
   }
 
-  return await finalizePreparedPrAddressReview(context, preparation, rawOutput);
+  return await finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput);
 }
 
 /**
@@ -88,9 +95,11 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   try {
     await writeCodexActionPrompt(
-      context,
+      executionContext,
       buildAddressPrReviewompt({
         pullRequest: preparation.pullRequest,
         issue: preparation.issue,
@@ -112,6 +121,9 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
   return {
     status: 'accepted',
     summary: `Prepared Codex Action pr-address-review run for PR #${preparation.pullRequest.number}.`,
+    reviewMode: preparation.reviewMode,
+    modelTier: preparation.modelTier,
+    model: preparation.model,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
@@ -122,7 +134,7 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
     codexAction: {
       promptFile: files.promptFile,
       outputFile: files.outputFile,
-      model: context.model,
+      model: executionContext.model,
       branch: preparation.pullRequest.headRefName,
     },
   };
@@ -142,6 +154,8 @@ export async function runPrAddressReviewCodexActionFinalize(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   let rawOutput;
 
   try {
@@ -155,7 +169,7 @@ export async function runPrAddressReviewCodexActionFinalize(context) {
     throw error;
   }
 
-  return await finalizePreparedPrAddressReview(context, preparation, rawOutput);
+  return await finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput);
 }
 
 /**
@@ -200,6 +214,16 @@ async function preparePrAddressReview(context) {
     };
   }
 
+  if (
+    context.reviewId !== undefined &&
+    hasProcessedHumanFeedbackReviewId(state, context.reviewId)
+  ) {
+    return {
+      ready: false,
+      output: skipProcessedHumanFeedbackReview(pullRequest, context.reviewId),
+    };
+  }
+
   if (state.sourceIssueNumber === undefined) {
     return {
       ready: false,
@@ -209,7 +233,23 @@ async function preparePrAddressReview(context) {
     };
   }
 
-  if (state.reviewCycles.current >= state.reviewCycles.max) {
+  const blockingPendingReviewId = findBlockingPendingHumanFeedbackReviewId(state, context.reviewId);
+  if (blockingPendingReviewId !== undefined && context.reviewId !== undefined) {
+    return {
+      ready: false,
+      output: await blockPendingHumanFeedbackReview(context, pullRequest, {
+        pendingReviewId: blockingPendingReviewId,
+        reviewId: context.reviewId,
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
+  }
+
+  const reviewMode = determinePrAddressReviewMode(state, {
+    reviewId: context.reviewId,
+  });
+  if (reviewMode === 'blocked') {
     return {
       ready: false,
       output: await blockReviewCycleBudget(context, pullRequest, {
@@ -219,6 +259,8 @@ async function preparePrAddressReview(context) {
     };
   }
 
+  const modelSelection = resolveReviewModelSelection(context, 'pr-address-review', reviewMode);
+
   const issue = await context.githubClient.getIssue(state.sourceIssueNumber);
   const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
   const diff = await context.githubClient.getPullRequestDiff(pullRequest.number);
@@ -226,6 +268,9 @@ async function preparePrAddressReview(context) {
 
   return {
     ready: true,
+    reviewMode,
+    modelTier: modelSelection.modelTier,
+    model: modelSelection.model,
     pullRequest,
     issue,
     reviewContext,
@@ -237,17 +282,44 @@ async function preparePrAddressReview(context) {
 }
 
 /**
+ * @param {import('../../managed-pr/ManagedPrState.types.js').ManagedPrState} state
+ * @param {string} reviewId
+ * @returns {boolean}
+ */
+function hasProcessedHumanFeedbackReviewId(state, reviewId) {
+  return state.processedHumanFeedbackReviewIds?.includes(reviewId) ?? false;
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @param {string} reviewId
+ * @returns {Record<string, unknown>}
+ */
+function skipProcessedHumanFeedbackReview(pullRequest, reviewId) {
+  return {
+    status: 'blocked',
+    summary: `Trusted requested-change review ${reviewId} on PR #${pullRequest.number} has already been processed; skipping this Human Feedback Response Cycle.`,
+    reviewMode: 'blocked',
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} executionContext
  * @param {OperationRunnerContext} context
  * @param {AddressPrRevieweparation & { ready: true }} preparation
  * @param {unknown} rawOutput
  * @returns {Promise<Record<string, unknown>>}
  */
-async function finalizePreparedPrAddressReview(context, preparation, rawOutput) {
+async function finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput) {
   const { pullRequest, reviewContext, feedbackItems, reviewCycle, maxReviewCycles } = preparation;
   let failureRecorded = false;
 
   try {
-    await commentOnPullRequestWithOperationAudit(context, {
+    await commentOnPullRequestWithOperationAudit(executionContext, {
       pullRequestNumber: pullRequest.number,
       operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
     });
@@ -302,7 +374,12 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
       pullRequest,
       validatedOutput.value,
     );
-    await postPrAddressReviewResponses(context, pullRequest, feedbackItems, validatedOutput.value);
+    await postPrAddressReviewResponses(
+      executionContext,
+      pullRequest,
+      feedbackItems,
+      validatedOutput.value,
+    );
     await resolveHandledReviewThreads(context, feedbackItems, validatedOutput.value);
     await dismissHandledRequestedChangeReviews(
       context,
@@ -320,12 +397,17 @@ async function finalizePreparedPrAddressReview(context, preparation, rawOutput) 
         kind: 'addressed',
         reviewCycle,
         maxReviewCycles,
+        reviewId:
+          preparation.reviewMode === 'human-feedback-response' ? context.reviewId : undefined,
       },
     });
 
     return {
       status: 'accepted',
       summary: `Addressed review feedback on PullOps-managed PR #${pullRequest.number} and returned it to review.`,
+      reviewMode: preparation.reviewMode,
+      modelTier: preparation.modelTier,
+      model: preparation.model,
       pullRequest: {
         number: pullRequest.number,
         url: pullRequest.url,
@@ -651,10 +733,73 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
   return {
     status: 'blocked',
     summary: reason,
+    reviewMode: 'blocked',
     pullRequest: {
       number: pullRequest.number,
       url: pullRequest.url,
     },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{
+ *   pendingReviewId: string,
+ *   reviewId: string,
+ *   reviewCycle: number,
+ *   maxReviewCycles: number
+ * }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockPendingHumanFeedbackReview(
+  context,
+  pullRequest,
+  { pendingReviewId, reviewId, reviewCycle, maxReviewCycles },
+) {
+  const reason = [
+    `Human Feedback Response Cycle for review ${pendingReviewId} is still pending validation on PR #${pullRequest.number}.`,
+    `Trusted requested-change review ${reviewId} cannot start another Human Feedback Response Cycle until the pending review is processed.`,
+  ].join(' ');
+
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle,
+      maxReviewCycles,
+    },
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    reviewMode: 'blocked',
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   modelTier: import('../../config/types.js').ModelTier;
+ *   model: string;
+ * }} selection
+ * @returns {OperationRunnerContext}
+ */
+function withSelectedModel(context, selection) {
+  return {
+    ...context,
+    modelTier: selection.modelTier,
+    model: selection.model,
   };
 }
 
