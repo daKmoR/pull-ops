@@ -68,6 +68,12 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
           },
         ],
         directChanges: ['Small direct improvement made during review.'],
+        reviewFollowUpIssues: [
+          {
+            title: 'Follow up on a non-blocking concern.',
+            body: 'Standalone Review Follow-up Issue body that links back to the PR and source issue.',
+          },
+        ],
         followUps: ['Optional follow-up that should not block this PR.'],
       },
       null,
@@ -75,6 +81,8 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
     ),
     '',
     'Use "approved" when the PR is ready for the next PullOps automation step, "changes_requested" when pr-address-review should run, or "blocked" when review cannot complete.',
+    '',
+    'If you are approving the final Escalation Review Cycle, use reviewFollowUpIssues for standalone needs-triage issue proposals. Keep plain followUps as audit-only notes that must not create issues.',
     '',
     'If blocked, return only JSON in this shape:',
     JSON.stringify(

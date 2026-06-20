@@ -16,6 +16,7 @@ export interface GitHubApiClient {
     issues: {
       addLabels: OctokitEndpoint;
       createComment: OctokitEndpoint;
+      create: OctokitEndpoint;
       createLabel: OctokitEndpoint;
       listLabelsForRepo: OctokitEndpoint;
       removeLabel: OctokitEndpoint;

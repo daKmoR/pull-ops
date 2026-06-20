@@ -3,6 +3,7 @@ import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
+  updateManagedPrState,
 } from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
@@ -15,12 +16,15 @@ import { appendOperationAuditFooter } from '../auditComment.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
+import { determinePrReviewMode, resolveReviewModelSelection } from '../reviewSelection.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
+ * @typedef {import('./output.types.js').ReviewFollowUpIssueProposal} ReviewFollowUpIssueProposal
  * @typedef {import('./output.types.js').ReviewReply} ReviewReply
  * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
  * @typedef {import('./run.types.js').PrReviewPreparation} PrReviewPreparation
@@ -41,13 +45,15 @@ export async function runPrReview(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   let rawOutput;
 
   try {
     rawOutput = await context.codexRunner.run({
       cwd: context.cwd,
       command: context.config.runner.command,
-      model: context.model,
+      model: executionContext.model,
       prompt: buildPrReviewPrompt({
         pullRequest: preparation.pullRequest,
         issue: preparation.issue,
@@ -64,7 +70,7 @@ export async function runPrReview(context) {
     throw error;
   }
 
-  return await finalizePreparedPrReview(context, preparation, rawOutput);
+  return await finalizePreparedPrReview(executionContext, context, preparation, rawOutput);
 }
 
 /**
@@ -77,9 +83,11 @@ export async function runPrReviewCodexActionPrepare(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   try {
     await writeCodexActionPrompt(
-      context,
+      executionContext,
       buildPrReviewPrompt({
         pullRequest: preparation.pullRequest,
         issue: preparation.issue,
@@ -100,6 +108,9 @@ export async function runPrReviewCodexActionPrepare(context) {
   return {
     status: 'accepted',
     summary: `Prepared Codex Action review run for PR #${preparation.pullRequest.number}.`,
+    reviewMode: preparation.reviewMode,
+    modelTier: preparation.modelTier,
+    model: preparation.model,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
@@ -107,7 +118,7 @@ export async function runPrReviewCodexActionPrepare(context) {
     codexAction: {
       promptFile: files.promptFile,
       outputFile: files.outputFile,
-      model: context.model,
+      model: executionContext.model,
       branch: preparation.pullRequest.headRefName,
     },
   };
@@ -127,6 +138,8 @@ export async function runPrReviewCodexActionFinalize(context) {
     return preparation.output;
   }
 
+  const executionContext = withSelectedModel(context, preparation);
+
   let rawOutput;
 
   try {
@@ -140,7 +153,7 @@ export async function runPrReviewCodexActionFinalize(context) {
     throw error;
   }
 
-  return await finalizePreparedPrReview(context, preparation, rawOutput);
+  return await finalizePreparedPrReview(executionContext, context, preparation, rawOutput);
 }
 
 /**
@@ -211,27 +224,46 @@ async function preparePrReview(context) {
     }
   }
 
+  const reviewMode = determinePrReviewMode(state);
+  if (reviewMode === 'blocked') {
+    return {
+      ready: false,
+      output: await blockReviewCycleBudget(context, pullRequest, {
+        reviewCycle: state.reviewCycles.current,
+        maxReviewCycles: state.reviewCycles.max,
+      }),
+    };
+  }
+
+  const modelSelection = resolveReviewModelSelection(context, 'pr-review', reviewMode);
+  const nextReviewCycle =
+    reviewMode === 'normal' ? state.reviewCycles.current + 1 : state.reviewCycles.current;
+
   const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
   const diff = await context.githubClient.getPullRequestDiff(pullRequest.number);
 
   return {
     ready: true,
+    reviewMode,
+    modelTier: modelSelection.modelTier,
+    model: modelSelection.model,
     pullRequest,
     issue,
     reviewContext,
     diff,
-    nextReviewCycle: state.reviewCycles.current + 1,
+    nextReviewCycle,
     maxReviewCycles: state.reviewCycles.max,
   };
 }
 
 /**
+ * @param {OperationRunnerContext} executionContext
  * @param {OperationRunnerContext} context
  * @param {PrReviewPreparation & { ready: true }} preparation
  * @param {unknown} rawOutput
  * @returns {Promise<Record<string, unknown>>}
  */
-async function finalizePreparedPrReview(context, preparation, rawOutput) {
+async function finalizePreparedPrReview(executionContext, context, preparation, rawOutput) {
   const { pullRequest, reviewContext, diff, nextReviewCycle, maxReviewCycles } = preparation;
   let failureRecorded = false;
 
@@ -254,7 +286,7 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       await context.githubClient.publishPullRequestReview({
         number: pullRequest.number,
         event: 'COMMENT',
-        body: appendOperationAuditFooter(validatedOutput.value.summary, context, {
+        body: appendOperationAuditFooter(validatedOutput.value.summary, executionContext, {
           operation: PULL_OPS_OPERATION_LABELS.prReview,
         }),
         comments: [],
@@ -275,6 +307,26 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
     }
 
     const reviewResult = validatedOutput.value;
+    const reviewFollowUpIssueNumbers =
+      reviewResult.status === 'approved'
+        ? await createReviewFollowUpIssuesIfNeeded(context, {
+            pullRequest,
+            sourceIssue: preparation.issue,
+            reviewMode: preparation.reviewMode,
+            reviewFollowUpIssues: reviewResult.reviewFollowUpIssues,
+          })
+        : [];
+    if (reviewFollowUpIssueNumbers.length > 0) {
+      const updatedBody = updateManagedPrState({
+        body: pullRequest.body,
+        reviewFollowUpIssueNumbers,
+      });
+      await context.githubClient.updatePullRequestBody({
+        number: pullRequest.number,
+        body: updatedBody,
+      });
+      pullRequest.body = updatedBody;
+    }
     const comments = filterCommentsToDiffAnchors({
       comments: reviewResult.comments,
       patch: diff.patch,
@@ -303,7 +355,7 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       // PullOps records approved/changes-requested in PR state and labels. A formal
       // GitHub review event is rejected for draft PRs and same-token automation.
       event: 'COMMENT',
-      body: appendOperationAuditFooter(reviewResult.summary, context, {
+      body: appendOperationAuditFooter(reviewResult.summary, executionContext, {
         operation: PULL_OPS_OPERATION_LABELS.prReview,
       }),
       comments: comments.publishable,
@@ -321,12 +373,15 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
               kind: 'approved',
               reviewCycle: nextReviewCycle,
               maxReviewCycles,
+              reviewMode: preparation.reviewMode,
               reviewedTreeHash,
+              ...(reviewFollowUpIssueNumbers.length === 0 ? {} : { reviewFollowUpIssueNumbers }),
             }
           : {
               kind: 'changes-requested',
               reviewCycle: nextReviewCycle,
               maxReviewCycles,
+              reviewMode: preparation.reviewMode,
             },
     });
 
@@ -334,6 +389,9 @@ async function finalizePreparedPrReview(context, preparation, rawOutput) {
       status: 'accepted',
       summary: summarizeReviewResult(pullRequest, reviewResult.status),
       reviewResult: reviewResult.status,
+      reviewMode: preparation.reviewMode,
+      modelTier: preparation.modelTier,
+      model: preparation.model,
       pullRequest: {
         number: pullRequest.number,
         url: pullRequest.url,
@@ -499,6 +557,59 @@ async function recordPullRequestFailure(
 }
 
 /**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ reviewCycle: number, maxReviewCycles: number }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxReviewCycles }) {
+  const reason = [
+    `Review cycle budget exhausted for PR #${pullRequest.number}:`,
+    `${reviewCycle} / ${maxReviewCycles} Review Cycles have already run.`,
+  ].join(' ');
+
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle,
+      maxReviewCycles,
+    },
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    reviewMode: 'blocked',
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   modelTier: import('../../config/types.js').ModelTier;
+ *   model: string;
+ * }} selection
+ * @returns {OperationRunnerContext}
+ */
+function withSelectedModel(context, selection) {
+  return {
+    ...context,
+    modelTier: selection.modelTier,
+    model: selection.model,
+  };
+}
+
+/**
  * @param {GitHubPullRequest} pullRequest
  * @param {ReviewResultStatus} status
  * @returns {string}
@@ -543,4 +654,70 @@ function assertPullRequestTarget(context) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   pullRequest: GitHubPullRequest;
+ *   sourceIssue: GitHubIssue;
+ *   reviewMode: 'normal' | 'escalation' | 'human-feedback-response' | 'blocked';
+ *   reviewFollowUpIssues: ReviewFollowUpIssueProposal[];
+ * }} options
+ * @returns {Promise<number[]>}
+ */
+async function createReviewFollowUpIssuesIfNeeded(
+  context,
+  { pullRequest, sourceIssue, reviewMode, reviewFollowUpIssues },
+) {
+  if (reviewMode !== 'escalation' || reviewFollowUpIssues.length === 0) {
+    return [];
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if ((state.reviewFollowUpIssueNumbers ?? []).length > 0) {
+    return state.reviewFollowUpIssueNumbers ?? [];
+  }
+
+  if (context.githubClient.createIssue === undefined) {
+    throw new Error('GitHub client does not support issue creation.');
+  }
+
+  /** @type {number[]} */
+  const issueNumbers = [];
+  for (const proposal of reviewFollowUpIssues) {
+    const createdIssue = await context.githubClient.createIssue({
+      title: proposal.title,
+      body: createReviewFollowUpIssueBody({
+        pullRequest,
+        sourceIssue,
+        proposal,
+      }),
+      labels: ['needs-triage'],
+    });
+    issueNumbers.push(createdIssue.number);
+  }
+
+  return issueNumbers;
+}
+
+/**
+ * @param {{
+ *   pullRequest: GitHubPullRequest;
+ *   sourceIssue: GitHubIssue;
+ *   proposal: ReviewFollowUpIssueProposal;
+ * }} options
+ * @returns {string}
+ */
+function createReviewFollowUpIssueBody({ pullRequest, sourceIssue, proposal }) {
+  return [
+    `Created from an approving Escalation Review Cycle on PullOps-managed PR #${pullRequest.number}.`,
+    '',
+    `Source PR: #${pullRequest.number}`,
+    `Source issue: #${sourceIssue.number}`,
+    '',
+    '## Proposal',
+    '',
+    proposal.body,
+  ].join('\n');
 }
