@@ -35,6 +35,11 @@ describe('pullops-pr-address-review workflow', () => {
       workflow,
       /github\.event_name == 'workflow_dispatch' && inputs\.trigger_actor \|\| github\.event\.review\.user\.login/,
     );
+    assert.match(
+      workflow,
+      /github\.event_name == 'workflow_dispatch' && '' \|\| github\.event\.review\.node_id/,
+    );
+    assert.match(workflow, /review_id_args=\(--review-id "\$REVIEW_ID"\)/);
     assert.match(workflow, /--pr "\$PR"/);
   });
 
@@ -43,5 +48,8 @@ describe('pullops-pr-address-review workflow', () => {
 
     assert.match(workflow, /if: steps\.gate\.outputs\.run_operation == 'true'/);
     assert.match(workflow, /if: always\(\) && steps\.gate\.outputs\.run_operation == 'true'/);
+    assert.match(workflow, /> "\$PREPARE_JSON"/);
+    assert.match(workflow, /PREPARE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/prepare\.json/);
+    assert.match(workflow, /model: \$\{\{ steps\.prepare\.outputs\.model \}\}/);
   });
 });

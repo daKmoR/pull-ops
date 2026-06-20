@@ -34,6 +34,7 @@ jobs:
       PR: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.pull_request.number }}
       HEAD_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.head_ref || github.event.pull_request.head.ref }}
       TRIGGER_ACTOR: ${{ github.event_name == 'workflow_dispatch' && inputs.trigger_actor || github.event.review.user.login }}
+      REVIEW_ID: ${{ github.event_name == 'workflow_dispatch' && '' || github.event.review.node_id }}
 
     steps:
       - name: Evaluate PullOps review trigger
@@ -152,12 +153,23 @@ jobs:
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
+          review_id_args=()
+          if [ -n "$REVIEW_ID" ]; then
+            review_id_args=(--review-id "$REVIEW_ID")
+          fi
           node src/cli/cli.js run pr-address-review \
             --phase prepare \
             --runner codex-action \
-            --pr "$PR"
+            --pr "$PR" \
+            "${review_id_args[@]}" \
+            > "$PREPARE_JSON"
 
           if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+            node --input-type=module -e '
+              import fs from "node:fs";
+              const { model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+              process.stdout.write("model=" + model + "\nmodel_tier=" + modelTier + "\n");
+            ' >> "$GITHUB_OUTPUT"
             echo "run_runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_runner=false" >> "$GITHUB_OUTPUT"
@@ -166,6 +178,7 @@ jobs:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          PREPARE_JSON: ${{ runner.temp }}/pullops-output/prepare.json
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ env.TRIGGER_ACTOR }}
@@ -189,7 +202,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
           output-file: ${{ runner.temp }}/pullops-output/codex_output.json
-          model: gpt-5.4
+          model: ${{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
@@ -205,11 +218,16 @@ jobs:
         if: always() && steps.gate.outputs.run_operation == 'true'
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          review_id_args=()
+          if [ -n "$REVIEW_ID" ]; then
+            review_id_args=(--review-id "$REVIEW_ID")
+          fi
           node src/cli/cli.js run pr-address-review \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
-            --pr "$PR"
+            --pr "$PR" \
+            "${review_id_args[@]}"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.

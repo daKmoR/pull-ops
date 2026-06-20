@@ -229,6 +229,9 @@ describe('runPrReview', () => {
     );
 
     assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'normal');
+    assert.equal(result.modelTier, 'high');
+    assert.equal(result.model, 'gpt-5.5');
     assert.equal(codex.calls.length, 0);
 
     const prompt = await readFile(join(outputDirectory, 'codex_prompt.md'), 'utf8');
@@ -608,6 +611,149 @@ describe('runPrReview', () => {
     assert.match(github.comments[0].body, /native Child Issues #42 remain open/);
     assert.match(github.comments[0].body, /Incomplete PRDs cannot be approved/);
   });
+
+  it('13: uses the human feedback response model tier when a pending special-cycle marker is present', async () => {
+    const config = structuredClone(DEFAULT_PULL_OPS_CONFIG);
+    config.runner.models = {
+      high: 'gpt-special-high',
+      mid: 'gpt-special-mid',
+      low: 'gpt-special-low',
+    };
+    config.operations.prReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          processedHumanFeedbackReviewIds: 'none',
+          pendingHumanFeedbackReviewId: 'review-123',
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the human feedback response.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        config,
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'human-feedback-response');
+    assert.equal(result.modelTier, 'mid');
+    assert.equal(result.model, 'gpt-special-mid');
+    assert.equal(codex.calls[0].model, 'gpt-special-mid');
+    assert.match(github.publishedReviews[0].body, /Model tier: mid/);
+    assert.match(github.publishedReviews[0].body, /Model: gpt-special-mid/);
+    assert.match(github.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 0 \/ 1/);
+    assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 1/);
+    assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: review-123/);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
+  });
+
+  it('14: uses the escalation model tier after the normal review budget is exhausted and the escalation marker is present', async () => {
+    const config = structuredClone(DEFAULT_PULL_OPS_CONFIG);
+    config.runner.models = {
+      high: 'gpt-special-high',
+      mid: 'gpt-special-mid',
+      low: 'gpt-special-low',
+    };
+    config.operations.prReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the escalation review.',
+        comments: [],
+        replies: [],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        config,
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'escalation');
+    assert.equal(result.modelTier, 'high');
+    assert.equal(result.model, 'gpt-special-high');
+    assert.equal(codex.calls[0].model, 'gpt-special-high');
+    assert.match(github.publishedReviews[0].body, /Model tier: high/);
+    assert.match(github.publishedReviews[0].body, /Model: gpt-special-high/);
+    assert.match(github.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+  });
+
+  it('15: blocks when the normal review budget is exhausted and no special-cycle marker is present', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          includeEscalationReviewCycles: false,
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.reviewMode, 'blocked');
+    assert.equal(codex.calls.length, 0);
+    assert.match(String(result.summary), /Review cycle budget exhausted/);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+    assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 0/);
+    assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: none/);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
+  });
 });
 
 /**
@@ -672,6 +818,56 @@ function createPullRequest(overrides = {}) {
     isCrossRepository: false,
     ...overrides,
   };
+}
+
+/**
+ * @param {{
+ *   reviewCycles?: string;
+ *   escalationReviewCycles?: string;
+ *   processedHumanFeedbackReviewIds?: string;
+ *   pendingHumanFeedbackReviewId?: string;
+ *   includeEscalationReviewCycles?: boolean;
+ *   includeHumanFeedbackMarkers?: boolean;
+ * }} [options]
+ * @returns {string}
+ */
+function createSpecialReviewBody({
+  reviewCycles = '3 / 3',
+  escalationReviewCycles = '0 / 1',
+  processedHumanFeedbackReviewIds = 'none',
+  pendingHumanFeedbackReviewId = 'none',
+  includeEscalationReviewCycles = true,
+  includeHumanFeedbackMarkers = true,
+} = {}) {
+  return [
+    '## Summary',
+    '',
+    'Implemented the issue.',
+    '',
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Changes requested',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Review cycles: ${reviewCycles}`,
+    ...(includeEscalationReviewCycles
+      ? [`Escalation review cycles: ${escalationReviewCycles}`]
+      : []),
+    ...(includeHumanFeedbackMarkers
+      ? [
+          'Human feedback response cycles: 0',
+          `Processed human feedback review ids: ${processedHumanFeedbackReviewIds}`,
+          `Pending human feedback review id: ${pendingHumanFeedbackReviewId}`,
+        ]
+      : []),
+    'Source: Issue #42',
+    'Last operation: pullops:issue:implement',
+    '',
+    '</details>',
+  ].join('\n');
 }
 
 /**

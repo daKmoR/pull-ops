@@ -69,6 +69,9 @@ describe('runPrAddressReview', () => {
     );
 
     assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'normal');
+    assert.equal(result.modelTier, 'mid');
+    assert.equal(result.model, DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Use the pullops-pr-address-review skill/);
     assert.match(codex.calls[0].prompt, /feedbackId `thread:9001`/);
@@ -408,10 +411,15 @@ describe('runPrAddressReview', () => {
     );
 
     assert.equal(result.status, 'blocked');
+    assert.equal(result.reviewMode, 'blocked');
     assert.match(String(result.summary), /Review cycle budget exhausted/);
     assert.equal(codex.calls.length, 0);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.comments[0].body, /3 \/ 3 Review Cycles have already run/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+    assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 0/);
+    assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: none/);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -473,6 +481,191 @@ describe('runPrAddressReview', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('07: uses the escalation model tier when the review budget is exhausted and the escalation marker is present', async () => {
+    const config = structuredClone(DEFAULT_PULL_OPS_CONFIG);
+    config.runner.models = {
+      high: 'gpt-special-high',
+      mid: 'gpt-special-mid',
+      low: 'gpt-special-low',
+    };
+    config.operations.prAddressReview = {
+      modelTier: 'low',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'mid',
+    };
+
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialPullRequestBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Addressed the feedback with the escalation review model.',
+        addressed: [
+          {
+            feedbackId: 'thread:9001',
+            response: 'Adjusted the implementation to satisfy the feedback.',
+          },
+          {
+            feedbackId: 'review:PRR_requested',
+            response: 'Updated the docs requested by the review summary.',
+          },
+          {
+            feedbackId: 'pullops-pr-review:PRR_pullops',
+            response: 'Added the regression coverage requested by PullOps review.',
+          },
+          {
+            feedbackId: 'comment:7001',
+            response: 'Clarified the top-level behavior requested in the comment.',
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: [],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        config,
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'escalation');
+    assert.equal(result.modelTier, 'high');
+    assert.equal(result.model, 'gpt-special-high');
+    assert.equal(codex.calls[0].model, 'gpt-special-high');
+    assert.match(github.replies[0].body, /Model tier: high/);
+    assert.match(github.replies[0].body, /Model: gpt-special-high/);
+    assert.match(github.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+  });
+
+  it('08: uses the human feedback response review mode and model tier for a trusted requested-change review', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Addressed all review feedback.',
+        addressed: [
+          {
+            feedbackId: 'thread:9001',
+            response: 'Updated the implementation to cover the inline concern.',
+          },
+          {
+            feedbackId: 'review:PRR_requested',
+            response: 'Updated the docs requested by the review summary.',
+          },
+          {
+            feedbackId: 'pullops-pr-review:PRR_pullops',
+            response: 'Added the missing regression test noted by PullOps review.',
+          },
+          {
+            feedbackId: 'comment:7001',
+            response: 'Clarified the behavior requested in the top-level comment.',
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: ['node --test src/operations/pr-address-review/run.test.js'],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        reviewId: 'PRR_requested',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'human-feedback-response');
+    assert.equal(result.modelTier, 'high');
+    assert.equal(result.model, DEFAULT_PULL_OPS_CONFIG.runner.models.high);
+    assert.equal(codex.calls[0].model, DEFAULT_PULL_OPS_CONFIG.runner.models.high);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: PRR_requested/);
+  });
+
+  it('09: does not block a trusted requested-change review when ordinary and escalation review budget are exhausted', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialPullRequestBody({
+          reviewCycles: '3 / 3',
+          includeEscalationReviewCycles: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'addressed',
+        summary: 'Addressed all review feedback.',
+        addressed: [
+          {
+            feedbackId: 'thread:9001',
+            response: 'Updated the implementation to cover the inline concern.',
+          },
+          {
+            feedbackId: 'review:PRR_requested',
+            response: 'Updated the docs requested by the review summary.',
+          },
+          {
+            feedbackId: 'pullops-pr-review:PRR_pullops',
+            response: 'Added the missing regression test noted by PullOps review.',
+          },
+          {
+            feedbackId: 'comment:7001',
+            response: 'Clarified the behavior requested in the top-level comment.',
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: ['node --test src/operations/pr-address-review/run.test.js'],
+      }),
+    });
+
+    const result = await runPrAddressReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        reviewId: 'PRR_requested',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'human-feedback-response');
+    assert.equal(result.modelTier, 'high');
+    assert.equal(result.model, DEFAULT_PULL_OPS_CONFIG.runner.models.high);
+    assert.equal(codex.calls[0].model, DEFAULT_PULL_OPS_CONFIG.runner.models.high);
+    assert.match(github.updatedBodies[0].body, /Review cycles: 3 \/ 3/);
+    assert.match(github.updatedBodies[0].body, /Escalation review cycles: 1 \/ 1/);
+    assert.match(github.updatedBodies[0].body, /Pending human feedback review id: PRR_requested/);
   });
 });
 
@@ -541,6 +734,56 @@ function createPullRequestBody({ reviewCycles = '1 / 3' } = {}) {
     '<summary>PullOps workflow state</summary>',
     '',
     `Review cycles: ${reviewCycles}`,
+    'Source: Issue #42',
+    'Last operation: pullops:pr:review',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {{
+ *   reviewCycles?: string;
+ *   escalationReviewCycles?: string;
+ *   processedHumanFeedbackReviewIds?: string;
+ *   pendingHumanFeedbackReviewId?: string;
+ *   includeEscalationReviewCycles?: boolean;
+ *   includeHumanFeedbackMarkers?: boolean;
+ * }} [options]
+ * @returns {string}
+ */
+function createSpecialPullRequestBody({
+  reviewCycles = '3 / 3',
+  escalationReviewCycles = '0 / 1',
+  processedHumanFeedbackReviewIds = 'none',
+  pendingHumanFeedbackReviewId = 'none',
+  includeEscalationReviewCycles = true,
+  includeHumanFeedbackMarkers = true,
+} = {}) {
+  return [
+    '## Summary',
+    '',
+    'Implemented the issue.',
+    '',
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Changes requested',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Review cycles: ${reviewCycles}`,
+    ...(includeEscalationReviewCycles
+      ? [`Escalation review cycles: ${escalationReviewCycles}`]
+      : []),
+    ...(includeHumanFeedbackMarkers
+      ? [
+          'Human feedback response cycles: 0',
+          `Processed human feedback review ids: ${processedHumanFeedbackReviewIds}`,
+          `Pending human feedback review id: ${pendingHumanFeedbackReviewId}`,
+        ]
+      : []),
     'Source: Issue #42',
     'Last operation: pullops:pr:review',
     '',
