@@ -20,11 +20,20 @@ import {
   parseChildIssueBranchName,
 } from '../operations/branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../operations/githubActionsBot.js';
+import {
+  createLocalPrdAutoCompleteChildProgressEvent,
+  createLocalPrdAutoCompleteParentWaitingEvent,
+  createLocalPrdAutoCompletePhaseCompletedEvent,
+} from '../operations/prd-automation/eventStream.js';
 import { isIssueDone, parseIssueDependencies } from '../operations/issueDependencies.js';
 import {
   createPrdPreparePullRequestBodyForIssue,
   runPrdPrepare,
 } from '../operations/prd-prepare/run.js';
+import {
+  createLocalPrdRunRecordLocation,
+  normalizeOperationReferenceForPath,
+} from './localRunRecord.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -137,9 +146,17 @@ async function coordinateLocalPrdAutomation(
   });
 
   try {
-    await requireCleanLocalPrdWorktree(context, runRecord, operationReference);
+    await emitLocalPrdAutoCompleteRunStarted(context, parentIssueNumber);
+    await emitLocalPrdAutoCompletePhaseStarted(context, parentIssueNumber);
+    await requireCleanLocalPrdWorktree(context, runRecord, {
+      operationReference,
+      parentIssueNumber,
+      mode,
+      publicationMode,
+    });
     const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
     if (parentIssue.state !== 'OPEN') {
+      await emitLocalPrdAutoCompletePhaseCompleted(context, [], parentIssue.number);
       return await completeLocalPrdRunRecord(runRecord, {
         status: 'skipped',
         summary: `PRD issue #${parentIssue.number} is ${parentIssue.state.toLowerCase()}.`,
@@ -150,7 +167,7 @@ async function coordinateLocalPrdAutomation(
 
     const nativeParentIssueNumber = getNativeParentIssueNumber(parentIssue);
     if (nativeParentIssueNumber !== undefined) {
-      const result = await blockLocalPrdAutomation(runRecord, parentIssue, {
+      const result = await refuseLocalPrdAutomation(runRecord, parentIssue, {
         reason: [
           `Issue #${parentIssue.number} is already part of parent issue #${nativeParentIssueNumber}.`,
           'PRD automation can only run on a Parent Issue.',
@@ -158,6 +175,7 @@ async function coordinateLocalPrdAutomation(
         mode,
         publicationMode,
       });
+      await emitLocalPrdAutoCompletePhaseCompleted(context, [], parentIssue.number);
       return await completeLocalPrdRunRecord(runRecord, result);
     }
 
@@ -204,6 +222,7 @@ async function coordinateLocalPrdAutomation(
       preserveInspectableBranchState = published.preserveInspectableBranchState;
     } else {
       for (const childIssue of childIssues) {
+        await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
         const localResult = await coordinateLocalChildIssue(context, {
           parentIssue,
           parentBranchName,
@@ -213,7 +232,7 @@ async function coordinateLocalPrdAutomation(
           runChildIssue,
           runChildPullRequestOperation,
         });
-        children.push(localResult.child);
+        await recordLocalPrdChildResult(context, children, localResult.child);
         preserveInspectableBranchState =
           preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
 
@@ -263,6 +282,9 @@ async function coordinateLocalPrdAutomation(
             requestReview: false,
           });
 
+    await emitLocalPrdAutoCompletePhaseCompleted(context, children, parentIssue.number);
+    await emitLocalPrdAutoCompleteParentWaiting(context, parentPullRequest);
+
     return await completeLocalPrdRunRecord(runRecord, {
       status: 'accepted',
       summary: summarizeLocalPrdAutomation({
@@ -289,7 +311,7 @@ async function coordinateLocalPrdAutomation(
     });
   } catch (error) {
     await writeLocalPrdRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
-    throw error;
+    throw attachLocalRunRecordToError(error, runRecord.directory);
   }
 }
 
@@ -822,6 +844,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
         continue;
       }
 
+      await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
       const alreadyIntegrated = await readAlreadyIntegratedLocalDryRunChild(context, {
         parentIssue,
         parentBranchName,
@@ -829,7 +852,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
         dependencyFacts,
       });
       if (alreadyIntegrated !== undefined) {
-        recordLocalDryRunChildResult({
+        await recordLocalDryRunChildResult(context, {
           children,
           pendingIssueNumbers,
           virtualCompletedIssueNumbers,
@@ -849,7 +872,7 @@ async function coordinateLocalAutoCompleteDryRunChildren(
         dependencyFacts,
       });
 
-      recordLocalDryRunChildResult({
+      await recordLocalDryRunChildResult(context, {
         children,
         pendingIssueNumbers,
         virtualCompletedIssueNumbers,
@@ -883,7 +906,8 @@ async function coordinateLocalAutoCompleteDryRunChildren(
       dependencyFacts.blockingDependencies.length > 0
         ? blockedByDependencyChildResult(childIssue, dependencyFacts)
         : blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker);
-    recordLocalDryRunChildResult({
+    await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
+    await recordLocalDryRunChildResult(context, {
       children,
       pendingIssueNumbers,
       virtualCompletedIssueNumbers,
@@ -980,6 +1004,7 @@ async function coordinateLocalAutoCompletePublishChildren(
         continue;
       }
 
+      await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
       const localResult = await coordinateLocalChildIssue(context, {
         parentIssue,
         parentBranchName,
@@ -990,7 +1015,7 @@ async function coordinateLocalAutoCompletePublishChildren(
         runChildPullRequestOperation,
         dependencyFacts,
       });
-      children.push(localResult.child);
+      await recordLocalPrdChildResult(context, children, localResult.child);
       pendingIssueNumbers.delete(childIssue.number);
       preserveInspectableBranchState =
         preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
@@ -1020,11 +1045,12 @@ async function coordinateLocalAutoCompletePublishChildren(
       issue: childIssue,
       virtualCompletedIssueNumbers: new Set(),
     });
-    children.push(
+    const child =
       dependencyFacts.blockingDependencies.length > 0
         ? blockedByDependencyChildResult(childIssue, dependencyFacts)
-        : blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker),
-    );
+        : blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker);
+    await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
+    await recordLocalPrdChildResult(context, children, child);
     pendingIssueNumbers.delete(childIssue.number);
   }
 
@@ -1050,20 +1076,30 @@ function shouldDeferLocalAutoCompleteChild({ parentIssue, childIssue, dependency
 }
 
 /**
+ * @param {OperationRunnerContext} context
+ * @param {ChildAutomationResult[]} children
+ * @param {ChildAutomationResult} child
+ * @returns {Promise<void>}
+ */
+async function recordLocalPrdChildResult(context, children, child) {
+  children.push(child);
+  await emitLocalPrdAutoCompleteChildProgress(context, child);
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {ChildAutomationResult[]} options.children
  * @param {Set<number>} options.pendingIssueNumbers
  * @param {Set<number>} options.virtualCompletedIssueNumbers
  * @param {ChildAutomationResult} options.child
- * @returns {void}
+ * @returns {Promise<void>}
  */
-function recordLocalDryRunChildResult({
-  children,
-  pendingIssueNumbers,
-  virtualCompletedIssueNumbers,
-  child,
-}) {
-  children.push(child);
+async function recordLocalDryRunChildResult(
+  context,
+  { children, pendingIssueNumbers, virtualCompletedIssueNumbers, child },
+) {
+  await recordLocalPrdChildResult(context, children, child);
   pendingIssueNumbers.delete(child.issue.number);
 
   if (isLocalDryRunVirtualCompletion(child)) {
@@ -2290,14 +2326,14 @@ async function completePublishedLocalUmbrellaPullRequest(
     };
   }
 
-  const parentPullRequestNumber = pullRequestNumber;
-  const parentPullRequestOperationRunner = runParentPullRequestOperation;
   /** @type {Record<string, unknown> | undefined} */
   let review;
   /** @type {Record<string, unknown>[]} */
   const addressReviews = [];
   /** @type {string[]} */
   const localRunRecords = [];
+  const parentPullRequestNumber = pullRequestNumber;
+  const parentPullRequestOperationRunner = runParentPullRequestOperation;
   let parentOperationSteps = 0;
 
   /**
@@ -2321,38 +2357,29 @@ async function completePublishedLocalUmbrellaPullRequest(
     return output;
   }
 
-  let nextOperation = readInitialPublishedUmbrellaOperation(inspected.status);
-  /** @type {Record<string, unknown> | undefined} */
-  let finalize;
-
-  while (nextOperation !== undefined) {
-    if (nextOperation === 'pr-address-review') {
-      const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
-      addressReviews.push(addressReview);
-      if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
-        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-          review,
-          addressReviews,
-          finalize,
-          localRunRecords,
-          summary: String(
-            addressReview.summary ??
-              `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
-          ),
-        });
-      }
-
-      nextOperation = 'pr-review';
-      continue;
+  if (inspected.status === 'ready-for-address-review') {
+    const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
+    addressReviews.push(addressReview);
+    if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
+      return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+        review,
+        addressReviews,
+        localRunRecords,
+        summary: String(
+          addressReview.summary ??
+            `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
+        ),
+      });
     }
+  }
 
-    if (nextOperation === 'pr-review') {
+  if (inspected.status !== 'ready-for-finalize') {
+    while (review?.reviewResult !== 'approved') {
       review = await runTrackedParentPullRequestOperation('pr-review');
       if (review.status === 'blocked' || review.status === 'refused') {
         return completeBlockedPublishedUmbrellaPullRequest(inspected, {
           review,
           addressReviews,
-          finalize,
           localRunRecords,
           summary: String(
             review.summary ?? `Umbrella PR review blocked on PR #${pullRequestNumber}.`,
@@ -2361,121 +2388,93 @@ async function completePublishedLocalUmbrellaPullRequest(
       }
 
       if (review.reviewResult === 'approved') {
-        nextOperation = 'pr-finalize';
-        continue;
+        break;
       }
 
       if (review.reviewResult !== 'changes_requested') {
         return completeBlockedPublishedUmbrellaPullRequest(inspected, {
           review,
           addressReviews,
-          finalize,
           localRunRecords,
           summary: `Umbrella PR review did not approve PR #${pullRequestNumber}.`,
         });
       }
 
-      nextOperation = 'pr-address-review';
-      continue;
-    }
-
-    finalize = await runTrackedParentPullRequestOperation('pr-finalize');
-
-    if (finalize.status === 'blocked' || finalize.status === 'refused') {
-      return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-        review,
-        addressReviews,
-        finalize,
-        localRunRecords,
-        summary: String(
-          finalize.summary ?? `Umbrella PR finalization blocked on PR #${pullRequestNumber}.`,
-        ),
-      });
-    }
-
-    const prFinalize = readRecordProperty(finalize, 'prFinalize');
-    if (prFinalize?.waiting === true) {
-      return {
-        ...inspected,
-        status: 'waiting',
-        review,
-        addressReviews,
-        finalize,
-        localRunRecords,
-        nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
-      };
-    }
-
-    if (typeof prFinalize?.routedTo === 'string') {
-      nextOperation = readRoutedPublishedUmbrellaOperation(prFinalize.routedTo);
-      if (nextOperation === undefined) {
+      const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
+      addressReviews.push(addressReview);
+      if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
         return completeBlockedPublishedUmbrellaPullRequest(inspected, {
           review,
           addressReviews,
-          finalize,
           localRunRecords,
           summary: String(
-            finalize.summary ?? `Umbrella PR finalization routed to ${prFinalize.routedTo}.`,
+            addressReview.summary ??
+              `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
           ),
         });
       }
-
-      continue;
     }
+  }
 
-    return {
-      ...inspected,
-      status: 'finalized',
+  if (inspected.status !== 'ready-for-finalize' && review?.reviewResult !== 'approved') {
+    return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+      review,
+      addressReviews,
+      localRunRecords,
+      summary: `Umbrella PR parent operation loop budget was exhausted for PR #${pullRequestNumber}.`,
+    });
+  }
+
+  const finalize = await runTrackedParentPullRequestOperation('pr-finalize');
+
+  if (finalize.status === 'blocked' || finalize.status === 'refused') {
+    return completeBlockedPublishedUmbrellaPullRequest(inspected, {
       review,
       addressReviews,
       finalize,
       localRunRecords,
+      summary: String(
+        finalize.summary ?? `Umbrella PR finalization blocked on PR #${pullRequestNumber}.`,
+      ),
+    });
+  }
+
+  const prFinalize = readRecordProperty(finalize, 'prFinalize');
+  if (prFinalize?.waiting === true) {
+    return {
+      ...inspected,
+      status: 'waiting',
+      review,
+      addressReviews,
+      finalize,
+      localRunRecords,
+      nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
     };
   }
 
-  return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+  if (typeof prFinalize?.routedTo === 'string') {
+    return {
+      ...inspected,
+      status: 'blocked',
+      summary: String(
+        finalize.summary ?? `Umbrella PR finalization routed to ${prFinalize.routedTo}.`,
+      ),
+      review,
+      addressReviews,
+      finalize,
+      localRunRecords,
+      nextOperation: prFinalize.routedTo,
+    };
+  }
+
+  return {
+    ...inspected,
+    status: 'finalized',
     review,
     addressReviews,
     finalize,
     localRunRecords,
-    summary: `Umbrella PR parent operation loop budget was exhausted for PR #${pullRequestNumber}.`,
-  });
-}
-
-/**
- * @param {string} status
- * @returns {PullRequestOperationName | undefined}
- */
-function readInitialPublishedUmbrellaOperation(status) {
-  if (status === 'ready-for-finalize') {
-    return 'pr-finalize';
-  }
-
-  if (status === 'ready-for-address-review') {
-    return 'pr-address-review';
-  }
-
-  return 'pr-review';
-}
-
-/**
- * @param {string} routedTo
- * @returns {PullRequestOperationName | undefined}
- */
-function readRoutedPublishedUmbrellaOperation(routedTo) {
-  if (routedTo === PULL_OPS_OPERATION_LABELS.prReview) {
-    return 'pr-review';
-  }
-
-  if (routedTo === PULL_OPS_OPERATION_LABELS.prAddressReview) {
-    return 'pr-address-review';
-  }
-
-  if (routedTo === PULL_OPS_OPERATION_LABELS.prFinalize) {
-    return 'pr-finalize';
-  }
-
-  return undefined;
+  };
 }
 
 /**
@@ -2909,14 +2908,34 @@ function summarizeLocalPrdAutomation({ mode, parentIssue, children, publicationM
  * }} options
  * @returns {Promise<PrdAutomationResult>}
  */
-async function blockLocalPrdAutomation(runRecord, issue, { reason, mode, publicationMode }) {
+async function refuseLocalPrdAutomation(runRecord, issue, { reason, mode, publicationMode }) {
+  const targetNumber = issue.parent?.number ?? issue.number;
+  const operationReference = readLocalPrdOperationReference(mode);
+  const nextStep = `Run PRD ${mode} on Parent Issue #${targetNumber} instead.`;
   await writeLocalPrdRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
   return {
-    status: 'blocked',
+    status: 'refused',
     summary: reason,
+    displayMessage: reason,
+    refusalReason: 'wrong-target',
     issue: issue.number,
     mode,
     publicationMode,
+    nextSteps: [nextStep],
+    suggestedActions: [
+      {
+        kind: 'command',
+        description: nextStep,
+        argv: [
+          'pullops',
+          'run',
+          operationReference,
+          String(targetNumber),
+          ...(publicationMode === 'publish' ? ['--publish', 'pr'] : []),
+        ],
+        approvalRequired: false,
+      },
+    ],
   };
 }
 
@@ -2942,13 +2961,13 @@ async function createLocalPrdRunRecord(
   { operationReference, targetNumber, publicationMode },
 ) {
   const normalizedReference = normalizeOperationReferenceForPath(operationReference);
-  const timestamp = new Date().toISOString().replaceAll(':', '').replaceAll('.', '');
-  const directory = join(
-    context.cwd,
-    '.pullops',
-    'runs',
-    `${timestamp}-${normalizedReference}-${targetNumber}`,
-  );
+  const directory =
+    context.localRunRecordDirectory ??
+    createLocalPrdRunRecordLocation({
+      cwd: context.cwd,
+      operationReference,
+      targetNumber,
+    }).directory;
 
   await mkdir(directory, { recursive: true });
   await writeLocalPrdRunArtifact(
@@ -2970,6 +2989,7 @@ async function createLocalPrdRunRecord(
       2,
     )}\n`,
   );
+  await context.progressEventWriter?.bindLocalRunRecord(directory);
 
   return { directory };
 }
@@ -2977,20 +2997,59 @@ async function createLocalPrdRunRecord(
 /**
  * @param {OperationRunnerContext} context
  * @param {{ directory: string }} runRecord
- * @param {string} operationReference
+ * @param {{
+ *   operationReference: 'prd:auto-advance' | 'prd:auto-complete',
+ *   parentIssueNumber: number,
+ *   mode: PrdAutomationMode,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }} options
  * @returns {Promise<void>}
  */
-async function requireCleanLocalPrdWorktree(context, runRecord, operationReference) {
+async function requireCleanLocalPrdWorktree(
+  context,
+  runRecord,
+  { operationReference, parentIssueNumber, mode, publicationMode },
+) {
   if (!(await context.gitClient.hasChanges())) {
     return;
   }
 
+  const nextStep = 'Commit, stash, or discard existing changes and run PullOps again.';
   const reason = [
     `Local ${operationReference} requires a clean worktree before PullOps reads or mutates branch state.`,
-    'Commit, stash, or discard existing changes and run PullOps again.',
+    nextStep,
   ].join(' ');
   await writeLocalPrdRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
-  throw new Error(`${reason} Local Run Record: ${runRecord.directory}`);
+  throw createKnownLocalPrdRunBoundaryError({
+    message: reason,
+    localRunRecord: runRecord.directory,
+    output: {
+      status: 'refused',
+      summary: reason,
+      displayMessage: reason,
+      refusalReason: 'dirty-worktree',
+      issue: parentIssueNumber,
+      mode,
+      publicationMode,
+      nextSteps: [nextStep],
+      suggestedActions: [
+        {
+          kind: 'command',
+          description: `Rerun PRD ${mode} after the worktree is clean.`,
+          argv: [
+            'pullops',
+            'run',
+            operationReference,
+            String(parentIssueNumber),
+            ...(publicationMode === 'publish' ? ['--publish', 'pr'] : []),
+          ],
+          approvalRequired: true,
+          approvalReason:
+            'Existing local changes require maintainer approval before rerunning PullOps.',
+        },
+      ],
+    },
+  });
 }
 
 /**
@@ -3013,16 +3072,107 @@ async function completeLocalPrdRunRecord(runRecord, result) {
 }
 
 /**
- * @param {string} reference
- * @returns {string}
+ * @param {OperationRunnerContext} context
+ * @param {number} parentIssueNumber
+ * @returns {Promise<void>}
  */
-function normalizeOperationReferenceForPath(reference) {
-  return reference
-    .trim()
-    .toLowerCase()
-    .replaceAll(':', '-')
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+async function emitLocalPrdAutoCompleteRunStarted(context, parentIssueNumber) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('run.started', {
+    phase: 'run',
+    message: `Starting local PRD auto-complete for issue #${parentIssueNumber}.`,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {number} parentIssueNumber
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompletePhaseStarted(context, parentIssueNumber) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('phase.started', {
+    phase: 'child-coordination',
+    message: `Coordinating child issues for issue #${parentIssueNumber}.`,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompleteChildStarted(context, childIssue) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('child.started', {
+    phase: 'child-coordination',
+    childIssue: {
+      number: childIssue.number,
+      url: childIssue.url,
+    },
+    message: `Coordinating child issue #${childIssue.number}.`,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {ChildAutomationResult} child
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompleteChildProgress(context, child) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  const progressEvent = createLocalPrdAutoCompleteChildProgressEvent(child);
+  await context.progressEventWriter.emit(progressEvent.event, progressEvent.details);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {ChildAutomationResult[]} children
+ * @param {number} parentIssueNumber
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompletePhaseCompleted(context, children, parentIssueNumber) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit(
+    'phase.completed',
+    createLocalPrdAutoCompletePhaseCompletedEvent({
+      children,
+      targetNumber: parentIssueNumber,
+    }),
+  );
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {ParentReviewResult | undefined} parentPullRequest
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompleteParentWaiting(context, parentPullRequest) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  const waitingEvent = createLocalPrdAutoCompleteParentWaitingEvent(parentPullRequest);
+  if (waitingEvent === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('waiting', waitingEvent);
 }
 
 /**
@@ -3041,6 +3191,34 @@ async function writeLocalPrdRunArtifact(runRecord, fileName, contents) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {{
+ *   message: string,
+ *   localRunRecord: string,
+ *   output: PrdAutomationResult,
+ * }} options
+ * @returns {Error & { localRunRecord: string, localPrdRunBoundary: PrdAutomationResult }}
+ */
+function createKnownLocalPrdRunBoundaryError({ message, localRunRecord, output }) {
+  return Object.assign(new Error(`${message} Local Run Record: ${localRunRecord}`), {
+    localRunRecord,
+    localPrdRunBoundary: output,
+  });
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} localRunRecord
+ * @returns {unknown}
+ */
+function attachLocalRunRecordToError(error, localRunRecord) {
+  if (typeof error === 'object' && error !== null) {
+    return Object.assign(error, { localRunRecord });
+  }
+
+  return Object.assign(new Error(getErrorMessage(error)), { localRunRecord });
 }
 
 /**

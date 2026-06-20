@@ -30,6 +30,8 @@ export async function runPrdAutoAdvance(context) {
             number: childIssueNumber,
           },
           publicationMode: localContext.publicationMode,
+          localRunRecordDirectory: undefined,
+          progressEventWriter: undefined,
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
@@ -61,6 +63,8 @@ export async function runPrdAutoComplete(context) {
             number: childIssueNumber,
           },
           publicationMode: localContext.publicationMode,
+          localRunRecordDirectory: undefined,
+          progressEventWriter: undefined,
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
@@ -181,6 +185,8 @@ function createPullRequestOperationContext(
     },
     modelTier,
     model: context.config.runner.models[modelTier],
+    localRunRecordDirectory: undefined,
+    progressEventWriter: undefined,
     ...(operation === 'pr-finalize' ? { allowAbsentReviewedHeadChecks: true } : {}),
     suppressFollowUpOperationLabels: true,
     ...(resumeParentPrdAutomationAfterPrFinalize === undefined

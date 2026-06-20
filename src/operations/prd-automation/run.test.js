@@ -500,7 +500,7 @@ describe('runPrdAutoAdvance', () => {
     assert.deepEqual(git.pushes, []);
   });
 
-  it('10: local dry-run blocks child-issue misuse without mutating GitHub state', async () => {
+  it('10: local dry-run refuses child-issue misuse without mutating GitHub state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-misuse-'));
     const github = createFakeGitHub({
       issues: [
@@ -512,7 +512,6 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -525,18 +524,28 @@ describe('runPrdAutoAdvance', () => {
         },
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
       }),
     );
 
-    assert.equal(result.status, 'blocked');
+    assert.equal(result.status, 'refused');
     assert.equal(result.mode, 'auto-advance');
     assert.equal(result.publicationMode, 'dry-run');
+    assert.equal(result.refusalReason, 'wrong-target');
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.updatedPullRequestBodies, []);
     assert.deepEqual(github.pullRequestComments, []);
     assert.match(String(result.summary), /PRD automation can only run on a Parent Issue/);
+    assert.equal(result.displayMessage, result.summary);
+    assert.deepEqual(result.nextSteps, ['Run PRD auto-advance on Parent Issue #12 instead.']);
+    assert.deepEqual(result.suggestedActions, [
+      {
+        kind: 'command',
+        description: 'Run PRD auto-advance on Parent Issue #12 instead.',
+        argv: ['pullops', 'run', 'prd:auto-advance', '12'],
+        approvalRequired: false,
+      },
+    ]);
     assert.match(
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
       /PRD automation can only run on a Parent Issue/,
@@ -2021,6 +2030,83 @@ describe('runPrdAutoComplete', () => {
       },
     ]);
   });
+
+  it('19: local auto-complete emits parent progress events while child coordination advances', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-auto-complete-progress-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34), issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 34, parent: issueReference(12) }),
+        createIssue({ number: 35, body: 'Blocked by: #34', parent: issueReference(12) }),
+      ],
+    });
+    const git = createFakeGit({
+      dirtyAfterRunner: true,
+      branchesWithoutUnappliedCommits: ['pullops/prd-12-issue-34'],
+    });
+    const codex = createFakeCodexRunner(git);
+    const progressWriter = createProgressEventWriterSpy();
+
+    await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        localRunRecordDirectory: join(
+          cwd,
+          '.pullops',
+          'runs',
+          '2026-06-20T010203000Z-prd-auto-complete-12',
+        ),
+        progressEventWriter: progressWriter,
+      }),
+    );
+
+    assert.deepEqual(progressWriter.boundRunRecords, [
+      join(cwd, '.pullops', 'runs', '2026-06-20T010203000Z-prd-auto-complete-12'),
+    ]);
+    assert.deepEqual(
+      progressWriter.events.map(event => event.event),
+      [
+        'run.started',
+        'phase.started',
+        'child.started',
+        'child.completed',
+        'child.started',
+        'child.completed',
+        'phase.completed',
+      ],
+    );
+    assert.equal(
+      progressWriter.events[0]?.message,
+      'Starting local PRD auto-complete for issue #12.',
+    );
+    assert.equal(
+      /** @type {{ childIssue?: { number: number } }} */ (progressWriter.events[2] ?? {}).childIssue
+        ?.number,
+      34,
+    );
+    assert.equal(progressWriter.events[3]?.status, 'dry-run-completed');
+    assert.equal(progressWriter.events[5]?.status, 'merged');
+    assert.deepEqual(
+      /** @type {{ childCounts?: Record<string, number> }} */ (progressWriter.events[6] ?? {})
+        .childCounts,
+      {
+        total: 2,
+        completed: 2,
+        blocked: 0,
+      },
+    );
+  });
 });
 
 /**
@@ -2048,6 +2134,40 @@ function createContext(overrides = {}) {
       },
     },
     ...overrides,
+  };
+}
+
+/**
+ * @returns {import('../../cli/types.js').OperationProgressEventWriter & {
+ *   boundRunRecords: string[],
+ *   events: Record<string, unknown>[],
+ * }}
+ */
+function createProgressEventWriterSpy() {
+  /** @type {string[]} */
+  const boundRunRecords = [];
+  /** @type {Record<string, unknown>[]} */
+  const events = [];
+  return {
+    runId: '2026-06-20T010203000Z-prd-auto-complete-12',
+    operationLabelReference: 'prd:auto-complete',
+    target: {
+      type: 'issue',
+      number: 12,
+    },
+    boundRunRecords,
+    events,
+    async bindLocalRunRecord(localRunRecord) {
+      boundRunRecords.push(localRunRecord);
+    },
+    async emit(event, details = {}) {
+      const emitted = {
+        event,
+        ...details,
+      };
+      events.push(emitted);
+      return emitted;
+    },
   };
 }
 

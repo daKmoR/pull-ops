@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises';
+
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
@@ -10,6 +12,11 @@ import {
   runWorkflowOperation,
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
+import {
+  createLocalPrdAutoCompleteSummary,
+  createOperationProgressEventWriter,
+} from '../operations/prd-automation/eventStream.js';
+import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 
@@ -188,7 +195,7 @@ export class PullOpsCli {
     });
 
     this.writeValidatedJson(output);
-    return 0;
+    return readOperationExitCode(output);
   }
 
   /**
@@ -457,38 +464,114 @@ export class PullOpsCli {
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
     const runnerAdapter = config.runner.adapter;
+    const contextUsage = readContextUsage(this.env);
+    const startedAt = new Date();
+    const localRunRecordLocation =
+      parsedArgs.eventsFormat === 'jsonl'
+        ? createLocalPrdRunRecordLocation({
+            cwd: this.cwd,
+            operationReference: 'prd:auto-complete',
+            targetNumber: parsedArgs.targetNumber,
+            createdAt: startedAt,
+          })
+        : undefined;
+    const progressEventWriter =
+      localRunRecordLocation === undefined
+        ? undefined
+        : createOperationProgressEventWriter({
+            stdout: this.stdout,
+            operation: operation.name,
+            operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+            runId: localRunRecordLocation.runId,
+            target: {
+              type: 'issue',
+              number: parsedArgs.targetNumber,
+            },
+          });
     validateRunnerLifecycle({
       operationName: operation.name,
       phase: 'run',
       runnerAdapter,
       runnerRan: undefined,
     });
-    const output = await this.operationRunner({
-      operation: operation.name,
-      phase: 'run',
-      runnerAdapter,
-      executionBackend: 'local',
-      publicationMode: parsedArgs.publicationMode,
-      runGoal: parsedArgs.runGoal,
-      target: {
-        type: 'issue',
-        number: parsedArgs.targetNumber,
-      },
-      cwd: this.cwd,
-      config,
-      modelTier: operationConfig.modelTier,
-      model,
-      githubClient: this.githubClient,
-      gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
-      triggerActor: this.env.GITHUB_ACTOR,
-      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
-      contextUsage: readContextUsage(this.env),
-      progress: this.progress,
-    });
+    try {
+      const output = await this.operationRunner({
+        operation: operation.name,
+        phase: 'run',
+        runnerAdapter,
+        executionBackend: 'local',
+        publicationMode: parsedArgs.publicationMode,
+        runGoal: parsedArgs.runGoal,
+        target: {
+          type: 'issue',
+          number: parsedArgs.targetNumber,
+        },
+        cwd: this.cwd,
+        config,
+        modelTier: operationConfig.modelTier,
+        model,
+        githubClient: this.githubClient,
+        gitClient: this.gitClient,
+        codexRunner: this.codexRunner,
+        triggerActor: this.env.GITHUB_ACTOR,
+        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+        contextUsage,
+        progress: this.progress,
+        ...(localRunRecordLocation === undefined
+          ? {}
+          : { localRunRecordDirectory: localRunRecordLocation.directory }),
+        ...(progressEventWriter === undefined ? {} : { progressEventWriter }),
+      });
 
-    this.writeValidatedJson(output);
-    return 0;
+      if (parsedArgs.eventsFormat === 'jsonl') {
+        await this.emitLocalPrdAutoCompleteSummary(progressEventWriter, output, {
+          startedAt,
+          finishedAt: new Date(),
+          contextUsage,
+          operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+          target: {
+            type: 'issue',
+            number: parsedArgs.targetNumber,
+          },
+        });
+        return readOperationExitCode(output);
+      }
+
+      this.writeValidatedJson(output);
+      return readOperationExitCode(output);
+    } catch (error) {
+      if (parsedArgs.eventsFormat !== 'jsonl') {
+        throw error;
+      }
+
+      const localRunRecord =
+        readLocalRunRecordFromError(error) ?? localRunRecordLocation?.directory;
+      if (localRunRecord === undefined) {
+        throw error;
+      }
+
+      await mkdir(localRunRecord, { recursive: true });
+      await progressEventWriter?.bindLocalRunRecord(localRunRecord);
+      const errorOutput =
+        readKnownLocalPrdRunBoundaryOutput(error, { localRunRecord }) ??
+        createLocalPrdAutoCompleteFailureOutput({
+          error,
+          localRunRecord,
+          targetNumber: parsedArgs.targetNumber,
+          publicationMode: parsedArgs.publicationMode,
+        });
+      await this.emitLocalPrdAutoCompleteSummary(progressEventWriter, errorOutput, {
+        startedAt,
+        finishedAt: new Date(),
+        contextUsage,
+        operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+        target: {
+          type: 'issue',
+          number: parsedArgs.targetNumber,
+        },
+      });
+      return readOperationExitCode(errorOutput);
+    }
   }
 
   /**
@@ -526,6 +609,47 @@ export class PullOpsCli {
     }
 
     this.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
+  }
+
+  /**
+   * @param {import('./types.js').OperationProgressEventWriter | undefined} progressEventWriter
+   * @param {unknown} output
+   * @param {{
+   *   startedAt: Date,
+   *   finishedAt: Date,
+   *   contextUsage?: import('./types.js').OperationContextUsage,
+   *   operationLabelReference: string,
+   *   target: { type: 'issue', number: number },
+   * }} options
+   * @returns {Promise<void>}
+   */
+  async emitLocalPrdAutoCompleteSummary(
+    progressEventWriter,
+    output,
+    { startedAt, finishedAt, contextUsage, operationLabelReference, target },
+  ) {
+    const result = validateOperationOutput(output, COMMAND_OUTPUT_CONTRACT);
+    if (!result.valid) {
+      throw new Error(`Invalid Operation Output: ${result.reason}`);
+    }
+
+    if (progressEventWriter === undefined) {
+      throw new Error('Progress event writer is required for JSONL event streams.');
+    }
+
+    const summary = createLocalPrdAutoCompleteSummary(
+      /** @type {import('../prd-automation/childCoordination.types.js').PrdAutomationResult} */ (
+        result.value
+      ),
+      {
+        operationLabelReference,
+        target,
+        startedAt,
+        finishedAt,
+        contextUsage,
+      },
+    );
+    await progressEventWriter.emit('run.summary', summary);
   }
 
   /**
@@ -586,6 +710,7 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
 function parseGitHubActionsOperationLabelArgs(args, reference) {
   rejectGitHubActionsLocalOnlyFlag(args, '--publish');
   rejectGitHubActionsLocalOnlyFlag(args, '--until');
+  rejectGitHubActionsLocalOnlyFlag(args, '--events');
 
   const consumed = new Set();
   const backend = parseRequiredGitHubActionsBackend(args, reference, consumed);
@@ -697,6 +822,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  *   runGoal: import('./types.js').OperationRunGoal,
+ *   eventsFormat?: 'jsonl',
  * }}
  */
 function parseLocalPrdAutomationReferenceArgs(args, reference) {
@@ -706,6 +832,19 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     throw new CliUsageError(
       `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
     );
+  }
+
+  const eventsFormat = parseOptionalStringOption(args, '--events', consumed);
+  if (eventsFormat !== undefined) {
+    if (reference !== 'prd:auto-complete') {
+      throw new CliUsageError(`--events jsonl is only supported for local prd:auto-complete.`);
+    }
+
+    if (eventsFormat !== 'jsonl') {
+      throw new CliUsageError(
+        `Unsupported events format "${eventsFormat}". Expected "--events jsonl".`,
+      );
+    }
   }
 
   const publicationMode = parsePublicationMode(args, consumed);
@@ -741,6 +880,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     targetNumber,
     publicationMode,
     runGoal,
+    ...(eventsFormat === undefined ? {} : { eventsFormat }),
   };
 }
 
@@ -871,7 +1011,7 @@ function parseRequiredGitHubActionsBackend(args, reference, consumed) {
 
 /**
  * @param {string[]} args
- * @param {'--publish' | '--until'} flag
+ * @param {'--publish' | '--until' | '--events'} flag
  */
 function rejectGitHubActionsLocalOnlyFlag(args, flag) {
   if (args.includes(flag)) {
@@ -1005,11 +1145,35 @@ function readContextUsage(env) {
   const used = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_USED_TOKENS);
   const limit = readPositiveIntegerEnv(env.PULLOPS_CONTEXT_LIMIT_TOKENS);
 
-  if (used === undefined || limit === undefined) {
+  if (used === undefined) {
     return undefined;
   }
 
-  return { used, limit };
+  return limit === undefined ? { used } : { used, limit };
+}
+
+/**
+ * @param {unknown} output
+ * @returns {0 | 1}
+ */
+function readOperationExitCode(output) {
+  if (typeof output === 'string') {
+    try {
+      output = JSON.parse(output);
+    } catch {
+      return 0;
+    }
+  }
+
+  return isRecord(output) && (output.status === 'refused' || output.status === 'failed') ? 1 : 0;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -1115,7 +1279,7 @@ function usage() {
     'Usage:',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
-    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
@@ -1148,6 +1312,88 @@ function summarizeEnsureLabelsResult(total, result) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function readRequiredOperationLabelReference(reference) {
+  const operation = getOperationLabelReference(reference);
+  if (operation === undefined) {
+    throw new Error(`Unknown operation label reference "${reference}".`);
+  }
+
+  return operation.reference;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string | undefined}
+ */
+function readLocalRunRecordFromError(error) {
+  if (
+    isRecord(error) &&
+    typeof error.localRunRecord === 'string' &&
+    error.localRunRecord.trim() !== ''
+  ) {
+    return error.localRunRecord.trim();
+  }
+
+  const match = getErrorMessage(error).match(/Local Run Record:\s*(.+)$/);
+  return match === null ? undefined : match[1].trim();
+}
+
+/**
+ * @param {unknown} error
+ * @param {{ localRunRecord: string }} options
+ * @returns {Record<string, unknown> | undefined}
+ */
+function readKnownLocalPrdRunBoundaryOutput(error, { localRunRecord }) {
+  if (!isRecord(error) || !isRecord(error.localPrdRunBoundary)) {
+    return undefined;
+  }
+
+  const boundary = /** @type {Record<string, unknown>} */ (error.localPrdRunBoundary);
+  /** @type {Record<string, unknown>} */
+  const output = {
+    ...boundary,
+    localRunRecord,
+  };
+  if (output.status !== 'blocked' && output.status !== 'refused') {
+    return undefined;
+  }
+
+  return output;
+}
+
+/**
+ * @param {{
+ *   error: unknown,
+ *   localRunRecord: string,
+ *   targetNumber: number,
+ *   publicationMode: 'dry-run' | 'publish',
+ * }} options
+ * @returns {Record<string, unknown>}
+ */
+function createLocalPrdAutoCompleteFailureOutput({
+  error,
+  localRunRecord,
+  targetNumber,
+  publicationMode,
+}) {
+  const failureReason = getErrorMessage(error).trim() || 'Unexpected runtime or tool failure.';
+  const summary = `Local PRD auto-complete for issue #${targetNumber} failed unexpectedly.`;
+
+  return {
+    status: 'failed',
+    summary,
+    displayMessage: summary,
+    failureReason,
+    mode: 'auto-complete',
+    publicationMode,
+    localRunRecord,
+  };
 }
 
 class CliUsageError extends Error {}
