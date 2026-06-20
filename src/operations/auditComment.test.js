@@ -52,12 +52,28 @@ describe('Operation audit comments', () => {
     );
     assert.doesNotMatch(comment, /^## PullOps Operation Audit$/m);
   });
+
+  it('04: formats context usage when the limit is unknown', () => {
+    const comment = createOperationAuditComment(
+      createContext({
+        contextUsage: {
+          used: 1200,
+        },
+      }),
+      {
+        operation: 'pullops:pr:review',
+      },
+    );
+
+    assert.match(comment, /Context used: 1200 tokens/);
+  });
 });
 
 /**
+ * @param {Partial<import('../cli/types.js').OperationRunnerContext>} [overrides]
  * @returns {import('../cli/types.js').OperationRunnerContext}
  */
-function createContext() {
+function createContext(overrides = {}) {
   return /** @type {import('../cli/types.js').OperationRunnerContext} */ ({
     operation: 'pr-review',
     phase: 'run',
@@ -79,5 +95,6 @@ function createContext() {
       used: 1200,
       limit: 200000,
     },
+    ...overrides,
   });
 }

@@ -1,6 +1,6 @@
 # Use JSONL progress events for agent-observable runs
 
-Long-running PullOps Human-Facing Commands need an agent-observable output surface that does not require agents to ingest verbose logs for 30 minute to 2 hour runs. PullOps will expose bounded domain-level JSON Lines progress events for this mode, with the terminal event carrying the PullOps Run Summary, so an observing agent can parse one stdout stream incrementally and treat `run.summary` as the final machine-readable result. In event-stream mode stdout is machine-only; human-readable logs must go to stderr or the Local Run Record. Plain final-result JSON can remain a separate compact mode, but the long-running progress contract is a single parseable event stream rather than mixed progress JSONL plus a separate summary document. The terminal summary must include run duration as machine-readable milliseconds, optional start and finish timestamps, and known context usage centered on used tokens so long-running completions can be reported without reopening verbose artifacts.
+Long-running PullOps Human-Facing Commands need an agent-observable output surface that does not require agents to ingest verbose logs for 30 minute to 2 hour runs. PullOps will expose bounded domain-level JSON Lines progress events for this mode, with the terminal event carrying the PullOps Run Summary, so an observing agent can parse one stdout stream incrementally and treat `run.summary` as the final machine-readable result. In event-stream mode stdout is machine-only; human-readable logs must go to stderr or the Local Run Record. Plain final-result JSON can remain a separate compact mode, but the long-running progress contract is a single parseable event stream rather than mixed progress JSONL plus a separate summary document. The terminal summary must include run duration as machine-readable milliseconds, optional start and finish timestamps, and known context usage centered on used tokens so long-running completions can be reported without reopening verbose artifacts. When runner usage is unavailable, the terminal payload still includes `contextUsage: null` instead of omitting the field or estimating values.
 
 Terminal `run.summary.status` uses PullOps' broad operation outcome vocabulary: `accepted`, `blocked`, `refused`, or `failed`. `accepted` means PullOps completed the requested run path successfully, even when a later human merge is still intentionally pending; `blocked` means PullOps needs maintainer or external action; `refused` means the target failed guardrails; and `failed` means an unexpected tool or runtime error interrupted the run.
 
@@ -27,6 +27,121 @@ Terminal summaries include both display-oriented `nextSteps` strings and structu
 Suggested actions are advisory. Each action declares whether it requires approval and why, leaving the observing agent or human operator to apply its own autonomy policy instead of making the PullOps CLI responsible for deciding which follow-up actions may run automatically.
 
 Routine progress events may include compact aggregate counters, such as completed, total, and blocked Child Issue counts for PRD automation. These counters let observing agents report useful heartbeats from a single event without expanding the full child result list on every line.
+
+## JSONL Contract
+
+Each stdout line in event-stream mode is exactly one JSON object. There is no pretty-printed JSON, banner text, git trace, runner log, or other prose on stdout.
+
+### Common identity fields
+
+Every event repeats these top-level identity fields:
+
+- `schemaVersion`: currently `1`
+- `event`: stable event name such as `run.started`
+- `runId`: the Local Run Record directory name
+- `operation`: canonical Operation Name such as `prd-auto-complete`
+- `operationLabelReference`: short Operation Label Reference such as `prd:auto-complete`
+- `target`: `{ "type": "issue" | "pr", "number": <number> }`
+- `at`: emission timestamp captured when PullOps writes the line
+
+Optional identity-adjacent fields such as `mode`, `publicationMode`, `localRunRecord`, `message`, `childIssue`, and `pullRequest` may appear where relevant.
+
+### Event names
+
+The initial fixed vocabulary is:
+
+- `run.started`: the Human-Facing Command began
+- `phase.started`: PullOps entered a meaningful domain phase
+- `phase.completed`: PullOps completed a meaningful domain phase
+- `child.started`: PRD Child Coordination started a Child Issue unit of work
+- `child.completed`: a Child Issue unit of work reached a non-blocked result
+- `child.blocked`: a Child Issue hit a terminal blocker for this run
+- `waiting`: PullOps is still validly running but is waiting on checks, review, or another nonterminal boundary
+- `run.summary`: the terminal PullOps Run Summary
+
+Operation-specific facts stay in structured fields such as `phase`, `status`, `childIssue`, `pullRequest`, `childCounts`, `blockers`, and `suggestedActions`.
+
+### Terminal summary fields
+
+The terminal `run.summary` event carries the PullOps Run Summary. Common fields are:
+
+- `status`: `accepted` | `blocked` | `refused` | `failed`
+- `summary`: concise authoritative outcome summary
+- `startedAt`, `finishedAt`, `durationMs`: machine-readable Run Duration fields
+- `contextUsage`: known Context Usage or `null`
+  - Known usage with limit: `"contextUsage": { "used": 1200, "limit": 200000 }`
+  - Known usage without limit: `"contextUsage": { "used": 1200 }`
+  - Unknown usage: `"contextUsage": null`
+- `nextSteps`: optional human-readable follow-up strings
+- `suggestedActions`: optional structured advisory actions
+- `blockers`: required for blocked terminal boundaries
+
+PRD Auto-Complete summaries may also include `children`, `parentPullRequest`, `virtualCompletedChildren`, `remainingBlockedChildren`, and `localRunRecord`.
+
+### Blockers
+
+Each PullOps Run Blocker uses this shape:
+
+```json
+{
+  "targetKind": "issue" | "pull-request",
+  "targetNumber": 101,
+  "phase": "review",
+  "operationLabelReference": "pr:review",
+  "reason": "review-wait",
+  "message": "Child PR #101 is waiting for human review or merge gates.",
+  "retryable": true
+}
+```
+
+### Suggested actions
+
+The initial structured action shape is:
+
+```json
+{
+  "kind": "command",
+  "description": "Rerun PRD auto-complete after the waiting boundary clears.",
+  "argv": ["pullops", "run", "prd:auto-complete", "123", "--publish", "pr"],
+  "approvalRequired": false
+}
+```
+
+`approvalReason` may also appear when PullOps knows why an operator should require approval.
+
+## Representative Streams
+
+Accepted local PRD Auto-Complete:
+
+```jsonl
+{"schemaVersion":1,"event":"run.started","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"run","message":"Starting local PRD auto-complete for issue #123.","at":"2026-06-20T10:15:00.000Z"}
+{"schemaVersion":1,"event":"phase.started","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","message":"Coordinating child issues for issue #123.","at":"2026-06-20T10:15:00.050Z"}
+{"schemaVersion":1,"event":"child.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":34,"url":"https://github.test/issues/34"},"status":"merged","message":"Merged finalized child PR #101 locally into PRD issue #123.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-34"},"at":"2026-06-20T10:15:02.000Z"}
+{"schemaVersion":1,"event":"child.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":36,"url":"https://github.test/issues/36"},"status":"merged","message":"Merged finalized child PR #102 locally into PRD issue #123.","pullRequest":{"number":102,"url":"https://github.test/pull/102","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-36"},"at":"2026-06-20T10:16:00.000Z"}
+{"schemaVersion":1,"event":"phase.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childCounts":{"total":2,"completed":2,"blocked":0},"message":"Coordinated 2 child issue(s) for issue #123: 2 completed, 0 blocked.","at":"2026-06-20T10:16:30.000Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"accepted","summary":"local PRD auto-complete accepted","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:16:30.500Z","durationMs":90500,"at":"2026-06-20T10:16:30.500Z"}
+```
+
+Blocked local PRD Auto-Complete:
+
+```jsonl
+{"schemaVersion":1,"event":"waiting","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":34,"url":"https://github.test/issues/34"},"status":"waiting","message":"Child PR #101 is waiting for human review or merge gates.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-34"},"blockedPhase":"review","blockedOperation":"pr:review","at":"2026-06-20T10:18:10.000Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"blocked","summary":"local PRD auto-complete reached a waiting boundary","blockers":[{"targetKind":"pull-request","targetNumber":101,"phase":"review","operationLabelReference":"pr:review","reason":"review-wait","message":"Child PR #101 is waiting for human review or merge gates.","retryable":true}],"nextSteps":["Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete."],"suggestedActions":[{"kind":"command","description":"Rerun PRD auto-complete after the waiting boundary clears.","argv":["pullops","run","prd:auto-complete","123","--publish","pr"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:18:10.500Z","durationMs":190500,"at":"2026-06-20T10:18:10.500Z"}
+```
+
+Refused local PRD Auto-Complete:
+
+<!-- prettier-ignore -->
+```jsonl
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-34","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":34},"status":"refused","summary":"Issue #34 is already part of parent issue #12. PRD automation can only run on a Parent Issue.","displayMessage":"Issue #34 is already part of parent issue #12. PRD automation can only run on a Parent Issue.","reason":"wrong-target","nextSteps":["Run PRD auto-complete on Parent Issue #12 instead."],"suggestedActions":[{"kind":"command","description":"Run PRD auto-complete on Parent Issue #12 instead.","argv":["pullops","run","prd:auto-complete","12"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:01.000Z","durationMs":1000,"at":"2026-06-20T10:15:01.000Z"}
+```
+
+Failed local PRD Auto-Complete:
+
+<!-- prettier-ignore -->
+```jsonl
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"failed","summary":"Local PRD auto-complete for issue #123 failed unexpectedly.","displayMessage":"Local PRD auto-complete for issue #123 failed unexpectedly.","failureReason":"git exploded","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:00.250Z","durationMs":250,"at":"2026-06-20T10:15:00.250Z"}
+```
 
 Event-stream mode suppresses the existing final pretty-printed JSON on stdout. Its terminal result is the `run.summary` JSONL line; callers that want only the final JSON object should use a separate final-result JSON mode instead of mixing output formats.
 

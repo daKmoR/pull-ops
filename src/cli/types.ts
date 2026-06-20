@@ -12,6 +12,27 @@ export interface OperationTarget {
   number: number;
 }
 
+export type OperationProgressEventName =
+  | 'run.started'
+  | 'phase.started'
+  | 'phase.completed'
+  | 'child.started'
+  | 'child.completed'
+  | 'child.blocked'
+  | 'waiting'
+  | 'run.summary';
+
+export interface OperationProgressEventWriter {
+  runId: string;
+  operationLabelReference: string;
+  target: OperationTarget;
+  bindLocalRunRecord(localRunRecord: string): Promise<void>;
+  emit(
+    event: OperationProgressEventName,
+    details?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+}
+
 export interface OperationRunnerContext {
   operation: string;
   phase: OperationPhase;
@@ -33,17 +54,19 @@ export interface OperationRunnerContext {
   triggerActor?: string;
   reviewId?: string;
   outputDirectory?: string;
+  localRunRecordDirectory?: string;
   codexActionOutcome?: string;
   runnerRan?: boolean;
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
   progress?: (message: string) => void;
+  progressEventWriter?: OperationProgressEventWriter;
   virtualCompletedIssueNumbers?: number[];
 }
 
 export interface OperationContextUsage {
   used: number;
-  limit: number;
+  limit?: number;
 }
 
 export type OperationPhase = 'run' | 'prepare' | 'finalize';

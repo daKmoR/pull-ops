@@ -94,5 +94,9 @@ function formatContextUsage(contextUsage) {
     return 'unknown';
   }
 
+  if (contextUsage.limit === undefined) {
+    return `${contextUsage.used} tokens`;
+  }
+
   return `${contextUsage.used} / ${contextUsage.limit} tokens`;
 }
