@@ -1107,26 +1107,31 @@ async function completePrFinalizePlannerFallback(context, preparation, rawOutput
     throw new Error(reason);
   }
 
-  return await completePrFinalize(context, {
-    ready: true,
-    mode: 'rewrite',
-    pullRequest: preparation.pullRequest,
-    sourceKind: preparation.sourceKind,
-    sourceIssueNumber: preparation.sourceIssueNumber,
-    childIssues: preparation.childIssues,
-    baseBranch: preparation.baseBranch,
-    currentTreeHash: preparation.currentTreeHash,
-    reviewedTreeHash: preparation.reviewedTreeHash,
-    commitPlan: commitPlan.commits,
-  });
+  return await completePrFinalize(
+    context,
+    {
+      ready: true,
+      mode: 'rewrite',
+      pullRequest: preparation.pullRequest,
+      sourceKind: preparation.sourceKind,
+      sourceIssueNumber: preparation.sourceIssueNumber,
+      childIssues: preparation.childIssues,
+      baseBranch: preparation.baseBranch,
+      currentTreeHash: preparation.currentTreeHash,
+      reviewedTreeHash: preparation.reviewedTreeHash,
+      commitPlan: commitPlan.commits,
+    },
+    { operationAuditRecorded: true },
+  );
 }
 
 /**
  * @param {OperationRunnerContext} context
  * @param {PrFinalizePreparation & { ready: true }} preparation
+ * @param {{ operationAuditRecorded?: boolean }} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
-async function completePrFinalize(context, preparation) {
+async function completePrFinalize(context, preparation, { operationAuditRecorded = false } = {}) {
   if (preparation.mode === 'planner') {
     throw new Error('PR Finalize planner preparation must be completed with planner output.');
   }
@@ -1140,6 +1145,7 @@ async function completePrFinalize(context, preparation) {
       finalizedHeadSha: preparation.finalizedHeadSha,
       body: preparation.pullRequest.body,
       commitCount: preparation.commitCount,
+      operationAuditRecorded,
     });
   }
 
@@ -1203,6 +1209,7 @@ async function completePrFinalize(context, preparation) {
       preparation.mode === 'existing-commits'
         ? preparation.commitCount
         : preparation.commitPlan.length,
+    operationAuditRecorded,
   });
 }
 
@@ -1349,6 +1356,7 @@ function formatIssueList(issues) {
  * @param {string} options.finalizedHeadSha
  * @param {string} options.body
  * @param {number} options.commitCount
+ * @param {boolean} options.operationAuditRecorded
  * @returns {Promise<Record<string, unknown>>}
  */
 async function completeFinalizedHeadChecks(
@@ -1362,6 +1370,7 @@ async function completeFinalizedHeadChecks(
     finalizedHeadSha,
     body,
     commitCount,
+    operationAuditRecorded,
   },
 ) {
   const checks = await context.githubClient.getPullRequestChecksForRef(finalizedHeadSha);
@@ -1392,6 +1401,10 @@ async function completeFinalizedHeadChecks(
     finalizedHeadSha,
     status: 'ready',
   });
+  const readySummary = createPrFinalizeReadySummary(pullRequest);
+  const shouldRecordReadyAudit = await shouldRecordPrFinalizeReadyAudit(context, pullRequest, {
+    operationAuditRecorded,
+  });
   await applyManagedPrTransition({
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
@@ -1412,6 +1425,14 @@ async function completeFinalizedHeadChecks(
     await context.githubClient.markPullRequestReadyForReview(pullRequest.number);
   }
 
+  if (shouldRecordReadyAudit) {
+    await commentOnPullRequestWithOperationAudit(context, {
+      pullRequestNumber: pullRequest.number,
+      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      summary: readySummary,
+    });
+  }
+
   const prdAutomation =
     parentIssueNumber === undefined
       ? undefined
@@ -1421,7 +1442,7 @@ async function completeFinalizedHeadChecks(
 
   return {
     status: 'accepted',
-    summary: `Finalized PullOps-managed PR #${pullRequest.number} for human rebase merge.`,
+    summary: readySummary,
     pullRequest: {
       number: pullRequest.number,
       url: pullRequest.url,
@@ -1435,6 +1456,46 @@ async function completeFinalizedHeadChecks(
     },
     ...(prdAutomation === undefined ? {} : { prdAutomation }),
   };
+}
+
+/**
+ * @param {GitHubPullRequest} pullRequest
+ * @returns {string}
+ */
+function createPrFinalizeReadySummary(pullRequest) {
+  return `Finalized PullOps-managed PR #${pullRequest.number} for human rebase merge.`;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {{ operationAuditRecorded: boolean }} options
+ * @returns {Promise<boolean>}
+ */
+async function shouldRecordPrFinalizeReadyAudit(context, pullRequest, { operationAuditRecorded }) {
+  if (operationAuditRecorded) {
+    return false;
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if (state.status !== 'Ready for human merge') {
+    return true;
+  }
+
+  const reviewContext = await context.githubClient.getPullRequestReviewContext(pullRequest.number);
+  return !hasPrFinalizeAuditComment(reviewContext);
+}
+
+/**
+ * @param {GitHubPullRequestReviewContext} reviewContext
+ * @returns {boolean}
+ */
+function hasPrFinalizeAuditComment(reviewContext) {
+  return reviewContext.comments.some(comment =>
+    /<summary>\s*PullOps operation audit\s*<\/summary>[\s\S]*Operation:\s*pullops:pr:finalize/i.test(
+      comment.body,
+    ),
+  );
 }
 
 /**

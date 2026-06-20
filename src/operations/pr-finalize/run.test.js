@@ -97,7 +97,9 @@ describe('runPrFinalize', () => {
         labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
       },
     ]);
-    assert.equal(github.comments.length, 0);
+    assertFinalizeAuditComment(github.comments[0], {
+      summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
+    });
     assert.equal(github.pullRequestLabelsAdded.length, 0);
   });
 
@@ -141,6 +143,7 @@ describe('runPrFinalize', () => {
     });
     assert.equal(github.readyPullRequests.length, 0);
     assert.equal(github.pullRequestLabelsRemoved.length, 0);
+    assert.equal(github.comments.length, 0);
 
     github.setChecksForRef(finalizedHead, [createCheck({ name: 'test' })]);
 
@@ -161,8 +164,30 @@ describe('runPrFinalize', () => {
       },
     ]);
     assert.equal(github.pullRequestLabelsAdded.length, 0);
-    assert.equal(github.comments.length, 0);
+    assertFinalizeAuditComment(github.comments[0], {
+      summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
+    });
     assert.match(github.updatedBodies[0].body, /Status: Ready for human merge/);
+
+    github.setPullRequest(
+      createPullRequest({
+        headSha: finalizedHead,
+        body: github.updatedBodies[0].body,
+        isDraft: false,
+        labels: [],
+      }),
+    );
+
+    const rerunResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(rerunResult.status, 'accepted');
+    assert.equal(github.comments.length, 1);
   });
 
   it('03: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
@@ -230,7 +255,9 @@ describe('runPrFinalize', () => {
         labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
       },
     ]);
-    assert.equal(github.comments.length, 0);
+    assertFinalizeAuditComment(github.comments[0], {
+      summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
+    });
     assert.match(readyBody, /Status: Ready for human merge/);
   });
 
@@ -602,6 +629,9 @@ describe('runPrFinalize', () => {
       number: 100,
       labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
     });
+    assertFinalizeAuditComment(github.comments[0], {
+      summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
+    });
   });
 
   it('12: finalizes already-ordered Umbrella PRD child commits that edit the same file', async () => {
@@ -848,7 +878,65 @@ describe('runPrFinalize', () => {
     assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
     assert.match(github.comments[1].body, /Finalized tree different-tree did not match/);
   });
+
+  it('18: backfills a missing audit comment on already-ready finalized PRs', async () => {
+    const repository = await createTemporaryRepository();
+    const finalizedTree = await readTreeHash(repository.workDir);
+    const finalizedHead = await readHeadSha(repository.workDir);
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        headSha: finalizedHead,
+        isDraft: false,
+        labels: [],
+        body: createPullRequestBody({
+          reviewedTree: finalizedTree,
+          finalizedTree,
+          finalizedHead,
+          status: 'Ready for human merge',
+          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        }),
+      }),
+      checksByRef: new Map([[finalizedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const firstResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(firstResult.status, 'accepted');
+    assertFinalizeAuditComment(github.comments[0], {
+      summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
+    });
+
+    const secondResult = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    assert.equal(secondResult.status, 'accepted');
+    assert.equal(github.comments.length, 1);
+  });
 });
+
+/**
+ * @param {CommentOnPullRequestOptions | undefined} comment
+ * @param {{ summary: string }} options
+ * @returns {void}
+ */
+function assertFinalizeAuditComment(comment, { summary }) {
+  assert.ok(comment !== undefined, 'Expected a PR finalize audit comment.');
+  assert.equal(comment.number, 100);
+  assert.match(comment.body, new RegExp(`^${escapeRegExp(summary)}`));
+  assert.match(comment.body, /<summary>PullOps operation audit<\/summary>/);
+  assert.match(comment.body, /Operation: pullops:pr:finalize/);
+}
 
 /**
  * @param {Partial<OperationRunnerContext>} overrides
@@ -1252,7 +1340,16 @@ function createFakeGitHub({
         return currentChecksByRef.get(ref) ?? [];
       },
       async getPullRequestReviewContext() {
-        return reviewContext;
+        return {
+          ...reviewContext,
+          comments: [
+            ...reviewContext.comments,
+            ...comments.map(comment => ({
+              body: comment.body,
+              authorLogin: null,
+            })),
+          ],
+        };
       },
       async getPullRequestDiff() {
         throw new Error('getPullRequestDiff was not expected in this test.');
