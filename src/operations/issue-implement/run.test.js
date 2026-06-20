@@ -2117,6 +2117,16 @@ describe('runIssueImplement', () => {
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
       /local-review-summary:1/,
     );
+    assert.deepEqual(git.commits.map(commit => commit.message), [
+      [
+        'feat(issue): implement #42',
+        '',
+        'Implement Cover every local feedback item.',
+        '',
+        'Refs: #42',
+      ].join('\n'),
+      ['fix(issue): address review for #42', '', 'Refs: #42'].join('\n'),
+    ]);
   });
 
   it('37: local finalized tree mismatch restores the reviewed head before blocking', async () => {
