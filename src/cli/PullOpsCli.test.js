@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
@@ -594,6 +597,137 @@ test('run prd:auto-complete accepts local PR publication', async () => {
     runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
+});
+
+test('run prd:auto-complete emits jsonl event streams for local runs', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const runRecord = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-events-'));
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+      PULLOPS_CONTEXT_LIMIT_TOKENS: '40',
+    },
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [
+          {
+            issue: {
+              number: 34,
+              url: 'https://github.test/issues/34',
+            },
+            status: 'merged',
+            summary: 'Merged finalized child PR #101 locally into PRD issue #123.',
+            pullRequest: {
+              number: 101,
+              url: 'https://github.test/pull/101',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-34',
+            },
+          },
+          {
+            issue: {
+              number: 35,
+              url: 'https://github.test/issues/35',
+            },
+            status: 'blocked',
+            summary: 'Child issue #35 is blocked by #99.',
+            blockedBy: [99],
+            blockedPhase: 'dependency',
+            blockedOperation: 'pr:review',
+          },
+        ],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [
+          'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
+        ],
+        virtualCompletedChildren: [34],
+        remainingBlockedChildren: [35],
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--events',
+    'jsonl',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.equal(stderr.text, '');
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events[events.length - 1];
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    [
+      'run.started',
+      'phase.started',
+      'child.started',
+      'child.completed',
+      'child.started',
+      'child.blocked',
+      'phase.completed',
+      'run.summary',
+    ],
+  );
+  assert.equal(events[0].runId, basename(runRecord));
+  assert.equal(events[0].operationLabelReference, 'pullops:prd:auto-complete');
+  assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(events[6].childCounts, { total: 2, completed: 1, blocked: 1 });
+  assert.equal(events[3].status, 'merged');
+  assert.equal(events[5].status, 'blocked');
+  assert.equal(summaryEvent.runId, basename(runRecord));
+  assert.equal(summaryEvent.operationLabelReference, 'pullops:prd:auto-complete');
+  assert.equal(summaryEvent.status, 'accepted');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
+
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-advance rejects jsonl event streams', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({ stderr });
+
+  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /only supported for local prd:auto-complete/);
 });
 
 test('run local pull request operation references through the matching workflow operation', async () => {
