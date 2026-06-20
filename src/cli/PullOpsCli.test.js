@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
@@ -6,6 +9,7 @@ import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  */
 
@@ -596,6 +600,1004 @@ test('run prd:auto-complete accepts local PR publication', async () => {
   });
 });
 
+test('run prd:auto-complete emits jsonl event streams for local runs', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+      PULLOPS_CONTEXT_LIMIT_TOKENS: '40',
+    },
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      const runRecord = await bindProgressEventWriter(context);
+      await context.progressEventWriter?.emit('run.started', {
+        phase: 'run',
+        message: 'Starting local PRD auto-complete for issue #123.',
+      });
+      assert.match(stdout.text, /"event":"run.started"/);
+      await context.progressEventWriter?.emit('phase.started', {
+        phase: 'child-coordination',
+        message: 'Coordinating child issues for issue #123.',
+      });
+      await context.progressEventWriter?.emit('child.started', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        message: 'Coordinating child issue #34.',
+      });
+      await context.progressEventWriter?.emit('child.completed', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        status: 'merged',
+        message: 'Merged finalized child PR #101 locally into PRD issue #123.',
+        pullRequest: {
+          number: 101,
+          url: 'https://github.test/pull/101',
+          baseBranch: 'pullops/prd-123',
+          headBranch: 'pullops/prd-123-issue-34',
+        },
+      });
+      await context.progressEventWriter?.emit('child.started', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 36,
+          url: 'https://github.test/issues/36',
+        },
+        message: 'Coordinating child issue #36.',
+      });
+      await context.progressEventWriter?.emit('child.completed', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 36,
+          url: 'https://github.test/issues/36',
+        },
+        status: 'merged',
+        message: 'Merged finalized child PR #102 locally into PRD issue #123.',
+        pullRequest: {
+          number: 102,
+          url: 'https://github.test/pull/102',
+          baseBranch: 'pullops/prd-123',
+          headBranch: 'pullops/prd-123-issue-36',
+        },
+      });
+      await context.progressEventWriter?.emit('phase.completed', {
+        phase: 'child-coordination',
+        childCounts: {
+          total: 2,
+          completed: 2,
+          blocked: 0,
+        },
+        message: 'Coordinated 2 child issue(s) for issue #123: 2 completed, 0 blocked.',
+      });
+
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [
+          {
+            issue: {
+              number: 34,
+              url: 'https://github.test/issues/34',
+            },
+            status: 'merged',
+            summary: 'Merged finalized child PR #101 locally into PRD issue #123.',
+            pullRequest: {
+              number: 101,
+              url: 'https://github.test/pull/101',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-34',
+            },
+          },
+          {
+            issue: {
+              number: 36,
+              url: 'https://github.test/issues/36',
+            },
+            status: 'merged',
+            summary: 'Merged finalized child PR #102 locally into PRD issue #123.',
+            pullRequest: {
+              number: 102,
+              url: 'https://github.test/pull/102',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-36',
+            },
+          },
+        ],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [
+          'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
+        ],
+        virtualCompletedChildren: [34, 36],
+        remainingBlockedChildren: [],
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--events',
+    'jsonl',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.equal(typeof runnerCalls[0].localRunRecordDirectory, 'string');
+  assert.equal(
+    runnerCalls[0].progressEventWriter?.runId,
+    basename(String(runnerCalls[0].localRunRecordDirectory)),
+  );
+  assert.equal(stderr.text, '');
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events[events.length - 1];
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    [
+      'run.started',
+      'phase.started',
+      'child.started',
+      'child.completed',
+      'child.started',
+      'child.completed',
+      'phase.completed',
+      'run.summary',
+    ],
+  );
+  assert.equal(events[0].runId, basename(String(runnerCalls[0].localRunRecordDirectory)));
+  assert.equal(events[0].operationLabelReference, 'prd:auto-complete');
+  assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
+  assert.deepEqual(events[6].childCounts, { total: 2, completed: 2, blocked: 0 });
+  assert.equal(events[3].status, 'merged');
+  assert.equal(events[5].status, 'merged');
+  assert.equal(summaryEvent.runId, basename(String(runnerCalls[0].localRunRecordDirectory)));
+  assert.equal(summaryEvent.operationLabelReference, 'prd:auto-complete');
+  assert.equal(summaryEvent.status, 'accepted');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
+  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'accepted');
+
+  const runRecord = String(runnerCalls[0].localRunRecordDirectory);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits blocked jsonl event streams for dependency frontiers', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+      PULLOPS_CONTEXT_LIMIT_TOKENS: '40',
+    },
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      const runRecord = await bindProgressEventWriter(context);
+      await context.progressEventWriter?.emit('run.started', {
+        phase: 'run',
+        message: 'Starting local PRD auto-complete for issue #123.',
+      });
+      await context.progressEventWriter?.emit('phase.started', {
+        phase: 'child-coordination',
+        message: 'Coordinating child issues for issue #123.',
+      });
+      await context.progressEventWriter?.emit('child.started', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        message: 'Coordinating child issue #34.',
+      });
+      await context.progressEventWriter?.emit('child.completed', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        status: 'merged',
+        message: 'Merged finalized child PR #101 locally into PRD issue #123.',
+        pullRequest: {
+          number: 101,
+          url: 'https://github.test/pull/101',
+          baseBranch: 'pullops/prd-123',
+          headBranch: 'pullops/prd-123-issue-34',
+        },
+      });
+      await context.progressEventWriter?.emit('child.started', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 35,
+          url: 'https://github.test/issues/35',
+        },
+        message: 'Coordinating child issue #35.',
+      });
+      await context.progressEventWriter?.emit('child.blocked', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 35,
+          url: 'https://github.test/issues/35',
+        },
+        status: 'blocked',
+        message: 'Child issue #35 is blocked by #99.',
+        blockedBy: [99],
+        dependencyDecision: {
+          blockedBy: [99],
+          satisfiedByClosedIssues: [],
+          satisfiedByVirtualCompletions: [],
+          remainingBlockedBy: [99],
+        },
+      });
+      await context.progressEventWriter?.emit('phase.completed', {
+        phase: 'child-coordination',
+        childCounts: {
+          total: 2,
+          completed: 1,
+          blocked: 1,
+        },
+        message: 'Coordinated 2 child issue(s) for issue #123: 1 completed, 1 blocked.',
+      });
+
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [
+          {
+            issue: {
+              number: 34,
+              url: 'https://github.test/issues/34',
+            },
+            status: 'merged',
+            summary: 'Merged finalized child PR #101 locally into PRD issue #123.',
+            pullRequest: {
+              number: 101,
+              url: 'https://github.test/pull/101',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-34',
+            },
+          },
+          {
+            issue: {
+              number: 35,
+              url: 'https://github.test/issues/35',
+            },
+            status: 'blocked',
+            summary: 'Child issue #35 is blocked by #99.',
+            blockedBy: [99],
+            dependencyDecision: {
+              blockedBy: [99],
+              satisfiedByClosedIssues: [],
+              satisfiedByVirtualCompletions: [],
+              remainingBlockedBy: [99],
+            },
+          },
+        ],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: ['Resolve the blocker for child issue #35, then rerun PRD auto-complete.'],
+        virtualCompletedChildren: [34],
+        remainingBlockedChildren: [35],
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--events',
+    'jsonl',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.equal(summaryEvent.status, 'blocked');
+  assert.deepEqual(summaryEvent.blockers, [
+    {
+      targetKind: 'issue',
+      targetNumber: 35,
+      phase: 'dependency',
+      operationLabelReference: 'issue:implement',
+      reason: 'dependency-wait',
+      message: 'Child issue #35 is blocked by #99.',
+      retryable: true,
+    },
+  ]);
+  assert.deepEqual(summaryEvent.nextSteps, [
+    'Resolve the blocker for child issue #35, then rerun PRD auto-complete.',
+  ]);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Rerun PRD auto-complete after the blocker is resolved.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '123', '--publish', 'pr'],
+      approvalRequired: false,
+    },
+  ]);
+});
+
+test('run prd:auto-complete emits used-only context usage when the runner limit is unavailable', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+    },
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      const runRecord = await bindProgressEventWriter(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [],
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+  assert.deepEqual(runnerCalls[0].contextUsage, { used: 12 });
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.equal(summaryEvent.event, 'run.summary');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12 });
+
+  const runRecord = String(runnerCalls[0].localRunRecordDirectory);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits null context usage when runner usage is unavailable', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    env: {},
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      const runRecord = await bindProgressEventWriter(context);
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete accepted',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [],
+        parentPullRequest: {
+          status: 'finalized',
+          pullRequest: {
+            number: 200,
+            url: 'https://github.test/pull/200',
+            baseBranch: 'main',
+            headBranch: 'pullops/prd-123',
+          },
+        },
+        localRunRecord: runRecord,
+        localNextSteps: [],
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+
+  const stdoutLines = stdout.text.trimEnd().split('\n');
+  const events = stdoutLines.map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.equal(summaryEvent.event, 'run.summary');
+  assert.equal(Object.hasOwn(summaryEvent, 'contextUsage'), true);
+  assert.equal(summaryEvent.contextUsage, null);
+
+  const runRecord = String(runnerCalls[0].localRunRecordDirectory);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits blocked jsonl event streams for local waits', async () => {
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      const runRecord = await bindProgressEventWriter(context);
+      await context.progressEventWriter?.emit('run.started', {
+        phase: 'run',
+        message: 'Starting local PRD auto-complete for issue #123.',
+      });
+      await context.progressEventWriter?.emit('phase.started', {
+        phase: 'child-coordination',
+        message: 'Coordinating child issues for issue #123.',
+      });
+      await context.progressEventWriter?.emit('child.started', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        message: 'Coordinating child issue #34.',
+      });
+      await context.progressEventWriter?.emit('waiting', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: 34,
+          url: 'https://github.test/issues/34',
+        },
+        status: 'waiting',
+        message: 'Child PR #101 is waiting for human review or merge gates.',
+        pullRequest: {
+          number: 101,
+          url: 'https://github.test/pull/101',
+          baseBranch: 'pullops/prd-123',
+          headBranch: 'pullops/prd-123-issue-34',
+        },
+        blockedPhase: 'review',
+        blockedOperation: 'pr:review',
+      });
+      await context.progressEventWriter?.emit('phase.completed', {
+        phase: 'child-coordination',
+        childCounts: {
+          total: 1,
+          completed: 0,
+          blocked: 0,
+          waiting: 1,
+        },
+        message: 'Coordinated 1 child issue(s) for issue #123: 0 completed, 0 blocked, 1 waiting.',
+      });
+
+      return {
+        status: 'accepted',
+        summary: 'local PRD auto-complete reached a waiting boundary',
+        mode: 'auto-complete',
+        publicationMode: context.publicationMode,
+        issue: {
+          number: 123,
+          url: 'https://github.test/issues/123',
+        },
+        branch: 'pullops/prd-123',
+        children: [
+          {
+            issue: {
+              number: 34,
+              url: 'https://github.test/issues/34',
+            },
+            status: 'waiting',
+            summary: 'Child PR #101 is waiting for human review or merge gates.',
+            pullRequest: {
+              number: 101,
+              url: 'https://github.test/pull/101',
+              baseBranch: 'pullops/prd-123',
+              headBranch: 'pullops/prd-123-issue-34',
+            },
+            blockedPhase: 'review',
+            blockedOperation: 'pr:review',
+          },
+        ],
+        localRunRecord: runRecord,
+        localNextSteps: [
+          'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+        ],
+        remainingBlockedChildren: [34],
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--events',
+    'jsonl',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'child.started', 'waiting', 'phase.completed', 'run.summary'],
+  );
+  assert.equal(events[3].status, 'waiting');
+  assert.deepEqual(events[4].childCounts, { total: 1, completed: 0, blocked: 0, waiting: 1 });
+  assert.equal(summaryEvent.status, 'blocked');
+  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'blocked');
+  assert.deepEqual(summaryEvent.blockers, [
+    {
+      targetKind: 'pull-request',
+      targetNumber: 101,
+      phase: 'review',
+      operationLabelReference: 'pr:review',
+      reason: 'review-wait',
+      message: 'Child PR #101 is waiting for human review or merge gates.',
+      retryable: true,
+    },
+  ]);
+  assert.deepEqual(summaryEvent.nextSteps, [
+    'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+  ]);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Rerun PRD auto-complete after the waiting boundary clears.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '123', '--publish', 'pr'],
+      approvalRequired: false,
+    },
+  ]);
+
+  const runRecord = String(runnerCalls[0].localRunRecordDirectory);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits refused jsonl event streams for local guardrails', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-refused-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    githubClient: createFakeGitHubClient({
+      async getIssue(number) {
+        if (number !== 34) {
+          throw new Error(`Unexpected issue lookup #${number}.`);
+        }
+
+        return createGitHubIssue({
+          number: 34,
+          parent: {
+            number: 12,
+            relationshipSource: 'native',
+          },
+        });
+      },
+    }),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        return false;
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '34', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'phase.completed', 'run.summary'],
+  );
+  assert.equal(summaryEvent.operationLabelReference, 'prd:auto-complete');
+  assert.deepEqual(summaryEvent.target, { type: 'issue', number: 34 });
+  assert.equal(events[2].childCounts.total, 0);
+  assert.equal(summaryEvent.status, 'refused');
+  assert.equal(summaryEvent.reason, 'wrong-target');
+  assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
+  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'refused');
+  assert.deepEqual(summaryEvent.nextSteps, ['Run PRD auto-complete on Parent Issue #12 instead.']);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Run PRD auto-complete on Parent Issue #12 instead.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '12'],
+      approvalRequired: false,
+    },
+  ]);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refused', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-dirty-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        return true;
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+  assertStdoutIsPureJsonl(stdout.text);
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'run.summary'],
+  );
+  assert.equal(summaryEvent.status, 'refused');
+  assert.equal(summaryEvent.reason, 'dirty-worktree');
+  assert.equal(summaryEvent.refusalReason, 'dirty-worktree');
+  assert.match(summaryEvent.summary, /requires a clean worktree/);
+  assert.doesNotMatch(summaryEvent.summary, /Local Run Record:/);
+  assert.deepEqual(summaryEvent.nextSteps, [
+    'Commit, stash, or discard existing changes and run PullOps again.',
+  ]);
+  assert.deepEqual(summaryEvent.suggestedActions, [
+    {
+      kind: 'command',
+      description: 'Rerun PRD auto-complete after the worktree is clean.',
+      argv: ['pullops', 'run', 'prd:auto-complete', '123'],
+      approvalRequired: true,
+      approvalReason:
+        'Existing local changes require maintainer approval before rerunning PullOps.',
+    },
+  ]);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  assert.match(await readFile(join(runRecord, 'failure-reason.txt'), 'utf8'), /clean worktree/);
+  assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /clean worktree/);
+});
+
+test('run prd:auto-complete normalizes closed parent issues to accepted jsonl summaries', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-closed-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    githubClient: createFakeGitHubClient({
+      async getIssue(number) {
+        if (number !== 34) {
+          throw new Error(`Unexpected issue lookup #${number}.`);
+        }
+
+        return createGitHubIssue({
+          number: 34,
+          state: 'CLOSED',
+        });
+      },
+    }),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        return false;
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '34', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'phase.completed', 'run.summary'],
+  );
+  assert.equal(summaryEvent.status, 'accepted');
+  assert.equal(summaryEvent.summary, 'PRD issue #34 is closed.');
+  assert.equal(summaryEvent.contextUsage, null);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete emits failed jsonl event streams for unexpected runtime errors', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-failed-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    env: {
+      PULLOPS_CONTEXT_USED_TOKENS: '12',
+      PULLOPS_CONTEXT_LIMIT_TOKENS: '40',
+    },
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient({
+      async hasChanges() {
+        throw new Error('git exploded');
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'phase.started', 'run.summary'],
+  );
+  assert.equal(events[0].runId, summaryEvent.runId);
+  assert.equal(events[0].operationLabelReference, 'prd:auto-complete');
+  assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
+  assert.equal(events[1].phase, 'child-coordination');
+  assert.equal(events[1].message, 'Coordinating child issues for issue #123.');
+  assert.equal(summaryEvent.status, 'failed');
+  assert.equal(summaryEvent.summary, 'Local PRD auto-complete for issue #123 failed unexpectedly.');
+  assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
+  assert.equal(summaryEvent.failureReason, 'git exploded');
+  assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
+  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'failed');
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /git exploded/);
+});
+
+test('run prd:auto-complete emits failed jsonl summaries when summary validation fails after the runner returns', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-invalid-summary-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      await context.progressEventWriter?.emit('run.started', {
+        phase: 'run',
+        message: 'Starting local PRD auto-complete for issue #123.',
+      });
+      return {
+        status: 'accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+  assert.equal(runnerCalls.length, 1);
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.started', 'run.summary'],
+  );
+  assert.equal(summaryEvent.status, 'failed');
+  assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
+  assert.match(summaryEvent.failureReason, /Invalid Operation Output/);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+});
+
+test('run prd:auto-complete falls back to a preallocated jsonl run record without overwriting older runs', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-truncated-events-'));
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const staleRunRecord = join(
+    cwd,
+    '.pullops',
+    'runs',
+    '2026-06-20T000000000Z-prd-auto-complete-123',
+  );
+  await mkdir(staleRunRecord, { recursive: true });
+  await writeFile(join(staleRunRecord, 'events.jsonl'), '{"event":"stale"}\n');
+  await writeFile(join(staleRunRecord, 'result.json'), '{"status":"accepted"}\n');
+
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stderr,
+    operationRunner: async () => {
+      throw new Error('runner exploded before run record creation');
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text, '');
+
+  const events = stdout.text
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  const summaryEvent = events.at(-1);
+
+  assert.deepEqual(
+    events.map(event => event.event),
+    ['run.summary'],
+  );
+  assert.equal(summaryEvent.status, 'failed');
+  assert.match(summaryEvent.failureReason, /runner exploded before run record creation/);
+
+  const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
+  const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
+  assert.equal(eventsJsonl, stdout.text);
+  const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
+  assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  assert.equal(await readFile(join(staleRunRecord, 'events.jsonl'), 'utf8'), '{"event":"stale"}\n');
+  assert.equal(
+    await readFile(join(staleRunRecord, 'result.json'), 'utf8'),
+    '{"status":"accepted"}\n',
+  );
+});
+
+test('run prd:auto-advance rejects jsonl event streams', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({ stderr });
+
+  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--events', 'jsonl']);
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /only supported for local prd:auto-complete/);
+});
+
 test('run local pull request operation references through the matching workflow operation', async () => {
   const cases = [
     ['pr:review', 'pr-review'],
@@ -1123,6 +2125,139 @@ function createFakeGitHubClient(overrides = {}) {
     },
     async resolvePullRequestReviewThread() {
       throw new Error('resolvePullRequestReviewThread was not expected in this test.');
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<string>}
+ */
+async function bindProgressEventWriter(context) {
+  const runRecord = String(context.localRunRecordDirectory);
+  await mkdir(runRecord, { recursive: true });
+  await context.progressEventWriter?.bindLocalRunRecord(runRecord);
+  return runRecord;
+}
+
+/**
+ * @param {string} stdoutText
+ * @param {'accepted' | 'blocked' | 'refused' | 'failed'} fixtureName
+ * @returns {Promise<void>}
+ */
+async function assertPrdAutoCompleteEventStreamFixture(stdoutText, fixtureName) {
+  assertStdoutIsPureJsonl(stdoutText);
+  const fixture = await readFile(
+    new URL(`./__fixtures__/prd-auto-complete-events/${fixtureName}.jsonl`, import.meta.url),
+    'utf8',
+  );
+  assert.equal(normalizePrdAutoCompleteEventStream(stdoutText), fixture);
+}
+
+/**
+ * @param {string} stdoutText
+ * @returns {void}
+ */
+function assertStdoutIsPureJsonl(stdoutText) {
+  assert.doesNotMatch(stdoutText, /\[pullops\]|git:|runner:/);
+  for (const line of stdoutText.trimEnd().split('\n')) {
+    assert.doesNotMatch(line, /^\s/);
+    JSON.parse(line);
+  }
+}
+
+/**
+ * @param {string} stdoutText
+ * @returns {string}
+ */
+function normalizePrdAutoCompleteEventStream(stdoutText) {
+  const normalizedLines = stdoutText
+    .trimEnd()
+    .split('\n')
+    .map(line => JSON.stringify(normalizeDynamicEventValues(JSON.parse(line))));
+  return `${normalizedLines.join('\n')}\n`;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function normalizeDynamicEventValues(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeDynamicEventValues);
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+
+  const record = /** @type {Record<string, unknown>} */ (value);
+  for (const [key, childValue] of Object.entries(record)) {
+    if (key === 'runId') {
+      record[key] = '<RUN_ID>';
+      continue;
+    }
+
+    if (key === 'at' || key === 'startedAt' || key === 'finishedAt') {
+      record[key] = '<TIMESTAMP>';
+      continue;
+    }
+
+    if (key === 'durationMs') {
+      record[key] = '<DURATION_MS>';
+      continue;
+    }
+
+    if (key === 'localRunRecord') {
+      record[key] = '<LOCAL_RUN_RECORD>';
+      continue;
+    }
+
+    record[key] = normalizeDynamicEventValues(childValue);
+  }
+
+  return record;
+}
+
+/**
+ * @param {Partial<GitClient>} [overrides]
+ * @returns {GitClient}
+ */
+function createFakeGitClient(overrides = {}) {
+  return {
+    async createBranch() {
+      throw new Error('createBranch was not expected in this test.');
+    },
+    async hasChanges() {
+      return false;
+    },
+    async commitAll() {
+      throw new Error('commitAll was not expected in this test.');
+    },
+    async commitEmpty() {
+      throw new Error('commitEmpty was not expected in this test.');
+    },
+    async pushBranch() {
+      throw new Error('pushBranch was not expected in this test.');
+    },
+    async rebaseBranchOntoBase() {
+      throw new Error('rebaseBranchOntoBase was not expected in this test.');
+    },
+    async pushBranchWithLease() {
+      throw new Error('pushBranchWithLease was not expected in this test.');
+    },
+    async getCurrentHeadSha() {
+      throw new Error('getCurrentHeadSha was not expected in this test.');
+    },
+    async getCurrentTreeHash() {
+      throw new Error('getCurrentTreeHash was not expected in this test.');
+    },
+    async getChangedFilesSinceBase() {
+      throw new Error('getChangedFilesSinceBase was not expected in this test.');
+    },
+    async rewriteBranchWithCommitPlan() {
+      throw new Error('rewriteBranchWithCommitPlan was not expected in this test.');
     },
     ...overrides,
   };
