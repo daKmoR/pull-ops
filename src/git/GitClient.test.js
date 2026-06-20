@@ -288,7 +288,10 @@ describe('createGitClient', () => {
   it('08: fetches local dry-run refs and checks out existing or new PullOps branches', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set(['refs/remotes/origin/pullops/issue-15']);
+    const refs = new Set([
+      'refs/heads/pullops/issue-15',
+      'refs/remotes/origin/pullops/issue-15',
+    ]);
     const gitClient = createGitClient({
       env: {},
       execFile: async (file, args) => {
@@ -343,6 +346,10 @@ describe('createGitClient', () => {
         isGitCall(call, ['checkout', '-B', 'pullops/issue-15', 'origin/pullops/issue-15']),
       ),
       true,
+    );
+    assert.equal(
+      calls.some(call => isGitCall(call, ['checkout', 'pullops/issue-15'])),
+      false,
     );
     assert.equal(
       calls.some(call => isGitCall(call, ['checkout', '-B', 'pullops/issue-16', 'origin/main'])),
@@ -606,7 +613,7 @@ describe('createGitClient', () => {
     );
   });
 
-  it('17: leaves conflicted cherry-picks inspectable on the target branch', async () => {
+  it('17: aborts conflicted cherry-picks after recording conflicted files', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const gitClient = createGitClient({
@@ -619,7 +626,10 @@ describe('createGitClient', () => {
           throw error;
         }
 
-        if (args[0] === 'cherry-pick' || args.includes('cherry-pick')) {
+        if (
+          (args[0] === 'cherry-pick' || args.includes('cherry-pick')) &&
+          args.includes('finalized-head')
+        ) {
           const error = new Error('conflict');
           Object.assign(error, { code: 1 });
           throw error;
@@ -653,7 +663,7 @@ describe('createGitClient', () => {
     );
     assert.equal(
       calls.some(call => isGitCall(call, ['cherry-pick', '--abort'])),
-      false,
+      true,
     );
   });
 

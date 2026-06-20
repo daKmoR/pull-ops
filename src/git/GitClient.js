@@ -99,17 +99,17 @@ export function createGitClient({
      * @returns {Promise<void>}
      */
     async checkoutPullOpsBranch({ branchName, baseBranch }) {
-      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
-        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
-        return;
-      }
-
       if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
         await runGit(
           execFile,
           ['checkout', '-B', branchName, `origin/${branchName}`],
           `check out branch ${branchName}`,
         );
+        return;
+      }
+
+      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
         return;
       }
 
@@ -456,14 +456,14 @@ export function createGitClient({
       await runGit(execFile, ['fetch', 'origin', baseBranch], 'fetch the base branch');
       await fetchRemoteBranch(execFile, branchName, { optional: true });
 
-      if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
-        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
-      } else if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
+      if (await gitRefExists(execFile, `refs/remotes/origin/${branchName}`)) {
         await runGit(
           execFile,
           ['checkout', '-B', branchName, `origin/${branchName}`],
           `check out branch ${branchName}`,
         );
+      } else if (await gitRefExists(execFile, `refs/heads/${branchName}`)) {
+        await runGit(execFile, ['checkout', branchName], `check out branch ${branchName}`);
       } else {
         await runGit(
           execFile,
@@ -483,6 +483,12 @@ export function createGitClient({
         if (conflictedFiles.length === 0) {
           throw error;
         }
+
+        await runGit(
+          execFile,
+          ['cherry-pick', '--abort'],
+          `abort conflicted cherry-pick ${commitSha} onto ${branchName}`,
+        );
 
         return {
           status: 'conflicts',
