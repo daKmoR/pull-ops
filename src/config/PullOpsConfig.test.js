@@ -29,6 +29,12 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
+  assert.equal(config.operations.prReview.modelTier, 'high');
+  assert.equal(config.operations.prReview.escalationModelTier, 'high');
+  assert.equal(config.operations.prReview.humanFeedbackResponseModelTier, 'high');
+  assert.equal(config.operations.prAddressReview.modelTier, 'mid');
+  assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
+  assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'high');
 });
 
 test('loadPullOpsConfig loads JavaScript config and merges with defaults', async () => {
@@ -49,7 +55,16 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
           },
         },
         operations: {
-          prReview: { modelTier: 'low' },
+          prReview: {
+            modelTier: 'low',
+            escalationModelTier: 'mid',
+            humanFeedbackResponseModelTier: 'high',
+          },
+          prAddressReview: {
+            modelTier: 'mid',
+            escalationModelTier: 'high',
+            humanFeedbackResponseModelTier: 'low',
+          },
           prResolveConflicts: { maxConflictResolutionPasses: 5 },
           prFinalize: { aiHistoryCleanup: false },
         },
@@ -69,6 +84,11 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
     low: 'model-low',
   });
   assert.equal(config.operations.prReview.modelTier, 'low');
+  assert.equal(config.operations.prReview.escalationModelTier, 'mid');
+  assert.equal(config.operations.prReview.humanFeedbackResponseModelTier, 'high');
+  assert.equal(config.operations.prAddressReview.modelTier, 'mid');
+  assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
+  assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'low');
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 5);
   assert.equal(config.operations.prFinalize.modelTier, 'high');
@@ -133,6 +153,46 @@ test('loadPullOpsConfig rejects unknown operation model tiers', async () => {
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
     /operations\.prReview\.modelTier must be one of: high, mid, low/,
+  );
+});
+
+test('loadPullOpsConfig rejects invalid pr-review escalation model tiers', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-invalid-pr-review-escalation-tier-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          prReview: { escalationModelTier: 'tiny' },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations\.prReview\.escalationModelTier must be one of: high, mid, low/,
+  );
+});
+
+test('loadPullOpsConfig rejects invalid pr-address-review human feedback response model tiers', async () => {
+  const cwd = await mkdtemp(
+    join(tmpdir(), 'pullops-config-invalid-pr-address-review-human-feedback-tier-'),
+  );
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          prAddressReview: { humanFeedbackResponseModelTier: 'tiny' },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations\.prAddressReview\.humanFeedbackResponseModelTier must be one of: high, mid, low/,
   );
 });
 

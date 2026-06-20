@@ -37,8 +37,16 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     issueImplement: { modelTier: 'high' },
     prdAutoAdvance: { modelTier: 'low' },
     prdAutoComplete: { modelTier: 'low' },
-    prReview: { modelTier: 'high' },
-    prAddressReview: { modelTier: 'mid' },
+    prReview: {
+      modelTier: 'high',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'high',
+    },
+    prAddressReview: {
+      modelTier: 'mid',
+      escalationModelTier: 'high',
+      humanFeedbackResponseModelTier: 'high',
+    },
     prFixCi: { modelTier: 'mid' },
     prUpdateBranch: { modelTier: 'low' },
     prResolveConflicts: { modelTier: 'high', maxConflictResolutionPasses: 3 },
@@ -204,6 +212,32 @@ function validateOperationOverrides(userConfig) {
         `PullOps Config operations.${operation}.modelTier must be one of: ${MODEL_TIERS.join(
           ', ',
         )}. Received ${JSON.stringify(modelTier)}.`,
+      );
+    }
+
+    if (
+      (operation === 'prReview' || operation === 'prAddressReview') &&
+      settings.escalationModelTier !== undefined &&
+      (typeof settings.escalationModelTier !== 'string' ||
+        !MODEL_TIERS.includes(/** @type {ModelTier} */ (settings.escalationModelTier)))
+    ) {
+      throw new PullOpsConfigError(
+        `PullOps Config operations.${operation}.escalationModelTier must be one of: ${MODEL_TIERS.join(
+          ', ',
+        )}. Received ${JSON.stringify(settings.escalationModelTier)}.`,
+      );
+    }
+
+    if (
+      (operation === 'prReview' || operation === 'prAddressReview') &&
+      settings.humanFeedbackResponseModelTier !== undefined &&
+      (typeof settings.humanFeedbackResponseModelTier !== 'string' ||
+        !MODEL_TIERS.includes(/** @type {ModelTier} */ (settings.humanFeedbackResponseModelTier)))
+    ) {
+      throw new PullOpsConfigError(
+        `PullOps Config operations.${operation}.humanFeedbackResponseModelTier must be one of: ${MODEL_TIERS.join(
+          ', ',
+        )}. Received ${JSON.stringify(settings.humanFeedbackResponseModelTier)}.`,
       );
     }
 
