@@ -637,6 +637,61 @@ describe('createGitHubClient', () => {
       /GITHUB_REPOSITORY must be set to "OWNER\/REPO", or remote\.origin\.url must point at a GitHub repository\./,
     );
   });
+
+  it('17: creates GitHub issues with labels and reports API failures with issue context', async () => {
+    const { calls, octokit } = createFakeOctokit();
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.createIssue === undefined) {
+      throw new Error('Expected createIssue to be available.');
+    }
+    const issue = await client.createIssue({
+      title: 'Follow up on a non-blocking concern.',
+      body: 'Source PR: #100\nSource issue: #42',
+      labels: ['needs-triage'],
+    });
+
+    assert.deepEqual(issue, {
+      number: 200,
+      title: 'Follow up on a non-blocking concern.',
+      body: 'Source PR: #100\nSource issue: #42',
+      state: 'OPEN',
+      url: 'https://github.com/acme/widgets/issues/200',
+      authorLogin: 'octocat',
+      labels: ['needs-triage'],
+      parent: null,
+      subIssues: [],
+    });
+    assert.deepEqual(calls[0], {
+      name: 'issues.create',
+      params: {
+        ...TEST_REPOSITORY,
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+        labels: ['needs-triage'],
+      },
+    });
+
+    const failingOctokit = createFakeOctokit({
+      failOn: call => call.name === 'issues.create',
+    }).octokit;
+    const failingClient = createGitHubClient({
+      octokit: failingOctokit,
+      repository: TEST_REPOSITORY,
+    });
+
+    if (failingClient.createIssue === undefined) {
+      throw new Error('Expected createIssue to be available.');
+    }
+    await assert.rejects(
+      failingClient.createIssue({
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+        labels: ['needs-triage'],
+      }),
+      /Failed to create GitHub issue "Follow up on a non-blocking concern\.": GitHub refused the label change\./,
+    );
+  });
 });
 
 const TEST_REPOSITORY = {
@@ -784,6 +839,19 @@ function createFakeOctokit({
       },
       issues: {
         addLabels: endpoint('issues.addLabels', () => ({})),
+        create: endpoint('issues.create', params => ({
+          number: 200,
+          title: requireStringParam(params.title),
+          body: requireStringParam(params.body),
+          state: 'open',
+          html_url: 'https://github.com/acme/widgets/issues/200',
+          user: {
+            login: 'octocat',
+          },
+          labels: Array.isArray(params.labels)
+            ? params.labels.map(label => ({ name: requireStringParam(label) }))
+            : [],
+        })),
         createComment: endpoint('issues.createComment', () => ({})),
         createLabel: endpoint('issues.createLabel', () => ({})),
         listLabelsForRepo: endpoint('issues.listLabelsForRepo', () => labels),
@@ -858,6 +926,7 @@ function createFakeOctokit({
  * @param {number} [options.number]
  * @param {string} [options.title]
  * @param {string} [options.body]
+ * @param {string[]} [options.labels]
  * @param {Record<string, unknown> | null} [options.parent]
  * @param {Record<string, unknown>} [options.subIssues]
  * @returns {Record<string, unknown>}
@@ -866,6 +935,7 @@ function createIssue({
   number = 1,
   title = 'PRD',
   body = '## What to build\n\nShip the workflow kit.',
+  labels = [],
   parent = null,
   subIssues = {
     totalCount: 0,
@@ -882,7 +952,7 @@ function createIssue({
       login: 'maintainer',
     },
     labels: {
-      nodes: [],
+      nodes: labels.map(name => ({ name })),
     },
     parent,
     subIssues,

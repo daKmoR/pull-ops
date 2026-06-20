@@ -9,23 +9,48 @@ import { buildPrFixCiPrompt } from './pr-fix-ci/prompt.js';
 import { buildPrResolveConflictsPrompt } from './pr-resolve-conflicts/prompt.js';
 import { buildPrReviewPrompt } from './pr-review/prompt.js';
 
+/**
+ * @typedef {import('../git/types.js').GitCommit} GitCommit
+ * @typedef {import('../git/types.js').GitConflictContext} GitConflictContext
+ * @typedef {import('../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('../github/types.js').GitHubIssueReference} GitHubIssueReference
+ * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
+ * @typedef {import('../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
+ * @typedef {import('./pr-address-review/feedback.types.js').PrAddressReviewFeedbackItem} PrAddressReviewFeedbackItem
+ * @typedef {import('./pr-fix-ci/classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ */
+
+/** @type {GitHubIssue} */
 const issue = {
   number: 42,
   title: 'Implement parser',
   body: 'Issue body.',
+  state: 'OPEN',
+  url: 'https://github.com/acme/widgets/issues/42',
+  authorLogin: 'maintainer',
+  labels: [],
   parent: {
     number: 7,
     title: 'Parent issue',
+    url: 'https://github.com/acme/widgets/issues/7',
+    state: 'OPEN',
+    relationshipSource: 'native',
   },
+  subIssues: [],
 };
 
+/** @type {GitHubPullRequest} */
 const pullRequest = {
   number: 11,
   title: 'Implement parser',
+  url: 'https://github.com/acme/widgets/pull/11',
   body: 'Pull request body.',
   headRefName: 'pullops/issue-42',
+  isDraft: false,
 };
 
+/** @type {GitHubPullRequestReviewContext} */
 const reviewContext = {
   files: [{ path: 'src/example.js', additions: 1, deletions: 0 }],
   comments: [],
@@ -33,10 +58,74 @@ const reviewContext = {
   unresolvedThreads: [],
 };
 
+/** @type {GitHubPullRequestDiff} */
 const diff = {
   patch: 'diff --git a/src/example.js b/src/example.js\n+change',
 };
 
+/** @type {PrAddressReviewFeedbackItem[]} */
+const feedbackItems = [
+  {
+    id: 'thread:123456789',
+    surface: 'unresolved_inline_thread',
+    authorLogin: 'reviewer',
+    location: 'src/example.js:42',
+    body: 'Please change this.',
+  },
+];
+
+/** @type {ClassifiedCheckFailure[]} */
+const checkFailures = [
+  {
+    id: 'check-1',
+    checkName: 'lint',
+    classification: 'lint',
+    actionable: true,
+    reason: 'ESLint reported an unused variable.',
+  },
+];
+
+/** @type {GitConflictContext} */
+const conflictContext = {
+  branchName: 'pullops/issue-42',
+  baseBranch: 'main',
+  currentHeadSha: 'abc123',
+  conflictedFiles: [
+    {
+      path: 'src/example.js',
+      content: '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch',
+      baseContent: 'base',
+      oursContent: 'ours',
+      theirsContent: 'theirs',
+      exists: true,
+    },
+  ],
+};
+
+/** @type {GitHubIssueReference[]} */
+const closedChildIssues = [
+  {
+    number: 42,
+    title: 'Implement parser',
+    relationshipSource: 'native',
+  },
+];
+
+/** @type {GitCommit[]} */
+const commits = [
+  {
+    sha: 'abc123',
+    subject: 'feat(issue): implement #42',
+    body: 'Refs: #42',
+    files: ['src/example.js'],
+  },
+];
+
+/**
+ * @typedef {{ skillName: string, prompt: string }} SkillPromptExample
+ */
+
+/** @type {SkillPromptExample[]} */
 const examples = [
   {
     skillName: 'pullops-issue-implement',
@@ -53,15 +142,7 @@ const examples = [
       issue,
       reviewContext,
       diff,
-      feedbackItems: [
-        {
-          id: 'thread:123456789',
-          surface: 'unresolved_inline_thread',
-          authorLogin: 'reviewer',
-          location: 'src/example.js:42',
-          body: 'Please change this.',
-        },
-      ],
+      feedbackItems,
     }),
   },
   {
@@ -71,15 +152,7 @@ const examples = [
       issue,
       reviewContext,
       diff,
-      checkFailures: [
-        {
-          id: 'check-1',
-          checkName: 'lint',
-          classification: 'lint',
-          actionable: true,
-          reason: 'ESLint reported an unused variable.',
-        },
-      ],
+      checkFailures,
     }),
   },
   {
@@ -87,20 +160,7 @@ const examples = [
     prompt: buildPrResolveConflictsPrompt({
       pullRequest,
       issue,
-      conflictContext: {
-        branchName: 'pullops/issue-42',
-        baseBranch: 'main',
-        currentHeadSha: 'abc123',
-        conflictedFiles: [
-          {
-            path: 'src/example.js',
-            content: '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch',
-            baseContent: 'base',
-            oursContent: 'ours',
-            theirsContent: 'theirs',
-          },
-        ],
-      },
+      conflictContext,
       pass: 1,
       maxPasses: 3,
     }),
@@ -110,16 +170,9 @@ const examples = [
     prompt: buildPrFinalizePrompt({
       pullRequest,
       parentIssue: issue,
-      closedChildIssues: [{ number: 42, title: 'Implement parser' }],
+      closedChildIssues,
       ambiguousReason: 'Files cannot be grouped deterministically.',
-      commits: [
-        {
-          sha: 'abc123',
-          subject: 'feat(issue): implement #42',
-          body: 'Refs: #42',
-          files: ['src/example.js'],
-        },
-      ],
+      commits,
       reviewContext,
       changedFiles: ['src/example.js', 'src/example.test.js'],
     }),
@@ -144,8 +197,10 @@ describe('PullOps skill contracts', () => {
 
   it('keeps PR Finalize Child Issue commit examples traceable to the parent PRD', async () => {
     const [skillCompleted] = await readSkillExamples('pullops-pr-finalize');
+    const finalizeExample = examples.find(example => example.skillName === 'pullops-pr-finalize');
+    assert.ok(finalizeExample);
     const promptCompleted = extractJsonAfter(
-      examples.find(example => example.skillName === 'pullops-pr-finalize').prompt,
+      finalizeExample.prompt,
       'Final response must be only JSON',
     );
 
@@ -154,6 +209,10 @@ describe('PullOps skill contracts', () => {
   });
 });
 
+/**
+ * @param {string} skillName
+ * @returns {Promise<[any, any]>}
+ */
 async function readSkillExamples(skillName) {
   const skillText = await readFile(
     new URL(`../../.agents/skills/${skillName}/SKILL.md`, import.meta.url),
@@ -164,9 +223,14 @@ async function readSkillExamples(skillName) {
   );
 
   assert.equal(examples.length, 2);
-  return examples;
+  return /** @type {[any, any]} */ (examples);
 }
 
+/**
+ * @param {string} text
+ * @param {string} marker
+ * @returns {any}
+ */
 function extractJsonAfter(text, marker) {
   const markerIndex = text.indexOf(marker);
   assert.notEqual(markerIndex, -1);
@@ -177,6 +241,11 @@ function extractJsonAfter(text, marker) {
   return JSON.parse(text.slice(start, findJsonEnd(text, start) + 1));
 }
 
+/**
+ * @param {string} text
+ * @param {number} start
+ * @returns {number}
+ */
 function findJsonEnd(text, start) {
   let depth = 0;
   let inString = false;
@@ -211,22 +280,31 @@ function findJsonEnd(text, start) {
   throw new Error('Could not find end of JSON example.');
 }
 
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
 function exampleShape(value) {
   if (Array.isArray(value)) {
     return value.length === 0 ? [] : [exampleShape(value[0])];
   }
 
   if (value !== null && typeof value === 'object') {
+    const objectValue = /** @type {Record<string, unknown>} */ (value);
     return Object.fromEntries(
-      Object.keys(value)
+      Object.keys(objectValue)
         .sort()
-        .map(key => [key, exampleShape(value[key])]),
+        .map(key => [key, exampleShape(objectValue[key])]),
     );
   }
 
   return typeof value;
 }
 
+/**
+ * @param {string[]} footers
+ * @returns {boolean}
+ */
 function hasPrdFooter(footers) {
   return footers.some(footer => footer.startsWith('PRD: #'));
 }
