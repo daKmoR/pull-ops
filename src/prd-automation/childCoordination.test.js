@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
 import {
   closeMergedChildIssuePullRequest,
+  coordinateLocalPrdAutoComplete,
   coordinatePrdAutomation,
   readBlockingDependencies,
   readIssueWorkTarget,
@@ -148,7 +152,103 @@ describe('PRD Child Coordination', () => {
     );
   });
 
-  it('03: close-child requests Umbrella PR review even without an active automation mode', async () => {
+  it('03: local auto-complete keeps validating after three addressed Umbrella PR reviews', async () => {
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [
+        {
+          ...issueReference(34),
+          state: 'CLOSED',
+        },
+      ],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, state: 'CLOSED', parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: changesRequestedParentPullRequestBody(12),
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    git.client.hasChanges = async () => false;
+    git.client.fetchRemoteRefs = async () => {};
+    git.client.checkoutPullOpsBranch = async () => {};
+    /** @type {Array<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+    const operations = [];
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-parent-review-loop-'));
+
+    const result = await coordinateLocalPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+      }),
+      {
+        parentIssueNumber: 12,
+        async runChildIssue() {
+          throw new Error('runChildIssue was not expected in this test.');
+        },
+        async runParentPullRequestOperation(request) {
+          operations.push(request.operation);
+
+          if (request.operation === 'pr-review') {
+            const reviewCount = operations.filter(operation => operation === 'pr-review').length;
+            return reviewCount < 4
+              ? {
+                  status: 'accepted',
+                  summary: 'Requested changes.',
+                  reviewResult: 'changes_requested',
+                }
+              : {
+                  status: 'accepted',
+                  summary: 'Approved.',
+                  reviewResult: 'approved',
+                };
+          }
+
+          if (request.operation === 'pr-address-review') {
+            return {
+              status: 'accepted',
+              summary: 'Addressed feedback.',
+            };
+          }
+
+          if (request.operation === 'pr-finalize') {
+            return {
+              status: 'accepted',
+              summary: 'Finalized.',
+            };
+          }
+
+          throw new Error(`Unexpected parent PR operation ${request.operation}.`);
+        },
+      },
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.parentPullRequest?.status, 'finalized');
+    assert.deepEqual(operations, [
+      'pr-address-review',
+      'pr-review',
+      'pr-address-review',
+      'pr-review',
+      'pr-address-review',
+      'pr-review',
+      'pr-address-review',
+      'pr-review',
+      'pr-finalize',
+    ]);
+  });
+
+  it('04: close-child requests Umbrella PR review even without an active automation mode', async () => {
     const childIssue = createIssue({
       number: 42,
       state: 'CLOSED',
@@ -205,7 +305,7 @@ describe('PRD Child Coordination', () => {
     ]);
   });
 
-  it('04: reads Child Issue work targets from native parent identity and body dependencies', async () => {
+  it('05: reads Child Issue work targets from native parent identity and body dependencies', async () => {
     const github = createFakeGitHub({
       issues: [
         createIssue({
@@ -423,6 +523,27 @@ function parentPullRequestBody(issueNumber) {
     '',
     `Source: Parent Issue #${issueNumber}`,
     'Last operation: pullops:prd:prepare',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {number} issueNumber
+ * @returns {string}
+ */
+function changesRequestedParentPullRequestBody(issueNumber) {
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Changes requested',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Source: Parent Issue #${issueNumber}`,
+    'Last operation: pullops:pr:review',
     '',
     '</details>',
   ].join('\n');

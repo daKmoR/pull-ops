@@ -50,6 +50,10 @@ const ACTIVE_CHILD_ISSUE_LABELS = new Set([PULL_OPS_OPERATION_LABELS.issueImplem
 /** @type {ReadonlySet<string>} */
 const STALE_STATUS_LABELS = new Set(PULL_OPS_STALE_STATUS_LABEL_NAMES);
 
+// Runaway guard only. Managed PR review/address-review budgets are enforced by
+// the PR operations through the managed PR state stored in the pull request body.
+const MAX_PUBLISHED_UMBRELLA_PARENT_OPERATION_STEPS = 25;
+
 /**
  * @param {OperationRunnerContext} context
  * @param {{ parentIssueNumber: number, mode: PrdAutomationMode }} options
@@ -2286,20 +2290,40 @@ async function completePublishedLocalUmbrellaPullRequest(
     };
   }
 
+  const parentPullRequestNumber = pullRequestNumber;
+  const parentPullRequestOperationRunner = runParentPullRequestOperation;
   /** @type {Record<string, unknown> | undefined} */
   let review;
   /** @type {Record<string, unknown>[]} */
   const addressReviews = [];
   /** @type {string[]} */
   const localRunRecords = [];
+  let parentOperationSteps = 0;
+
+  /**
+   * @param {PullRequestOperationName} operation
+   * @returns {Promise<Record<string, unknown>>}
+   */
+  async function runTrackedParentPullRequestOperation(operation) {
+    if (parentOperationSteps >= MAX_PUBLISHED_UMBRELLA_PARENT_OPERATION_STEPS) {
+      return {
+        status: 'blocked',
+        summary: `Umbrella PR parent operation loop budget was exhausted for PR #${parentPullRequestNumber}.`,
+      };
+    }
+
+    parentOperationSteps += 1;
+    const output = await parentPullRequestOperationRunner({
+      pullRequestNumber: parentPullRequestNumber,
+      operation,
+    });
+    recordParentOperationRunRecord(localRunRecords, output);
+    return output;
+  }
 
   if (inspected.status === 'ready-for-address-review') {
-    const addressReview = await runParentPullRequestOperation({
-      pullRequestNumber,
-      operation: 'pr-address-review',
-    });
+    const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
     addressReviews.push(addressReview);
-    recordParentOperationRunRecord(localRunRecords, addressReview);
     if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
       return completeBlockedPublishedUmbrellaPullRequest(inspected, {
         review,
@@ -2314,12 +2338,8 @@ async function completePublishedLocalUmbrellaPullRequest(
   }
 
   if (inspected.status !== 'ready-for-finalize') {
-    for (let reviewCycle = 0; reviewCycle < 3; reviewCycle += 1) {
-      review = await runParentPullRequestOperation({
-        pullRequestNumber,
-        operation: 'pr-review',
-      });
-      recordParentOperationRunRecord(localRunRecords, review);
+    while (review?.reviewResult !== 'approved') {
+      review = await runTrackedParentPullRequestOperation('pr-review');
       if (review.status === 'blocked' || review.status === 'refused') {
         return completeBlockedPublishedUmbrellaPullRequest(inspected, {
           review,
@@ -2344,12 +2364,8 @@ async function completePublishedLocalUmbrellaPullRequest(
         });
       }
 
-      const addressReview = await runParentPullRequestOperation({
-        pullRequestNumber,
-        operation: 'pr-address-review',
-      });
+      const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
       addressReviews.push(addressReview);
-      recordParentOperationRunRecord(localRunRecords, addressReview);
       if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
         return completeBlockedPublishedUmbrellaPullRequest(inspected, {
           review,
@@ -2369,15 +2385,11 @@ async function completePublishedLocalUmbrellaPullRequest(
       review,
       addressReviews,
       localRunRecords,
-      summary: `Umbrella PR review cycle budget was exhausted for PR #${pullRequestNumber}.`,
+      summary: `Umbrella PR parent operation loop budget was exhausted for PR #${pullRequestNumber}.`,
     });
   }
 
-  const finalize = await runParentPullRequestOperation({
-    pullRequestNumber,
-    operation: 'pr-finalize',
-  });
-  recordParentOperationRunRecord(localRunRecords, finalize);
+  const finalize = await runTrackedParentPullRequestOperation('pr-finalize');
 
   if (finalize.status === 'blocked' || finalize.status === 'refused') {
     return completeBlockedPublishedUmbrellaPullRequest(inspected, {
