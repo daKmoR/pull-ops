@@ -4,6 +4,7 @@ import { validateOperationOutput } from '../../operation-output/OperationOutput.
  * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
  * @typedef {import('./output.types.js').ReviewInlineComment} ReviewInlineComment
  * @typedef {import('./output.types.js').ReviewReply} ReviewReply
+ * @typedef {import('./output.types.js').ReviewFollowUpIssueProposal} ReviewFollowUpIssueProposal
  * @typedef {import('./output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
  * @typedef {import('./output.types.js').BlockedPrReviewOutput} BlockedPrReviewOutput
  * @typedef {import('./output.types.js').PrReviewOutput} PrReviewOutput
@@ -71,6 +72,14 @@ export function validatePrReviewOutput(input) {
     return directChanges;
   }
 
+  const reviewFollowUpIssues = readReviewFollowUpIssues(
+    result.value.reviewFollowUpIssues,
+    'Operation Output.reviewFollowUpIssues',
+  );
+  if (!reviewFollowUpIssues.valid) {
+    return reviewFollowUpIssues;
+  }
+
   const followUps = readOptionalStringArray(result.value.followUps, 'Operation Output.followUps');
   if (!followUps.valid) {
     return followUps;
@@ -84,9 +93,50 @@ export function validatePrReviewOutput(input) {
       comments: comments.value,
       replies: replies.value,
       directChanges: directChanges.value,
+      reviewFollowUpIssues: reviewFollowUpIssues.value,
       followUps: followUps.value,
     },
   };
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {{ valid: true, value: ReviewFollowUpIssueProposal[] } | { valid: false, reason: string }}
+ */
+function readReviewFollowUpIssues(value, path) {
+  if (value === undefined) {
+    return { valid: true, value: [] };
+  }
+
+  if (!Array.isArray(value)) {
+    return invalid(`${path} must be an array.`);
+  }
+
+  /** @type {ReviewFollowUpIssueProposal[]} */
+  const proposals = [];
+  for (const [index, item] of value.entries()) {
+    if (!isPlainObject(item)) {
+      return invalid(`${path}[${index}] must be an object.`);
+    }
+
+    const title = readNonEmptyString(item.title, `${path}[${index}].title`);
+    if (!title.valid) {
+      return title;
+    }
+
+    const body = readNonEmptyString(item.body, `${path}[${index}].body`);
+    if (!body.valid) {
+      return body;
+    }
+
+    proposals.push({
+      title: title.value,
+      body: body.value,
+    });
+  }
+
+  return { valid: true, value: proposals };
 }
 
 /**

@@ -22,6 +22,7 @@ import { runPrAddressReview } from '../pr-address-review/run.js';
  * @typedef {import('../../github/types.js').PublishPullRequestReviewOptions} PublishPullRequestReviewOptions
  * @typedef {import('../../github/types.js').ReplyToPullRequestReviewCommentOptions} ReplyToPullRequestReviewCommentOptions
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
+ * @typedef {import('../../github/types.js').CreateIssueOptions} CreateIssueOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
@@ -986,8 +987,188 @@ describe('runPrReview', () => {
     assert.equal(result.model, 'gpt-special-mid');
     assert.equal(codex.calls[0].model, 'gpt-special-mid');
     assert.match(github.updatedBodies[0].body, /Human feedback response cycles: 2/);
-    assert.match(github.updatedBodies[0].body, /Processed human feedback review ids: review-111, review-222/);
+    assert.match(
+      github.updatedBodies[0].body,
+      /Processed human feedback review ids: review-111, review-222/,
+    );
     assert.match(github.updatedBodies[0].body, /Pending human feedback review id: none/);
+  });
+
+  it('19: creates labeled review follow-up issues for an approved escalation review and records their numbers before finalize', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the escalation review.',
+        comments: [],
+        replies: [],
+        directChanges: [],
+        reviewFollowUpIssues: [
+          {
+            title: 'Capture a later cleanup task.',
+            body: 'Standalone follow-up issue body.',
+          },
+          {
+            title: 'Document a remaining edge case.',
+            body: 'Second follow-up issue body.',
+          },
+        ],
+        followUps: ['Audit-only note that should not create an issue.'],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.reviewMode, 'escalation');
+    assert.equal(github.createdIssueInputs.length, 2);
+    assert.deepEqual(
+      github.createdIssueInputs.map(issue => issue.labels),
+      [['needs-triage'], ['needs-triage']],
+    );
+    assert.deepEqual(
+      github.createdIssueInputs.map(issue => issue.title),
+      ['Capture a later cleanup task.', 'Document a remaining edge case.'],
+    );
+    assert.match(github.createdIssueInputs[0].body, /Source PR: #100/);
+    assert.match(github.createdIssueInputs[0].body, /Source issue: #42/);
+    assert.match(github.createdIssueInputs[0].body, /Standalone follow-up issue body\./);
+    assert.match(github.createdIssueInputs[1].body, /Second follow-up issue body\./);
+    assert.deepEqual(
+      github.createdIssues.map(issue => issue.number),
+      [501, 502],
+    );
+    assert.ok(
+      github.updatedBodies.some(update =>
+        update.body.includes('Review follow-up issue numbers: #501, #502'),
+      ),
+    );
+    const latestUpdate = github.updatedBodies.at(-1);
+    assert.ok(latestUpdate);
+    assert.match(latestUpdate.body, /Status: Review approved/);
+    assert.match(latestUpdate.body, /Review follow-up issue numbers: #501, #502/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:finalize'],
+      },
+    ]);
+  });
+
+  it('20: rejects malformed review follow-up issue proposals before mutating GitHub state', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the escalation review.',
+        comments: [],
+        replies: [],
+        directChanges: [],
+        reviewFollowUpIssues: [
+          {
+            title: 'Capture a later cleanup task.',
+          },
+        ],
+      }),
+    });
+
+    await assert.rejects(
+      runPrReview(
+        createContext({
+          githubClient: github.client,
+          codexRunner: codex.runner,
+        }),
+      ),
+      /Invalid Review Result: Operation Output\.reviewFollowUpIssues\[0\]\.body must be a non-empty string\./,
+    );
+
+    assert.equal(github.createdIssueInputs.length, 0);
+    assert.equal(github.publishedReviews.length, 0);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:human-required'],
+      },
+    ]);
+  });
+
+  it('21: records a GitHub issue creation failure before finalizing the review', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createSpecialReviewBody({
+          reviewCycles: '3 / 3',
+          escalationReviewCycles: '0 / 1',
+          includeHumanFeedbackMarkers: false,
+        }),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+      failCreateIssue: true,
+    });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'approved',
+        summary: 'The PR satisfies the escalation review.',
+        comments: [],
+        replies: [],
+        directChanges: [],
+        reviewFollowUpIssues: [
+          {
+            title: 'Capture a later cleanup task.',
+            body: 'Standalone follow-up issue body.',
+          },
+        ],
+      }),
+    });
+
+    await assert.rejects(
+      runPrReview(
+        createContext({
+          githubClient: github.client,
+          codexRunner: codex.runner,
+        }),
+      ),
+      /Failed to create GitHub issue "Capture a later cleanup task\.": GitHub issue creation failed\./,
+    );
+
+    assert.equal(github.createdIssueInputs.length, 0);
+    assert.equal(github.createdIssues.length, 0);
+    assert.equal(github.publishedReviews.length, 0);
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:human-required'],
+      },
+    ]);
   });
 });
 
@@ -1193,11 +1374,14 @@ function createDiff() {
  * @param {GitHubIssue} [options.issue]
  * @param {GitHubPullRequestReviewContext} options.reviewContext
  * @param {GitHubPullRequestDiff} options.diff
+ * @param {boolean} [options.failCreateIssue]
  * @param {boolean} [options.rejectFormalReviewEvents]
  * @returns {{
  *   publishedReviews: PublishPullRequestReviewOptions[];
  *   replies: ReplyToPullRequestReviewCommentOptions[];
  *   updatedBodies: UpdatePullRequestBodyOptions[];
+ *   createdIssueInputs: CreateIssueOptions[];
+ *   createdIssues: GitHubIssue[];
  *   pullRequestLabelsAdded: EditLabelsOptions[];
  *   pullRequestLabelsRemoved: EditLabelsOptions[];
  *   comments: CommentOnPullRequestOptions[];
@@ -1209,6 +1393,7 @@ function createFakeGitHub({
   issue = createIssue(),
   reviewContext,
   diff,
+  failCreateIssue = false,
   rejectFormalReviewEvents = false,
 }) {
   /** @type {PublishPullRequestReviewOptions[]} */
@@ -1217,6 +1402,10 @@ function createFakeGitHub({
   const replies = [];
   /** @type {UpdatePullRequestBodyOptions[]} */
   const updatedBodies = [];
+  /** @type {CreateIssueOptions[]} */
+  const createdIssueInputs = [];
+  /** @type {GitHubIssue[]} */
+  const createdIssues = [];
   /** @type {EditLabelsOptions[]} */
   const pullRequestLabelsAdded = [];
   /** @type {EditLabelsOptions[]} */
@@ -1228,6 +1417,8 @@ function createFakeGitHub({
     publishedReviews,
     replies,
     updatedBodies,
+    createdIssueInputs,
+    createdIssues,
     pullRequestLabelsAdded,
     pullRequestLabelsRemoved,
     comments,
@@ -1262,6 +1453,29 @@ function createFakeGitHub({
       },
       async createDraftPullRequest() {
         throw new Error('createDraftPullRequest was not expected in this test.');
+      },
+      async createIssue(options) {
+        if (failCreateIssue) {
+          throw new Error(
+            `Failed to create GitHub issue "${options.title}": GitHub issue creation failed.`,
+          );
+        }
+
+        createdIssueInputs.push(options);
+        const issueNumber = 500 + createdIssues.length + 1;
+        const createdIssue = {
+          number: issueNumber,
+          title: options.title,
+          body: options.body,
+          state: 'OPEN',
+          url: `https://github.com/acme/widgets/issues/${issueNumber}`,
+          authorLogin: 'github-actions[bot]',
+          labels: options.labels ?? [],
+          parent: null,
+          subIssues: [],
+        };
+        createdIssues.push(createdIssue);
+        return createdIssue;
       },
       async addLabelsToIssue() {
         throw new Error('addLabelsToIssue was not expected in this test.');

@@ -24,6 +24,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
  * @typedef {import('./types.js').CloseIssueOptions} CloseIssueOptions
+ * @typedef {import('./types.js').CreateIssueOptions} CreateIssueOptions
  * @typedef {import('./types.js').ClosePullRequestOptions} ClosePullRequestOptions
  * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
@@ -433,6 +434,14 @@ export function createGitHubClient({
         issue_number: number,
         state: 'closed',
       });
+    },
+
+    /**
+     * @param {CreateIssueOptions} options
+     * @returns {Promise<GitHubIssue>}
+     */
+    async createIssue({ title, body, labels = [] }) {
+      return await createIssue(api, getRepository(), { title, body, labels });
     },
 
     /**
@@ -923,6 +932,28 @@ async function createIssueComment(octokit, repository, number, body) {
 /**
  * @param {GitHubApiClient} octokit
  * @param {GitHubRepository} repository
+ * @param {CreateIssueOptions} options
+ * @returns {Promise<GitHubIssue>}
+ */
+async function createIssue(octokit, repository, { title, body, labels }) {
+  try {
+    const response = await octokit.rest.issues.create({
+      ...repository,
+      title,
+      body,
+      labels,
+    });
+    return parseRestIssue(response.data, 'created issue');
+  } catch (error) {
+    throw new Error(`Failed to create GitHub issue "${title}": ${getGitHubErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @param {string} ref
  * @returns {Promise<GitHubCheckRun[]>}
  */
@@ -1034,6 +1065,29 @@ function parseGraphqlIssue(value) {
     labels: parseLabelNames(issue.labels),
     parent: parseIssueReference(issue.parent, 'native'),
     subIssues: parseSubIssues(issue.subIssues),
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {GitHubIssue}
+ */
+function parseRestIssue(value, path) {
+  if (!isPlainObject(value)) {
+    throw new Error(`Expected ${path} to be an object.`);
+  }
+
+  return {
+    number: requireNumber(value.number, `${path}.number`),
+    title: requireString(value.title, `${path}.title`),
+    body: typeof value.body === 'string' ? value.body : '',
+    state: requireString(value.state, `${path}.state`).toUpperCase(),
+    url: requireString(value.html_url ?? value.url, `${path}.html_url`),
+    authorLogin: parseAuthorLogin(value.user),
+    labels: parseFlatLabelNames(value.labels) ?? [],
+    parent: null,
+    subIssues: [],
   };
 }
 

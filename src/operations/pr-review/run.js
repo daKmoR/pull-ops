@@ -3,6 +3,7 @@ import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
+  updateManagedPrState,
 } from '../../managed-pr/ManagedPrState.js';
 import {
   createSkippedCodexActionOutput,
@@ -20,8 +21,10 @@ import { determinePrReviewMode, resolveReviewModelSelection } from '../reviewSel
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
+ * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
+ * @typedef {import('./output.types.js').ReviewFollowUpIssueProposal} ReviewFollowUpIssueProposal
  * @typedef {import('./output.types.js').ReviewReply} ReviewReply
  * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
  * @typedef {import('./run.types.js').PrReviewPreparation} PrReviewPreparation
@@ -304,6 +307,26 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
     }
 
     const reviewResult = validatedOutput.value;
+    const reviewFollowUpIssueNumbers =
+      reviewResult.status === 'approved'
+        ? await createReviewFollowUpIssuesIfNeeded(context, {
+            pullRequest,
+            sourceIssue: preparation.issue,
+            reviewMode: preparation.reviewMode,
+            reviewFollowUpIssues: reviewResult.reviewFollowUpIssues,
+          })
+        : [];
+    if (reviewFollowUpIssueNumbers.length > 0) {
+      const updatedBody = updateManagedPrState({
+        body: pullRequest.body,
+        reviewFollowUpIssueNumbers,
+      });
+      await context.githubClient.updatePullRequestBody({
+        number: pullRequest.number,
+        body: updatedBody,
+      });
+      pullRequest.body = updatedBody;
+    }
     const comments = filterCommentsToDiffAnchors({
       comments: reviewResult.comments,
       patch: diff.patch,
@@ -352,6 +375,7 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
               maxReviewCycles,
               reviewMode: preparation.reviewMode,
               reviewedTreeHash,
+              ...(reviewFollowUpIssueNumbers.length === 0 ? {} : { reviewFollowUpIssueNumbers }),
             }
           : {
               kind: 'changes-requested',
@@ -630,4 +654,70 @@ function assertPullRequestTarget(context) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   pullRequest: GitHubPullRequest;
+ *   sourceIssue: GitHubIssue;
+ *   reviewMode: 'normal' | 'escalation' | 'human-feedback-response' | 'blocked';
+ *   reviewFollowUpIssues: ReviewFollowUpIssueProposal[];
+ * }} options
+ * @returns {Promise<number[]>}
+ */
+async function createReviewFollowUpIssuesIfNeeded(
+  context,
+  { pullRequest, sourceIssue, reviewMode, reviewFollowUpIssues },
+) {
+  if (reviewMode !== 'escalation' || reviewFollowUpIssues.length === 0) {
+    return [];
+  }
+
+  const state = readManagedPrState(pullRequest.body);
+  if ((state.reviewFollowUpIssueNumbers ?? []).length > 0) {
+    return state.reviewFollowUpIssueNumbers ?? [];
+  }
+
+  if (context.githubClient.createIssue === undefined) {
+    throw new Error('GitHub client does not support issue creation.');
+  }
+
+  /** @type {number[]} */
+  const issueNumbers = [];
+  for (const proposal of reviewFollowUpIssues) {
+    const createdIssue = await context.githubClient.createIssue({
+      title: proposal.title,
+      body: createReviewFollowUpIssueBody({
+        pullRequest,
+        sourceIssue,
+        proposal,
+      }),
+      labels: ['needs-triage'],
+    });
+    issueNumbers.push(createdIssue.number);
+  }
+
+  return issueNumbers;
+}
+
+/**
+ * @param {{
+ *   pullRequest: GitHubPullRequest;
+ *   sourceIssue: GitHubIssue;
+ *   proposal: ReviewFollowUpIssueProposal;
+ * }} options
+ * @returns {string}
+ */
+function createReviewFollowUpIssueBody({ pullRequest, sourceIssue, proposal }) {
+  return [
+    `Created from an approving Escalation Review Cycle on PullOps-managed PR #${pullRequest.number}.`,
+    '',
+    `Source PR: #${pullRequest.number}`,
+    `Source issue: #${sourceIssue.number}`,
+    '',
+    '## Proposal',
+    '',
+    proposal.body,
+  ].join('\n');
 }

@@ -141,6 +141,18 @@ describe('ManagedPrState', () => {
     assert.equal(state.pendingHumanFeedbackReviewId, 'review-3');
   });
 
+  it('16: records review follow-up issue numbers in the workflow state block', () => {
+    const updatedBody = updateManagedPrState({
+      body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+      reviewFollowUpIssueNumbers: [501, 502],
+    });
+
+    assert.match(updatedBody, /Review follow-up issue numbers: #501, #502/);
+
+    const state = readManagedPrState(updatedBody);
+    assert.deepEqual(state.reviewFollowUpIssueNumbers, [501, 502]);
+  });
+
   it('03: applies approved review transitions and routes to finalize', async () => {
     const github = createFakeGitHub();
 

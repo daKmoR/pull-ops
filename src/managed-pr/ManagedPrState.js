@@ -213,6 +213,7 @@ export function readManagedPrState(body) {
     ...(humanFeedbackResponseCycles === undefined ? {} : { humanFeedbackResponseCycles }),
     ...(processedHumanFeedbackReviewIds === undefined ? {} : { processedHumanFeedbackReviewIds }),
     pendingHumanFeedbackReviewId: readPendingHumanFeedbackReviewId(workflowState),
+    reviewFollowUpIssueNumbers: readReviewFollowUpIssueNumbers(workflowState),
     ciFixCycles: readCiFixCycles(workflowState),
   };
 }
@@ -334,6 +335,7 @@ export function createManagedPrStateSection({
   humanFeedbackResponseCycles,
   processedHumanFeedbackReviewIds,
   pendingHumanFeedbackReviewId,
+  reviewFollowUpIssueNumbers,
   ciFixCycles,
 }) {
   const resolvedProcessedIds = processedHumanFeedbackReviewIds ?? [];
@@ -354,6 +356,13 @@ export function createManagedPrStateSection({
     `Human feedback response cycles: ${resolvedHumanFeedbackResponseCycles}`,
     `Processed human feedback review ids: ${formatHumanFeedbackReviewIds(resolvedProcessedIds)}`,
     `Pending human feedback review id: ${resolvedPendingHumanFeedbackReviewId}`,
+    ...(reviewFollowUpIssueNumbers === undefined
+      ? []
+      : [
+          `Review follow-up issue numbers: ${formatReviewFollowUpIssueNumbers(
+            reviewFollowUpIssueNumbers,
+          )}`,
+        ]),
     ...(ciFixCycles === undefined
       ? []
       : [`CI fix cycles: ${ciFixCycles.current} / ${ciFixCycles.max}`]),
@@ -383,6 +392,7 @@ export function updateManagedPrState({
   humanFeedbackResponseCycles,
   processedHumanFeedbackReviewIds,
   pendingHumanFeedbackReviewId,
+  reviewFollowUpIssueNumbers,
   ciFixCycles,
   reviewedTreeHash,
   finalizedTreeHash,
@@ -407,6 +417,8 @@ export function updateManagedPrState({
     pendingHumanFeedbackReviewId !== undefined
       ? pendingHumanFeedbackReviewId
       : currentState.pendingHumanFeedbackReviewId;
+  const resolvedReviewFollowUpIssueNumbers =
+    reviewFollowUpIssueNumbers ?? currentState.reviewFollowUpIssueNumbers;
 
   if (status !== undefined) {
     updated = upsertLine(updated, 'Status:', status);
@@ -453,6 +465,13 @@ export function updateManagedPrState({
     'Pending human feedback review id:',
     resolvedPendingHumanFeedbackReviewId ?? 'none',
   );
+  if (resolvedReviewFollowUpIssueNumbers !== undefined) {
+    workflowState = upsertLine(
+      workflowState,
+      'Review follow-up issue numbers:',
+      formatReviewFollowUpIssueNumbers(resolvedReviewFollowUpIssueNumbers),
+    );
+  }
 
   if (reviewedTreeHash !== undefined) {
     workflowState = upsertLine(workflowState, 'Reviewed tree:', reviewedTreeHash);
@@ -675,6 +694,7 @@ function createPrReviewTransition({ body, outcome, state }) {
         },
         ...specialStateUpdate,
         reviewedTreeHash: outcome.reviewedTreeHash,
+        reviewFollowUpIssueNumbers: outcome.reviewFollowUpIssueNumbers,
         lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
       }),
       removeLabels: labelsForSuccessfulOperation(
@@ -1472,6 +1492,36 @@ function readPendingHumanFeedbackReviewId(body) {
 
 /**
  * @param {string} body
+ * @returns {number[] | undefined}
+ */
+function readReviewFollowUpIssueNumbers(body) {
+  const match = body.match(/^Review follow-up issue numbers:\s*(.+?)\s*$/im);
+  if (match?.[1] === undefined) {
+    return undefined;
+  }
+
+  const value = match[1].trim();
+  if (value === '' || value.toLowerCase() === 'none') {
+    return [];
+  }
+
+  const issueNumbers = value.split(/\s*,\s*/).map(item => item.trim());
+  const parsed = [];
+
+  for (const issueNumber of issueNumbers) {
+    const issueMatch = issueNumber.match(/^#?(\d+)$/);
+    if (issueMatch?.[1] === undefined) {
+      return undefined;
+    }
+
+    parsed.push(Number(issueMatch[1]));
+  }
+
+  return parsed;
+}
+
+/**
+ * @param {string} body
  * @param {string} prefix
  * @param {string} value
  * @returns {string}
@@ -1526,4 +1576,16 @@ function formatHumanFeedbackReviewIds(reviewIds) {
   }
 
   return reviewIds.join(', ');
+}
+
+/**
+ * @param {number[] | undefined} issueNumbers
+ * @returns {string}
+ */
+function formatReviewFollowUpIssueNumbers(issueNumbers) {
+  if (issueNumbers === undefined || issueNumbers.length === 0) {
+    return 'none';
+  }
+
+  return issueNumbers.map(issueNumber => `#${issueNumber}`).join(', ');
 }

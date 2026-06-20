@@ -18,6 +18,11 @@ Inline comments must use changed lines from the supplied diff. Replies must use 
 You may make small direct improvements in the working tree only when they are
 clearly review-owned and do not change PR scope. Record them in `directChanges`.
 
+If you are approving the final Escalation Review Cycle, put standalone
+`needs-triage` issue proposals in `reviewFollowUpIssues` with `title` and `body`
+fields. Keep plain `followUps` as audit-only notes; they must not create
+issues.
+
 Final response must be only JSON:
 
 ```json
@@ -38,6 +43,12 @@ Final response must be only JSON:
     }
   ],
   "directChanges": ["Small direct improvement made during review."],
+  "reviewFollowUpIssues": [
+    {
+      "title": "Follow up on a non-blocking concern.",
+      "body": "Standalone Review Follow-up Issue body that links back to the PR and source issue."
+    }
+  ],
   "followUps": ["Optional follow-up that should not block this PR."]
 }
 ```

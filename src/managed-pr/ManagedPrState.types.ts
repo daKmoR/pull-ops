@@ -10,6 +10,7 @@ export interface ManagedPrSpecialReviewState {
   humanFeedbackResponseCycles?: number;
   processedHumanFeedbackReviewIds?: string[];
   pendingHumanFeedbackReviewId?: string;
+  reviewFollowUpIssueNumbers?: number[];
 }
 
 export type ManagedPrReviewMode = 'normal' | 'escalation' | 'human-feedback-response';
@@ -66,6 +67,7 @@ export type ManagedPrTransitionOutcome =
       maxReviewCycles: number;
       reviewedTreeHash?: string;
       reviewMode?: ManagedPrReviewMode;
+      reviewFollowUpIssueNumbers?: number[];
     }
   | {
       kind: 'changes-requested';
