@@ -351,6 +351,7 @@ async function preparePrFinalize(context) {
       baseBranch: source.baseBranch,
       currentTreeHash,
       reviewedTreeHash: state.reviewedTreeHash,
+      reviewedHeadSha: currentHeadSha,
       changedFiles: commitPlan.changedFiles,
       prompt: commitPlan.prompt,
     };
@@ -371,6 +372,8 @@ async function preparePrFinalize(context) {
       baseBranch: source.baseBranch,
       currentTreeHash,
       reviewedTreeHash: state.reviewedTreeHash,
+      reviewedHeadSha: currentHeadSha,
+      changedFiles: commitPlan.changedFiles,
       commitShas: commitPlan.commitShas,
       commitCount: commitPlan.commitCount,
     };
@@ -387,6 +390,8 @@ async function preparePrFinalize(context) {
     baseBranch: source.baseBranch,
     currentTreeHash,
     reviewedTreeHash: state.reviewedTreeHash,
+    reviewedHeadSha: currentHeadSha,
+    changedFiles: commitPlan.changedFiles,
     commitPlan: commitPlan.commits,
   };
 }
@@ -689,8 +694,8 @@ async function prepareChildIssueSource(
  * @param {PrFinalizeSource & { ready: true }} source
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
- *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
- *   | { ready: true; mode: 'existing-commits'; commitShas: string[]; commitCount: number }
+ *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[], changedFiles: string[] }
+ *   | { ready: true; mode: 'existing-commits'; commitShas: string[], commitCount: number, changedFiles: string[] }
  *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
@@ -717,6 +722,7 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
   return {
     ready: true,
     mode: 'rewrite',
+    changedFiles,
     commits: [
       {
         message: createPrFinalizeCommitMessage(
@@ -735,8 +741,8 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
  * @param {PrFinalizeSource & { ready: true, sourceKind: 'parentIssue' }} source
  * @returns {Promise<
  *   | { ready: false; output: Record<string, unknown> }
- *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[] }
- *   | { ready: true; mode: 'existing-commits'; commitShas: string[]; commitCount: number }
+ *   | { ready: true; mode: 'rewrite'; commits: PlannedRewriteCommit[], changedFiles: string[] }
+ *   | { ready: true; mode: 'existing-commits'; commitShas: string[], commitCount: number, changedFiles: string[] }
  *   | { ready: true; mode: 'planner'; prompt: string; changedFiles: string[] }
  * >}
  */
@@ -821,6 +827,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
       mode: 'existing-commits',
       commitShas: analysis.existingCommitShas,
       commitCount: analysis.existingCommitShas.length,
+      changedFiles: readUniqueFiles(history),
     };
   }
 
@@ -839,8 +846,33 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
   return {
     ready: true,
     mode: 'rewrite',
+    changedFiles: readUniqueFiles(analysis.commits),
     commits: analysis.commits,
   };
+}
+
+/**
+ * @param {{ files: string[] }[]} commits
+ * @returns {string[]}
+ */
+function readUniqueFiles(commits) {
+  /** @type {string[]} */
+  const files = [];
+  /** @type {Set<string>} */
+  const seenFiles = new Set();
+
+  for (const commit of commits) {
+    for (const file of commit.files) {
+      if (seenFiles.has(file)) {
+        continue;
+      }
+
+      seenFiles.add(file);
+      files.push(file);
+    }
+  }
+
+  return files;
 }
 
 /**
@@ -1119,6 +1151,8 @@ async function completePrFinalizePlannerFallback(context, preparation, rawOutput
       baseBranch: preparation.baseBranch,
       currentTreeHash: preparation.currentTreeHash,
       reviewedTreeHash: preparation.reviewedTreeHash,
+      reviewedHeadSha: preparation.reviewedHeadSha,
+      changedFiles: preparation.changedFiles,
       commitPlan: commitPlan.commits,
     },
     { operationAuditRecorded: true },
@@ -1176,7 +1210,7 @@ async function completePrFinalize(context, preparation, { operationAuditRecorded
     throw error;
   }
 
-  if (rewriteResult.treeHash !== preparation.reviewedTreeHash) {
+  if (!(await rewritePreservesReviewedContent(context, preparation, rewriteResult))) {
     const reason = [
       `Finalized tree ${rewriteResult.treeHash} did not match reviewed tree`,
       `${preparation.reviewedTreeHash} for PR #${preparation.pullRequest.number}.`,
@@ -1211,6 +1245,33 @@ async function completePrFinalize(context, preparation, { operationAuditRecorded
         : preparation.commitPlan.length,
     operationAuditRecorded,
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {PrFinalizePreparation & { ready: true, mode: 'rewrite' | 'existing-commits' }} preparation
+ * @param {import('../../git/types.js').GitRewriteResult} rewriteResult
+ * @returns {Promise<boolean>}
+ */
+async function rewritePreservesReviewedContent(context, preparation, rewriteResult) {
+  if (rewriteResult.treeHash === preparation.reviewedTreeHash) {
+    return true;
+  }
+
+  if (context.gitClient.arePathsEqualBetweenRevisions === undefined) {
+    return false;
+  }
+
+  try {
+    return await context.gitClient.arePathsEqualBetweenRevisions({
+      leftRevision: preparation.reviewedHeadSha,
+      rightRevision: rewriteResult.headSha,
+      paths: preparation.changedFiles,
+    });
+  } catch (error) {
+    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+    throw error;
+  }
 }
 
 /**

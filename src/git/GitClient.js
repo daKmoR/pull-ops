@@ -38,6 +38,7 @@ const PULL_OPS_WORKTREE_PATHSPEC = [
  * @typedef {import('./types.js').GetChangedFilesSinceBaseOptions} GetChangedFilesSinceBaseOptions
  * @typedef {import('./types.js').GetCommitsSinceBaseOptions} GetCommitsSinceBaseOptions
  * @typedef {import('./types.js').HasUnappliedCommitsSinceBaseOptions} HasUnappliedCommitsSinceBaseOptions
+ * @typedef {import('./types.js').ArePathsEqualBetweenRevisionsOptions} ArePathsEqualBetweenRevisionsOptions
  * @typedef {import('./types.js').GitCommit} GitCommit
  * @typedef {import('./types.js').RewriteBranchWithCommitPlanOptions} RewriteBranchWithCommitPlanOptions
  * @typedef {import('./types.js').RewriteBranchWithExistingCommitsOptions} RewriteBranchWithExistingCommitsOptions
@@ -656,6 +657,38 @@ export function createGitClient({
       }
 
       return false;
+    },
+
+    /**
+     * @param {ArePathsEqualBetweenRevisionsOptions} options
+     * @returns {Promise<boolean>}
+     */
+    async arePathsEqualBetweenRevisions({ leftRevision, rightRevision, paths }) {
+      if (paths.length === 0) {
+        return true;
+      }
+
+      try {
+        await execFile('git', [
+          'diff',
+          '--quiet',
+          '--exit-code',
+          leftRevision,
+          rightRevision,
+          '--',
+          ...paths,
+        ]);
+        return true;
+      } catch (error) {
+        if (isPlainObject(error) && error.code === 1) {
+          return false;
+        }
+
+        throw new Error(
+          `Failed to compare paths between ${leftRevision} and ${rightRevision}: ${getCommandErrorMessage(error)}`,
+          { cause: error },
+        );
+      }
     },
 
     /**

@@ -863,25 +863,70 @@ describe('runPrFinalize', () => {
           gitClient: {
             ...realGitClient,
             async rewriteBranchWithCommitPlan(options) {
-              const result = await realGitClient.rewriteBranchWithCommitPlan(options);
+              await realGitClient.rewriteBranchWithCommitPlan(options);
+              await writeFile(join(repository.workDir, 'src/child-21.js'), 'tampered();\n');
+              await git(repository.workDir, ['add', 'src/child-21.js']);
+              await git(repository.workDir, [
+                'commit',
+                '-m',
+                'test: tamper finalized reviewed file',
+              ]);
               return {
-                ...result,
-                treeHash: 'different-tree',
+                headSha: await readHeadSha(repository.workDir),
+                treeHash: await readTreeHash(repository.workDir),
               };
             },
           },
           codexRunner: codex.runner,
         }),
       ),
-      /Finalized tree different-tree did not match reviewed tree/,
+      /Finalized tree .* did not match reviewed tree/,
     );
 
     assert.equal(codex.calls.length, 1);
     assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
-    assert.match(github.comments[1].body, /Finalized tree different-tree did not match/);
+    assert.match(github.comments[1].body, /Finalized tree .* did not match/);
   });
 
-  it('18: backfills a missing audit comment on already-ready finalized PRs', async () => {
+  it('18: allows reviewed rewrites onto a newer base when reviewed files are preserved', async () => {
+    const repository = await createTemporaryRepository();
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    await git(repository.workDir, ['checkout', 'main']);
+    await writeFile(join(repository.workDir, 'BASE.md'), 'new base work\n');
+    await git(repository.workDir, ['add', 'BASE.md']);
+    await git(repository.workDir, ['commit', '-m', 'chore: advance base']);
+    await git(repository.workDir, ['push', 'origin', 'main']);
+    await git(repository.workDir, ['fetch', 'origin', 'main']);
+    await git(repository.workDir, ['checkout', 'pullops/issue-42']);
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        headSha: reviewedHead,
+        body: createPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalize(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+      }),
+    );
+
+    const finalizedTree = await readTreeHash(repository.workDir);
+    assert.equal(result.status, 'accepted');
+    assert.notEqual(finalizedTree, reviewedTree);
+    assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), finalizedTree);
+    assert.equal(await gitOutput(repository.workDir, ['show', 'HEAD:BASE.md']), 'new base work');
+    assert.equal(
+      await gitOutput(repository.workDir, ['show', 'HEAD:src/feature.js']),
+      'export const value = 42;',
+    );
+  });
+
+  it('19: backfills a missing audit comment on already-ready finalized PRs', async () => {
     const repository = await createTemporaryRepository();
     const finalizedTree = await readTreeHash(repository.workDir);
     const finalizedHead = await readHeadSha(repository.workDir);

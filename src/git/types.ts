@@ -161,6 +161,12 @@ export interface HasUnappliedCommitsSinceBaseOptions {
   preferLocalBase?: boolean;
 }
 
+export interface ArePathsEqualBetweenRevisionsOptions {
+  leftRevision: string;
+  rightRevision: string;
+  paths: string[];
+}
+
 export interface ResetHardToRevisionOptions {
   revision: string;
 }
@@ -230,6 +236,7 @@ export interface GitClient {
   getChangedFilesSinceBase(options: GetChangedFilesSinceBaseOptions): Promise<string[]>;
   getCommitsSinceBase?(options: GetCommitsSinceBaseOptions): Promise<GitCommit[]>;
   hasUnappliedCommitsSinceBase?(options: HasUnappliedCommitsSinceBaseOptions): Promise<boolean>;
+  arePathsEqualBetweenRevisions?(options: ArePathsEqualBetweenRevisionsOptions): Promise<boolean>;
   rewriteBranchWithCommitPlan(
     options: RewriteBranchWithCommitPlanOptions,
   ): Promise<GitRewriteResult>;

@@ -44,6 +44,8 @@ export type PrFinalizePreparation =
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
+      reviewedHeadSha: string;
+      changedFiles: string[];
       commitPlan: PlannedRewriteCommit[];
     }
   | {
@@ -57,6 +59,8 @@ export type PrFinalizePreparation =
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
+      reviewedHeadSha: string;
+      changedFiles: string[];
       commitShas: string[];
       commitCount: number;
     }
@@ -70,6 +74,7 @@ export type PrFinalizePreparation =
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
+      reviewedHeadSha: string;
       changedFiles: string[];
       prompt: string;
     }
