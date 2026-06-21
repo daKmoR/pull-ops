@@ -25,8 +25,24 @@ The Target Repository-owned settings that control how its Workflow Kit behaves.
 _Avoid_: Init options, settings file
 
 **PullOps Init**:
-The CLI flow that installs or reconciles the Workflow Kit in a Target Repository.
-_Avoid_: Setup, bootstrap
+The tiny CLI entry point that installs the minimum repo-local files needed for a Target Repository's agent-guided PullOps setup.
+_Avoid_: Setup, bootstrap, workflow kit install
+
+**PullOps Setup Skill**:
+The repo-local agent skill installed by PullOps Init to guide an AI coding agent through Target Repository-specific PullOps setup decisions.
+_Avoid_: Init script, setup command, onboarding doc
+
+**PullOps Setup Command**:
+A deterministic namespaced CLI command under `pullops setup` that installs, reconciles, checks, or reports one setup area such as skills, GitHub Actions workflows, GitHub labels, agent docs, or readiness.
+_Avoid_: Init subcommand, setup skill, workflow-facing command
+
+**PullOps Setup Doctor**:
+The PullOps Setup Command that reports whether a Target Repository is ready to run PullOps locally and through its configured runner, including whether the runner can access required commands such as `node` and the local `pullops` executable.
+_Avoid_: Health check, environment probe, init validation
+
+**PullOps Label Setup**:
+The PullOps Setup Command that creates or reconciles PullOps Operation Labels and PullOps Status Labels in the configured GitHub repository.
+_Avoid_: Triage label setup, issue taxonomy setup
 
 **Workflow-Facing Command**:
 A PullOps CLI command intended to be called by generated GitHub Actions workflows.
@@ -183,6 +199,14 @@ _Avoid_: Child issue commit, direct child commit
 **Concrete Issue**:
 An issue that is directly implementable by `pullops:issue:implement` and does not own Child Issues.
 _Avoid_: Normal issue, task
+
+**Issue Store**:
+The PullOps-owned interface for creating, force-updating, reading, listing, and relating PRD Issues, Child Issues, Concrete Issues, and Issue Dependencies in the configured Issue Tracker. Ordinary tracker-specific mutations that are not PRDs, sub-issues, issues, or issue relationships, such as applying GitHub labels or posting comments, stay with their direct client.
+_Avoid_: Issue tracker wrapper, work store
+
+**PullOps-Published Issue**:
+A PRD Issue, Child Issue, or Concrete Issue whose generated issue content is marked as owned by PullOps Issue Store publication and can therefore be force-updated by PullOps.
+_Avoid_: Managed issue, generated issue
 
 **Issue Dependency**:
 A `Blocked by` relationship from one issue to another issue that must close before the dependent issue can run.
