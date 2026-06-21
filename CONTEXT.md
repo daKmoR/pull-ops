@@ -44,6 +44,10 @@ _Avoid_: Health check, environment probe, init validation
 The PullOps Setup Command that creates or reconciles PullOps Operation Labels and PullOps Status Labels in the configured GitHub repository.
 _Avoid_: Triage label setup, issue taxonomy setup
 
+**Authoring Skill Availability**:
+Whether optional repo-local planning and authoring skills such as `grill-with-docs`, `to-prd`, and `to-issues` are present under `.agents/skills/` in a Target Repository.
+_Avoid_: Agent capability detection, model invocation availability
+
 **Workflow-Facing Command**:
 A PullOps CLI command intended to be called by generated GitHub Actions workflows.
 _Avoid_: Internal command, subcommand
