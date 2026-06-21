@@ -34,6 +34,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  *
  * @typedef {import('./GitHubClient.types.js').GitHubRepository} GitHubRepository
  * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
+ * @typedef {import('./GitHubClient.types.js').CreateOctokitOptions} CreateOctokitOptions
  * @typedef {import('./GitHubClient.types.js').CreateOctokit} CreateOctokit
  * @typedef {import('./GitHubClient.types.js').ReadRemoteOriginUrl} ReadRemoteOriginUrl
  * @typedef {import('./GitHubClient.types.js').ReadGitHubCliToken} ReadGitHubCliToken
@@ -192,6 +193,16 @@ mutation($pullRequestReviewId: ID!, $message: String!) {
 }
 `;
 
+/** @type {CreateOctokitOptions['throttle']} */
+const FAIL_FAST_GITHUB_THROTTLE = {
+  onRateLimit() {
+    return false;
+  },
+  onSecondaryRateLimit() {
+    return false;
+  },
+};
+
 /**
  * @param {object} [options]
  * @param {GitHubApiClient} [options.octokit]
@@ -210,7 +221,13 @@ export function createGitHubClient({
   readRemoteOriginUrl = readGitRemoteOriginUrl,
   readGitHubCliToken = readLocalGitHubCliToken,
 } = {}) {
-  const api = octokit ?? createOctokit({ auth: readGitHubToken({ env, readGitHubCliToken }) });
+  const api =
+    octokit ??
+    createOctokit(
+      createOctokitOptions({
+        auth: readGitHubToken({ env, readGitHubCliToken }),
+      }),
+    );
   const getRepository = createRepositoryResolver({ repository, env, readRemoteOriginUrl });
 
   return {
@@ -532,12 +549,22 @@ export function createGitHubClient({
 }
 
 /**
- * @param {{ auth?: string }} options
+ * @param {CreateOctokitOptions} options
  * @returns {GitHubApiClient}
  */
-function createOctokitClient({ auth }) {
-  const options = auth === undefined ? {} : { auth };
+function createOctokitClient(options) {
   return /** @type {GitHubApiClient} */ (/** @type {unknown} */ (new Octokit(options)));
+}
+
+/**
+ * @param {{ auth?: string }} options
+ * @returns {CreateOctokitOptions}
+ */
+function createOctokitOptions({ auth }) {
+  return {
+    ...(auth === undefined ? {} : { auth }),
+    throttle: FAIL_FAST_GITHUB_THROTTLE,
+  };
 }
 
 /**

@@ -2365,124 +2365,132 @@ async function completePublishedLocalUmbrellaPullRequest(
     return output;
   }
 
-  if (inspected.status === 'ready-for-address-review') {
-    const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
-    addressReviews.push(addressReview);
-    if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
+  /** @type {PullRequestOperationName} */
+  let nextOperation =
+    inspected.status === 'ready-for-address-review'
+      ? 'pr-address-review'
+      : inspected.status === 'ready-for-finalize'
+        ? 'pr-finalize'
+        : 'pr-review';
+  /** @type {Record<string, unknown> | undefined} */
+  let finalize;
+
+  while (true) {
+    const output = await runTrackedParentPullRequestOperation(nextOperation);
+    if (output.status === 'blocked' || output.status === 'refused') {
+      return completeBlockedPublishedUmbrellaPullRequest(inspected, {
+        review,
+        addressReviews,
+        ...(nextOperation === 'pr-finalize' ? { finalize: output } : {}),
+        localRunRecords,
+        summary: String(
+          output.summary ?? `Umbrella PR ${nextOperation} blocked on PR #${pullRequestNumber}.`,
+        ),
+      });
+    }
+
+    if (nextOperation === 'pr-address-review') {
+      addressReviews.push(output);
+      nextOperation = 'pr-review';
+      continue;
+    }
+
+    if (nextOperation === 'pr-review') {
+      review = output;
+      if (review.reviewResult === 'approved') {
+        nextOperation = 'pr-finalize';
+        continue;
+      }
+
+      if (review.reviewResult === 'changes_requested') {
+        nextOperation = 'pr-address-review';
+        continue;
+      }
+
       return completeBlockedPublishedUmbrellaPullRequest(inspected, {
         review,
         addressReviews,
         localRunRecords,
-        summary: String(
-          addressReview.summary ??
-            `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
-        ),
+        summary: `Umbrella PR review did not approve PR #${pullRequestNumber}.`,
       });
     }
-  }
 
-  if (inspected.status !== 'ready-for-finalize') {
-    while (review?.reviewResult !== 'approved') {
-      review = await runTrackedParentPullRequestOperation('pr-review');
-      if (review.status === 'blocked' || review.status === 'refused') {
-        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-          review,
-          addressReviews,
-          localRunRecords,
-          summary: String(
-            review.summary ?? `Umbrella PR review blocked on PR #${pullRequestNumber}.`,
-          ),
-        });
-      }
-
-      if (review.reviewResult === 'approved') {
-        break;
-      }
-
-      if (review.reviewResult !== 'changes_requested') {
-        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-          review,
-          addressReviews,
-          localRunRecords,
-          summary: `Umbrella PR review did not approve PR #${pullRequestNumber}.`,
-        });
-      }
-
-      const addressReview = await runTrackedParentPullRequestOperation('pr-address-review');
-      addressReviews.push(addressReview);
-      if (addressReview.status === 'blocked' || addressReview.status === 'refused') {
-        return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-          review,
-          addressReviews,
-          localRunRecords,
-          summary: String(
-            addressReview.summary ??
-              `Umbrella PR address-review blocked on PR #${pullRequestNumber}.`,
-          ),
-        });
-      }
+    finalize = output;
+    const prFinalize = readRecordProperty(finalize, 'prFinalize');
+    if (prFinalize?.waiting === true) {
+      return {
+        ...inspected,
+        status: 'waiting',
+        review,
+        addressReviews,
+        finalize,
+        localRunRecords,
+        nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      };
     }
-  }
 
-  if (inspected.status !== 'ready-for-finalize' && review?.reviewResult !== 'approved') {
-    return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-      review,
-      addressReviews,
-      localRunRecords,
-      summary: `Umbrella PR parent operation loop budget was exhausted for PR #${pullRequestNumber}.`,
-    });
-  }
+    const routedOperation = readRoutedParentPullRequestOperation(prFinalize?.routedTo);
+    if (routedOperation !== undefined) {
+      nextOperation = routedOperation;
+      continue;
+    }
 
-  const finalize = await runTrackedParentPullRequestOperation('pr-finalize');
+    if (typeof prFinalize?.routedTo === 'string') {
+      return {
+        ...inspected,
+        status: 'blocked',
+        summary: String(
+          finalize.summary ?? `Umbrella PR finalization routed to ${prFinalize.routedTo}.`,
+        ),
+        review,
+        addressReviews,
+        finalize,
+        localRunRecords,
+        nextOperation: prFinalize.routedTo,
+      };
+    }
 
-  if (finalize.status === 'blocked' || finalize.status === 'refused') {
-    return completeBlockedPublishedUmbrellaPullRequest(inspected, {
-      review,
-      addressReviews,
-      finalize,
-      localRunRecords,
-      summary: String(
-        finalize.summary ?? `Umbrella PR finalization blocked on PR #${pullRequestNumber}.`,
-      ),
-    });
-  }
-
-  const prFinalize = readRecordProperty(finalize, 'prFinalize');
-  if (prFinalize?.waiting === true) {
     return {
       ...inspected,
-      status: 'waiting',
+      status: 'finalized',
       review,
       addressReviews,
       finalize,
       localRunRecords,
-      nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
     };
   }
+}
 
-  if (typeof prFinalize?.routedTo === 'string') {
-    return {
-      ...inspected,
-      status: 'blocked',
-      summary: String(
-        finalize.summary ?? `Umbrella PR finalization routed to ${prFinalize.routedTo}.`,
-      ),
-      review,
-      addressReviews,
-      finalize,
-      localRunRecords,
-      nextOperation: prFinalize.routedTo,
-    };
+/**
+ * @param {unknown} routedTo
+ * @returns {PullRequestOperationName | undefined}
+ */
+function readRoutedParentPullRequestOperation(routedTo) {
+  if (
+    routedTo === PULL_OPS_OPERATION_LABELS.prReview ||
+    routedTo === 'pr:review' ||
+    routedTo === 'pr-review'
+  ) {
+    return 'pr-review';
   }
 
-  return {
-    ...inspected,
-    status: 'finalized',
-    review,
-    addressReviews,
-    finalize,
-    localRunRecords,
-  };
+  if (
+    routedTo === PULL_OPS_OPERATION_LABELS.prAddressReview ||
+    routedTo === 'pr:address-review' ||
+    routedTo === 'pr-address-review'
+  ) {
+    return 'pr-address-review';
+  }
+
+  if (
+    routedTo === PULL_OPS_OPERATION_LABELS.prFinalize ||
+    routedTo === 'pr:finalize' ||
+    routedTo === 'pr-finalize'
+  ) {
+    return 'pr-finalize';
+  }
+
+  return undefined;
 }
 
 /**

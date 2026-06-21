@@ -8,6 +8,35 @@ export type ReadGitHubCliToken = () => string | undefined;
 
 export type OctokitEndpoint = (parameters: Record<string, unknown>) => Promise<{ data: unknown }>;
 
+export interface GitHubThrottleRequestOptions {
+  method?: string;
+  url?: string;
+  request?: {
+    retryCount?: number;
+  };
+}
+
+export interface GitHubThrottleOctokit {
+  log: {
+    info(message: string): void;
+    warn(message: string): void;
+  };
+}
+
+export type GitHubThrottleCallback = (
+  retryAfter: number,
+  options: GitHubThrottleRequestOptions,
+  octokit: GitHubThrottleOctokit,
+) => boolean | undefined | Promise<boolean | undefined>;
+
+export interface CreateOctokitOptions {
+  auth?: string;
+  throttle?: {
+    onRateLimit: GitHubThrottleCallback;
+    onSecondaryRateLimit: GitHubThrottleCallback;
+  };
+}
+
 export interface GitHubApiClient {
   paginate(endpoint: OctokitEndpoint, parameters: Record<string, unknown>): Promise<unknown[]>;
   graphql(query: string, variables: Record<string, unknown>): Promise<unknown>;
@@ -38,4 +67,4 @@ export interface GitHubApiClient {
   };
 }
 
-export type CreateOctokit = (options: { auth?: string }) => GitHubApiClient;
+export type CreateOctokit = (options: CreateOctokitOptions) => GitHubApiClient;

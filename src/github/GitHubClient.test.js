@@ -6,6 +6,9 @@ import { createGitHubClient, parseGitHubRepository, PULL_OPS_LABELS } from './Gi
 /**
  * @typedef {import('./GitHubClient.test.types.js').OctokitCall} OctokitCall
  * @typedef {import('./GitHubClient.test.types.js').ExistingLabel} ExistingLabel
+ * @typedef {import('./GitHubClient.types.js').CreateOctokitOptions} CreateOctokitOptions
+ * @typedef {import('./GitHubClient.types.js').GitHubThrottleOctokit} GitHubThrottleOctokit
+ * @typedef {import('./GitHubClient.types.js').GitHubThrottleRequestOptions} GitHubThrottleRequestOptions
  */
 
 describe('createGitHubClient', () => {
@@ -573,7 +576,38 @@ describe('createGitHubClient', () => {
     assert.equal(auth, 'gh-token');
   });
 
-  it('14: infers the GitHub repository from common origin formats', async () => {
+  it('14: configures Octokit to surface rate limits without retry sleeps', async () => {
+    const { octokit } = createFakeOctokit({ labels: [] });
+    /** @type {CreateOctokitOptions | undefined} */
+    let octokitOptions;
+    const client = createGitHubClient({
+      env: {
+        PULLOPS_GITHUB_TOKEN: 'github-token',
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      createOctokit(options) {
+        octokitOptions = options;
+        return octokit;
+      },
+    });
+
+    await client.ensureLabels([]);
+
+    assert.equal(
+      octokitOptions?.throttle?.onRateLimit(3600, createThrottleRequest(), createThrottleLogger()),
+      false,
+    );
+    assert.equal(
+      octokitOptions?.throttle?.onSecondaryRateLimit(
+        60,
+        createThrottleRequest(),
+        createThrottleLogger(),
+      ),
+      false,
+    );
+  });
+
+  it('15: infers the GitHub repository from common origin formats', async () => {
     for (const origin of [
       'git@github.com:acme/widgets.git\n',
       'https://github.com/acme/widgets.git\n',
@@ -599,7 +633,7 @@ describe('createGitHubClient', () => {
     }
   });
 
-  it('15: lets GITHUB_REPOSITORY override the origin fallback', async () => {
+  it('16: lets GITHUB_REPOSITORY override the origin fallback', async () => {
     const { calls, octokit } = createFakeOctokit({ labels: [] });
     let readOrigin = false;
     const client = createGitHubClient({
@@ -622,7 +656,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('16: reports local repository context setup when no repository can be inferred', async () => {
+  it('17: reports local repository context setup when no repository can be inferred', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     const client = createGitHubClient({
       octokit,
@@ -638,7 +672,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('17: creates GitHub issues with labels and reports API failures with issue context', async () => {
+  it('18: creates GitHub issues with labels and reports API failures with issue context', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
@@ -1089,6 +1123,31 @@ function createReviewContext() {
           deletions: 0,
         },
       ],
+    },
+  };
+}
+
+/**
+ * @returns {GitHubThrottleRequestOptions}
+ */
+function createThrottleRequest() {
+  return {
+    method: 'POST',
+    url: '/graphql',
+    request: {
+      retryCount: 0,
+    },
+  };
+}
+
+/**
+ * @returns {GitHubThrottleOctokit}
+ */
+function createThrottleLogger() {
+  return {
+    log: {
+      info() {},
+      warn() {},
     },
   };
 }
