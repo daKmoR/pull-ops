@@ -93,6 +93,33 @@ describe('createCodexRunner', () => {
       },
     );
   });
+
+  it('03: can capture runner output without streaming it live', async () => {
+    const output = createWritableBuffer();
+    const runner = createCodexRunner({
+      output,
+      spawn: () => {
+        const child = createFakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout.write('codex stdout\n');
+          child.stderr.write('codex stderr\n');
+          child.emit('close', 0, null);
+        });
+        return child;
+      },
+    });
+
+    const result = await runner.run({
+      cwd: '/repo',
+      command: 'custom-runner',
+      model: 'gpt-5.5',
+      prompt: 'Implement issue #1',
+      streamOutput: false,
+    });
+
+    assert.equal(result, 'codex stdout\n');
+    assert.equal(output.text, '');
+  });
 });
 
 describe('parseRunnerCommand', () => {

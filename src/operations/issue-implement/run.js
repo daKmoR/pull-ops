@@ -68,6 +68,7 @@ export async function runIssueImplement(context) {
         issue: preparation.issue,
         parentIssueNumber: preparation.parentIssueNumber,
       }),
+      streamOutput: context.suppressRunnerOutput !== true,
     });
   } catch (error) {
     await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
@@ -125,6 +126,7 @@ async function runIssueImplementLocalPublish(context) {
         command: context.config.runner.command,
         model: context.model,
         prompt,
+        streamOutput: context.suppressRunnerOutput !== true,
       });
     } catch (error) {
       const reason = getErrorMessage(error);
@@ -193,6 +195,7 @@ async function runIssueImplementDryRun(context) {
         command: context.config.runner.command,
         model: context.model,
         prompt,
+        streamOutput: context.suppressRunnerOutput !== true,
       });
     } catch (error) {
       const reason = getErrorMessage(error);
@@ -1544,6 +1547,7 @@ async function runLocalFollowUpOperation(
     command: context.config.runner.command,
     model: modelSelection.model,
     prompt,
+    streamOutput: context.suppressRunnerOutput !== true,
   });
   await writeLocalRunArtifact(
     runRecord,

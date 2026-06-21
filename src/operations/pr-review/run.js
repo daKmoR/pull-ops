@@ -60,6 +60,7 @@ export async function runPrReview(context) {
         reviewContext: preparation.reviewContext,
         diff: preparation.diff,
       }),
+      streamOutput: context.suppressRunnerOutput !== true,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

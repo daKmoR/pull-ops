@@ -72,6 +72,7 @@ export async function runPrAddressReview(context) {
         diff: preparation.diff,
         feedbackItems: preparation.feedbackItems,
       }),
+      streamOutput: context.suppressRunnerOutput !== true,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

@@ -22,6 +22,7 @@ export async function runPrdAutoAdvance(context) {
     return await coordinateLocalPrdAutoAdvance(localContext, {
       parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber, options = {}) {
+        const suppressNestedOutput = shouldSuppressNestedOperationOutput(localContext);
         return await runIssueImplement({
           ...localContext,
           operation: 'issue-implement',
@@ -31,7 +32,9 @@ export async function runPrdAutoAdvance(context) {
           },
           publicationMode: localContext.publicationMode,
           localRunRecordDirectory: undefined,
+          progress: suppressNestedOutput ? undefined : localContext.progress,
           progressEventWriter: undefined,
+          suppressRunnerOutput: suppressNestedOutput,
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
@@ -55,6 +58,7 @@ export async function runPrdAutoComplete(context) {
     return await coordinateLocalPrdAutoComplete(localContext, {
       parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber, options = {}) {
+        const suppressNestedOutput = shouldSuppressNestedOperationOutput(localContext);
         return await runIssueImplement({
           ...localContext,
           operation: 'issue-implement',
@@ -64,7 +68,9 @@ export async function runPrdAutoComplete(context) {
           },
           publicationMode: localContext.publicationMode,
           localRunRecordDirectory: undefined,
+          progress: suppressNestedOutput ? undefined : localContext.progress,
           progressEventWriter: undefined,
+          suppressRunnerOutput: suppressNestedOutput,
           virtualCompletedIssueNumbers: options.virtualCompletedIssueNumbers,
         });
       },
@@ -176,6 +182,7 @@ function createPullRequestOperationContext(
 ) {
   const configKey = readPullRequestOperationConfigKey(operation);
   const modelTier = context.config.operations[configKey].modelTier;
+  const suppressNestedOutput = shouldSuppressNestedOperationOutput(context);
   return {
     ...context,
     operation,
@@ -186,13 +193,23 @@ function createPullRequestOperationContext(
     modelTier,
     model: context.config.runner.models[modelTier],
     localRunRecordDirectory: undefined,
+    progress: suppressNestedOutput ? undefined : context.progress,
     progressEventWriter: undefined,
+    suppressRunnerOutput: suppressNestedOutput,
     ...(operation === 'pr-finalize' ? { allowAbsentReviewedHeadChecks: true } : {}),
     suppressFollowUpOperationLabels: true,
     ...(resumeParentPrdAutomationAfterPrFinalize === undefined
       ? {}
       : { resumeParentPrdAutomationAfterPrFinalize }),
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {boolean}
+ */
+function shouldSuppressNestedOperationOutput(context) {
+  return context.suppressRunnerOutput === true || context.progressEventWriter !== undefined;
 }
 
 /**

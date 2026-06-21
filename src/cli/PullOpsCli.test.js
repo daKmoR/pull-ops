@@ -753,6 +753,8 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
   assert.equal(runnerCalls.length, 1);
   assert.equal(runnerCalls[0].publicationMode, 'publish');
   assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.equal(runnerCalls[0].suppressRunnerOutput, true);
+  assert.equal(runnerCalls[0].progress, undefined);
   assert.equal(typeof runnerCalls[0].localRunRecordDirectory, 'string');
   assert.equal(
     runnerCalls[0].progressEventWriter?.runId,

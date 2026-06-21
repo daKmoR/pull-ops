@@ -60,6 +60,7 @@ export async function runPrFixCi(context) {
         diff: preparation.diff,
         checkFailures: preparation.checkFailures,
       }),
+      streamOutput: context.suppressRunnerOutput !== true,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

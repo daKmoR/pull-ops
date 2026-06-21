@@ -65,6 +65,7 @@ export async function runPrFinalize(context) {
         command: context.config.runner.command,
         model: context.model,
         prompt: preparation.prompt,
+        streamOutput: context.suppressRunnerOutput !== true,
       });
     } catch (error) {
       await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));

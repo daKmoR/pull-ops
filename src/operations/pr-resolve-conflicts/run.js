@@ -70,6 +70,7 @@ export async function runPrResolveConflicts(context) {
           pass,
           maxPasses: preparation.maxConflictResolutionPasses,
         }),
+        streamOutput: context.suppressRunnerOutput !== true,
       });
       if (!auditCommentPosted) {
         await commentOnPullRequestWithOperationAudit(context, {

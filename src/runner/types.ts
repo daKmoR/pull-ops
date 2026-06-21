@@ -38,6 +38,7 @@ export interface CodexRunOptions {
   command: string;
   model: string;
   prompt: string;
+  streamOutput?: boolean;
 }
 
 export interface CodexRunner {

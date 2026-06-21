@@ -66,8 +66,14 @@ export class PullOpsCli {
     this.stdout = stdout;
     this.stderr = stderr;
     this.githubClient = githubClient;
+    /** @type {boolean} */
+    this.progressSuppressed = false;
     /** @type {(message: string) => void} */
     this.progress = message => {
+      if (this.progressSuppressed) {
+        return;
+      }
+
       this.stderr.write(`[pullops] ${message}\n`);
     };
     this.gitClient =
@@ -81,7 +87,13 @@ export class PullOpsCli {
     this.codexRunner =
       codexRunner ??
       createCodexRunner({
-        output: this.stderr,
+        output: {
+          write: chunk => {
+            if (!this.progressSuppressed) {
+              this.stderr.write(chunk);
+            }
+          },
+        },
         traceCommand: command => {
           this.progress(`runner: ${command}`);
         },
@@ -494,6 +506,12 @@ export class PullOpsCli {
       runnerAdapter,
       runnerRan: undefined,
     });
+
+    const previousProgressSuppressed = this.progressSuppressed;
+    if (parsedArgs.eventsFormat === 'jsonl') {
+      this.progressSuppressed = true;
+    }
+
     try {
       const output = await this.operationRunner({
         operation: operation.name,
@@ -516,7 +534,8 @@ export class PullOpsCli {
         triggerActor: this.env.GITHUB_ACTOR,
         reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
         contextUsage,
-        progress: this.progress,
+        progress: parsedArgs.eventsFormat === 'jsonl' ? undefined : this.progress,
+        suppressRunnerOutput: parsedArgs.eventsFormat === 'jsonl',
         ...(localRunRecordLocation === undefined
           ? {}
           : { localRunRecordDirectory: localRunRecordLocation.directory }),
@@ -571,6 +590,8 @@ export class PullOpsCli {
         },
       });
       return readOperationExitCode(errorOutput);
+    } finally {
+      this.progressSuppressed = previousProgressSuppressed;
     }
   }
 

@@ -320,6 +320,7 @@ async function runLocalCodexOperation(
     command: context.config.runner.command,
     model: context.model,
     prompt,
+    streamOutput: context.suppressRunnerOutput !== true,
   });
   await writeLocalPullRequestRunArtifact(
     runRecord,

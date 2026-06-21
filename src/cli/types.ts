@@ -59,6 +59,7 @@ export interface OperationRunnerContext {
   runnerRan?: boolean;
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
+  suppressRunnerOutput?: boolean;
   progress?: (message: string) => void;
   progressEventWriter?: OperationProgressEventWriter;
   virtualCompletedIssueNumbers?: number[];

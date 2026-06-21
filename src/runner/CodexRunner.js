@@ -20,7 +20,7 @@ export function createCodexRunner({ spawn = nodeSpawn, output, traceCommand } = 
      * @param {CodexRunOptions} options
      * @returns {Promise<string>}
      */
-    async run({ cwd, command, model, prompt }) {
+    async run({ cwd, command, model, prompt, streamOutput = true }) {
       const runnerCommand = parseRunnerCommand(command);
       const baseArgs = [...runnerCommand.args, '--model', model, '-C', cwd];
       const codexLastMessage = await createCodexLastMessageCapture({
@@ -40,7 +40,7 @@ export function createCodexRunner({ spawn = nodeSpawn, output, traceCommand } = 
           file: runnerCommand.file,
           args,
           cwd,
-          output,
+          output: streamOutput ? output : undefined,
         });
 
         if (codexLastMessage !== undefined) {

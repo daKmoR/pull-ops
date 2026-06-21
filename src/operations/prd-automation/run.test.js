@@ -2051,6 +2051,8 @@ describe('runPrdAutoComplete', () => {
     });
     const codex = createFakeCodexRunner(git);
     const progressWriter = createProgressEventWriterSpy();
+    /** @type {string[]} */
+    const progressMessages = [];
 
     await runPrdAutoComplete(
       createContext({
@@ -2068,6 +2070,9 @@ describe('runPrdAutoComplete', () => {
           '2026-06-20T010203000Z-prd-auto-complete-12',
         ),
         progressEventWriter: progressWriter,
+        progress(message) {
+          progressMessages.push(message);
+        },
       }),
     );
 
@@ -2105,6 +2110,11 @@ describe('runPrdAutoComplete', () => {
         completed: 2,
         blocked: 0,
       },
+    );
+    assert.deepEqual(progressMessages, []);
+    assert.equal(
+      codex.calls.every(call => call.streamOutput === false),
+      true,
     );
   });
 });
@@ -2786,11 +2796,17 @@ function isFakeParentBranch(branchName) {
  * @param {{ markRunnerChangedWorktree(): void }} [git]
  * @returns {{
  *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: { cwd: string, command: string, model: string, prompt: string }[];
+ *   calls: {
+ *     cwd: string,
+ *     command: string,
+ *     model: string,
+ *     prompt: string,
+ *     streamOutput?: boolean,
+ *   }[];
  * }}
  */
 function createFakeCodexRunner(git) {
-  /** @type {{ cwd: string, command: string, model: string, prompt: string }[]} */
+  /** @type {{ cwd: string, command: string, model: string, prompt: string, streamOutput?: boolean }[]} */
   const calls = [];
 
   return {
@@ -2845,11 +2861,17 @@ function createFakeCodexRunner(git) {
  * @param {{ markRunnerChangedWorktree(): void }} options.git
  * @returns {{
  *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: { cwd: string, command: string, model: string, prompt: string }[];
+ *   calls: {
+ *     cwd: string,
+ *     command: string,
+ *     model: string,
+ *     prompt: string,
+ *     streamOutput?: boolean,
+ *   }[];
  * }}
  */
 function createFakeCodexRunnerWithBlockedReview({ git }) {
-  /** @type {{ cwd: string, command: string, model: string, prompt: string }[]} */
+  /** @type {{ cwd: string, command: string, model: string, prompt: string, streamOutput?: boolean }[]} */
   const calls = [];
 
   return {
