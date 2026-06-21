@@ -2087,6 +2087,10 @@ describe('runPrdAutoComplete', () => {
         'child.started',
         'child.completed',
         'child.started',
+        'child.progress',
+        'child.progress',
+        'child.progress',
+        'child.progress',
         'child.completed',
         'phase.completed',
       ],
@@ -2101,9 +2105,21 @@ describe('runPrdAutoComplete', () => {
       34,
     );
     assert.equal(progressWriter.events[3]?.status, 'dry-run-completed');
-    assert.equal(progressWriter.events[5]?.status, 'merged');
+    const childRunRecord =
+      /** @type {{ localRunRecord?: string }} */ (progressWriter.events[5] ?? {}).localRunRecord;
+    assert.match(String(childRunRecord), /\.pullops\/runs\/.+issue-implement-35$/);
     assert.deepEqual(
-      /** @type {{ childCounts?: Record<string, number> }} */ (progressWriter.events[6] ?? {})
+      progressWriter.events.slice(5, 9).map(event => event.progressMessage),
+      [
+        `Local Run Record: ${childRunRecord}`,
+        'Checking local worktree.',
+        'Starting Codex runner.',
+        'Codex runner finished.',
+      ],
+    );
+    assert.equal(progressWriter.events[9]?.status, 'merged');
+    assert.deepEqual(
+      /** @type {{ childCounts?: Record<string, number> }} */ (progressWriter.events[10] ?? {})
         .childCounts,
       {
         total: 2,

@@ -42,6 +42,7 @@ import {
  * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('./childCoordination.types.js').ChildAutomationResult} ChildAutomationResult
  * @typedef {import('./childCoordination.types.js').ChildDependencyDecision} ChildDependencyDecision
+ * @typedef {import('./childCoordination.types.js').ChildIssueRunner} ChildIssueRunner
  * @typedef {import('./childCoordination.types.js').ChildIssueCloseResult} ChildIssueCloseResult
  * @typedef {import('./childCoordination.types.js').ChildIssuePrFacts} ChildIssuePrFacts
  * @typedef {import('./childCoordination.types.js').IssueWorkTarget} IssueWorkTarget
@@ -77,7 +78,7 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -99,7 +100,7 @@ export async function coordinateLocalPrdAutoAdvance(
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -122,7 +123,7 @@ export async function coordinateLocalPrdAutoComplete(
  * @param {object} options
  * @param {number} options.parentIssueNumber
  * @param {PrdAutomationMode} options.mode
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -801,7 +802,7 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
  *   virtualCompletedChildren: number[],
@@ -963,7 +964,7 @@ function createLocalDryRunParentReviewFacts({ parentIssue, childIssues, children
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
@@ -1161,7 +1162,7 @@ async function readAlreadyIntegratedLocalDryRunChild(
  * @param {GitHubIssue} options.childIssue
  * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} [options.dependencyFacts]
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
@@ -1289,9 +1290,16 @@ async function coordinateLocalChildIssue(
     });
   }
 
-  const output = await runChildIssue(childIssue.number, {
-    virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
-  });
+  const childProgress = createLocalPrdAutoCompleteChildProgressForwarder(context, childIssue);
+  let output;
+  try {
+    output = await runChildIssue(childIssue.number, {
+      virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
+      progress: childProgress.progress,
+    });
+  } finally {
+    await childProgress.flush();
+  }
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
   const child = childResult({
@@ -3121,6 +3129,62 @@ async function emitLocalPrdAutoCompleteChildStarted(context, childIssue) {
     },
     message: `Coordinating child issue #${childIssue.number}.`,
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @returns {{
+ *   progress: ((message: string) => void) | undefined,
+ *   flush: () => Promise<void>,
+ * }}
+ */
+function createLocalPrdAutoCompleteChildProgressForwarder(context, childIssue) {
+  if (context.progressEventWriter === undefined) {
+    return {
+      progress: undefined,
+      async flush() {},
+    };
+  }
+
+  let pending = Promise.resolve();
+  return {
+    progress(message) {
+      const progressMessage = String(message);
+      pending = pending.then(async () => {
+        await context.progressEventWriter?.emit('child.progress', {
+          phase: 'child-coordination',
+          childIssue: {
+            number: childIssue.number,
+            url: childIssue.url,
+          },
+          status: 'running',
+          childOperation: 'issue:implement',
+          message: `Child issue #${childIssue.number}: ${progressMessage}`,
+          progressMessage,
+          ...readLocalRunRecordProgress(progressMessage),
+        });
+      });
+    },
+    async flush() {
+      await pending;
+    },
+  };
+}
+
+/**
+ * @param {string} message
+ * @returns {{ localRunRecord?: string }}
+ */
+function readLocalRunRecordProgress(message) {
+  const match = message.match(/Local Run Record:\s*(.+)$/);
+  if (match === null) {
+    return {};
+  }
+
+  return {
+    localRunRecord: match[1],
+  };
 }
 
 /**

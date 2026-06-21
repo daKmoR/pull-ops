@@ -16,7 +16,7 @@ Progress events may include a short human display `message`, but message text is
 
 Every progress event includes an `at` timestamp. The terminal summary still carries `startedAt`, `finishedAt`, and `durationMs`; per-event timestamps let observing agents detect stalls and compute phase durations without inspecting process state.
 
-Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `child.started`, `child.completed`, `child.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `childIssue`, and `pullRequest`, not in bespoke event names.
+Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `child.started`, `child.progress`, `child.completed`, `child.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `childIssue`, and `pullRequest`, not in bespoke event names.
 
 `waiting` is a nonterminal event for valid in-run waits such as pending checks or retry delays. A run that cannot continue reports that terminal boundary through `run.summary.status = "blocked"` with structured blockers and next steps.
 
@@ -54,6 +54,7 @@ The initial fixed vocabulary is:
 - `phase.started`: PullOps entered a meaningful domain phase
 - `phase.completed`: PullOps completed a meaningful domain phase
 - `child.started`: PRD Child Coordination started a Child Issue unit of work
+- `child.progress`: PullOps observed a bounded nested Child Issue milestone while the Child Issue operation is still running
 - `child.completed`: a Child Issue unit of work reached a non-blocked result
 - `child.blocked`: a Child Issue hit a terminal blocker for this run
 - `waiting`: PullOps is still validly running but is waiting on checks, review, or another nonterminal boundary

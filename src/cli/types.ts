@@ -17,6 +17,7 @@ export type OperationProgressEventName =
   | 'phase.started'
   | 'phase.completed'
   | 'child.started'
+  | 'child.progress'
   | 'child.completed'
   | 'child.blocked'
   | 'waiting'

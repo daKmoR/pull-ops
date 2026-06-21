@@ -64,6 +64,16 @@ export interface ChildDependencyDecision {
   remainingBlockedBy: number[];
 }
 
+export interface ChildIssueRunOptions {
+  virtualCompletedIssueNumbers?: number[];
+  progress?: (message: string) => void;
+}
+
+export type ChildIssueRunner = (
+  childIssueNumber: number,
+  options?: ChildIssueRunOptions,
+) => Promise<Record<string, unknown>>;
+
 export interface ParentReviewResult {
   status: string;
   summary?: string;
