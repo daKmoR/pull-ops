@@ -1,4 +1,5 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
+import { publishConcreteIssue } from '../../issue-store/publishConcreteIssue.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
@@ -23,6 +24,7 @@ import { determinePrReviewMode, resolveReviewModelSelection } from '../reviewSel
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
+ * @typedef {import('../../issue-store/types.js').NormalizedConcreteIssueRequest} NormalizedConcreteIssueRequest
  * @typedef {import('./output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
  * @typedef {import('./output.types.js').ReviewFollowUpIssueProposal} ReviewFollowUpIssueProposal
  * @typedef {import('./output.types.js').ReviewReply} ReviewReply
@@ -60,7 +62,6 @@ export async function runPrReview(context) {
         reviewContext: preparation.reviewContext,
         diff: preparation.diff,
       }),
-      streamOutput: context.suppressRunnerOutput !== true,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
@@ -318,15 +319,14 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
           })
         : [];
     if (reviewFollowUpIssueNumbers.length > 0) {
-      const updatedBody = updateManagedPrState({
+      pullRequest.body = updateManagedPrState({
         body: pullRequest.body,
         reviewFollowUpIssueNumbers,
       });
       await context.githubClient.updatePullRequestBody({
         number: pullRequest.number,
-        body: updatedBody,
+        body: pullRequest.body,
       });
-      pullRequest.body = updatedBody;
     }
     const comments = filterCommentsToDiffAnchors({
       comments: reviewResult.comments,
@@ -671,32 +671,64 @@ async function createReviewFollowUpIssuesIfNeeded(
   context,
   { pullRequest, sourceIssue, reviewMode, reviewFollowUpIssues },
 ) {
-  if (reviewMode !== 'escalation' || reviewFollowUpIssues.length === 0) {
+  if (reviewMode !== 'escalation') {
     return [];
   }
 
   const state = readManagedPrState(pullRequest.body);
-  if ((state.reviewFollowUpIssueNumbers ?? []).length > 0) {
-    return state.reviewFollowUpIssueNumbers ?? [];
-  }
-
-  if (context.githubClient.createIssue === undefined) {
-    throw new Error('GitHub client does not support issue creation.');
+  const recordedIssueNumbers = state.reviewFollowUpIssueNumbers ?? [];
+  if (reviewFollowUpIssues.length === 0 && recordedIssueNumbers.length === 0) {
+    return [];
   }
 
   /** @type {number[]} */
   const issueNumbers = [];
-  for (const proposal of reviewFollowUpIssues) {
-    const createdIssue = await context.githubClient.createIssue({
-      title: proposal.title,
-      body: createReviewFollowUpIssueBody({
+  for (const [index, proposal] of reviewFollowUpIssues.entries()) {
+    const recordedIssueNumber = recordedIssueNumbers[index];
+    const publication = await publishConcreteIssue({
+      cwd: context.cwd,
+      config: context.config,
+      githubClient: context.githubClient,
+      rawRequest: createReviewFollowUpIssuePublicationRequest({
+        issueNumber: recordedIssueNumber,
         pullRequest,
         sourceIssue,
         proposal,
       }),
-      labels: ['needs-triage'],
     });
-    issueNumbers.push(createdIssue.number);
+    if (publication.status !== 'accepted') {
+      if (publication.issue !== undefined) {
+        issueNumbers.push(publication.issue.number);
+      } else if (recordedIssueNumber !== undefined) {
+        issueNumbers.push(recordedIssueNumber);
+      }
+
+      const nextRecordedIssueNumbers = [...issueNumbers, ...recordedIssueNumbers.slice(index + 1)];
+      if (nextRecordedIssueNumbers.length > 0) {
+        pullRequest.body = updateManagedPrState({
+          body: pullRequest.body,
+          reviewFollowUpIssueNumbers: nextRecordedIssueNumbers,
+        });
+      }
+
+      throw new Error(
+        `Failed to publish review follow-up issue "${proposal.title}": ${publication.failureReason}`,
+      );
+    }
+
+    issueNumbers.push(publication.issue.number);
+  }
+
+  const unreconciledRecordedIssueNumbers = recordedIssueNumbers.slice(reviewFollowUpIssues.length);
+  if (unreconciledRecordedIssueNumbers.length > 0) {
+    const subject =
+      unreconciledRecordedIssueNumbers.length === 1 ? 'recorded issue' : 'recorded issues';
+    const verb = unreconciledRecordedIssueNumbers.length === 1 ? 'has' : 'have';
+    throw new Error(
+      `Cannot finalize review follow-up issue publication because ${subject} ${formatIssueNumbers(
+        unreconciledRecordedIssueNumbers,
+      )} ${verb} no matching reviewFollowUpIssues proposal.`,
+    );
   }
 
   return issueNumbers;
@@ -704,21 +736,38 @@ async function createReviewFollowUpIssuesIfNeeded(
 
 /**
  * @param {{
+ *   issueNumber?: number;
  *   pullRequest: GitHubPullRequest;
  *   sourceIssue: GitHubIssue;
  *   proposal: ReviewFollowUpIssueProposal;
  * }} options
+ * @returns {NormalizedConcreteIssueRequest}
+ */
+function createReviewFollowUpIssuePublicationRequest({
+  issueNumber,
+  pullRequest,
+  sourceIssue,
+  proposal,
+}) {
+  return {
+    ...(issueNumber === undefined ? {} : { issueNumber }),
+    title: proposal.title,
+    whatToBuild: proposal.body,
+    acceptanceCriteria: ['Maintainer triages this Review Follow-up Issue.'],
+    blockedBy: [],
+    auditDetails: [
+      `Source review: [Escalation Review Cycle on PR #${pullRequest.number}](${pullRequest.url})`,
+      `Source PR: #${pullRequest.number} (${pullRequest.url})`,
+      `Source issue: #${sourceIssue.number} (${sourceIssue.url})`,
+    ],
+    triageRole: 'needs-triage',
+  };
+}
+
+/**
+ * @param {number[]} issueNumbers
  * @returns {string}
  */
-function createReviewFollowUpIssueBody({ pullRequest, sourceIssue, proposal }) {
-  return [
-    `Created from an approving Escalation Review Cycle on PullOps-managed PR #${pullRequest.number}.`,
-    '',
-    `Source PR: #${pullRequest.number}`,
-    `Source issue: #${sourceIssue.number}`,
-    '',
-    '## Proposal',
-    '',
-    proposal.body,
-  ].join('\n');
+function formatIssueNumbers(issueNumbers) {
+  return issueNumbers.map(issueNumber => `#${issueNumber}`).join(', ');
 }
