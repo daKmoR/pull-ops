@@ -13,6 +13,7 @@ test('loadPullOpsConfig returns defaults when no config file exists', async () =
 
   assert.equal(config.baseBranch, 'main');
   assert.equal(config.branchPrefix, 'pullops');
+  assert.equal(config.issueStore.provider, 'github');
   assert.equal(config.runner.adapter, 'codex-cli');
   assert.equal(config.runner.command, 'codex exec');
   assert.deepEqual(config.runner.models, {
@@ -45,6 +46,9 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
       export default {
         baseBranch: 'trunk',
         branchPrefix: 'automation/pullops',
+        issueStore: {
+          provider: 'github',
+        },
         runner: {
           adapter: 'codex-action',
           command: 'codex exec --sandbox workspace-write',
@@ -76,6 +80,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
 
   assert.equal(config.baseBranch, 'trunk');
   assert.equal(config.branchPrefix, 'automation/pullops');
+  assert.equal(config.issueStore.provider, 'github');
   assert.equal(config.runner.adapter, 'codex-action');
   assert.equal(config.runner.command, 'codex exec --sandbox workspace-write');
   assert.deepEqual(config.runner.models, {
@@ -114,6 +119,22 @@ test('loadPullOpsConfig rejects unknown runner adapters', async () => {
     loadPullOpsConfig({ cwd }),
     /runner\.adapter must be one of: codex-cli, codex-action/,
   );
+});
+
+test('loadPullOpsConfig rejects unsupported issue store providers', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-issue-store-provider-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        issueStore: {
+          provider: 'local-markdown',
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(loadPullOpsConfig({ cwd }), /issueStore\.provider must be one of: github/);
 });
 
 test('loadPullOpsConfig rejects partial model-tier overrides', async () => {

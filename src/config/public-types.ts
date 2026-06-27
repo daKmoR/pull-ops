@@ -1,4 +1,5 @@
 import type {
+  IssueStoreConfig,
   ModelTier,
   OperationConfig,
   PrFinalizeOperationConfig,
@@ -7,6 +8,8 @@ import type {
 import type { RunnerAdapter } from '../runner/types.js';
 
 export type {
+  IssueStoreConfig,
+  IssueStoreProvider,
   ModelTier,
   OperationConfig,
   PrFinalizeOperationConfig,
@@ -23,6 +26,7 @@ export interface RunnerConfig {
 export interface PullOpsConfig {
   baseBranch: string;
   branchPrefix: string;
+  issueStore: IssueStoreConfig;
   runner: RunnerConfig;
   operations: {
     prdPrepare: OperationConfig;

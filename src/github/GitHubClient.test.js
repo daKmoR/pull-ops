@@ -692,6 +692,102 @@ describe('createGitHubClient', () => {
       /Failed to create GitHub issue "Follow up on a non-blocking concern\.": GitHub refused the label change\./,
     );
   });
+
+  it('18: updates GitHub issues with labels and reports API failures with issue context', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issue: createIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+      }),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    const issue = await client.updateIssue({
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      labels: ['needs-triage'],
+    });
+
+    assert.deepEqual(issue, {
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      state: 'OPEN',
+      url: 'https://github.com/acme/widgets/issues/200',
+      authorLogin: 'octocat',
+      labels: ['needs-triage'],
+      parent: null,
+      subIssues: [],
+    });
+    assert.deepEqual(calls[0], {
+      name: 'issues.update',
+      params: {
+        ...TEST_REPOSITORY,
+        issue_number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+        labels: ['needs-triage'],
+      },
+    });
+
+    const failingOctokit = createFakeOctokit({
+      failOn: call => call.name === 'issues.update',
+    }).octokit;
+    const failingClient = createGitHubClient({
+      octokit: failingOctokit,
+      repository: TEST_REPOSITORY,
+    });
+
+    if (failingClient.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    await assert.rejects(
+      failingClient.updateIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+        labels: ['needs-triage'],
+      }),
+      /Failed to update GitHub issue #200: GitHub refused the label change\./,
+    );
+  });
+
+  it('19: omits issue labels from update requests when labels are not provided', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issue: createIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+        labels: ['needs-triage', 'ready-for-agent'],
+      }),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    const issue = await client.updateIssue({
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+    });
+
+    assert.deepEqual(issue.labels, ['needs-triage', 'ready-for-agent']);
+    assert.deepEqual(calls[0], {
+      name: 'issues.update',
+      params: {
+        ...TEST_REPOSITORY,
+        issue_number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      },
+    });
+  });
 });
 
 const TEST_REPOSITORY = {
@@ -872,7 +968,19 @@ function createFakeOctokit({
 
           return {};
         }),
-        update: endpoint('issues.update', () => ({})),
+        update: endpoint('issues.update', params => ({
+          number: requireNumberParam(params.issue_number),
+          title: typeof params.title === 'string' ? params.title : issue.title,
+          body: typeof params.body === 'string' ? params.body : issue.body,
+          state: typeof params.state === 'string' ? params.state : 'open',
+          html_url: `https://github.com/acme/widgets/issues/${requireNumberParam(params.issue_number)}`,
+          user: {
+            login: 'octocat',
+          },
+          labels: Array.isArray(params.labels)
+            ? params.labels.map(label => ({ name: requireStringParam(label) }))
+            : readIssueLabelNames(issue).map(name => ({ name })),
+        })),
         updateLabel: endpoint('issues.updateLabel', () => ({})),
       },
       pulls: {
@@ -1103,6 +1211,32 @@ function requireStringParam(value) {
   }
 
   return value;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function requireNumberParam(value) {
+  if (typeof value !== 'number') {
+    assert.fail('Expected a number parameter.');
+  }
+
+  return value;
+}
+
+/**
+ * @param {Record<string, unknown>} issue
+ * @returns {string[]}
+ */
+function readIssueLabelNames(issue) {
+  if (!isPlainObject(issue.labels) || !Array.isArray(issue.labels.nodes)) {
+    return [];
+  }
+
+  return issue.labels.nodes
+    .map(label => (isPlainObject(label) && typeof label.name === 'string' ? label.name : undefined))
+    .filter(name => name !== undefined);
 }
 
 /**
