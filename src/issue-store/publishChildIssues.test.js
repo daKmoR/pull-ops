@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { createChildIssueBody } from './childIssueBody.js';
 import { createPrdIssueBody } from './prdIssueBody.js';
 import { publishChildIssues } from './publishChildIssues.js';
 
@@ -94,6 +95,7 @@ describe('publishChildIssues', () => {
             number: 201,
             url: 'https://github.test/issues/201',
           },
+          blockedBy: [44],
           triageRole: 'ready-for-agent',
         },
         {
@@ -103,6 +105,7 @@ describe('publishChildIssues', () => {
             number: 202,
             url: 'https://github.test/issues/202',
           },
+          blockedBy: [],
         },
       ],
       mappings: [
@@ -164,6 +167,7 @@ describe('publishChildIssues', () => {
             whatToBuild: 'Implement the first user-facing slice.',
             acceptanceCriteria: ['Creates the feature path.'],
             blockedBy: [44],
+            blockedBySliceRefs: [],
             coveredUserStories: [2, 10],
             supportWork: false,
             triageRole: 'ready-for-agent',
@@ -174,10 +178,12 @@ describe('publishChildIssues', () => {
             whatToBuild: 'Add supporting test fixtures.',
             acceptanceCriteria: ['Support fixtures are available.'],
             blockedBy: [],
+            blockedBySliceRefs: [],
             coveredUserStories: [],
             supportWork: true,
           },
         ],
+        forceUpdate: false,
       },
     );
     assert.deepEqual(
@@ -187,6 +193,10 @@ describe('publishChildIssues', () => {
     assert.deepEqual(
       JSON.parse(await readFile(join(result.localRunRecord, 'warnings.json'), 'utf8')),
       result.warnings,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'failures.json'), 'utf8')),
+      [],
     );
   });
 
@@ -341,6 +351,439 @@ describe('publishChildIssues', () => {
 
     assert.equal(result.status, 'failed');
     assert.match(result.failureReason, /Parent Issue #126 must be open/);
+    assert.equal(github.createdIssueInputs.length, 0);
+  });
+
+  it('06: resolves earlier slice refs to GitHub issue numbers in blocked-by bodies and output', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-dependencies-'));
+    const github = createFakeGitHubClient({
+      /** @param {number} number */
+      async getIssue(number) {
+        return createIssue({
+          number,
+          title: 'Parent PRD',
+          body: createPrdIssueBody({
+            title: 'Published parent',
+            problemStatement: 'Parent problem.',
+            solution: 'Parent solution.',
+            userStories: [{ number: 23, story: 'As an agent, I can publish dependencies.' }],
+            implementationDecisions: ['Use native sub-issues.'],
+            testingDecisions: ['Use focused tests.'],
+            outOfScope: ['Unrelated publication.'],
+            furtherNotes: [],
+            auditDetails: [],
+          }),
+        });
+      },
+      /** @param {import('../github/types.js').CreateIssueOptions} options */
+      async createIssue(options) {
+        github.createdIssueInputs.push(options);
+        const number = 200 + github.createdIssueInputs.length;
+        return createIssue({
+          number,
+          title: options.title,
+          body: options.body,
+        });
+      },
+      /** @param {import('../github/types.js').AddSubIssueOptions} options */
+      async addSubIssue(options) {
+        github.subIssueAdds.push(options);
+      },
+    });
+
+    const result = await publishChildIssues({
+      cwd,
+      config: { issueStore: { provider: 'github' } },
+      githubClient: github,
+      rawRequest: {
+        parentIssueNumber: 126,
+        children: [
+          {
+            sliceRef: 'base',
+            title: 'Base slice',
+            whatToBuild: 'Build the first dependency.',
+            acceptanceCriteria: ['Base exists.'],
+            coveredUserStories: [23],
+          },
+          {
+            sliceRef: 'dependent',
+            title: 'Dependent slice',
+            whatToBuild: 'Build on the first dependency.',
+            acceptanceCriteria: ['Dependent exists.'],
+            blockedBy: ['base', 44],
+            coveredUserStories: [24],
+          },
+        ],
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(github.createdIssueInputs.length, 2);
+    assert.match(github.createdIssueInputs[1].body, /^## Blocked by$/m);
+    assert.match(github.createdIssueInputs[1].body, /- #201/);
+    assert.match(github.createdIssueInputs[1].body, /- #44/);
+    assert.doesNotMatch(github.createdIssueInputs[1].body, /base/);
+    assert.deepEqual(
+      result.children.map(child => [child.sliceRef, child.blockedBy]),
+      [
+        ['base', []],
+        ['dependent', [201, 44]],
+      ],
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'request.json'), 'utf8')).children[1],
+      {
+        sliceRef: 'dependent',
+        title: 'Dependent slice',
+        whatToBuild: 'Build on the first dependency.',
+        acceptanceCriteria: ['Dependent exists.'],
+        blockedBy: [44],
+        blockedBySliceRefs: ['base'],
+        coveredUserStories: [24],
+        supportWork: false,
+      },
+    );
+  });
+
+  it('07: force-updates existing marker-owned children by parent and slice ref on rerun', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-rerun-'));
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updates = [];
+    const existingChild = createIssue({
+      number: 201,
+      title: 'Old title',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: '1',
+        title: 'Old title',
+        whatToBuild: 'Old work.',
+        acceptanceCriteria: ['Old criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [23],
+        supportWork: false,
+      }),
+      parent: {
+        number: 126,
+        title: 'Parent',
+        url: 'https://github.test/issues/126',
+        state: 'OPEN',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHubClient({
+      /** @param {number} number */
+      async getIssue(number) {
+        if (number === 126) {
+          return createIssue({
+            number,
+            subIssues: [
+              {
+                number: 201,
+                title: 'Old title',
+                url: 'https://github.test/issues/201',
+                state: 'OPEN',
+                relationshipSource: 'native',
+              },
+            ],
+          });
+        }
+        assert.equal(number, 201);
+        return existingChild;
+      },
+      /** @param {import('../github/types.js').UpdateIssueOptions} options */
+      async updateIssue(options) {
+        updates.push(options);
+        return createIssue({
+          ...existingChild,
+          title: options.title,
+          body: options.body,
+        });
+      },
+    });
+
+    const result = await publishChildIssues({
+      cwd,
+      config: { issueStore: { provider: 'github' } },
+      githubClient: github,
+      rawRequest: {
+        parentIssueNumber: 126,
+        forceUpdate: true,
+        children: [
+          {
+            sliceRef: '1',
+            title: 'Updated child',
+            whatToBuild: 'Updated child work.',
+            acceptanceCriteria: ['Updated criteria.'],
+            coveredUserStories: [23],
+          },
+        ],
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(github.createdIssueInputs.length, 0);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].number, 201);
+    assert.equal(updates[0].title, 'Updated child');
+    assert.match(updates[0].body, /Updated child work/);
+    assert.deepEqual(result.children, [
+      {
+        sliceRef: '1',
+        action: 'updated',
+        issue: {
+          number: 201,
+          url: 'https://github.test/issues/201',
+        },
+        blockedBy: [],
+      },
+    ]);
+  });
+
+  it('08: reports partial failures with created updated and failed slice details and artifacts', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-partial-'));
+    const existingChild = createIssue({
+      number: 201,
+      title: 'Existing child',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: 'existing',
+        title: 'Existing child',
+        whatToBuild: 'Old work.',
+        acceptanceCriteria: ['Old criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [25],
+        supportWork: false,
+      }),
+      parent: {
+        number: 126,
+        title: 'Parent',
+        url: 'https://github.test/issues/126',
+        state: 'OPEN',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHubClient({
+      /** @param {number} number */
+      async getIssue(number) {
+        if (number === 126) {
+          return createIssue({
+            number,
+            subIssues: [
+              {
+                number: 201,
+                title: 'Existing child',
+                url: 'https://github.test/issues/201',
+                state: 'OPEN',
+                relationshipSource: 'native',
+              },
+            ],
+          });
+        }
+        assert.equal(number, 201);
+        return existingChild;
+      },
+      /** @param {import('../github/types.js').UpdateIssueOptions} options */
+      async updateIssue(options) {
+        return createIssue({ ...existingChild, title: options.title, body: options.body });
+      },
+      /** @param {import('../github/types.js').CreateIssueOptions} options */
+      async createIssue(options) {
+        if (options.title === 'Broken child') {
+          throw new Error('GitHub refused this child.');
+        }
+        const issue = createIssue({
+          number: 202,
+          title: options.title,
+          body: options.body,
+        });
+        github.createdIssueInputs.push(options);
+        return issue;
+      },
+      /** @param {import('../github/types.js').AddSubIssueOptions} options */
+      async addSubIssue(options) {
+        github.subIssueAdds.push(options);
+      },
+    });
+
+    const result = await publishChildIssues({
+      cwd,
+      config: { issueStore: { provider: 'github' } },
+      githubClient: github,
+      rawRequest: {
+        parentIssueNumber: 126,
+        forceUpdate: true,
+        children: [
+          {
+            sliceRef: 'existing',
+            title: 'Updated existing child',
+            whatToBuild: 'Updated work.',
+            acceptanceCriteria: ['Updated criteria.'],
+            coveredUserStories: [25],
+          },
+          {
+            sliceRef: 'new',
+            title: 'New child',
+            whatToBuild: 'New work.',
+            acceptanceCriteria: ['New criteria.'],
+            coveredUserStories: [26],
+          },
+          {
+            sliceRef: 'broken',
+            title: 'Broken child',
+            whatToBuild: 'Broken work.',
+            acceptanceCriteria: ['Broken criteria.'],
+            coveredUserStories: [27],
+          },
+        ],
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.match(result.summary, /Published 2 Child Issues under Parent Issue #126/);
+    assert.deepEqual(
+      result.children?.map(child => [child.sliceRef, child.action]),
+      [
+        ['existing', 'updated'],
+        ['new', 'created'],
+      ],
+    );
+    assert.deepEqual(result.failedChildren, [
+      {
+        sliceRef: 'broken',
+        failureReason: 'GitHub refused this child.',
+      },
+    ]);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'response.json'), 'utf8')),
+      result,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'failures.json'), 'utf8')),
+      result.failedChildren,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'warnings.json'), 'utf8')),
+      result.warnings,
+    );
+  });
+
+  it('09: explicit issue number overrides repair unattached marker-owned children safely', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-override-'));
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updates = [];
+    const overrideChild = createIssue({
+      number: 201,
+      title: 'Unattached child',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: 'repair',
+        title: 'Unattached child',
+        whatToBuild: 'Old repair work.',
+        acceptanceCriteria: ['Old repair criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [30],
+        supportWork: false,
+      }),
+      parent: null,
+    });
+    const github = createFakeGitHubClient({
+      /** @param {number} number */
+      async getIssue(number) {
+        if (number === 126) {
+          return createIssue({ number, subIssues: [] });
+        }
+        assert.equal(number, 201);
+        return overrideChild;
+      },
+      /** @param {import('../github/types.js').UpdateIssueOptions} options */
+      async updateIssue(options) {
+        updates.push(options);
+        return createIssue({
+          ...overrideChild,
+          title: options.title,
+          body: options.body,
+        });
+      },
+      /** @param {import('../github/types.js').AddSubIssueOptions} options */
+      async addSubIssue(options) {
+        github.subIssueAdds.push(options);
+      },
+    });
+
+    const result = await publishChildIssues({
+      cwd,
+      config: { issueStore: { provider: 'github' } },
+      githubClient: github,
+      rawRequest: {
+        parentIssueNumber: 126,
+        children: [
+          {
+            sliceRef: 'repair',
+            issueNumber: 201,
+            title: 'Repaired child',
+            whatToBuild: 'Repair publication.',
+            acceptanceCriteria: ['Repair is published.'],
+            coveredUserStories: [30],
+          },
+        ],
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(updates.length, 1);
+    assert.deepEqual(github.subIssueAdds, [{ parentIssueNumber: 126, childIssueNumber: 201 }]);
+    assert.equal(result.children[0].action, 'updated');
+  });
+
+  it('10: refuses force updates when the explicit issue override is not marker-owned', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-override-safety-'));
+    const github = createFakeGitHubClient({
+      /** @param {number} number */
+      async getIssue(number) {
+        if (number === 126) {
+          return createIssue({ number, subIssues: [] });
+        }
+        assert.equal(number, 201);
+        return createIssue({
+          number,
+          body: '## What to build\n\nA manually authored issue.',
+        });
+      },
+    });
+
+    const result = await publishChildIssues({
+      cwd,
+      config: { issueStore: { provider: 'github' } },
+      githubClient: github,
+      rawRequest: {
+        parentIssueNumber: 126,
+        forceUpdate: true,
+        children: [
+          {
+            sliceRef: 'repair',
+            issueNumber: 201,
+            title: 'Repaired child',
+            whatToBuild: 'Repair publication.',
+            acceptanceCriteria: ['Repair is published.'],
+            coveredUserStories: [30],
+          },
+        ],
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.match(
+      result.failedChildren?.[0].failureReason ?? '',
+      /Issue #201 is not marked as a PullOps-published Child Issue/,
+    );
     assert.equal(github.createdIssueInputs.length, 0);
   });
 });

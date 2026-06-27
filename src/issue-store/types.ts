@@ -104,11 +104,13 @@ export interface PrdIssuePublishFailureOutput {
 export type PrdIssuePublishOutput = PrdIssuePublishSuccessOutput | PrdIssuePublishFailureOutput;
 
 export interface NormalizedChildIssueRequest {
+  issueNumber?: number;
   sliceRef: string;
   title: string;
   whatToBuild: string;
   acceptanceCriteria: string[];
   blockedBy: number[];
+  blockedBySliceRefs: string[];
   coveredUserStories: number[];
   supportWork: boolean;
   triageRole?: TriageRole;
@@ -117,6 +119,7 @@ export interface NormalizedChildIssueRequest {
 export interface NormalizedChildIssueBatchRequest {
   parentIssueNumber: number;
   children: NormalizedChildIssueRequest[];
+  forceUpdate: boolean;
 }
 
 export interface ChildIssuePublicationMarker {
@@ -139,8 +142,9 @@ export interface ChildIssuePublishIssue {
 
 export interface ChildIssuePublishChild {
   sliceRef: string;
-  action: 'created';
+  action: 'created' | 'updated';
   issue: ChildIssuePublishIssue;
+  blockedBy: number[];
   triageRole?: TriageRole;
 }
 
@@ -153,12 +157,14 @@ export interface ChildIssuePublishMapping {
 export interface ChildIssuePublishFailure {
   sliceRef: string;
   failureReason: string;
+  action?: 'created' | 'updated';
+  issue?: ChildIssuePublishIssue;
 }
 
 export interface ChildIssuePublishSuccessOutput {
   status: 'accepted';
   summary: string;
-  action: 'created';
+  action: 'created' | 'updated' | 'mixed';
   parent: ChildIssuePublishIssue;
   children: ChildIssuePublishChild[];
   mappings: ChildIssuePublishMapping[];

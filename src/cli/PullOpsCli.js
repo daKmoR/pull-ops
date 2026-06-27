@@ -281,6 +281,7 @@ export class PullOpsCli {
         githubClient: this.githubClient,
         rawRequest,
         parentIssueNumber: parsedArgs.parentIssueNumber,
+        forceUpdate: parsedArgs.forceUpdate,
         createdAt,
       });
 
@@ -1190,12 +1191,13 @@ function parsePublishIssueArgs(args) {
 
 /**
  * @param {string[]} args
- * @returns {{ filePath?: string, parentIssueNumber?: number }}
+ * @returns {{ filePath?: string, parentIssueNumber?: number, forceUpdate: boolean }}
  */
 function parsePublishChildrenArgs(args) {
   const consumed = new Set();
   const filePath = parseOptionalStringOption(args, '--file', consumed);
   const rawParentIssueNumber = parseOptionalStringOption(args, '--parent', consumed);
+  const forceUpdate = parseBooleanFlag(args, '--force', consumed);
 
   const remaining = args.filter((value, argIndex) => {
     void value;
@@ -1216,6 +1218,7 @@ function parsePublishChildrenArgs(args) {
   return {
     ...(filePath === undefined ? {} : { filePath }),
     ...(parentIssueNumber === undefined ? {} : { parentIssueNumber }),
+    forceUpdate,
   };
 }
 
@@ -1442,6 +1445,22 @@ function parseOptionalStringOption(args, optionName, consumed) {
 }
 
 /**
+ * @param {string[]} args
+ * @param {string} optionName
+ * @param {Set<number>} consumed
+ * @returns {boolean}
+ */
+function parseBooleanFlag(args, optionName, consumed) {
+  const index = args.indexOf(optionName);
+  if (index === -1) {
+    return false;
+  }
+
+  consumed.add(index);
+  return true;
+}
+
+/**
  * @param {NodeJS.ProcessEnv} env
  * @returns {import('./types.js').OperationContextUsage | undefined}
  */
@@ -1593,7 +1612,7 @@ function usage() {
     '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
     '  pullops issues publish-prd [--file <path>]',
-    '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>]',
+    '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops labels ensure',
   ].join('\n');
