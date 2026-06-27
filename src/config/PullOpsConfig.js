@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -23,6 +24,7 @@ export const MODEL_TIERS = ['high', 'mid', 'low'];
 export const DEFAULT_PULL_OPS_CONFIG = {
   baseBranch: 'main',
   branchPrefix: 'pullops',
+  issueStore: {},
   runner: {
     adapter: DEFAULT_RUNNER_ADAPTER,
     command: 'codex exec',
@@ -66,25 +68,40 @@ export class PullOpsConfigError extends Error {
 }
 
 /**
- * @param {{ cwd?: string, configFile?: string }} [options]
+ * @param {{
+ *   cwd?: string,
+ *   configFile?: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   readRemoteOriginUrl?: () => string | undefined,
+ * }} [options]
  * @returns {Promise<PullOpsConfig>}
  */
 export async function loadPullOpsConfig({
   cwd = process.cwd(),
   configFile = 'pullops.config.js',
+  env = process.env,
+  readRemoteOriginUrl = () => readGitRemoteOriginUrl(cwd),
 } = {}) {
   const configPath = resolve(cwd, configFile);
+  /** @type {UserPullOpsConfig} */
+  let userConfig = {};
 
-  if (!(await fileExists(configPath))) {
-    return cloneConfig(DEFAULT_PULL_OPS_CONFIG);
+  if (await fileExists(configPath)) {
+    const importedConfig = await importConfig(configPath);
+    userConfig = validateConfigObject(importedConfig, configPath);
+    validateModelOverrides(userConfig);
+    validateIssueStoreOverrides(userConfig);
+    validateOperationOverrides(userConfig);
   }
 
-  const importedConfig = await importConfig(configPath);
-  const userConfig = validateConfigObject(importedConfig, configPath);
-  validateModelOverrides(userConfig);
-  validateOperationOverrides(userConfig);
+  const config = mergeConfig(userConfig);
+  applyIssueStoreProviderDefault({
+    config,
+    env,
+    readRemoteOriginUrl,
+  });
 
-  return mergeConfig(userConfig);
+  return config;
 }
 
 /**
@@ -169,6 +186,31 @@ function validateModelOverrides(userConfig) {
         `PullOps Config runner.models.${tier} must be a non-empty string.`,
       );
     }
+  }
+}
+
+/**
+ * @param {UserPullOpsConfig} userConfig
+ */
+function validateIssueStoreOverrides(userConfig) {
+  const issueStore = userConfig.issueStore;
+  if (issueStore === undefined) {
+    return;
+  }
+
+  if (!isPlainObject(issueStore)) {
+    throw new PullOpsConfigError('PullOps Config issueStore must be an object.');
+  }
+
+  if (
+    issueStore.provider !== undefined &&
+    (typeof issueStore.provider !== 'string' || issueStore.provider !== 'github')
+  ) {
+    throw new PullOpsConfigError(
+      `PullOps Config issueStore.provider must be one of: github. Received ${JSON.stringify(
+        issueStore.provider,
+      )}.`,
+    );
   }
 }
 
@@ -281,6 +323,19 @@ function mergeConfig(userConfig) {
     config.branchPrefix = requireString(userConfig.branchPrefix, 'branchPrefix');
   }
 
+  const issueStore = userConfig.issueStore;
+  if (issueStore !== undefined) {
+    if (!isPlainObject(issueStore)) {
+      throw new PullOpsConfigError('PullOps Config issueStore must be an object.');
+    }
+    if (issueStore.provider !== undefined) {
+      config.issueStore.provider = requireIssueStoreProvider(
+        issueStore.provider,
+        'issueStore.provider',
+      );
+    }
+  }
+
   const runner = userConfig.runner;
   if (runner !== undefined) {
     if (!isPlainObject(runner)) {
@@ -310,6 +365,23 @@ function mergeConfig(userConfig) {
 }
 
 /**
+ * @param {{
+ *   config: PullOpsConfig,
+ *   env: NodeJS.ProcessEnv,
+ *   readRemoteOriginUrl: () => string | undefined,
+ * }} options
+ */
+function applyIssueStoreProviderDefault({ config, env, readRemoteOriginUrl }) {
+  if (config.issueStore.provider !== undefined) {
+    return;
+  }
+
+  if (hasGitHubRepositoryContext({ env, readRemoteOriginUrl })) {
+    config.issueStore.provider = 'github';
+  }
+}
+
+/**
  * @param {unknown} value
  * @param {string} path
  * @returns {string}
@@ -334,6 +406,114 @@ function requireRunnerAdapter(value, path) {
   }
 
   return value;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {import('./types.js').IssueStoreProvider}
+ */
+function requireIssueStoreProvider(value, path) {
+  if (value !== 'github') {
+    throw new PullOpsConfigError(`PullOps Config ${path} must be one of: github.`);
+  }
+
+  return value;
+}
+
+/**
+ * @param {{
+ *   env: NodeJS.ProcessEnv,
+ *   readRemoteOriginUrl: () => string | undefined,
+ * }} options
+ * @returns {boolean}
+ */
+function hasGitHubRepositoryContext({ env, readRemoteOriginUrl }) {
+  const envRepository = readNonEmptyEnv(env.GITHUB_REPOSITORY);
+  if (envRepository !== undefined && parseRepositoryPath(envRepository) !== undefined) {
+    return true;
+  }
+
+  return parseGitHubRemoteUrl(readRemoteOriginUrl()) !== undefined;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {string | undefined}
+ */
+function readNonEmptyEnv(value) {
+  const trimmedValue = value?.trim();
+  return trimmedValue === undefined || trimmedValue === '' ? undefined : trimmedValue;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {{ owner: string, repo: string } | undefined}
+ */
+function parseGitHubRemoteUrl(value) {
+  const remoteUrl = value?.trim();
+  if (remoteUrl === undefined || remoteUrl === '') {
+    return undefined;
+  }
+
+  const scpLikeMatch = remoteUrl.match(/^(?:[^@\s]+@)?github\.com:([^/]+)\/(.+)$/i);
+  if (scpLikeMatch !== null) {
+    return parseRepositoryPath(stripGitSuffix(`${scpLikeMatch[1]}/${scpLikeMatch[2]}`));
+  }
+
+  try {
+    const url = new URL(remoteUrl);
+    if (url.hostname.toLowerCase() !== 'github.com') {
+      return undefined;
+    }
+
+    const path = stripGitSuffix(url.pathname.replace(/^\/+/, ''));
+    return parseRepositoryPath(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function stripGitSuffix(value) {
+  return value.endsWith('.git') ? value.slice(0, -4) : value;
+}
+
+/**
+ * @param {string} value
+ * @returns {{ owner: string, repo: string } | undefined}
+ */
+function parseRepositoryPath(value) {
+  const [owner, repo, ...extra] = value.split('/');
+  if (
+    owner === undefined ||
+    owner.trim() === '' ||
+    repo === undefined ||
+    repo.trim() === '' ||
+    extra.length > 0
+  ) {
+    return undefined;
+  }
+
+  return { owner: owner.trim(), repo: repo.trim() };
+}
+
+/**
+ * @param {string} cwd
+ * @returns {string | undefined}
+ */
+function readGitRemoteOriginUrl(cwd) {
+  try {
+    return execFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 /**

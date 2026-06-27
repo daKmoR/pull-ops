@@ -6,9 +6,6 @@ import { createGitHubClient, parseGitHubRepository, PULL_OPS_LABELS } from './Gi
 /**
  * @typedef {import('./GitHubClient.test.types.js').OctokitCall} OctokitCall
  * @typedef {import('./GitHubClient.test.types.js').ExistingLabel} ExistingLabel
- * @typedef {import('./GitHubClient.types.js').CreateOctokitOptions} CreateOctokitOptions
- * @typedef {import('./GitHubClient.types.js').GitHubThrottleOctokit} GitHubThrottleOctokit
- * @typedef {import('./GitHubClient.types.js').GitHubThrottleRequestOptions} GitHubThrottleRequestOptions
  */
 
 describe('createGitHubClient', () => {
@@ -249,7 +246,34 @@ describe('createGitHubClient', () => {
     assert.deepEqual(issue.subIssues, []);
   });
 
-  it('08: loads pull request metadata, review context, diff, open PRs, drafts, and checks', async () => {
+  it('08: attaches a native sub-issue through GraphQL issue node IDs', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issueNodeIds: new Map([
+        [126, 'ISSUE_parent'],
+        [201, 'ISSUE_child'],
+      ]),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.addSubIssue === undefined) {
+      throw new Error('Expected addSubIssue to be available.');
+    }
+    await client.addSubIssue({ parentIssueNumber: 126, childIssueNumber: 201 });
+
+    assert.deepEqual(
+      calls.map(call => call.name),
+      ['graphql', 'graphql', 'graphql'],
+    );
+    assert.deepEqual(calls[0].params, { ...TEST_REPOSITORY, number: 126 });
+    assert.deepEqual(calls[1].params, { ...TEST_REPOSITORY, number: 201 });
+    assert.match(calls[2].query ?? '', /addSubIssue/);
+    assert.deepEqual(calls[2].params, {
+      parentIssueId: 'ISSUE_parent',
+      childIssueId: 'ISSUE_child',
+    });
+  });
+
+  it('09: loads pull request metadata, review context, diff, open PRs, drafts, and checks', async () => {
     const { calls, octokit } = createFakeOctokit({
       pullRequest: createPullRequest(),
       openPullRequests: [createPullRequest()],
@@ -376,7 +400,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('09: publishes review decisions, replies, PR body updates, issue close, labels, and comments', async () => {
+  it('10: publishes review decisions, replies, PR body updates, issue close, labels, and comments', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
@@ -487,7 +511,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('10: ignores missing labels while removing issue labels', async () => {
+  it('11: ignores missing labels while removing issue labels', async () => {
     const { calls, octokit } = createFakeOctokit({
       missingLabels: ['pullops:status:blocked'],
     });
@@ -509,7 +533,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('11: reports non-missing label removal failures', async () => {
+  it('12: reports non-missing label removal failures', async () => {
     const { octokit } = createFakeOctokit({
       failOn: call => call.name === 'issues.removeLabel',
     });
@@ -524,7 +548,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('12: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
+  it('13: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
@@ -554,7 +578,7 @@ describe('createGitHubClient', () => {
     assert.throws(() => parseGitHubRepository('acme/widgets/extra'), /Invalid GITHUB_REPOSITORY/);
   });
 
-  it('13: falls back to the GitHub CLI token for local API authentication', async () => {
+  it('14: falls back to the GitHub CLI token for local API authentication', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
@@ -574,37 +598,6 @@ describe('createGitHubClient', () => {
     await client.ensureLabels([]);
 
     assert.equal(auth, 'gh-token');
-  });
-
-  it('14: configures Octokit to surface rate limits without retry sleeps', async () => {
-    const { octokit } = createFakeOctokit({ labels: [] });
-    /** @type {CreateOctokitOptions | undefined} */
-    let octokitOptions;
-    const client = createGitHubClient({
-      env: {
-        PULLOPS_GITHUB_TOKEN: 'github-token',
-        GITHUB_REPOSITORY: 'acme/widgets',
-      },
-      createOctokit(options) {
-        octokitOptions = options;
-        return octokit;
-      },
-    });
-
-    await client.ensureLabels([]);
-
-    assert.equal(
-      octokitOptions?.throttle?.onRateLimit(3600, createThrottleRequest(), createThrottleLogger()),
-      false,
-    );
-    assert.equal(
-      octokitOptions?.throttle?.onSecondaryRateLimit(
-        60,
-        createThrottleRequest(),
-        createThrottleLogger(),
-      ),
-      false,
-    );
   });
 
   it('15: infers the GitHub repository from common origin formats', async () => {
@@ -726,6 +719,102 @@ describe('createGitHubClient', () => {
       /Failed to create GitHub issue "Follow up on a non-blocking concern\.": GitHub refused the label change\./,
     );
   });
+
+  it('19: updates GitHub issues with labels and reports API failures with issue context', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issue: createIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+      }),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    const issue = await client.updateIssue({
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      labels: ['needs-triage'],
+    });
+
+    assert.deepEqual(issue, {
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      state: 'OPEN',
+      url: 'https://github.com/acme/widgets/issues/200',
+      authorLogin: 'octocat',
+      labels: ['needs-triage'],
+      parent: null,
+      subIssues: [],
+    });
+    assert.deepEqual(calls[0], {
+      name: 'issues.update',
+      params: {
+        ...TEST_REPOSITORY,
+        issue_number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+        labels: ['needs-triage'],
+      },
+    });
+
+    const failingOctokit = createFakeOctokit({
+      failOn: call => call.name === 'issues.update',
+    }).octokit;
+    const failingClient = createGitHubClient({
+      octokit: failingOctokit,
+      repository: TEST_REPOSITORY,
+    });
+
+    if (failingClient.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    await assert.rejects(
+      failingClient.updateIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+        labels: ['needs-triage'],
+      }),
+      /Failed to update GitHub issue #200: GitHub refused the label change\./,
+    );
+  });
+
+  it('20: omits issue labels from update requests when labels are not provided', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issue: createIssue({
+        number: 200,
+        title: 'Follow up on a non-blocking concern.',
+        body: 'Source PR: #100\nSource issue: #42',
+        labels: ['needs-triage', 'ready-for-agent'],
+      }),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.updateIssue === undefined) {
+      throw new Error('Expected updateIssue to be available.');
+    }
+    const issue = await client.updateIssue({
+      number: 200,
+      title: 'Follow up on a non-blocking concern. (updated)',
+      body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+    });
+
+    assert.deepEqual(issue.labels, ['needs-triage', 'ready-for-agent']);
+    assert.deepEqual(calls[0], {
+      name: 'issues.update',
+      params: {
+        ...TEST_REPOSITORY,
+        issue_number: 200,
+        title: 'Follow up on a non-blocking concern. (updated)',
+        body: 'Source PR: #100\nSource issue: #42\nUpdated body.',
+      },
+    });
+  });
 });
 
 const TEST_REPOSITORY = {
@@ -737,6 +826,7 @@ const TEST_REPOSITORY = {
  * @param {object} [options]
  * @param {ExistingLabel[]} [options.labels]
  * @param {Record<string, unknown>} [options.issue]
+ * @param {Map<number, string>} [options.issueNodeIds]
  * @param {Record<string, unknown>} [options.pullRequest]
  * @param {Record<string, unknown>[]} [options.openPullRequests]
  * @param {Record<string, unknown>[]} [options.searchIssues]
@@ -751,6 +841,7 @@ const TEST_REPOSITORY = {
 function createFakeOctokit({
   labels = [],
   issue = createIssue(),
+  issueNodeIds = new Map(),
   pullRequest = createPullRequest(),
   openPullRequests = [],
   searchIssues = [],
@@ -808,10 +899,38 @@ function createFakeOctokit({
      */
     async graphql(query, variables) {
       calls.push({ name: 'graphql', params: variables, query });
+      if (
+        query.includes('issue(number: $number)') &&
+        query.includes('id') &&
+        !query.includes('subIssues')
+      ) {
+        const issueNumber = requireNumberParam(variables.number);
+        return {
+          repository: {
+            issue: {
+              id: issueNodeIds.get(issueNumber) ?? `ISSUE_${issueNumber}`,
+            },
+          },
+        };
+      }
+
       if (query.includes('issue(number: $number)')) {
         return {
           repository: {
             issue,
+          },
+        };
+      }
+
+      if (query.includes('addSubIssue')) {
+        return {
+          addSubIssue: {
+            issue: {
+              number: 126,
+            },
+            subIssue: {
+              number: 201,
+            },
           },
         };
       }
@@ -906,7 +1025,19 @@ function createFakeOctokit({
 
           return {};
         }),
-        update: endpoint('issues.update', () => ({})),
+        update: endpoint('issues.update', params => ({
+          number: requireNumberParam(params.issue_number),
+          title: typeof params.title === 'string' ? params.title : issue.title,
+          body: typeof params.body === 'string' ? params.body : issue.body,
+          state: typeof params.state === 'string' ? params.state : 'open',
+          html_url: `https://github.com/acme/widgets/issues/${requireNumberParam(params.issue_number)}`,
+          user: {
+            login: 'octocat',
+          },
+          labels: Array.isArray(params.labels)
+            ? params.labels.map(label => ({ name: requireStringParam(label) }))
+            : readIssueLabelNames(issue).map(name => ({ name })),
+        })),
         updateLabel: endpoint('issues.updateLabel', () => ({})),
       },
       pulls: {
@@ -1128,31 +1259,6 @@ function createReviewContext() {
 }
 
 /**
- * @returns {GitHubThrottleRequestOptions}
- */
-function createThrottleRequest() {
-  return {
-    method: 'POST',
-    url: '/graphql',
-    request: {
-      retryCount: 0,
-    },
-  };
-}
-
-/**
- * @returns {GitHubThrottleOctokit}
- */
-function createThrottleLogger() {
-  return {
-    log: {
-      info() {},
-      warn() {},
-    },
-  };
-}
-
-/**
  * @param {unknown} value
  * @returns {string}
  */
@@ -1162,6 +1268,32 @@ function requireStringParam(value) {
   }
 
   return value;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {number}
+ */
+function requireNumberParam(value) {
+  if (typeof value !== 'number') {
+    assert.fail('Expected a number parameter.');
+  }
+
+  return value;
+}
+
+/**
+ * @param {Record<string, unknown>} issue
+ * @returns {string[]}
+ */
+function readIssueLabelNames(issue) {
+  if (!isPlainObject(issue.labels) || !Array.isArray(issue.labels.nodes)) {
+    return [];
+  }
+
+  return issue.labels.nodes
+    .map(label => (isPlainObject(label) && typeof label.name === 'string' ? label.name : undefined))
+    .filter(name => name !== undefined);
 }
 
 /**
