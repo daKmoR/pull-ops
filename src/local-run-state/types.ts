@@ -20,6 +20,21 @@ export interface LocalRunTarget {
   number: number;
 }
 
+export interface LocalRunRunLink {
+  runId: string;
+  operationReference: string;
+  normalizedOperationReference: string;
+  target: LocalRunTarget;
+  statePath: string;
+}
+
+export interface LocalRunChildRun extends LocalRunRunLink {
+  status: string;
+  startedAt: string;
+  updatedAt: string;
+  summary?: string;
+}
+
 export interface LocalRunState {
   schemaVersion: 1;
   runId: string;
@@ -36,7 +51,8 @@ export interface LocalRunState {
   heartbeatAt: string;
   leaseExpiresAt: string;
   lastEvent: Record<string, unknown>;
-  childRuns: Record<string, unknown>[];
+  parentRun?: LocalRunRunLink;
+  childRuns: LocalRunChildRun[];
 }
 
 export interface LocalRunHeartbeatEnvironment extends NodeJS.ProcessEnv {
@@ -50,12 +66,14 @@ export interface LocalRunStateRecord {
   statePath: string;
   state: LocalRunState;
   heartbeatEnvironment: LocalRunHeartbeatEnvironment;
+  runLink: LocalRunRunLink;
 }
 
 export interface LocalRunRecord {
   directory: string;
   statePath: string;
   heartbeatEnvironment: LocalRunHeartbeatEnvironment;
+  runLink: LocalRunRunLink;
 }
 
 export interface InitializeLocalRunStateOptions {
@@ -68,6 +86,7 @@ export interface InitializeLocalRunStateOptions {
   createdAt?: Date;
   heartbeatIntervalMs?: number;
   leaseDurationMs?: number;
+  parentRun?: LocalRunRunLink;
 }
 
 export interface RecordLocalRunHeartbeatOptions {
@@ -82,4 +101,9 @@ export interface RecordLocalRunTerminalStatusOptions {
   summary: string;
   phase?: string;
   at?: Date;
+}
+
+export interface RecordLocalRunChildRunOptions {
+  statePath: string;
+  childRun: LocalRunChildRun;
 }

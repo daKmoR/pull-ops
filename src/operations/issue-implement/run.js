@@ -2178,12 +2178,9 @@ async function createLocalRunRecord(
   const normalizedReference = normalizeOperationReferenceForPath(operationReference);
   const createdAt = new Date();
   const timestamp = createdAt.toISOString().replaceAll(':', '').replaceAll('.', '');
-  const directory = join(
-    context.cwd,
-    '.pullops',
-    'runs',
-    `${timestamp}-${normalizedReference}-${targetNumber}`,
-  );
+  const directory =
+    context.localRunRecordDirectory ??
+    join(context.cwd, '.pullops', 'runs', `${timestamp}-${normalizedReference}-${targetNumber}`);
 
   await mkdir(directory, { recursive: true });
   await writeLocalRunArtifact(
@@ -2220,12 +2217,14 @@ async function createLocalRunRecord(
     publicationMode,
     runGoal: context.runGoal ?? 'operation',
     createdAt,
+    ...(context.parentRun === undefined ? {} : { parentRun: context.parentRun }),
   });
 
   return {
     directory,
     statePath: stateRecord.statePath,
     heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+    runLink: stateRecord.runLink,
   };
 }
 

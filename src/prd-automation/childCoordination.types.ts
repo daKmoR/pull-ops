@@ -1,4 +1,5 @@
 import type { GitHubIssue, GitHubIssueReference } from '../github/types.js';
+import type { LocalRunRunLink } from '../local-run-state/types.js';
 
 export type PrdAutomationMode = 'auto-advance' | 'auto-complete';
 
@@ -67,6 +68,8 @@ export interface ChildDependencyDecision {
 export interface ChildIssueRunOptions {
   virtualCompletedIssueNumbers?: number[];
   progress?: (message: string) => void;
+  localRunRecordDirectory?: string;
+  parentRun?: LocalRunRunLink;
 }
 
 export type ChildIssueRunner = (
