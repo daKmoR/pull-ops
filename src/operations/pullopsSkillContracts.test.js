@@ -178,6 +178,7 @@ const examples = [
     }),
   },
 ];
+const workerSkillNames = examples.map(example => example.skillName);
 
 describe('PullOps skill contracts', () => {
   for (const example of examples) {
@@ -206,6 +207,19 @@ describe('PullOps skill contracts', () => {
 
     assert.ok(hasPrdFooter(skillCompleted.commitPlan.commits[0].footers));
     assert.ok(hasPrdFooter(promptCompleted.commitPlan.commits[0].footers));
+  });
+
+  it('keeps worker operation skills responsible for PullOps heartbeats', async () => {
+    for (const skillName of workerSkillNames) {
+      const skillText = await readRepoFile(`.agents/skills/${skillName}/SKILL.md`);
+
+      assert.match(skillText, /PULLOPS_RUN_STATE_PATH/);
+      assert.match(skillText, /PULLOPS_HEARTBEAT_TOKEN/);
+      assert.match(skillText, /PULLOPS_HEARTBEAT_INTERVAL_MS/);
+      assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
+      assert.match(skillText, /Heartbeats must come from this .* agent/);
+      assert.match(skillText, /not from the\s+parent\s+PullOps\s+CLI/);
+    }
   });
 
   it('keeps the repo-local issue tracker summary aligned with PullOps issue publication', async () => {

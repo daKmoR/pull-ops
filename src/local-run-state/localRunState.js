@@ -22,13 +22,6 @@ export const LOCAL_RUN_HEARTBEAT_COMMAND = 'npm exec pullops -- heartbeat';
 export const DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
 export const DEFAULT_LOCAL_RUN_LEASE_DURATION_MS = DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS * 2;
 export const LOCAL_RUN_STATE_FILE_NAME = 'state.json';
-export const LOCAL_RUN_HEARTBEAT_PROMPT_INSTRUCTIONS = [
-  'Heartbeat instructions:',
-  `- You, the implementation agent, must invoke \`${LOCAL_RUN_HEARTBEAT_COMMAND} --summary "<brief current focus>"\` as a tool call with \`PULLOPS_RUN_STATE_PATH\` and \`PULLOPS_HEARTBEAT_TOKEN\` from the environment about every \`PULLOPS_HEARTBEAT_INTERVAL_MS\` while the work stays active.`,
-  '- Keep the summary short and concrete, such as "reading setup command tests" or "updating generated workflow checks".',
-  `- If a command may stay quiet for a while, heartbeat immediately before and after it instead of waiting for the next interval.`,
-  '- Heartbeats are worker-originated liveness updates, not semantic progress events. The parent PullOps CLI does not heartbeat for you.',
-].join('\n');
 const LOCAL_RUN_STATE_SCHEMA_VERSION = 1;
 const LOCAL_RUN_STATE_LOCK_RETRY_DELAY_MS = 25;
 const LOCAL_RUN_STATE_LOCK_STALE_MS = 30 * 1000;

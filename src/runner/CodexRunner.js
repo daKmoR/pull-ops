@@ -3,8 +3,6 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
-import { LOCAL_RUN_HEARTBEAT_PROMPT_INSTRUCTIONS } from '../local-run-state/localRunState.js';
-
 /**
  * @typedef {import('./types.js').CodexRunner} CodexRunner
  * @typedef {import('./types.js').CodexRunOptions} CodexRunOptions
@@ -30,16 +28,10 @@ export function createCodexRunner({ spawn = nodeSpawn, output, traceCommand } = 
         file: runnerCommand.file,
         args: baseArgs,
       });
-      const promptWithHeartbeatInstructions = appendHeartbeatInstructions(prompt, env);
       const args =
         codexLastMessage === undefined
-          ? [...baseArgs, promptWithHeartbeatInstructions]
-          : [
-              ...baseArgs,
-              '--output-last-message',
-              codexLastMessage.path,
-              promptWithHeartbeatInstructions,
-            ];
+          ? [...baseArgs, prompt]
+          : [...baseArgs, '--output-last-message', codexLastMessage.path, prompt];
       traceCommand?.(formatRunnerCommand(runnerCommand.file, args));
 
       try {
@@ -246,42 +238,6 @@ async function createCodexLastMessageCapture({ cwd, file, args }) {
     directory,
     path: join(directory, 'last-message.txt'),
   };
-}
-
-/**
- * @param {string} prompt
- * @param {NodeJS.ProcessEnv | undefined} env
- * @returns {string}
- */
-function appendHeartbeatInstructions(prompt, env) {
-  if (!hasHeartbeatEnvironment(env)) {
-    return prompt;
-  }
-
-  return [prompt, '', LOCAL_RUN_HEARTBEAT_PROMPT_INSTRUCTIONS].join('\n');
-}
-
-/**
- * @param {NodeJS.ProcessEnv | undefined} env
- * @returns {env is NodeJS.ProcessEnv & {
- *   PULLOPS_HEARTBEAT_COMMAND: string,
- *   PULLOPS_RUN_STATE_PATH: string,
- *   PULLOPS_HEARTBEAT_TOKEN: string,
- *   PULLOPS_HEARTBEAT_INTERVAL_MS: string,
- * }}
- */
-function hasHeartbeatEnvironment(env) {
-  return (
-    env !== undefined &&
-    typeof env.PULLOPS_HEARTBEAT_COMMAND === 'string' &&
-    env.PULLOPS_HEARTBEAT_COMMAND.trim() !== '' &&
-    typeof env.PULLOPS_RUN_STATE_PATH === 'string' &&
-    env.PULLOPS_RUN_STATE_PATH.trim() !== '' &&
-    typeof env.PULLOPS_HEARTBEAT_TOKEN === 'string' &&
-    env.PULLOPS_HEARTBEAT_TOKEN.trim() !== '' &&
-    typeof env.PULLOPS_HEARTBEAT_INTERVAL_MS === 'string' &&
-    env.PULLOPS_HEARTBEAT_INTERVAL_MS.trim() !== ''
-  );
 }
 
 /**

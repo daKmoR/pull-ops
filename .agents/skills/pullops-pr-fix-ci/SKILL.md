@@ -21,6 +21,12 @@ Use /coding-standards for formatting, lint, type, and focused source/test repair
 Use /diagnosing-bugs for test or build failures whose cause is not already isolated.
 Use /tdd when the repair needs a regression test at a clear behavior seam.
 
+Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
+present, run `npm exec pullops -- heartbeat --summary "<brief current focus>"`
+as a tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
+active. Heartbeats must come from this CI-fix agent, not from the parent PullOps
+CLI.
+
 PullOps boundary: use referenced skills for their discipline only. Do not ask the
 user, emit non-JSON, commit, push, edit labels, update the PR body, post GitHub
 comments, or leave the failed-check scope. PullOps handles GitHub mutations

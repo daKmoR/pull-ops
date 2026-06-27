@@ -121,7 +121,7 @@ describe('createCodexRunner', () => {
     assert.equal(output.text, '');
   });
 
-  it('04: appends heartbeat instructions and forwards heartbeat env to the runner', async () => {
+  it('04: forwards heartbeat env to the runner without changing the worker prompt', async () => {
     const output = createWritableBuffer();
     /** @type {Array<{ file: string, args: string[], options: any }>} */
     const calls = [];
@@ -155,13 +155,10 @@ describe('createCodexRunner', () => {
     assert(call);
     const prompt = call.args.at(-1);
     assert(prompt);
-    assert.match(prompt, /Heartbeat instructions:/);
-    assert.match(prompt, /npm exec pullops -- heartbeat/);
-    assert.match(prompt, /PULLOPS_RUN_STATE_PATH/);
-    assert.match(prompt, /implementation agent/);
-    assert.match(prompt, /--summary/);
-    assert.match(prompt, /before and after/);
+    assert.equal(prompt, 'Implement issue #1');
+    assert.doesNotMatch(prompt, /Heartbeat instructions:/);
     assert.equal(call.options.env.PULLOPS_RUN_STATE_PATH, '/repo/.pullops/runs/example/state.json');
+    assert.equal(call.options.env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_TOKEN, 'token-123');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_INTERVAL_MS, '300000');
     assert.equal(output.text, '');

@@ -18,6 +18,12 @@ Inline comments must use changed lines from the supplied diff. Replies must use 
 You may make small direct improvements in the working tree only when they are
 clearly review-owned and do not change PR scope. Record them in `directChanges`.
 
+Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
+present, run `npm exec pullops -- heartbeat --summary "<brief current focus>"`
+as a tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
+active. Heartbeats must come from this review agent, not from the parent PullOps
+CLI.
+
 If you are approving the final Escalation Review Cycle, put standalone
 `needs-triage` issue proposals in `reviewFollowUpIssues` with `title` and `body`
 fields. Keep plain `followUps` as audit-only notes; they must not create

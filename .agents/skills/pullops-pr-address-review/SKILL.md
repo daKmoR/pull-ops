@@ -21,6 +21,12 @@ Responsibilities:
 - Use /tdd where feedback requires new behavior coverage at a clear seam.
 - Use /diagnosing-bugs when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
 
+Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
+present, run `npm exec pullops -- heartbeat --summary "<brief current focus>"`
+as a tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
+active. Heartbeats must come from this address-review agent, not from the parent
+PullOps CLI.
+
 PullOps boundary: use referenced skills for their discipline only. Do not ask the
 user, emit non-JSON, commit, push, approve, request changes, edit labels, update
 the PR body, post GitHub comments, or leave the supplied feedback scope. PullOps

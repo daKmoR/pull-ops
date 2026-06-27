@@ -16,6 +16,12 @@ Use the conflict-resolution discipline from /resolving-merge-conflicts:
 The `resolvedFiles` array must exactly equal the supplied conflicted file list;
 do not omit, duplicate, or invent paths.
 
+Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
+present, run `npm exec pullops -- heartbeat --summary "<brief current focus>"`
+as a tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
+active. Heartbeats must come from this conflict-resolution agent, not from the
+parent PullOps CLI.
+
 Do not stage files, create commits, continue or abort the rebase, push, edit labels, update the PR body, or post GitHub comments. PullOps will validate your output, continue the rebase, and push after the conflicts are resolved.
 
 Final response must be only JSON:
