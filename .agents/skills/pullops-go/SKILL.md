@@ -41,6 +41,30 @@ Run the selected command locally. Prefer `--events jsonl` for
 `prd:auto-complete`; it is currently supported only for that operation. For
 other operations, rely on the command output and run records.
 
+For long-running PRD automation, supervise through JSONL PullOps Progress
+Events plus PullOps Run State. Treat Progress Events as semantic milestones and
+terminal summaries, not heartbeat noise. Treat Run State as the machine-only
+liveness surface for fields such as status, phase, heartbeat, lease, last
+event, and child runs.
+
+During healthy execution:
+
+- Report semantic milestones immediately.
+- Give compact healthy-run updates every 5-10 minutes without displaying every
+  PullOps Heartbeat.
+- Wait while the PullOps Lease is active.
+- After lease expiry, reconcile v1 PullOps Liveness Signals before
+  intervening. In v1, reliable liveness is an advanced heartbeat or a changed
+  child run set.
+- Record PullOps Stall Classification before stopping, retrying, or replacing
+  work.
+- Do not use logs, git diff, CI, or GitHub state as required v1 liveness
+  signals.
+- Avoid artifact, process, git, CI, or GitHub probing while a run remains
+  healthy.
+- Do not kill unrelated processes, reset or discard local changes, or start
+  parallel same-branch work before lease reconciliation.
+
 Monitor the run until it reaches one of these finish lines:
 
 - PRD accepted with a finalized or waiting umbrella/child PR state and clear
