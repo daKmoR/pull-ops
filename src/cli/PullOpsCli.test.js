@@ -7,6 +7,7 @@ import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
 import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
 
@@ -2370,6 +2371,111 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     assert.equal(output.status, 'failed');
     assert.match(output.failureReason, /Request.parentIssueNumber values conflict/);
     assert.match(output.localRunRecord, /issues-publish-children-invalid$/);
+  });
+
+  await t.test('--force updates an existing PullOps-published child by slice ref', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-force-'));
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updates = [];
+    const existingChild = createGitHubIssue({
+      number: 201,
+      title: 'Old child',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: '1',
+        title: 'Old child',
+        whatToBuild: 'Old work.',
+        acceptanceCriteria: ['Old criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [2],
+        supportWork: false,
+      }),
+      parent: {
+        number: 126,
+        title: 'Published parent',
+        url: 'https://github.test/owner/repo/issues/126',
+        state: 'OPEN',
+        relationshipSource: 'native',
+      },
+    });
+    const request = {
+      parentIssueNumber: 126,
+      children: [
+        {
+          sliceRef: '1',
+          title: 'Updated child issue',
+          whatToBuild: 'Update the native Child Issue.',
+          acceptanceCriteria: ['The child is force-updated.'],
+          coveredUserStories: [2],
+        },
+      ],
+    };
+    const requestPath = join(cwd, 'children.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          if (number === 126) {
+            return createGitHubIssue({
+              number,
+              body: createPrdIssueBody({
+                title: 'Published parent',
+                problemStatement: 'Parent problem.',
+                solution: 'Parent solution.',
+                userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+                implementationDecisions: ['Use native sub-issues.'],
+                testingDecisions: ['Use fake clients.'],
+                outOfScope: ['Dependency publication.'],
+                furtherNotes: [],
+                auditDetails: [],
+              }),
+              subIssues: [
+                {
+                  number: 201,
+                  title: 'Old child',
+                  url: 'https://github.test/owner/repo/issues/201',
+                  state: 'OPEN',
+                  relationshipSource: 'native',
+                },
+              ],
+            });
+          }
+          assert.equal(number, 201);
+          return existingChild;
+        },
+        async updateIssue(options) {
+          updates.push(options);
+          return createGitHubIssue({
+            ...existingChild,
+            title: options.title,
+            body: options.body,
+          });
+        },
+        async addSubIssue() {},
+      }),
+    });
+
+    const exitCode = await cli.run([
+      'issues',
+      'publish-children',
+      '--file',
+      requestPath,
+      '--force',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].number, 201);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'updated');
+    assert.equal(output.children[0].action, 'updated');
   });
 });
 
