@@ -102,3 +102,82 @@ export interface PrdIssuePublishFailureOutput {
 }
 
 export type PrdIssuePublishOutput = PrdIssuePublishSuccessOutput | PrdIssuePublishFailureOutput;
+
+export interface NormalizedChildIssueRequest {
+  sliceRef: string;
+  title: string;
+  whatToBuild: string;
+  acceptanceCriteria: string[];
+  blockedBy: number[];
+  coveredUserStories: number[];
+  supportWork: boolean;
+  triageRole?: TriageRole;
+}
+
+export interface NormalizedChildIssueBatchRequest {
+  parentIssueNumber: number;
+  children: NormalizedChildIssueRequest[];
+}
+
+export interface ChildIssuePublicationMarker {
+  schemaVersion: 1;
+  provider: 'github';
+  kind: 'child-issue';
+  parentIssueNumber: number;
+  sliceRef: string;
+}
+
+export interface IssueStorePublishWarning {
+  code: string;
+  message: string;
+}
+
+export interface ChildIssuePublishIssue {
+  number: number;
+  url: string;
+}
+
+export interface ChildIssuePublishChild {
+  sliceRef: string;
+  action: 'created';
+  issue: ChildIssuePublishIssue;
+  triageRole?: TriageRole;
+}
+
+export interface ChildIssuePublishMapping {
+  sliceRef: string;
+  issueNumber: number;
+  issueUrl: string;
+}
+
+export interface ChildIssuePublishFailure {
+  sliceRef: string;
+  failureReason: string;
+}
+
+export interface ChildIssuePublishSuccessOutput {
+  status: 'accepted';
+  summary: string;
+  action: 'created';
+  parent: ChildIssuePublishIssue;
+  children: ChildIssuePublishChild[];
+  mappings: ChildIssuePublishMapping[];
+  warnings: IssueStorePublishWarning[];
+  localRunRecord: string;
+}
+
+export interface ChildIssuePublishFailureOutput {
+  status: 'failed';
+  summary: string;
+  failureReason: string;
+  warnings: IssueStorePublishWarning[];
+  localRunRecord: string;
+  parent?: ChildIssuePublishIssue;
+  children?: ChildIssuePublishChild[];
+  mappings?: ChildIssuePublishMapping[];
+  failedChildren?: ChildIssuePublishFailure[];
+}
+
+export type ChildIssuePublishOutput =
+  | ChildIssuePublishSuccessOutput
+  | ChildIssuePublishFailureOutput;

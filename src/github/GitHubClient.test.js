@@ -246,7 +246,34 @@ describe('createGitHubClient', () => {
     assert.deepEqual(issue.subIssues, []);
   });
 
-  it('08: loads pull request metadata, review context, diff, open PRs, drafts, and checks', async () => {
+  it('08: attaches a native sub-issue through GraphQL issue node IDs', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      issueNodeIds: new Map([
+        [126, 'ISSUE_parent'],
+        [201, 'ISSUE_child'],
+      ]),
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.addSubIssue === undefined) {
+      throw new Error('Expected addSubIssue to be available.');
+    }
+    await client.addSubIssue({ parentIssueNumber: 126, childIssueNumber: 201 });
+
+    assert.deepEqual(
+      calls.map(call => call.name),
+      ['graphql', 'graphql', 'graphql'],
+    );
+    assert.deepEqual(calls[0].params, { ...TEST_REPOSITORY, number: 126 });
+    assert.deepEqual(calls[1].params, { ...TEST_REPOSITORY, number: 201 });
+    assert.match(calls[2].query ?? '', /addSubIssue/);
+    assert.deepEqual(calls[2].params, {
+      parentIssueId: 'ISSUE_parent',
+      childIssueId: 'ISSUE_child',
+    });
+  });
+
+  it('09: loads pull request metadata, review context, diff, open PRs, drafts, and checks', async () => {
     const { calls, octokit } = createFakeOctokit({
       pullRequest: createPullRequest(),
       openPullRequests: [createPullRequest()],
@@ -373,7 +400,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('09: publishes review decisions, replies, PR body updates, issue close, labels, and comments', async () => {
+  it('10: publishes review decisions, replies, PR body updates, issue close, labels, and comments', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
@@ -484,7 +511,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('10: ignores missing labels while removing issue labels', async () => {
+  it('11: ignores missing labels while removing issue labels', async () => {
     const { calls, octokit } = createFakeOctokit({
       missingLabels: ['pullops:status:blocked'],
     });
@@ -506,7 +533,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('11: reports non-missing label removal failures', async () => {
+  it('12: reports non-missing label removal failures', async () => {
     const { octokit } = createFakeOctokit({
       failOn: call => call.name === 'issues.removeLabel',
     });
@@ -521,7 +548,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('12: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
+  it('13: reads auth from PULLOPS_GITHUB_TOKEN before GITHUB_TOKEN and parses GITHUB_REPOSITORY', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
@@ -551,7 +578,7 @@ describe('createGitHubClient', () => {
     assert.throws(() => parseGitHubRepository('acme/widgets/extra'), /Invalid GITHUB_REPOSITORY/);
   });
 
-  it('13: falls back to the GitHub CLI token for local API authentication', async () => {
+  it('14: falls back to the GitHub CLI token for local API authentication', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     /** @type {string | undefined} */
     let auth;
@@ -573,7 +600,7 @@ describe('createGitHubClient', () => {
     assert.equal(auth, 'gh-token');
   });
 
-  it('14: infers the GitHub repository from common origin formats', async () => {
+  it('15: infers the GitHub repository from common origin formats', async () => {
     for (const origin of [
       'git@github.com:acme/widgets.git\n',
       'https://github.com/acme/widgets.git\n',
@@ -599,7 +626,7 @@ describe('createGitHubClient', () => {
     }
   });
 
-  it('15: lets GITHUB_REPOSITORY override the origin fallback', async () => {
+  it('16: lets GITHUB_REPOSITORY override the origin fallback', async () => {
     const { calls, octokit } = createFakeOctokit({ labels: [] });
     let readOrigin = false;
     const client = createGitHubClient({
@@ -622,7 +649,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('16: reports local repository context setup when no repository can be inferred', async () => {
+  it('17: reports local repository context setup when no repository can be inferred', async () => {
     const { octokit } = createFakeOctokit({ labels: [] });
     const client = createGitHubClient({
       octokit,
@@ -638,7 +665,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('17: creates GitHub issues with labels and reports API failures with issue context', async () => {
+  it('18: creates GitHub issues with labels and reports API failures with issue context', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
@@ -693,7 +720,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('18: updates GitHub issues with labels and reports API failures with issue context', async () => {
+  it('19: updates GitHub issues with labels and reports API failures with issue context', async () => {
     const { calls, octokit } = createFakeOctokit({
       issue: createIssue({
         number: 200,
@@ -757,7 +784,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('19: omits issue labels from update requests when labels are not provided', async () => {
+  it('20: omits issue labels from update requests when labels are not provided', async () => {
     const { calls, octokit } = createFakeOctokit({
       issue: createIssue({
         number: 200,
@@ -799,6 +826,7 @@ const TEST_REPOSITORY = {
  * @param {object} [options]
  * @param {ExistingLabel[]} [options.labels]
  * @param {Record<string, unknown>} [options.issue]
+ * @param {Map<number, string>} [options.issueNodeIds]
  * @param {Record<string, unknown>} [options.pullRequest]
  * @param {Record<string, unknown>[]} [options.openPullRequests]
  * @param {Record<string, unknown>[]} [options.searchIssues]
@@ -813,6 +841,7 @@ const TEST_REPOSITORY = {
 function createFakeOctokit({
   labels = [],
   issue = createIssue(),
+  issueNodeIds = new Map(),
   pullRequest = createPullRequest(),
   openPullRequests = [],
   searchIssues = [],
@@ -870,10 +899,38 @@ function createFakeOctokit({
      */
     async graphql(query, variables) {
       calls.push({ name: 'graphql', params: variables, query });
+      if (
+        query.includes('issue(number: $number)') &&
+        query.includes('id') &&
+        !query.includes('subIssues')
+      ) {
+        const issueNumber = requireNumberParam(variables.number);
+        return {
+          repository: {
+            issue: {
+              id: issueNodeIds.get(issueNumber) ?? `ISSUE_${issueNumber}`,
+            },
+          },
+        };
+      }
+
       if (query.includes('issue(number: $number)')) {
         return {
           repository: {
             issue,
+          },
+        };
+      }
+
+      if (query.includes('addSubIssue')) {
+        return {
+          addSubIssue: {
+            issue: {
+              number: 126,
+            },
+            subIssue: {
+              number: 201,
+            },
           },
         };
       }

@@ -26,6 +26,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').CloseIssueOptions} CloseIssueOptions
  * @typedef {import('./types.js').CreateIssueOptions} CreateIssueOptions
  * @typedef {import('./types.js').UpdateIssueOptions} UpdateIssueOptions
+ * @typedef {import('./types.js').AddSubIssueOptions} AddSubIssueOptions
  * @typedef {import('./types.js').ClosePullRequestOptions} ClosePullRequestOptions
  * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
@@ -72,6 +73,29 @@ query($owner: String!, $repo: String!, $number: Int!) {
           url
         }
       }
+    }
+  }
+}
+`;
+
+const ISSUE_ID_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      id
+    }
+  }
+}
+`;
+
+const ADD_SUB_ISSUE_MUTATION = `
+mutation($parentIssueId: ID!, $childIssueId: ID!) {
+  addSubIssue(input: { issueId: $parentIssueId, subIssueId: $childIssueId, replaceParent: false }) {
+    issue {
+      number
+    }
+    subIssue {
+      number
     }
   }
 }
@@ -451,6 +475,14 @@ export function createGitHubClient({
      */
     async updateIssue({ number, title, body, labels }) {
       return await updateIssue(api, getRepository(), { number, title, body, labels });
+    },
+
+    /**
+     * @param {AddSubIssueOptions} options
+     * @returns {Promise<void>}
+     */
+    async addSubIssue({ parentIssueNumber, childIssueNumber }) {
+      await addSubIssue(api, getRepository(), { parentIssueNumber, childIssueNumber });
     },
 
     /**
@@ -986,6 +1018,28 @@ async function updateIssue(octokit, repository, { number, title, body, labels })
 /**
  * @param {GitHubApiClient} octokit
  * @param {GitHubRepository} repository
+ * @param {AddSubIssueOptions} options
+ * @returns {Promise<void>}
+ */
+async function addSubIssue(octokit, repository, { parentIssueNumber, childIssueNumber }) {
+  try {
+    const parentIssueId = await getIssueNodeId(octokit, repository, parentIssueNumber);
+    const childIssueId = await getIssueNodeId(octokit, repository, childIssueNumber);
+    await octokit.graphql(ADD_SUB_ISSUE_MUTATION, {
+      parentIssueId,
+      childIssueId,
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to add GitHub issue #${childIssueNumber} as a sub-issue of #${parentIssueNumber}: ${getGitHubErrorMessage(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
  * @param {string} ref
  * @returns {Promise<GitHubCheckRun[]>}
  */
@@ -1069,6 +1123,29 @@ async function getPullRequestNodeId(octokit, repository, number) {
     'GitHub GraphQL pull request response.repository.pullRequest',
   );
   return requireString(pullRequest.id, 'pull request.id');
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {number} number
+ * @returns {Promise<string>}
+ */
+async function getIssueNodeId(octokit, repository, number) {
+  const result = await octokit.graphql(ISSUE_ID_QUERY, {
+    ...repository,
+    number,
+  });
+  const root = requirePlainObject(result, 'GitHub GraphQL issue ID response');
+  const resultRepository = requirePlainObject(
+    root.repository,
+    'GitHub GraphQL issue ID response.repository',
+  );
+  const issue = requirePlainObject(
+    resultRepository.issue,
+    'GitHub GraphQL issue ID response.repository.issue',
+  );
+  return requireString(issue.id, 'issue.id');
 }
 
 /**

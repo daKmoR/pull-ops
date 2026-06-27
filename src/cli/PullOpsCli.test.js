@@ -2241,6 +2241,138 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
   });
 });
 
+test('issues publish-children accepts parent from flag or JSON and rejects conflicts', async t => {
+  await t.test('file input with --parent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-file-'));
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    /** @type {import('../github/types.js').AddSubIssueOptions[]} */
+    const subIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      children: [
+        {
+          sliceRef: '1',
+          title: 'Publish child issue',
+          whatToBuild: 'Create a native Child Issue.',
+          acceptanceCriteria: ['The child is created and attached.'],
+          coveredUserStories: [2],
+          triageRole: 'ready-for-agent',
+        },
+      ],
+    };
+    const requestPath = join(cwd, 'children.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 126);
+          return createGitHubIssue({
+            number: 126,
+            body: createPrdIssueBody({
+              title: 'Published parent',
+              problemStatement: 'Parent problem.',
+              solution: 'Parent solution.',
+              userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+              implementationDecisions: ['Use native sub-issues.'],
+              testingDecisions: ['Use fake clients.'],
+              outOfScope: ['Dependency publication.'],
+              furtherNotes: [],
+              auditDetails: [],
+            }),
+          });
+        },
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 201,
+            url: 'https://github.test/owner/repo/issues/201',
+            body: options.body,
+          });
+        },
+        async addSubIssue(options) {
+          subIssueCalls.push(options);
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run([
+      'issues',
+      'publish-children',
+      '--parent',
+      '126',
+      '--file',
+      requestPath,
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.match(createIssueCalls[0].body, /"sliceRef":"1"/);
+    assert.match(createIssueCalls[0].body, /^## Covered PRD user stories$/m);
+    assert.deepEqual(subIssueCalls, [{ parentIssueNumber: 126, childIssueNumber: 201 }]);
+    assert.deepEqual(addLabelCalls, [{ number: 201, labels: ['ready-for-agent'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.parent.number, 126);
+    assert.deepEqual(output.mappings, [
+      {
+        sliceRef: '1',
+        issueNumber: 201,
+        issueUrl: 'https://github.test/owner/repo/issues/201',
+      },
+    ]);
+    assert.deepEqual(output.warnings, []);
+    assert.match(output.localRunRecord, /issues-publish-children-126$/);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+
+  await t.test('conflicting parent flag and JSON parent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-conflict-'));
+    const stdout = createWritableBuffer();
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (
+        Readable.from([
+          JSON.stringify({
+            parentIssueNumber: 127,
+            children: [
+              {
+                sliceRef: '1',
+                title: 'Publish child issue',
+                whatToBuild: 'Create a native Child Issue.',
+                acceptanceCriteria: ['The child is created and attached.'],
+                coveredUserStories: [2],
+              },
+            ],
+          }),
+        ])
+      ),
+      githubClient: createFakeGitHubClient(),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-children', '--parent', '126']);
+
+    assert.equal(exitCode, 1);
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'failed');
+    assert.match(output.failureReason, /Request.parentIssueNumber values conflict/);
+    assert.match(output.localRunRecord, /issues-publish-children-invalid$/);
+  });
+});
+
 test('issues publish-issue rejects malformed JSON input with stable failure output', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-malformed-'));
   const stdout = createWritableBuffer();

@@ -7,6 +7,7 @@ import {
   createIssueStoreRunRecordLocation,
   writeIssueStoreRunArtifact,
 } from '../issue-store/localRunRecord.js';
+import { publishChildIssues } from '../issue-store/publishChildIssues.js';
 import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
@@ -36,6 +37,7 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
  * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
+ * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
  */
@@ -163,7 +165,7 @@ export class PullOpsCli {
 
     if (subcommand === undefined) {
       throw new CliUsageError(
-        'Missing issues subcommand. Expected one of: publish-prd, publish-issue.',
+        'Missing issues subcommand. Expected one of: publish-prd, publish-children, publish-issue.',
       );
     }
 
@@ -171,12 +173,16 @@ export class PullOpsCli {
       return await this.runPublishPrd(rest);
     }
 
+    if (subcommand === 'publish-children') {
+      return await this.runPublishChildren(rest);
+    }
+
     if (subcommand === 'publish-issue') {
       return await this.runPublishIssue(rest);
     }
 
     throw new CliUsageError(
-      `Unknown issues subcommand "${subcommand}". Expected one of: publish-prd, publish-issue.`,
+      `Unknown issues subcommand "${subcommand}". Expected one of: publish-prd, publish-children, publish-issue.`,
     );
   }
 
@@ -244,6 +250,44 @@ export class PullOpsCli {
       return output.status === 'accepted' ? 0 : 1;
     } catch (error) {
       const output = await writePublishIssueFailure({
+        cwd: this.cwd,
+        createdAt,
+        rawRequest,
+        failureReason: getErrorMessage(error),
+      });
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return 1;
+    }
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runPublishChildren(args) {
+    const createdAt = new Date();
+    let rawRequest = '';
+
+    try {
+      const parsedArgs = parsePublishChildrenArgs(args);
+      rawRequest = await readPublishChildrenInput({
+        filePath: parsedArgs.filePath,
+        stdin: this.stdin,
+      });
+      const config = await loadPullOpsConfig({ cwd: this.cwd });
+      const output = await publishChildIssues({
+        cwd: this.cwd,
+        config,
+        githubClient: this.githubClient,
+        rawRequest,
+        parentIssueNumber: parsedArgs.parentIssueNumber,
+        createdAt,
+      });
+
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return output.status === 'accepted' ? 0 : 1;
+    } catch (error) {
+      const output = await writePublishChildrenFailure({
         cwd: this.cwd,
         createdAt,
         rawRequest,
@@ -1146,6 +1190,37 @@ function parsePublishIssueArgs(args) {
 
 /**
  * @param {string[]} args
+ * @returns {{ filePath?: string, parentIssueNumber?: number }}
+ */
+function parsePublishChildrenArgs(args) {
+  const consumed = new Set();
+  const filePath = parseOptionalStringOption(args, '--file', consumed);
+  const rawParentIssueNumber = parseOptionalStringOption(args, '--parent', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(
+      `Unknown arguments for issues publish-children: ${remaining.join(' ')}.`,
+    );
+  }
+
+  const parentIssueNumber =
+    rawParentIssueNumber === undefined
+      ? undefined
+      : parsePositiveInteger(rawParentIssueNumber, '--parent');
+
+  return {
+    ...(filePath === undefined ? {} : { filePath }),
+    ...(parentIssueNumber === undefined ? {} : { parentIssueNumber }),
+  };
+}
+
+/**
+ * @param {string[]} args
  * @returns {{ filePath?: string }}
  */
 function parsePublishPrdArgs(args) {
@@ -1172,6 +1247,26 @@ function parsePublishPrdArgs(args) {
  * @returns {Promise<string>}
  */
 async function readPublishIssueInput({ filePath, stdin }) {
+  if (filePath !== undefined) {
+    return await readFile(filePath, 'utf8');
+  }
+
+  let rawRequest = '';
+  for await (const chunk of stdin) {
+    rawRequest += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  }
+
+  return rawRequest;
+}
+
+/**
+ * @param {{
+ *   filePath?: string,
+ *   stdin: NodeJS.ReadableStream,
+ * }} options
+ * @returns {Promise<string>}
+ */
+async function readPublishChildrenInput({ filePath, stdin }) {
   if (filePath !== undefined) {
     return await readFile(filePath, 'utf8');
   }
@@ -1241,6 +1336,20 @@ function parseRequiredNumberOption(args, option, operationName, consumed) {
   consumed.add(index);
   consumed.add(index + 1);
 
+  const number = Number(rawValue);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new CliUsageError(`"${optionName}" must be a positive integer.`);
+  }
+
+  return number;
+}
+
+/**
+ * @param {string} rawValue
+ * @param {string} optionName
+ * @returns {number}
+ */
+function parsePositiveInteger(rawValue, optionName) {
   const number = Number(rawValue);
   if (!Number.isInteger(number) || number <= 0) {
     throw new CliUsageError(`"${optionName}" must be a positive integer.`);
@@ -1484,6 +1593,7 @@ function usage() {
     '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
     '  pullops issues publish-prd [--file <path>]',
+    '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops labels ensure',
   ].join('\n');
@@ -1591,6 +1701,41 @@ function createLocalPrdAutoCompleteFailureOutput({
     publicationMode,
     localRunRecord,
   };
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.cwd
+ * @param {Date} options.createdAt
+ * @param {string} options.rawRequest
+ * @param {string} options.failureReason
+ * @returns {Promise<ChildIssuePublishFailureOutput>}
+ */
+async function writePublishChildrenFailure({ cwd, createdAt, rawRequest, failureReason }) {
+  const runRecord = createIssueStoreRunRecordLocation({
+    cwd,
+    operationReference: 'issues:publish-children',
+    targetReference: 'invalid',
+    createdAt,
+  });
+
+  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+
+  /** @type {ChildIssuePublishFailureOutput} */
+  const output = {
+    status: 'failed',
+    summary: 'Publish Child Issue batch failed.',
+    failureReason,
+    warnings: [],
+    localRunRecord: runRecord.directory,
+  };
+  await writeIssueStoreRunArtifact(
+    runRecord,
+    'response.json',
+    `${JSON.stringify(output, null, 2)}\n`,
+  );
+  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  return output;
 }
 
 /**
