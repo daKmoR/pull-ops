@@ -447,7 +447,7 @@ test('heartbeat accepts the worker environment and advances lease timing', async
     },
   });
 
-  const exitCode = await cli.run(['heartbeat']);
+  const exitCode = await cli.run(['heartbeat', '--summary', 'inspecting setup command tests']);
 
   assert.equal(exitCode, 0);
   const output = JSON.parse(stdout.text);
@@ -456,9 +456,11 @@ test('heartbeat accepts the worker environment and advances lease timing', async
   assert.equal(output.runStatePath, stateRecord.statePath);
   assert.equal(output.runState.status, 'running');
   assert.equal(output.runState.heartbeatToken, stateRecord.state.heartbeatToken);
+  assert.equal(output.runState.heartbeatSummary, 'inspecting setup command tests');
 
   const after = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
   assert.equal(after.heartbeatToken, before.heartbeatToken);
+  assert.equal(after.heartbeatSummary, 'inspecting setup command tests');
   assert.notEqual(after.heartbeatAt, before.heartbeatAt);
   assert.notEqual(after.leaseExpiresAt, before.leaseExpiresAt);
   assert.equal(after.heartbeatIntervalMs, before.heartbeatIntervalMs);

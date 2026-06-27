@@ -121,10 +121,12 @@ describe('localRunState', () => {
     const updated = await recordLocalRunHeartbeat({
       statePath: initial.statePath,
       token: initial.state.heartbeatToken,
+      summary: 'inspecting setup command tests',
       at: heartbeatAt,
     });
 
     assert.equal(updated.heartbeatAt, heartbeatAt.toISOString());
+    assert.equal(updated.heartbeatSummary, 'inspecting setup command tests');
     assert.equal(
       updated.leaseExpiresAt,
       new Date(heartbeatAt.getTime() + updated.leaseDurationMs).toISOString(),
@@ -133,6 +135,7 @@ describe('localRunState', () => {
 
     const stored = JSON.parse(await readFile(initial.statePath, 'utf8'));
     assert.equal(stored.heartbeatAt, heartbeatAt.toISOString());
+    assert.equal(stored.heartbeatSummary, 'inspecting setup command tests');
     assert.equal(stored.leaseExpiresAt, updated.leaseExpiresAt);
 
     await assert.rejects(

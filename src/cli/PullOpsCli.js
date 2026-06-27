@@ -170,7 +170,7 @@ export class PullOpsCli {
    * @returns {Promise<number>}
    */
   async runHeartbeat(args) {
-    /** @type {{ statePath?: string, token?: string } | undefined} */
+    /** @type {{ statePath?: string, token?: string, summary?: string } | undefined} */
     let parsedArgs;
     /** @type {string | undefined} */
     let statePath;
@@ -192,6 +192,7 @@ export class PullOpsCli {
       const runState = await recordLocalRunHeartbeat({
         statePath,
         token: parsedArgs.token,
+        summary: parsedArgs.summary,
       });
       this.writeValidatedJson({
         status: 'accepted',
@@ -926,7 +927,7 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
 /**
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
- * @returns {{ statePath?: string, token?: string }}
+ * @returns {{ statePath?: string, token?: string, summary?: string }}
  */
 function parseHeartbeatArgs(args, env) {
   const consumed = new Set();
@@ -936,6 +937,7 @@ function parseHeartbeatArgs(args, env) {
   const token =
     parseOptionalStringOption(args, '--token', consumed) ??
     readOptionalEnv(env.PULLOPS_HEARTBEAT_TOKEN);
+  const summary = parseOptionalStringOption(args, '--summary', consumed);
 
   const remaining = args.filter((value, argIndex) => {
     void value;
@@ -948,6 +950,7 @@ function parseHeartbeatArgs(args, env) {
   return {
     ...(statePath === undefined ? {} : { statePath }),
     ...(token === undefined ? {} : { token }),
+    ...(summary === undefined ? {} : { summary }),
   };
 }
 
@@ -1714,7 +1717,7 @@ function usage() {
     '  pullops issues publish-prd [--file <path>]',
     '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
-    '  pullops heartbeat [--state <path>] [--token <token>]',
+    '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
     '  pullops labels ensure',
   ].join('\n');
 }

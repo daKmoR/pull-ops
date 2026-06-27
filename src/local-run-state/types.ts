@@ -49,6 +49,7 @@ export interface LocalRunState {
   heartbeatIntervalMs: number;
   leaseDurationMs: number;
   heartbeatAt: string;
+  heartbeatSummary?: string;
   leaseExpiresAt: string;
   lastEvent: Record<string, unknown>;
   parentRun?: LocalRunRunLink;
@@ -92,6 +93,7 @@ export interface InitializeLocalRunStateOptions {
 export interface RecordLocalRunHeartbeatOptions {
   statePath: string;
   token: string;
+  summary?: string;
   at?: Date;
 }
 

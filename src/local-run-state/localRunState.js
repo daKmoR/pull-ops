@@ -24,9 +24,10 @@ export const DEFAULT_LOCAL_RUN_LEASE_DURATION_MS = DEFAULT_LOCAL_RUN_HEARTBEAT_I
 export const LOCAL_RUN_STATE_FILE_NAME = 'state.json';
 export const LOCAL_RUN_HEARTBEAT_PROMPT_INSTRUCTIONS = [
   'Heartbeat instructions:',
-  `- Run \`${LOCAL_RUN_HEARTBEAT_COMMAND}\` with \`PULLOPS_RUN_STATE_PATH\` and \`PULLOPS_HEARTBEAT_TOKEN\` from the environment about every \`PULLOPS_HEARTBEAT_INTERVAL_MS\` while the work stays active.`,
+  `- You, the implementation agent, must invoke \`${LOCAL_RUN_HEARTBEAT_COMMAND} --summary "<brief current focus>"\` as a tool call with \`PULLOPS_RUN_STATE_PATH\` and \`PULLOPS_HEARTBEAT_TOKEN\` from the environment about every \`PULLOPS_HEARTBEAT_INTERVAL_MS\` while the work stays active.`,
+  '- Keep the summary short and concrete, such as "reading setup command tests" or "updating generated workflow checks".',
   `- If a command may stay quiet for a while, heartbeat immediately before and after it instead of waiting for the next interval.`,
-  '- Heartbeats are machine-only liveness updates. Do not invent semantic progress to emit one.',
+  '- Heartbeats are worker-originated liveness updates, not semantic progress events. The parent PullOps CLI does not heartbeat for you.',
 ].join('\n');
 const LOCAL_RUN_STATE_SCHEMA_VERSION = 1;
 const LOCAL_RUN_STATE_LOCK_RETRY_DELAY_MS = 25;
@@ -64,15 +65,17 @@ export async function readLocalRunState(statePath) {
  * @param {RecordLocalRunHeartbeatOptions} options
  * @returns {Promise<LocalRunState>}
  */
-export async function recordLocalRunHeartbeat({ statePath, token, at = new Date() }) {
+export async function recordLocalRunHeartbeat({ statePath, token, summary, at = new Date() }) {
   return await updateLocalRunState(statePath, currentState => {
     validateHeartbeatToken(currentState, token, statePath);
     assertMutableRunState(currentState, statePath);
 
     const heartbeatAt = at.toISOString();
+    const heartbeatSummary = normalizeHeartbeatSummary(summary);
     return {
       ...currentState,
       heartbeatAt,
+      heartbeatSummary,
       leaseExpiresAt: new Date(at.getTime() + currentState.leaseDurationMs).toISOString(),
       lastEvent: currentState.lastEvent,
     };
@@ -359,6 +362,9 @@ function parseLocalRunState(value, statePath) {
   if (typeof state.heartbeatAt !== 'string' || state.heartbeatAt.trim() === '') {
     throw new Error(`Local run state at ${statePath} is missing heartbeatAt.`);
   }
+  if (state.heartbeatSummary !== undefined && typeof state.heartbeatSummary !== 'string') {
+    throw new Error(`Local run state at ${statePath} has an invalid heartbeatSummary.`);
+  }
   if (typeof state.leaseExpiresAt !== 'string' || state.leaseExpiresAt.trim() === '') {
     throw new Error(`Local run state at ${statePath} is missing leaseExpiresAt.`);
   }
@@ -401,6 +407,19 @@ function assertMutableRunState(state, statePath) {
   if (isTerminalOrLegacySkippedStatus(state.status)) {
     throw new LocalRunHeartbeatError(`Local run state at ${statePath} is already terminal.`);
   }
+}
+
+/**
+ * @param {string | undefined} summary
+ * @returns {string | undefined}
+ */
+function normalizeHeartbeatSummary(summary) {
+  if (summary === undefined) {
+    return undefined;
+  }
+
+  const trimmed = summary.trim();
+  return trimmed === '' ? undefined : trimmed;
 }
 
 /**

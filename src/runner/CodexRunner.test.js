@@ -158,6 +158,8 @@ describe('createCodexRunner', () => {
     assert.match(prompt, /Heartbeat instructions:/);
     assert.match(prompt, /npm exec pullops -- heartbeat/);
     assert.match(prompt, /PULLOPS_RUN_STATE_PATH/);
+    assert.match(prompt, /implementation agent/);
+    assert.match(prompt, /--summary/);
     assert.match(prompt, /before and after/);
     assert.equal(call.options.env.PULLOPS_RUN_STATE_PATH, '/repo/.pullops/runs/example/state.json');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_TOKEN, 'token-123');
