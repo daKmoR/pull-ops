@@ -56,6 +56,7 @@ describe('runLocalPullRequestOperation', () => {
     assert.equal(env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
     assert.equal(env.PULLOPS_HEARTBEAT_TOKEN, state.heartbeatToken);
     assert.equal(env.PULLOPS_HEARTBEAT_INTERVAL_MS, String(state.heartbeatIntervalMs));
+    assert.equal(env.npm_config_cache, join(localRunRecord, 'npm-cache'));
     assert.equal(state.status, 'accepted');
     assert.equal(state.phase, 'run');
     assert.equal(state.lastEvent.status, 'accepted');

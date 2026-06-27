@@ -41,6 +41,7 @@ describe('localRunState', () => {
       PULLOPS_RUN_STATE_PATH: join(runRecordDirectory, 'state.json'),
       PULLOPS_HEARTBEAT_TOKEN: record.state.heartbeatToken,
       PULLOPS_HEARTBEAT_INTERVAL_MS: '120000',
+      npm_config_cache: join(runRecordDirectory, 'npm-cache'),
     });
     assert.equal(record.runLink.runId, basename(runRecordDirectory));
     assert.equal(record.runLink.statePath, record.statePath);
@@ -62,6 +63,10 @@ describe('localRunState', () => {
     assert.equal(reread.statePath, record.statePath);
     assert.equal(reread.state.heartbeatToken, record.state.heartbeatToken);
     assert.equal(reread.heartbeatEnvironment.PULLOPS_RUN_STATE_PATH, record.statePath);
+    assert.equal(
+      reread.heartbeatEnvironment.npm_config_cache,
+      join(runRecordDirectory, 'npm-cache'),
+    );
     assert.deepEqual(reread.runLink, record.runLink);
   });
 
@@ -100,6 +105,10 @@ describe('localRunState', () => {
     assert.equal(record.state.heartbeatIntervalMs, 240000);
     assert.equal(record.state.leaseDurationMs, 480000);
     assert.equal(record.heartbeatEnvironment.PULLOPS_HEARTBEAT_INTERVAL_MS, '240000');
+    assert.equal(
+      record.heartbeatEnvironment.npm_config_cache,
+      join(runRecordDirectory, 'npm-cache'),
+    );
   });
 
   it('02: records heartbeats atomically and rejects mismatched tokens', async () => {

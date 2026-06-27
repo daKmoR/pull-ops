@@ -147,6 +147,7 @@ describe('createCodexRunner', () => {
         PULLOPS_RUN_STATE_PATH: '/repo/.pullops/runs/example/state.json',
         PULLOPS_HEARTBEAT_TOKEN: 'token-123',
         PULLOPS_HEARTBEAT_INTERVAL_MS: '300000',
+        npm_config_cache: '/repo/.pullops/runs/example/npm-cache',
       },
     });
 
@@ -161,6 +162,7 @@ describe('createCodexRunner', () => {
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_TOKEN, 'token-123');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_INTERVAL_MS, '300000');
+    assert.equal(call.options.env.npm_config_cache, '/repo/.pullops/runs/example/npm-cache');
     assert.equal(output.text, '');
   });
 });

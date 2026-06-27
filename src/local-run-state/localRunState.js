@@ -22,6 +22,7 @@ export const LOCAL_RUN_HEARTBEAT_COMMAND = 'npm exec pullops -- heartbeat';
 export const DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000;
 export const DEFAULT_LOCAL_RUN_LEASE_DURATION_MS = DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS * 2;
 export const LOCAL_RUN_STATE_FILE_NAME = 'state.json';
+const LOCAL_RUN_NPM_CACHE_DIRECTORY_NAME = 'npm-cache';
 const LOCAL_RUN_STATE_SCHEMA_VERSION = 1;
 const LOCAL_RUN_STATE_LOCK_RETRY_DELAY_MS = 25;
 const LOCAL_RUN_STATE_LOCK_STALE_MS = 30 * 1000;
@@ -233,6 +234,7 @@ export function createLocalRunHeartbeatEnvironment({
     PULLOPS_RUN_STATE_PATH: statePath,
     PULLOPS_HEARTBEAT_TOKEN: heartbeatToken,
     PULLOPS_HEARTBEAT_INTERVAL_MS: String(heartbeatIntervalMs),
+    npm_config_cache: join(dirname(statePath), LOCAL_RUN_NPM_CACHE_DIRECTORY_NAME),
   };
 }
 

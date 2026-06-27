@@ -61,6 +61,7 @@ export interface LocalRunHeartbeatEnvironment extends NodeJS.ProcessEnv {
   PULLOPS_RUN_STATE_PATH: string;
   PULLOPS_HEARTBEAT_TOKEN: string;
   PULLOPS_HEARTBEAT_INTERVAL_MS: string;
+  npm_config_cache: string;
 }
 
 export interface LocalRunStateRecord {
