@@ -22,6 +22,14 @@ import { validatePlannerCommitPlan } from '../pr-finalize/commitPlan.js';
 import { updatePullRequestBodyForPrFinalize } from '../pr-finalize/prBody.js';
 import { validatePrFinalizeOutput } from '../pr-finalize/output.js';
 import { validatePrReviewOutput } from '../pr-review/output.js';
+import {
+  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
+  LOCAL_RUN_HEARTBEAT_COMMAND,
+  initializeLocalRunState,
+  mapLocalRunResultStatusToTerminalStatus,
+  recordLocalRunTerminalStatus,
+} from '../../local-run-state/localRunState.js';
 import { validateIssueImplementOutput } from './output.js';
 import { buildIssueImplementPrompt } from './prompt.js';
 import { createIssueImplementPullRequestBody } from './prBody.js';
@@ -32,6 +40,7 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
  * @typedef {import('../../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('./output.types.js').ImplementedIssueOutput} ImplementedIssueOutput
  * @typedef {import('../pr-review/output.types.js').CompletedPrReviewOutput} CompletedPrReviewOutput
+ * @typedef {import('../../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  * @typedef {import('./run.types.js').IssueImplementPreparation} IssueImplementPreparation
  * @typedef {import('./run.types.js').BlockIssueDryRunOptions} BlockIssueDryRunOptions
  * @typedef {import('./run.types.js').ReusableFinalizedDryRunRecord} ReusableFinalizedDryRunRecord
@@ -105,11 +114,32 @@ async function runIssueImplementLocalPublish(context) {
 
     const preparation = await prepareIssueImplementLocalPublish(context, runRecord);
     if (!preparation.ready) {
+      await recordLocalRunTerminalStatus({
+        statePath: runRecord.statePath,
+        status: mapLocalRunResultStatusToTerminalStatus(
+          /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+            preparation.output.status
+          ),
+        ),
+        summary: /** @type {string} */ (preparation.output.summary),
+        phase: 'run',
+      });
       return preparation.output;
     }
 
     if (preparation.preparedBranch) {
-      return await publishPreparedIssueImplementBranch(context, preparation, runRecord);
+      const output = await publishPreparedIssueImplementBranch(context, preparation, runRecord);
+      await recordLocalRunTerminalStatus({
+        statePath: runRecord.statePath,
+        status: mapLocalRunResultStatusToTerminalStatus(
+          /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+            output.status
+          ),
+        ),
+        summary: /** @type {string} */ (output.summary),
+        phase: 'run',
+      });
+      return output;
     }
 
     const prompt = buildIssueImplementPrompt({
@@ -127,6 +157,7 @@ async function runIssueImplementLocalPublish(context) {
         model: context.model,
         prompt,
         streamOutput: context.suppressRunnerOutput !== true,
+        env: runRecord.heartbeatEnvironment,
       });
     } catch (error) {
       const reason = getErrorMessage(error);
@@ -136,14 +167,31 @@ async function runIssueImplementLocalPublish(context) {
     context.progress?.('Codex runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
-    return await finalizePreparedIssueImplementLocalPublish(
+    const output = await finalizePreparedIssueImplementLocalPublish(
       context,
       preparation,
       rawOutput,
       runRecord,
     );
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: mapLocalRunResultStatusToTerminalStatus(
+        /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+          output.status
+        ),
+      ),
+      summary: /** @type {string} */ (output.summary),
+      phase: 'run',
+    });
+    return output;
   } catch (error) {
     await writeLocalRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: 'failed',
+      summary: getErrorMessage(error),
+      phase: 'run',
+    });
     throw error;
   }
 }
@@ -174,11 +222,32 @@ async function runIssueImplementDryRun(context) {
 
     const preparation = await prepareIssueImplementDryRun(context, runRecord);
     if (!preparation.ready) {
+      await recordLocalRunTerminalStatus({
+        statePath: runRecord.statePath,
+        status: mapLocalRunResultStatusToTerminalStatus(
+          /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+            preparation.output.status
+          ),
+        ),
+        summary: /** @type {string} */ (preparation.output.summary),
+        phase: 'run',
+      });
       return preparation.output;
     }
 
     if (preparation.preparedBranch) {
-      return await dryRunPreparedIssueImplementBranch(context, preparation, runRecord);
+      const output = await dryRunPreparedIssueImplementBranch(context, preparation, runRecord);
+      await recordLocalRunTerminalStatus({
+        statePath: runRecord.statePath,
+        status: mapLocalRunResultStatusToTerminalStatus(
+          /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+            output.status
+          ),
+        ),
+        summary: /** @type {string} */ (output.summary),
+        phase: 'run',
+      });
+      return output;
     }
 
     const prompt = buildIssueImplementPrompt({
@@ -196,6 +265,7 @@ async function runIssueImplementDryRun(context) {
         model: context.model,
         prompt,
         streamOutput: context.suppressRunnerOutput !== true,
+        env: runRecord.heartbeatEnvironment,
       });
     } catch (error) {
       const reason = getErrorMessage(error);
@@ -205,9 +275,31 @@ async function runIssueImplementDryRun(context) {
     context.progress?.('Codex runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
-    return await finalizePreparedIssueImplementDryRun(context, preparation, rawOutput, runRecord);
+    const output = await finalizePreparedIssueImplementDryRun(
+      context,
+      preparation,
+      rawOutput,
+      runRecord,
+    );
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: mapLocalRunResultStatusToTerminalStatus(
+        /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
+          output.status
+        ),
+      ),
+      summary: /** @type {string} */ (output.summary),
+      phase: 'run',
+    });
+    return output;
   } catch (error) {
     await writeLocalRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: 'failed',
+      summary: getErrorMessage(error),
+      phase: 'run',
+    });
     throw error;
   }
 }
@@ -742,7 +834,7 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
  * @param {OperationRunnerContext} context
  * @param {IssueImplementPreparation & { ready: true }} preparation
  * @param {unknown} rawOutput
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @returns {Promise<Record<string, unknown>>}
  */
 async function finalizePreparedIssueImplementLocalPublish(
@@ -821,7 +913,7 @@ async function finalizePreparedIssueImplementLocalPublish(
 /**
  * @param {OperationRunnerContext} context
  * @param {IssueImplementPreparation & { ready: true, commits?: import('../../git/types.js').GitCommit[] }} preparation
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @returns {Promise<Record<string, unknown>>}
  */
 async function publishPreparedIssueImplementBranch(context, preparation, runRecord) {
@@ -1054,7 +1146,7 @@ function createPreparedBranchIssueImplementOutput(preparation) {
 /**
  * @param {OperationRunnerContext} context
  * @param {IssueImplementPreparation & { ready: true, commits?: import('../../git/types.js').GitCommit[] }} preparation
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @returns {Promise<Record<string, unknown>>}
  */
 async function dryRunPreparedIssueImplementBranch(context, preparation, runRecord) {
@@ -1109,7 +1201,7 @@ async function dryRunPreparedIssueImplementBranch(context, preparation, runRecor
  * @param {OperationRunnerContext} context
  * @param {IssueImplementPreparation & { ready: true }} preparation
  * @param {unknown} rawOutput
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @returns {Promise<Record<string, unknown>>}
  */
 async function finalizePreparedIssueImplementDryRun(context, preparation, rawOutput, runRecord) {
@@ -1200,7 +1292,7 @@ async function finalizePreparedIssueImplementDryRun(context, preparation, rawOut
  * @param {OperationRunnerContext} context
  * @param {IssueImplementPreparation & { ready: true }} preparation
  * @param {ImplementedIssueOutput} implementationOutput
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @returns {Promise<
  *   | { status: 'finalized', body: string, prFinalize: Record<string, unknown> }
  *   | { status: 'blocked', output: Record<string, unknown> }
@@ -1527,7 +1619,7 @@ async function runLocalFinalizedIssuePipeline(
 /**
  * @template T
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{
  *   operationName: string,
  *   operationReference: string,
@@ -1548,6 +1640,7 @@ async function runLocalFollowUpOperation(
     model: modelSelection.model,
     prompt,
     streamOutput: context.suppressRunnerOutput !== true,
+    env: runRecord.heartbeatEnvironment,
   });
   await writeLocalRunArtifact(
     runRecord,
@@ -2076,20 +2169,18 @@ async function writeFailureReason(context, reason) {
 /**
  * @param {OperationRunnerContext} context
  * @param {{ operationReference: string, targetNumber: number, publicationMode?: 'dry-run' | 'publish' }} options
- * @returns {Promise<{ directory: string }>}
+ * @returns {Promise<LocalRunRecord>}
  */
 async function createLocalRunRecord(
   context,
   { operationReference, targetNumber, publicationMode = 'dry-run' },
 ) {
   const normalizedReference = normalizeOperationReferenceForPath(operationReference);
-  const timestamp = new Date().toISOString().replaceAll(':', '').replaceAll('.', '');
-  const directory = join(
-    context.cwd,
-    '.pullops',
-    'runs',
-    `${timestamp}-${normalizedReference}-${targetNumber}`,
-  );
+  const createdAt = new Date();
+  const timestamp = createdAt.toISOString().replaceAll(':', '').replaceAll('.', '');
+  const directory =
+    context.localRunRecordDirectory ??
+    join(context.cwd, '.pullops', 'runs', `${timestamp}-${normalizedReference}-${targetNumber}`);
 
   await mkdir(directory, { recursive: true });
   await writeLocalRunArtifact(
@@ -2106,14 +2197,35 @@ async function createLocalRunRecord(
         publicationMode,
         virtualCompletedIssueNumbers: context.virtualCompletedIssueNumbers ?? [],
         runGoal: context.runGoal ?? 'operation',
-        createdAt: new Date().toISOString(),
+        createdAt: createdAt.toISOString(),
+        heartbeatCommand: LOCAL_RUN_HEARTBEAT_COMMAND,
+        heartbeatIntervalMs: DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+        leaseDurationMs: DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
       },
       null,
       2,
     )}\n`,
   );
 
-  return { directory };
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: directory,
+    operationReference,
+    target: {
+      type: context.target.type,
+      number: targetNumber,
+    },
+    publicationMode,
+    runGoal: context.runGoal ?? 'operation',
+    createdAt,
+    ...(context.parentRun === undefined ? {} : { parentRun: context.parentRun }),
+  });
+
+  return {
+    directory,
+    statePath: stateRecord.statePath,
+    heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+    runLink: stateRecord.runLink,
+  };
 }
 
 /**

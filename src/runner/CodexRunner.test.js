@@ -120,6 +120,50 @@ describe('createCodexRunner', () => {
     assert.equal(result, 'codex stdout\n');
     assert.equal(output.text, '');
   });
+
+  it('04: appends heartbeat instructions and forwards heartbeat env to the runner', async () => {
+    const output = createWritableBuffer();
+    /** @type {Array<{ file: string, args: string[], options: any }>} */
+    const calls = [];
+    const runner = createCodexRunner({
+      output,
+      spawn: (file, args, options) => {
+        calls.push({ file, args, options });
+        const child = createFakeChildProcess();
+        queueMicrotask(() => {
+          child.emit('close', 0, null);
+        });
+        return child;
+      },
+    });
+
+    await runner.run({
+      cwd: '/repo',
+      command: 'codex exec',
+      model: 'gpt-5.5',
+      prompt: 'Implement issue #1',
+      env: {
+        PULLOPS_HEARTBEAT_COMMAND: 'npm exec pullops -- heartbeat',
+        PULLOPS_RUN_STATE_PATH: '/repo/.pullops/runs/example/state.json',
+        PULLOPS_HEARTBEAT_TOKEN: 'token-123',
+        PULLOPS_HEARTBEAT_INTERVAL_MS: '300000',
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    const call = calls[0];
+    assert(call);
+    const prompt = call.args.at(-1);
+    assert(prompt);
+    assert.match(prompt, /Heartbeat instructions:/);
+    assert.match(prompt, /npm exec pullops -- heartbeat/);
+    assert.match(prompt, /PULLOPS_RUN_STATE_PATH/);
+    assert.match(prompt, /before and after/);
+    assert.equal(call.options.env.PULLOPS_RUN_STATE_PATH, '/repo/.pullops/runs/example/state.json');
+    assert.equal(call.options.env.PULLOPS_HEARTBEAT_TOKEN, 'token-123');
+    assert.equal(call.options.env.PULLOPS_HEARTBEAT_INTERVAL_MS, '300000');
+    assert.equal(output.text, '');
+  });
 });
 
 describe('parseRunnerCommand', () => {
