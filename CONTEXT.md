@@ -104,6 +104,26 @@ _Avoid_: Publication mode, operation label
 A visible, gitignored `.pullops/runs/<timestamp>-<operation-label-reference>-<target-number>/` directory where local execution records artifacts from one PullOps run.
 _Avoid_: Hidden cache, audit store
 
+**PullOps Event Supervision**:
+The PullOps Go behavior of observing a long-running Human-Facing Command through its PullOps Progress Events and PullOps Run State, intervening only after lease expiry and liveness reconciliation.
+_Avoid_: Log watching, process polling, artifact scraping
+
+**PullOps Heartbeat**:
+A durable machine-only liveness update reported by the active PullOps worker, separate from semantic progress and intended to prevent false intervention during long-running work.
+_Avoid_: Progress event, human status update, milestone
+
+**PullOps Heartbeat Command**:
+A deterministic local PullOps command an active worker uses to report a PullOps Heartbeat to the current Local Run Record.
+_Avoid_: Log marker, stdout ping, progress command
+
+**PullOps Lease**:
+A durable intervention guard for a running PullOps worker that defines the earliest time a supervisor may consider recovery, while still requiring liveness reconciliation before interruption or replacement.
+_Avoid_: Lock, timeout, ownership claim
+
+**PullOps Liveness Signal**:
+A durable observation that can extend or validate a PullOps Lease during supervision. In the first local model, the reliable liveness signals are an advanced PullOps Heartbeat or a changed child run set.
+_Avoid_: Human progress, CI status, git diff polling
+
 **PullOps Progress Event**:
 A bounded machine-readable status update from a long-running Human-Facing Command, intended for tools to observe progress without reading verbose logs.
 _Avoid_: Log line, heartbeat, console output
@@ -112,9 +132,17 @@ _Avoid_: Log line, heartbeat, console output
 The final machine-readable outcome of a Human-Facing Command, identifying status, target, resulting run records, blockers, and next steps.
 _Avoid_: CLI footer, agent response, verbose output
 
+**PullOps Run State**:
+The mutable machine-readable state of an in-progress local PullOps run, stored in its Local Run Record for supervision fields such as status, phase, heartbeat, lease, last event, and child runs.
+_Avoid_: Run summary, event stream, verbose log
+
 **PullOps Run Blocker**:
 A structured reason a PullOps run cannot continue without maintainer action, external completion, or a later retry.
 _Avoid_: Error message, failed log line, blocked issue number
+
+**PullOps Stall Classification**:
+A structured supervisor finding that a running PullOps worker appears stalled after lease expiry and liveness reconciliation, recorded before interruption, retry, or replacement.
+_Avoid_: Timeout error, process kill, manual hunch
 
 **Run Duration**:
 The measured elapsed time for one PullOps run, reported in machine-readable milliseconds and optionally anchored by start and finish timestamps.
