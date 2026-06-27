@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
 import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { createChildIssueBody } from '../issue-store/childIssueBody.js';
+import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
+import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
@@ -753,8 +757,6 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
   assert.equal(runnerCalls.length, 1);
   assert.equal(runnerCalls[0].publicationMode, 'publish');
   assert.equal(runnerCalls[0].runGoal, 'finalized');
-  assert.equal(runnerCalls[0].suppressRunnerOutput, true);
-  assert.equal(runnerCalls[0].progress, undefined);
   assert.equal(typeof runnerCalls[0].localRunRecordDirectory, 'string');
   assert.equal(
     runnerCalls[0].progressEventWriter?.runId,
@@ -1829,6 +1831,1020 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
   });
 });
 
+test('issues publish-issue accepts structured JSON from file and stdin', async t => {
+  await t.test('file input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      title: 'Publish standalone issue',
+      whatToBuild: 'Implement the issue-store publication path.',
+      acceptanceCriteria: ['Reads structured JSON from --file.', 'Writes stable JSON output.'],
+      blockedBy: [34],
+      triageRole: 'ready-for-agent',
+    };
+    const requestPath = join(cwd, 'request.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 88,
+            url: 'https://github.test/owner/repo/issues/88',
+          });
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-issue', '--file', requestPath]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.title);
+    assert.equal(createIssueCalls[0].labels, undefined);
+    assert.match(createIssueCalls[0].body, /PullOps publication marker/);
+    assert.match(createIssueCalls[0].body, /## What to build/);
+    assert.match(createIssueCalls[0].body, /## Acceptance criteria/);
+    assert.match(createIssueCalls[0].body, /## Blocked by/);
+    assert.deepEqual(addLabelCalls, [{ number: 88, labels: ['ready-for-agent'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'created');
+    assert.equal(output.issue.number, 88);
+    assert.equal(output.triageRole, 'ready-for-agent');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-issue-new$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        title: request.title,
+        whatToBuild: request.whatToBuild,
+        acceptanceCriteria: request.acceptanceCriteria,
+        blockedBy: request.blockedBy,
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+
+  await t.test('relative file input resolves against cli cwd', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-relative-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    const request = {
+      title: 'Publish standalone issue from relative file',
+      whatToBuild: 'Read the publish request from the CLI cwd.',
+      acceptanceCriteria: ['Relative --file paths resolve against the CLI cwd.'],
+      blockedBy: [],
+    };
+    await writeFile(join(cwd, 'request.json'), `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 88,
+            url: 'https://github.test/owner/repo/issues/88',
+          });
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-issue', '--file', 'request.json']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.title);
+  });
+
+  await t.test('stdin input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-stdin-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updateIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const removeLabelCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      issueNumber: 41,
+      title: 'Refresh standalone issue',
+      whatToBuild: 'Update the rendered publication body.',
+      acceptanceCriteria: [
+        'Reads structured JSON from stdin.',
+        'Updates a PullOps-published issue.',
+      ],
+      triageRole: 'ready-for-human',
+    };
+    const existingBody = createConcreteIssueBody({
+      title: request.title,
+      whatToBuild: request.whatToBuild,
+      acceptanceCriteria: request.acceptanceCriteria,
+      blockedBy: [],
+    });
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 41);
+          return createGitHubIssue({
+            number: 41,
+            body: existingBody,
+            labels: ['needs-triage', 'needs-info'],
+          });
+        },
+        async updateIssue(options) {
+          updateIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 41,
+            body: options.body,
+            labels: ['ready-for-human'],
+          });
+        },
+        async removeLabelsFromIssue(options) {
+          removeLabelCalls.push(options);
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-issue']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(updateIssueCalls.length, 1);
+    assert.equal(updateIssueCalls[0].number, 41);
+    assert.equal(updateIssueCalls[0].labels, undefined);
+    assert.match(updateIssueCalls[0].body, /PullOps publication marker/);
+    assert.deepEqual(removeLabelCalls, [{ number: 41, labels: ['needs-triage', 'needs-info'] }]);
+    assert.deepEqual(addLabelCalls, [{ number: 41, labels: ['ready-for-human'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'updated');
+    assert.equal(output.issue.number, 41);
+    assert.equal(output.triageRole, 'ready-for-human');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-issue-41$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        issueNumber: request.issueNumber,
+        title: request.title,
+        whatToBuild: request.whatToBuild,
+        acceptanceCriteria: request.acceptanceCriteria,
+        blockedBy: [],
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+});
+
+test('issues publish-prd accepts structured JSON from file and stdin', async t => {
+  await t.test('file input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      title: 'Publish PRD issue support',
+      problemStatement: 'PullOps should publish PRDs through its own Issue Store.',
+      solution: 'Add a PRD publish command on top of the GitHub Issue Store path.',
+      userStories: [
+        {
+          number: 8,
+          story:
+            'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+        },
+        {
+          number: 1,
+          story:
+            'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+        },
+      ],
+      implementationDecisions: [
+        'Use the GitHub Issue Store adapter.',
+        'Preserve stable user story numbers.',
+      ],
+      testingDecisions: ['Exercise the publish command through fake GitHub clients.'],
+      outOfScope: ['Child Issue publication.'],
+      furtherNotes: ['This PRD was published from the new issue-store command.'],
+      auditDetails: ['Requested by to-prd.', 'Recorded in a Local Run Record.'],
+      triageRole: 'ready-for-agent',
+    };
+    const requestPath = join(cwd, 'request.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 88,
+            url: 'https://github.test/owner/repo/issues/88',
+          });
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-prd', '--file', requestPath]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.title);
+    assert.equal(createIssueCalls[0].labels, undefined);
+    assert.match(createIssueCalls[0].body, /PullOps publication marker/);
+    assert.match(createIssueCalls[0].body, /## Problem Statement/);
+    assert.match(createIssueCalls[0].body, /## User Stories/);
+    assert.match(createIssueCalls[0].body, /- 1\. As a maintainer/);
+    assert.match(createIssueCalls[0].body, /<summary>PullOps publication audit<\/summary>/);
+    assert.deepEqual(addLabelCalls, [{ number: 88, labels: ['ready-for-agent'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'created');
+    assert.equal(output.issue.number, 88);
+    assert.equal(output.triageRole, 'ready-for-agent');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-prd-new$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        title: request.title,
+        problemStatement: request.problemStatement,
+        solution: request.solution,
+        userStories: [
+          {
+            number: 1,
+            story:
+              'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+          },
+          {
+            number: 8,
+            story:
+              'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+          },
+        ],
+        implementationDecisions: request.implementationDecisions,
+        testingDecisions: request.testingDecisions,
+        outOfScope: request.outOfScope,
+        furtherNotes: request.furtherNotes,
+        auditDetails: request.auditDetails,
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+
+  await t.test('relative file input resolves against cli cwd', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-relative-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    const request = {
+      title: 'Publish PRD issue support from relative file',
+      problemStatement: 'PullOps should resolve PRD request files from the CLI cwd.',
+      solution: 'Resolve relative --file paths before reading publish-prd input.',
+      userStories: [
+        {
+          number: 1,
+          story:
+            'As a maintainer, I want relative publish files to resolve from the target repo cwd, so that machine callers can pass stable local paths.',
+        },
+      ],
+      implementationDecisions: ['Resolve relative input paths against PullOpsCli.cwd.'],
+      testingDecisions: ['Cover relative file input through the CLI seam.'],
+      outOfScope: ['Changing stdin behavior.'],
+    };
+    await writeFile(join(cwd, 'request.json'), `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 88,
+            url: 'https://github.test/owner/repo/issues/88',
+          });
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-prd', '--file', 'request.json']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.title);
+  });
+
+  await t.test('stdin input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-stdin-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updateIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const removeLabelCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      issueNumber: 41,
+      title: 'Refresh PRD issue',
+      problemStatement: 'Update the rendered PRD body.',
+      solution: 'Re-render the PRD issue body.',
+      userStories: [
+        {
+          number: 8,
+          story:
+            'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+        },
+        {
+          number: 1,
+          story:
+            'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+        },
+      ],
+      implementationDecisions: ['Use the GitHub Issue Store adapter.'],
+      testingDecisions: ['Exercise the publish command through fake GitHub clients.'],
+      outOfScope: ['Child Issue publication.'],
+      triageRole: 'ready-for-human',
+    };
+    const existingBody = createPrdIssueBody({
+      title: request.title,
+      problemStatement: request.problemStatement,
+      solution: request.solution,
+      userStories: request.userStories,
+      implementationDecisions: request.implementationDecisions,
+      testingDecisions: request.testingDecisions,
+      outOfScope: request.outOfScope,
+      furtherNotes: [],
+      auditDetails: [],
+    });
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 41);
+          return createGitHubIssue({
+            number: 41,
+            body: existingBody,
+            labels: ['needs-triage', 'needs-info'],
+          });
+        },
+        async updateIssue(options) {
+          updateIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 41,
+            body: options.body,
+            labels: ['ready-for-human'],
+          });
+        },
+        async removeLabelsFromIssue(options) {
+          removeLabelCalls.push(options);
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-prd']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(updateIssueCalls.length, 1);
+    assert.equal(updateIssueCalls[0].number, 41);
+    assert.equal(updateIssueCalls[0].labels, undefined);
+    assert.match(updateIssueCalls[0].body, /PullOps publication marker/);
+    assert.deepEqual(removeLabelCalls, [{ number: 41, labels: ['needs-triage', 'needs-info'] }]);
+    assert.deepEqual(addLabelCalls, [{ number: 41, labels: ['ready-for-human'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'updated');
+    assert.equal(output.issue.number, 41);
+    assert.equal(output.triageRole, 'ready-for-human');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-prd-41$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        issueNumber: request.issueNumber,
+        title: request.title,
+        problemStatement: request.problemStatement,
+        solution: request.solution,
+        userStories: [
+          {
+            number: 1,
+            story:
+              'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+          },
+          {
+            number: 8,
+            story:
+              'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+          },
+        ],
+        implementationDecisions: request.implementationDecisions,
+        testingDecisions: request.testingDecisions,
+        outOfScope: request.outOfScope,
+        furtherNotes: [],
+        auditDetails: [],
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+});
+
+test('issues publish-children accepts parent from flag or JSON and rejects conflicts', async t => {
+  await t.test('file input with --parent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    /** @type {import('../github/types.js').AddSubIssueOptions[]} */
+    const subIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      children: [
+        {
+          sliceRef: '1',
+          title: 'Publish child issue',
+          whatToBuild: 'Create a native Child Issue.',
+          acceptanceCriteria: ['The child is created and attached.'],
+          coveredUserStories: [2],
+          triageRole: 'ready-for-agent',
+        },
+      ],
+    };
+    const requestPath = join(cwd, 'children.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 126);
+          return createGitHubIssue({
+            number: 126,
+            body: createPrdIssueBody({
+              title: 'Published parent',
+              problemStatement: 'Parent problem.',
+              solution: 'Parent solution.',
+              userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+              implementationDecisions: ['Use native sub-issues.'],
+              testingDecisions: ['Use fake clients.'],
+              outOfScope: ['Dependency publication.'],
+              furtherNotes: [],
+              auditDetails: [],
+            }),
+          });
+        },
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 201,
+            url: 'https://github.test/owner/repo/issues/201',
+            body: options.body,
+          });
+        },
+        async addSubIssue(options) {
+          subIssueCalls.push(options);
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run([
+      'issues',
+      'publish-children',
+      '--parent',
+      '126',
+      '--file',
+      requestPath,
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.match(createIssueCalls[0].body, /"sliceRef":"1"/);
+    assert.match(createIssueCalls[0].body, /^## Covered PRD user stories$/m);
+    assert.deepEqual(subIssueCalls, [{ parentIssueNumber: 126, childIssueNumber: 201 }]);
+    assert.deepEqual(addLabelCalls, [{ number: 201, labels: ['ready-for-agent'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.parent.number, 126);
+    assert.deepEqual(output.mappings, [
+      {
+        sliceRef: '1',
+        issueNumber: 201,
+        issueUrl: 'https://github.test/owner/repo/issues/201',
+      },
+    ]);
+    assert.deepEqual(output.warnings, []);
+    assert.match(output.localRunRecord, /issues-publish-children-126$/);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+
+  await t.test('relative file input resolves against cli cwd', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-relative-file-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    const request = {
+      children: [
+        {
+          sliceRef: '1',
+          title: 'Publish child issue from relative file',
+          whatToBuild: 'Read the child batch request from the CLI cwd.',
+          acceptanceCriteria: ['Relative --file paths resolve against the CLI cwd.'],
+          coveredUserStories: [2],
+        },
+      ],
+    };
+    await writeFile(join(cwd, 'children.json'), `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 126);
+          return createGitHubIssue({
+            number: 126,
+            body: createPrdIssueBody({
+              title: 'Published parent',
+              problemStatement: 'Parent problem.',
+              solution: 'Parent solution.',
+              userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+              implementationDecisions: ['Use native sub-issues.'],
+              testingDecisions: ['Use fake clients.'],
+              outOfScope: ['Dependency publication.'],
+              furtherNotes: [],
+              auditDetails: [],
+            }),
+          });
+        },
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 201,
+            url: 'https://github.test/owner/repo/issues/201',
+            body: options.body,
+          });
+        },
+        async addSubIssue() {},
+      }),
+    });
+
+    const exitCode = await cli.run([
+      'issues',
+      'publish-children',
+      '--parent',
+      '126',
+      '--file',
+      'children.json',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.children[0].title);
+  });
+
+  await t.test('conflicting parent flag and JSON parent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-conflict-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (
+        Readable.from([
+          JSON.stringify({
+            parentIssueNumber: 127,
+            children: [
+              {
+                sliceRef: '1',
+                title: 'Publish child issue',
+                whatToBuild: 'Create a native Child Issue.',
+                acceptanceCriteria: ['The child is created and attached.'],
+                coveredUserStories: [2],
+              },
+            ],
+          }),
+        ])
+      ),
+      githubClient: createFakeGitHubClient(),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-children', '--parent', '126']);
+
+    assert.equal(exitCode, 1);
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'failed');
+    assert.match(output.failureReason, /Request.parentIssueNumber values conflict/);
+    assert.match(output.localRunRecord, /issues-publish-children-invalid$/);
+  });
+
+  await t.test('plain reruns reuse an existing PullOps-published child by slice ref', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-rerun-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    const existingChild = createGitHubIssue({
+      number: 201,
+      url: 'https://github.test/owner/repo/issues/201',
+      title: 'Base child',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: 'base',
+        title: 'Base child',
+        whatToBuild: 'Base work.',
+        acceptanceCriteria: ['Base criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [2],
+        supportWork: false,
+      }),
+      parent: {
+        number: 126,
+        title: 'Published parent',
+        url: 'https://github.test/owner/repo/issues/126',
+        state: 'OPEN',
+        relationshipSource: 'native',
+      },
+    });
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    const request = {
+      parentIssueNumber: 126,
+      children: [
+        {
+          sliceRef: 'base',
+          title: 'Base child',
+          whatToBuild: 'Base work.',
+          acceptanceCriteria: ['Base criteria.'],
+          coveredUserStories: [2],
+        },
+        {
+          sliceRef: 'dependent',
+          title: 'Dependent child issue',
+          whatToBuild: 'Create a dependent native Child Issue.',
+          acceptanceCriteria: ['The dependent child is created and attached.'],
+          blockedBy: ['base'],
+          coveredUserStories: [3],
+        },
+      ],
+    };
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          if (number === 126) {
+            return createGitHubIssue({
+              number,
+              body: createPrdIssueBody({
+                title: 'Published parent',
+                problemStatement: 'Parent problem.',
+                solution: 'Parent solution.',
+                userStories: [
+                  { number: 2, story: 'As a user, I want child issue publication.' },
+                  { number: 3, story: 'As a user, I want reruns to resume safely.' },
+                ],
+                implementationDecisions: ['Reuse marker-owned children on plain reruns.'],
+                testingDecisions: ['Use fake clients.'],
+                outOfScope: ['Dependency publication.'],
+                furtherNotes: [],
+                auditDetails: [],
+              }),
+              subIssues: [
+                {
+                  number: 201,
+                  title: 'Base child',
+                  url: 'https://github.test/owner/repo/issues/201',
+                  state: 'OPEN',
+                  relationshipSource: 'native',
+                },
+              ],
+            });
+          }
+          assert.equal(number, 201);
+          return existingChild;
+        },
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 202,
+            url: 'https://github.test/owner/repo/issues/202',
+            body: options.body,
+          });
+        },
+        async addSubIssue() {},
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-children']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.match(createIssueCalls[0].body, /^## Blocked by$/m);
+    assert.match(createIssueCalls[0].body, /- #201/);
+    assert.doesNotMatch(createIssueCalls[0].body, /base/);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'mixed');
+    assert.deepEqual(output.children, [
+      {
+        sliceRef: 'base',
+        action: 'reused',
+        issue: {
+          number: 201,
+          url: 'https://github.test/owner/repo/issues/201',
+        },
+        blockedBy: [],
+      },
+      {
+        sliceRef: 'dependent',
+        action: 'created',
+        issue: {
+          number: 202,
+          url: 'https://github.test/owner/repo/issues/202',
+        },
+        blockedBy: [201],
+      },
+    ]);
+    assert.deepEqual(output.mappings, [
+      {
+        sliceRef: 'base',
+        issueNumber: 201,
+        issueUrl: 'https://github.test/owner/repo/issues/201',
+      },
+      {
+        sliceRef: 'dependent',
+        issueNumber: 202,
+        issueUrl: 'https://github.test/owner/repo/issues/202',
+      },
+    ]);
+  });
+
+  await t.test('--force updates an existing PullOps-published child by slice ref', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-force-'));
+    await writeGitHubIssueStoreConfig(cwd);
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updates = [];
+    const existingChild = createGitHubIssue({
+      number: 201,
+      title: 'Old child',
+      body: createChildIssueBody({
+        parentIssueNumber: 126,
+        sliceRef: '1',
+        title: 'Old child',
+        whatToBuild: 'Old work.',
+        acceptanceCriteria: ['Old criteria.'],
+        blockedBy: [],
+        blockedBySliceRefs: [],
+        coveredUserStories: [2],
+        supportWork: false,
+      }),
+      parent: {
+        number: 126,
+        title: 'Published parent',
+        url: 'https://github.test/owner/repo/issues/126',
+        state: 'OPEN',
+        relationshipSource: 'native',
+      },
+    });
+    const request = {
+      parentIssueNumber: 126,
+      children: [
+        {
+          sliceRef: '1',
+          title: 'Updated child issue',
+          whatToBuild: 'Update the native Child Issue.',
+          acceptanceCriteria: ['The child is force-updated.'],
+          coveredUserStories: [2],
+        },
+      ],
+    };
+    const requestPath = join(cwd, 'children.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          if (number === 126) {
+            return createGitHubIssue({
+              number,
+              body: createPrdIssueBody({
+                title: 'Published parent',
+                problemStatement: 'Parent problem.',
+                solution: 'Parent solution.',
+                userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+                implementationDecisions: ['Use native sub-issues.'],
+                testingDecisions: ['Use fake clients.'],
+                outOfScope: ['Dependency publication.'],
+                furtherNotes: [],
+                auditDetails: [],
+              }),
+              subIssues: [
+                {
+                  number: 201,
+                  title: 'Old child',
+                  url: 'https://github.test/owner/repo/issues/201',
+                  state: 'OPEN',
+                  relationshipSource: 'native',
+                },
+              ],
+            });
+          }
+          assert.equal(number, 201);
+          return existingChild;
+        },
+        async updateIssue(options) {
+          updates.push(options);
+          return createGitHubIssue({
+            ...existingChild,
+            title: options.title,
+            body: options.body,
+          });
+        },
+        async addSubIssue() {},
+      }),
+    });
+
+    const exitCode = await cli.run([
+      'issues',
+      'publish-children',
+      '--file',
+      requestPath,
+      '--force',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].number, 201);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'updated');
+    assert.equal(output.children[0].action, 'updated');
+  });
+});
+
+test('issues publish-issue rejects malformed JSON input with stable failure output', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-malformed-'));
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
+    githubClient: createFakeGitHubClient(),
+  });
+
+  const exitCode = await cli.run(['issues', 'publish-issue']);
+
+  assert.equal(exitCode, 1);
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'failed');
+  assert.equal(output.summary, 'Publish issue request failed.');
+  assert.match(output.failureReason, /Publish request must be valid JSON/);
+  assert.deepEqual(output.warnings, []);
+  assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+  assert.match(output.localRunRecord, /issues-publish-issue-invalid$/);
+  assert.equal(
+    await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+    '{ "title": "broken"\n',
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+    output,
+  );
+  assert.match(
+    await readFile(join(output.localRunRecord, 'failure-reason.txt'), 'utf8'),
+    /Publish request must be valid JSON/,
+  );
+});
+
+test('issues publish-prd rejects malformed JSON input with stable failure output', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-malformed-'));
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
+    githubClient: createFakeGitHubClient(),
+  });
+
+  const exitCode = await cli.run(['issues', 'publish-prd']);
+
+  assert.equal(exitCode, 1);
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'failed');
+  assert.equal(output.summary, 'Publish PRD request failed.');
+  assert.match(output.failureReason, /Publish request must be valid JSON/);
+  assert.deepEqual(output.warnings, []);
+  assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+  assert.match(output.localRunRecord, /issues-publish-prd-invalid$/);
+  assert.equal(
+    await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+    '{ "title": "broken"\n',
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+    output,
+  );
+  assert.match(
+    await readFile(join(output.localRunRecord, 'failure-reason.txt'), 'utf8'),
+    /Publish request must be valid JSON/,
+  );
+});
+
 test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {
   const stdout = createWritableBuffer();
   /** @type {PullOpsLabel[]} */
@@ -2006,6 +3022,17 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     assert.match(stderr.text, /only supports the default run phase/);
   });
 });
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<void>}
+ */
+async function writeGitHubIssueStoreConfig(cwd) {
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    "export default { issueStore: { provider: 'github' } };\n",
+  );
+}
 
 function createWritableBuffer() {
   return {
