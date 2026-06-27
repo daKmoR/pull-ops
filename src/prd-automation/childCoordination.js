@@ -1289,9 +1289,17 @@ async function coordinateLocalChildIssue(
     });
   }
 
-  const output = await runChildIssue(childIssue.number, {
-    virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
-  });
+  const progressReporter = createLocalPrdAutoCompleteChildProgressReporter(context, childIssue);
+  /** @type {Record<string, unknown>} */
+  let output;
+  try {
+    output = await runChildIssue(childIssue.number, {
+      virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
+      ...(progressReporter === undefined ? {} : { progress: progressReporter.progress }),
+    });
+  } finally {
+    await progressReporter?.flush();
+  }
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
   const child = childResult({
@@ -3143,6 +3151,69 @@ async function emitLocalPrdAutoCompleteChildProgress(context, child) {
 
   const progressEvent = createLocalPrdAutoCompleteChildProgressEvent(child);
   await context.progressEventWriter.emit(progressEvent.event, progressEvent.details);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @returns {{ progress(message: string): void, flush(): Promise<void> } | undefined}
+ */
+function createLocalPrdAutoCompleteChildProgressReporter(context, childIssue) {
+  if (context.progressEventWriter === undefined) {
+    return undefined;
+  }
+
+  /** @type {Promise<void>} */
+  let pending = Promise.resolve();
+
+  return {
+    progress(message) {
+      pending = pending.then(async () => {
+        await emitLocalPrdAutoCompleteChildProgressMessage(context, childIssue, message);
+      });
+    },
+    async flush() {
+      await pending;
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @param {string} progressMessage
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompleteChildProgressMessage(context, childIssue, progressMessage) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('child.progress', {
+    phase: 'child-coordination',
+    childIssue: {
+      number: childIssue.number,
+      url: childIssue.url,
+    },
+    message: progressMessage,
+    progressMessage,
+    ...readLocalRunRecordProgress(progressMessage),
+  });
+}
+
+/**
+ * @param {string} progressMessage
+ * @returns {{ localRunRecord: string } | {}}
+ */
+function readLocalRunRecordProgress(progressMessage) {
+  const prefix = 'Local Run Record: ';
+  if (!progressMessage.startsWith(prefix)) {
+    return {};
+  }
+
+  return {
+    localRunRecord: progressMessage.slice(prefix.length),
+  };
 }
 
 /**
