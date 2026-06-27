@@ -15,10 +15,12 @@ Implement the supplied issue as written.
 - Run focused verification that is appropriate for the change.
 
 Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
-present, run `npm exec pullops -- heartbeat --summary "<brief current focus>"`
-as a tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
-active. Heartbeats must come from this implementation agent, not from the parent
-PullOps CLI.
+present, your first tool call after reading this skill must be
+`npm exec pullops -- heartbeat --summary "<brief current focus>"`. Repeat that
+heartbeat tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
+active, and immediately before any command that may run longer than that
+interval. Heartbeats must come from this implementation agent, not from the
+parent PullOps CLI.
 
 PullOps boundary: use referenced skills for their discipline only. Do not ask the
 user, emit non-JSON, commit, push, change labels, create PRs, or leave this
