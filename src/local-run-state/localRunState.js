@@ -19,7 +19,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  */
 
 export const LOCAL_RUN_HEARTBEAT_COMMAND = 'npm exec pullops -- heartbeat';
-export const DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
+export const DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000;
 export const DEFAULT_LOCAL_RUN_LEASE_DURATION_MS = DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS * 2;
 export const LOCAL_RUN_STATE_FILE_NAME = 'state.json';
 const LOCAL_RUN_STATE_SCHEMA_VERSION = 1;

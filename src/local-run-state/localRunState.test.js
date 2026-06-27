@@ -81,7 +81,7 @@ describe('localRunState', () => {
     );
   });
 
-  it('01c: defaults to two-minute heartbeats with four-minute leases', async () => {
+  it('01c: defaults to four-minute heartbeats with eight-minute leases', async () => {
     const runRecordDirectory = await mkdtemp(
       join(tmpdir(), 'pullops-local-run-default-heartbeat-'),
     );
@@ -97,9 +97,9 @@ describe('localRunState', () => {
       createdAt: new Date('2024-01-01T00:00:00.000Z'),
     });
 
-    assert.equal(record.state.heartbeatIntervalMs, 120000);
-    assert.equal(record.state.leaseDurationMs, 240000);
-    assert.equal(record.heartbeatEnvironment.PULLOPS_HEARTBEAT_INTERVAL_MS, '120000');
+    assert.equal(record.state.heartbeatIntervalMs, 240000);
+    assert.equal(record.state.leaseDurationMs, 480000);
+    assert.equal(record.heartbeatEnvironment.PULLOPS_HEARTBEAT_INTERVAL_MS, '240000');
   });
 
   it('02: records heartbeats atomically and rejects mismatched tokens', async () => {

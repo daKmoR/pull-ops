@@ -20,13 +20,12 @@ Responsibilities:
 - Include `commitPlan.justification` only when grouping is not one commit per
   closed Child Issue, and make it a non-empty explanation when included.
 
-Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
-present, your first tool call after reading this skill must be
+Liveness: your first tool call after reading this skill must be
 `npm exec pullops -- heartbeat --summary "<brief current focus>"`. Repeat that
-heartbeat tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
-active, and immediately before any command that may run longer than that
-interval. Heartbeats must come from this finalize-planning agent, not from the
-parent PullOps CLI.
+heartbeat tool call about every 4 minutes while work stays active, and
+immediately before any command that may run longer than that interval.
+Heartbeats must come from this finalize-planning agent, not from the parent
+PullOps CLI.
 
 Commit message rules:
 

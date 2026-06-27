@@ -18,13 +18,11 @@ Inline comments must use changed lines from the supplied diff. Replies must use 
 You may make small direct improvements in the working tree only when they are
 clearly review-owned and do not change PR scope. Record them in `directChanges`.
 
-Liveness: when `PULLOPS_RUN_STATE_PATH` and `PULLOPS_HEARTBEAT_TOKEN` are
-present, your first tool call after reading this skill must be
+Liveness: your first tool call after reading this skill must be
 `npm exec pullops -- heartbeat --summary "<brief current focus>"`. Repeat that
-heartbeat tool call about every `PULLOPS_HEARTBEAT_INTERVAL_MS` while work stays
-active, and immediately before any command that may run longer than that
-interval. Heartbeats must come from this review agent, not from the parent
-PullOps CLI.
+heartbeat tool call about every 4 minutes while work stays active, and
+immediately before any command that may run longer than that interval.
+Heartbeats must come from this review agent, not from the parent PullOps CLI.
 
 If you are approving the final Escalation Review Cycle, put standalone
 `needs-triage` issue proposals in `reviewFollowUpIssues` with `title` and `body`

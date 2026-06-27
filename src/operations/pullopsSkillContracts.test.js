@@ -213,14 +213,15 @@ describe('PullOps skill contracts', () => {
     for (const skillName of workerSkillNames) {
       const skillText = await readRepoFile(`.agents/skills/${skillName}/SKILL.md`);
 
-      assert.match(skillText, /PULLOPS_RUN_STATE_PATH/);
-      assert.match(skillText, /PULLOPS_HEARTBEAT_TOKEN/);
-      assert.match(skillText, /PULLOPS_HEARTBEAT_INTERVAL_MS/);
       assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
       assert.match(skillText, /first tool call after reading this skill must be/);
+      assert.match(skillText, /every 4 minutes/);
       assert.match(skillText, /immediately before any command that may run longer/);
       assert.match(skillText, /Heartbeats must come from this .* agent/);
       assert.match(skillText, /not from the\s+parent\s+PullOps\s+CLI/);
+      assert.doesNotMatch(skillText, /PULLOPS_RUN_STATE_PATH/);
+      assert.doesNotMatch(skillText, /PULLOPS_HEARTBEAT_TOKEN/);
+      assert.doesNotMatch(skillText, /PULLOPS_HEARTBEAT_INTERVAL_MS/);
     }
   });
 
