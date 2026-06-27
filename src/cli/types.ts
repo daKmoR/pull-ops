@@ -1,6 +1,7 @@
 import type { ModelTier, PullOpsConfig } from '../config/types.js';
 import type { GitClient } from '../git/types.js';
 import type { GitHubClient } from '../github/types.js';
+import type { LocalRunRunLink } from '../local-run-state/types.js';
 import type { CodexRunner, RunnerAdapter } from '../runner/types.js';
 
 export interface WritableLike {
@@ -64,6 +65,7 @@ export interface OperationRunnerContext {
   progress?: (message: string) => void;
   progressEventWriter?: OperationProgressEventWriter;
   virtualCompletedIssueNumbers?: number[];
+  parentRun?: LocalRunRunLink;
 }
 
 export interface OperationContextUsage {

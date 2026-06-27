@@ -17,6 +17,7 @@ import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplet
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').MergePullRequestOptions} MergePullRequestOptions
  * @typedef {import('../../config/types.js').PullOpsConfig} PullOpsConfig
+ * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
  */
 
 /** @typedef {import('../../prd-automation/childCoordination.types.js').ChildAutomationResult} ChildAutomationResult */
@@ -1727,6 +1728,30 @@ describe('runPrdAutoComplete', () => {
       [[34, 'merged']],
     );
     assert.equal(readParentPullRequest(result)?.status, 'finalized');
+    const parentStatePath = join(String(result.localRunRecord), 'state.json');
+    const parentState = JSON.parse(await readFile(parentStatePath, 'utf8'));
+    const parentRunLink = {
+      runId: parentState.runId,
+      operationReference: parentState.operationReference,
+      normalizedOperationReference: parentState.normalizedOperationReference,
+      target: parentState.target,
+      statePath: parentStatePath,
+    };
+    assert.equal(parentState.childRuns.length, 1);
+    assert.equal(parentState.childRuns[0].status, 'merged');
+    assert.equal(parentState.childRuns[0].operationReference, 'pr:finalize');
+    assert.equal(parentState.childRuns[0].target.number, 34);
+    assert.match(parentState.childRuns[0].statePath, /pr-finalize-101\/state\.json$/);
+    const childState = JSON.parse(await readFile(parentState.childRuns[0].statePath, 'utf8'));
+    assert.deepEqual(childState.parentRun, parentRunLink);
+    for (const call of codex.calls) {
+      assert(call.env);
+      const nestedStatePath = call.env.PULLOPS_RUN_STATE_PATH;
+      assert(nestedStatePath);
+      assert.notEqual(nestedStatePath, parentStatePath);
+      const nestedState = JSON.parse(await readFile(nestedStatePath, 'utf8'));
+      assert.deepEqual(nestedState.parentRun, parentRunLink);
+    }
   });
 
   it('14: local publish auto-complete integrates newly published child PRs when hosted checks are absent', async () => {
@@ -2105,8 +2130,9 @@ describe('runPrdAutoComplete', () => {
       34,
     );
     assert.equal(progressWriter.events[3]?.status, 'dry-run-completed');
-    const childRunRecord =
-      /** @type {{ localRunRecord?: string }} */ (progressWriter.events[5] ?? {}).localRunRecord;
+    const childRunRecord = /** @type {{ localRunRecord?: string }} */ (
+      progressWriter.events[5] ?? {}
+    ).localRunRecord;
     assert.match(String(childRunRecord), /\.pullops\/runs\/.+issue-implement-35$/);
     assert.deepEqual(
       progressWriter.events.slice(5, 9).map(event => event.progressMessage),
@@ -2132,6 +2158,156 @@ describe('runPrdAutoComplete', () => {
       codex.calls.every(call => call.streamOutput === false),
       true,
     );
+  });
+
+  it('20: local dry-run auto-complete records child run links in parent run state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-run-state-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    let inspectedDuringRun = false;
+    /** @type {unknown[]} */
+    const codexCalls = [];
+    const codex = {
+      calls: codexCalls,
+      runner: {
+        async run(/** @type {unknown} */ options) {
+          codexCalls.push(options);
+          if (!inspectedDuringRun) {
+            inspectedDuringRun = true;
+            const runDirectories = await readdir(join(cwd, '.pullops', 'runs'));
+            const parentRunDirectory = runDirectories.find(name =>
+              name.endsWith('prd-auto-complete-12'),
+            );
+            const childRunDirectory = runDirectories.find(name =>
+              name.endsWith('issue-implement-34'),
+            );
+            assert(parentRunDirectory);
+            assert(childRunDirectory);
+
+            const parentStatePath = join(cwd, '.pullops', 'runs', parentRunDirectory, 'state.json');
+            const childStatePath = join(cwd, '.pullops', 'runs', childRunDirectory, 'state.json');
+            const expectedParentRunLink = {
+              runId: parentRunDirectory,
+              operationReference: 'prd:auto-complete',
+              normalizedOperationReference: 'prd-auto-complete',
+              target: {
+                type: 'issue',
+                number: 12,
+              },
+              statePath: parentStatePath,
+            };
+            const parentState = JSON.parse(await readFile(parentStatePath, 'utf8'));
+            const childState = JSON.parse(await readFile(childStatePath, 'utf8'));
+
+            assert.equal(parentState.childRuns.length, 1);
+            assert.equal(parentState.childRuns[0].runId, childRunDirectory);
+            assert.equal(parentState.childRuns[0].operationReference, 'issue:implement');
+            assert.equal(parentState.childRuns[0].status, 'running');
+            assert.equal(parentState.childRuns[0].statePath, childStatePath);
+            assert.deepEqual(childState.parentRun, expectedParentRunLink);
+          }
+
+          git.markRunnerChangedWorktree();
+          return {
+            status: 'implemented',
+            summary: 'Implemented child issue run.',
+            changes: ['Changed child issue code.'],
+            testPlan: ['npm test'],
+            followUps: [],
+          };
+        },
+      },
+    };
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'operation',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codex.calls.length, 1);
+    const parentStatePath = join(String(result.localRunRecord), 'state.json');
+    const parentState = JSON.parse(await readFile(parentStatePath, 'utf8'));
+    const expectedParentRunLink = {
+      runId: parentState.runId,
+      operationReference: parentState.operationReference,
+      normalizedOperationReference: parentState.normalizedOperationReference,
+      target: parentState.target,
+      statePath: parentStatePath,
+    };
+    assert.equal(parentState.childRuns.length, 1);
+    assert.equal(parentState.childRuns[0].status, 'dry-run-completed');
+    assert.equal(parentState.childRuns[0].operationReference, 'issue:implement');
+    assert.equal(parentState.childRuns[0].target.number, 34);
+    assert.match(parentState.childRuns[0].statePath, /issue-implement-34\/state\.json$/);
+    const childState = JSON.parse(await readFile(parentState.childRuns[0].statePath, 'utf8'));
+    assert.deepEqual(childState.parentRun, expectedParentRunLink);
+    assert.equal(childState.status, 'accepted');
+  });
+
+  it('21: local dry-run auto-complete records blocked child classifications in parent run state', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-run-blocked-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(35)],
+    });
+    const github = createFakeGitHub({
+      issues: [
+        parent,
+        createIssue({ number: 35, body: 'Blocked by: #99', parent: issueReference(12) }),
+        createIssue({ number: 99 }),
+      ],
+    });
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        githubClient: github.client,
+        gitClient: createFakeGit().client,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status, child.blockedBy]),
+      [[35, 'blocked', [99]]],
+    );
+    const parentState = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
+    );
+    assert.equal(parentState.childRuns.length, 1);
+    assert.equal(parentState.childRuns[0].status, 'blocked');
+    assert.equal(parentState.childRuns[0].operationReference, 'issue:implement');
+    assert.equal(parentState.childRuns[0].target.number, 35);
+    assert.match(parentState.childRuns[0].statePath, /issue-implement-35\/state\.json$/);
+    const childState = JSON.parse(await readFile(parentState.childRuns[0].statePath, 'utf8'));
+    assert.equal(childState.status, 'blocked');
+    assert.deepEqual(childState.parentRun, {
+      runId: parentState.runId,
+      operationReference: parentState.operationReference,
+      normalizedOperationReference: parentState.normalizedOperationReference,
+      target: parentState.target,
+      statePath: join(String(result.localRunRecord), 'state.json'),
+    });
   });
 });
 
@@ -2812,17 +2988,11 @@ function isFakeParentBranch(branchName) {
  * @param {{ markRunnerChangedWorktree(): void }} [git]
  * @returns {{
  *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: {
- *     cwd: string,
- *     command: string,
- *     model: string,
- *     prompt: string,
- *     streamOutput?: boolean,
- *   }[];
+ *   calls: CodexRunOptions[];
  * }}
  */
 function createFakeCodexRunner(git) {
-  /** @type {{ cwd: string, command: string, model: string, prompt: string, streamOutput?: boolean }[]} */
+  /** @type {CodexRunOptions[]} */
   const calls = [];
 
   return {
@@ -2877,17 +3047,11 @@ function createFakeCodexRunner(git) {
  * @param {{ markRunnerChangedWorktree(): void }} options.git
  * @returns {{
  *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: {
- *     cwd: string,
- *     command: string,
- *     model: string,
- *     prompt: string,
- *     streamOutput?: boolean,
- *   }[];
+ *   calls: CodexRunOptions[];
  * }}
  */
 function createFakeCodexRunnerWithBlockedReview({ git }) {
-  /** @type {{ cwd: string, command: string, model: string, prompt: string, streamOutput?: boolean }[]} */
+  /** @type {CodexRunOptions[]} */
   const calls = [];
 
   return {
