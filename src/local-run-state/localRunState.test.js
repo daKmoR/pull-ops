@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
@@ -9,6 +9,7 @@ import {
   mapLocalRunResultStatusToTerminalStatus,
   readLocalRunState,
   readLocalRunStateRecordFromDirectory,
+  recordLocalRunChildRun,
   recordLocalRunHeartbeat,
   recordLocalRunTerminalStatus,
 } from './localRunState.js';
@@ -39,6 +40,8 @@ describe('localRunState', () => {
       PULLOPS_HEARTBEAT_TOKEN: record.state.heartbeatToken,
       PULLOPS_HEARTBEAT_INTERVAL_MS: '120000',
     });
+    assert.equal(record.runLink.runId, basename(runRecordDirectory));
+    assert.equal(record.runLink.statePath, record.statePath);
 
     const state = JSON.parse(await readFile(record.statePath, 'utf8'));
     assert.equal(state.schemaVersion, 1);
@@ -49,6 +52,7 @@ describe('localRunState', () => {
     assert.equal(state.heartbeatIntervalMs, 120000);
     assert.equal(state.leaseDurationMs, 240000);
     assert.deepEqual(state.childRuns, []);
+    assert.equal(state.parentRun, undefined);
     assert.equal(state.lastEvent.event, 'run.started');
     assert.equal(state.lastEvent.status, 'running');
 
@@ -56,6 +60,7 @@ describe('localRunState', () => {
     assert.equal(reread.statePath, record.statePath);
     assert.equal(reread.state.heartbeatToken, record.state.heartbeatToken);
     assert.equal(reread.heartbeatEnvironment.PULLOPS_RUN_STATE_PATH, record.statePath);
+    assert.deepEqual(reread.runLink, record.runLink);
   });
 
   it('01b: preserves the original parse error when state.json is invalid JSON', async () => {
@@ -155,6 +160,83 @@ describe('localRunState', () => {
     assert.equal(stored.lastEvent.status, 'accepted');
     assert.equal(stored.lastEvent.summary, 'Completed local run.');
     assert.equal(stored.heartbeatAt, initial.state.heartbeatAt);
+  });
+
+  it('03b: records child run snapshots and parent links', async () => {
+    const parentRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-parent-run-'));
+    const childRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-child-run-'));
+
+    const parent = await initializeLocalRunState({
+      runRecordDirectory: parentRunRecordDirectory,
+      operationReference: 'prd:auto-complete',
+      target: {
+        type: 'issue',
+        number: 12,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+    const child = await initializeLocalRunState({
+      runRecordDirectory: childRunRecordDirectory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: 34,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:01:00.000Z'),
+      parentRun: parent.runLink,
+    });
+
+    assert.deepEqual(child.state.parentRun, parent.runLink);
+    assert.equal(child.runLink.runId, basename(childRunRecordDirectory));
+    assert.equal(child.runLink.statePath, child.statePath);
+
+    const startedAt = new Date('2024-01-01T00:02:00.000Z');
+    await recordLocalRunChildRun({
+      statePath: parent.statePath,
+      childRun: {
+        ...child.runLink,
+        status: 'running',
+        startedAt: startedAt.toISOString(),
+        updatedAt: startedAt.toISOString(),
+        summary: 'Started child issue #34.',
+      },
+    });
+
+    let stored = JSON.parse(await readFile(parent.statePath, 'utf8'));
+    assert.deepEqual(stored.childRuns, [
+      {
+        ...child.runLink,
+        status: 'running',
+        startedAt: startedAt.toISOString(),
+        updatedAt: startedAt.toISOString(),
+        summary: 'Started child issue #34.',
+      },
+    ]);
+
+    const finishedAt = new Date('2024-01-01T00:03:00.000Z');
+    await recordLocalRunChildRun({
+      statePath: parent.statePath,
+      childRun: {
+        ...child.runLink,
+        status: 'merged',
+        startedAt: startedAt.toISOString(),
+        updatedAt: finishedAt.toISOString(),
+        summary: 'Merged child issue #34.',
+      },
+    });
+
+    stored = JSON.parse(await readFile(parent.statePath, 'utf8'));
+    assert.deepEqual(stored.childRuns, [
+      {
+        ...child.runLink,
+        status: 'merged',
+        startedAt: startedAt.toISOString(),
+        updatedAt: finishedAt.toISOString(),
+        summary: 'Merged child issue #34.',
+      },
+    ]);
   });
 
   it('04: rejects non-terminal terminal writes without mutating the stored state', async () => {

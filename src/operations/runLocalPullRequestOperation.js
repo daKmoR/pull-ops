@@ -542,6 +542,7 @@ async function createLocalPullRequestRunRecord(context, { operationReference }) 
     directory,
     statePath: stateRecord.statePath,
     heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+    runLink: stateRecord.runLink,
   };
 }
 

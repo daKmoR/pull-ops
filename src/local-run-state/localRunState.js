@@ -5,12 +5,15 @@ import { basename, dirname, join } from 'node:path';
 /**
  * @typedef {import('./types.js').InitializeLocalRunStateOptions} InitializeLocalRunStateOptions
  * @typedef {import('./types.js').LocalRunHeartbeatEnvironment} LocalRunHeartbeatEnvironment
+ * @typedef {import('./types.js').LocalRunChildRun} LocalRunChildRun
  * @typedef {import('./types.js').LocalRunResultStatus} LocalRunResultStatus
+ * @typedef {import('./types.js').LocalRunRunLink} LocalRunRunLink
  * @typedef {import('./types.js').LocalRunState} LocalRunState
  * @typedef {import('./types.js').LocalRunStateRecord} LocalRunStateRecord
  * @typedef {import('./types.js').LocalRunTerminalStatus} LocalRunTerminalStatus
  * @typedef {import('./types.js').LocalRunTarget} LocalRunTarget
  * @typedef {import('./types.js').RecordLocalRunHeartbeatOptions} RecordLocalRunHeartbeatOptions
+ * @typedef {import('./types.js').RecordLocalRunChildRunOptions} RecordLocalRunChildRunOptions
  * @typedef {import('./types.js').RecordLocalRunTerminalStatusOptions} RecordLocalRunTerminalStatusOptions
  */
 
@@ -107,6 +110,20 @@ export async function recordLocalRunTerminalStatus({
 }
 
 /**
+ * @param {RecordLocalRunChildRunOptions} options
+ * @returns {Promise<LocalRunState>}
+ */
+export async function recordLocalRunChildRun({ statePath, childRun }) {
+  return await updateLocalRunState(statePath, currentState => {
+    assertMutableRunState(currentState, statePath);
+    return {
+      ...currentState,
+      childRuns: upsertLocalRunChildRun(currentState.childRuns, childRun),
+    };
+  });
+}
+
+/**
  * @param {LocalRunResultStatus} status
  * @returns {LocalRunTerminalStatus}
  */
@@ -145,6 +162,7 @@ export function createLocalRunStateRecord({
   createdAt = new Date(),
   heartbeatIntervalMs = DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   leaseDurationMs = DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
+  parentRun,
 }) {
   const normalizedOperationReference = normalizeOperationReferenceForPath(operationReference);
   const runId = basename(runRecordDirectory);
@@ -152,6 +170,12 @@ export function createLocalRunStateRecord({
   const heartbeatToken = randomUUID();
   const heartbeatAt = createdAt.toISOString();
   const leaseExpiresAt = new Date(createdAt.getTime() + leaseDurationMs).toISOString();
+  const runLink = createLocalRunLink({
+    runRecordDirectory,
+    operationReference,
+    target,
+    statePath,
+  });
   const state = /** @type {LocalRunState} */ ({
     schemaVersion: LOCAL_RUN_STATE_SCHEMA_VERSION,
     runId,
@@ -174,6 +198,7 @@ export function createLocalRunStateRecord({
       target,
       at: heartbeatAt,
     }),
+    ...(parentRun === undefined ? {} : { parentRun }),
     childRuns: [],
   });
 
@@ -185,6 +210,7 @@ export function createLocalRunStateRecord({
       heartbeatToken,
       heartbeatIntervalMs,
     }),
+    runLink,
   };
 }
 
@@ -252,6 +278,12 @@ export async function readLocalRunStateRecord(statePath) {
       statePath,
       heartbeatToken: state.heartbeatToken,
       heartbeatIntervalMs: state.heartbeatIntervalMs,
+    }),
+    runLink: createLocalRunLink({
+      runRecordDirectory: dirname(statePath),
+      operationReference: state.operationReference,
+      target: state.target,
+      statePath,
     }),
   };
 }
@@ -326,8 +358,14 @@ function parseLocalRunState(value, statePath) {
   if (!isRecord(state.lastEvent)) {
     throw new Error(`Local run state at ${statePath} is missing lastEvent.`);
   }
+  if (state.parentRun !== undefined && !isRunLinkRecord(state.parentRun)) {
+    throw new Error(`Local run state at ${statePath} has an invalid parentRun.`);
+  }
   if (!Array.isArray(state.childRuns)) {
     throw new Error(`Local run state at ${statePath} must include childRuns as an array.`);
+  }
+  if (!state.childRuns.every(isLocalRunChildRunRecord)) {
+    throw new Error(`Local run state at ${statePath} must include valid childRuns.`);
   }
 
   return /** @type {LocalRunState} */ (state);
@@ -389,6 +427,46 @@ function isTerminalOrLegacySkippedStatus(status) {
     status === 'failed' ||
     status === 'skipped'
   );
+}
+
+/**
+ * @param {LocalRunChildRun[]} childRuns
+ * @param {LocalRunChildRun} childRun
+ * @returns {LocalRunChildRun[]}
+ */
+function upsertLocalRunChildRun(childRuns, childRun) {
+  const index = childRuns.findIndex(existing => existing.runId === childRun.runId);
+  if (index === -1) {
+    return [...childRuns, childRun];
+  }
+
+  const nextChildRuns = [...childRuns];
+  nextChildRuns[index] = childRun;
+  return nextChildRuns;
+}
+
+/**
+ * @param {{
+ *   runRecordDirectory: string,
+ *   operationReference: string,
+ *   target: LocalRunTarget,
+ *   statePath?: string,
+ * }} options
+ * @returns {LocalRunRunLink}
+ */
+export function createLocalRunLink({
+  runRecordDirectory,
+  operationReference,
+  target,
+  statePath = join(runRecordDirectory, LOCAL_RUN_STATE_FILE_NAME),
+}) {
+  return {
+    runId: basename(runRecordDirectory),
+    operationReference,
+    normalizedOperationReference: normalizeOperationReferenceForPath(operationReference),
+    target,
+    statePath,
+  };
 }
 
 /**
@@ -460,6 +538,46 @@ function isTargetRecord(value) {
     typeof value.number === 'number' &&
     Number.isInteger(value.number) &&
     value.number > 0
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is LocalRunRunLink}
+ */
+function isRunLinkRecord(value) {
+  return (
+    isRecord(value) &&
+    typeof value.runId === 'string' &&
+    typeof value.operationReference === 'string' &&
+    typeof value.normalizedOperationReference === 'string' &&
+    isTargetRecord(value.target) &&
+    typeof value.statePath === 'string' &&
+    value.runId.trim() !== '' &&
+    value.operationReference.trim() !== '' &&
+    value.normalizedOperationReference.trim() !== '' &&
+    value.statePath.trim() !== ''
+  );
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is LocalRunChildRun}
+ */
+function isLocalRunChildRunRecord(value) {
+  if (!isRunLinkRecord(value)) {
+    return false;
+  }
+
+  const childRun = /** @type {Record<string, unknown> & LocalRunRunLink} */ (value);
+  return (
+    typeof childRun.status === 'string' &&
+    childRun.status.trim() !== '' &&
+    typeof childRun.startedAt === 'string' &&
+    childRun.startedAt.trim() !== '' &&
+    typeof childRun.updatedAt === 'string' &&
+    childRun.updatedAt.trim() !== '' &&
+    (childRun.summary === undefined || typeof childRun.summary === 'string')
   );
 }
 
