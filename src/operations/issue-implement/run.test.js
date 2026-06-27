@@ -715,6 +715,10 @@ describe('runIssueImplement', () => {
     assert.equal(github.issueLabelsAdded.length, 0);
     const [recordName] = await readdir(join(cwd, '.pullops', 'runs'));
     assert.match(recordName, /issue-implement-42$/);
+    const state = JSON.parse(
+      await readFile(join(cwd, '.pullops', 'runs', recordName, 'state.json'), 'utf8'),
+    );
+    assert.equal(state.status, 'failed');
     assert.match(
       await readFile(join(cwd, '.pullops', 'runs', recordName, 'failure-reason.txt'), 'utf8'),
       /clean worktree/,
@@ -797,6 +801,19 @@ describe('runIssueImplement', () => {
 
     const runRecord = String(result.localRunRecord);
     assert.match(runRecord, /\.pullops\/runs\/.+issue-implement-42$/);
+    const state = JSON.parse(await readFile(join(runRecord, 'state.json'), 'utf8'));
+    const call = codex.calls[0];
+    assert(call);
+    const env = call.env;
+    assert(env);
+    assert.equal(env.PULLOPS_RUN_STATE_PATH, join(runRecord, 'state.json'));
+    assert.equal(env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
+    assert.equal(env.PULLOPS_HEARTBEAT_TOKEN, state.heartbeatToken);
+    assert.equal(env.PULLOPS_HEARTBEAT_INTERVAL_MS, String(state.heartbeatIntervalMs));
+    assert.equal(state.status, 'accepted');
+    assert.equal(state.phase, 'run');
+    assert.equal(state.lastEvent.status, 'accepted');
+    assert.deepEqual(state.childRuns, []);
     assert.match(await readFile(join(runRecord, 'prompt.md'), 'utf8'), /Issue #42/);
     assert.match(
       await readFile(join(runRecord, 'raw-runner-output.txt'), 'utf8'),

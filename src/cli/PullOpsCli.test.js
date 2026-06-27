@@ -10,6 +10,7 @@ import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
+import { initializeLocalRunState } from '../local-run-state/localRunState.js';
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
@@ -418,6 +419,86 @@ test('run issue:implement accepts explicit dry-run publication and finalized run
     runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
+});
+
+test('heartbeat accepts the worker environment and advances lease timing', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-cli-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    heartbeatIntervalMs: 120000,
+    leaseDurationMs: 240000,
+  });
+  const before = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient(),
+    env: {
+      PULLOPS_RUN_STATE_PATH: stateRecord.statePath,
+      PULLOPS_HEARTBEAT_TOKEN: stateRecord.state.heartbeatToken,
+    },
+  });
+
+  const exitCode = await cli.run(['heartbeat']);
+
+  assert.equal(exitCode, 0);
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'accepted');
+  assert.equal(output.localRunRecord, runRecordDirectory);
+  assert.equal(output.runStatePath, stateRecord.statePath);
+  assert.equal(output.runState.status, 'running');
+  assert.equal(output.runState.heartbeatToken, stateRecord.state.heartbeatToken);
+
+  const after = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(after.heartbeatToken, before.heartbeatToken);
+  assert.notEqual(after.heartbeatAt, before.heartbeatAt);
+  assert.notEqual(after.leaseExpiresAt, before.leaseExpiresAt);
+  assert.equal(after.heartbeatIntervalMs, before.heartbeatIntervalMs);
+  assert.equal(after.leaseDurationMs, before.leaseDurationMs);
+});
+
+test('heartbeat refuses a mismatched token without mutating the state file', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-cli-refused-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const before = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stdout,
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient(),
+    env: {
+      PULLOPS_RUN_STATE_PATH: stateRecord.statePath,
+      PULLOPS_HEARTBEAT_TOKEN: 'wrong-token',
+    },
+  });
+
+  const exitCode = await cli.run(['heartbeat']);
+
+  assert.equal(exitCode, 1);
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'refused');
+  assert.equal(output.localRunRecord, runRecordDirectory);
+  assert.match(output.summary, /Heartbeat token mismatch/);
+
+  const after = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.deepEqual(after, before);
 });
 
 test('run prd:auto-advance defaults local dry-run to finalized', async () => {
@@ -1320,6 +1401,8 @@ test('run prd:auto-complete emits refused jsonl event streams for local guardrai
   assert.equal(eventsJsonl, stdout.text);
   const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  const stateJson = JSON.parse(await readFile(join(runRecord, 'state.json'), 'utf8'));
+  assert.equal(stateJson.status, 'refused');
 });
 
 test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refused', async () => {
@@ -1378,6 +1461,8 @@ test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refuse
   assert.equal(eventsJsonl, stdout.text);
   const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  const stateJson = JSON.parse(await readFile(join(runRecord, 'state.json'), 'utf8'));
+  assert.equal(stateJson.status, 'refused');
   assert.match(await readFile(join(runRecord, 'failure-reason.txt'), 'utf8'), /clean worktree/);
   assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /clean worktree/);
 });
@@ -1487,6 +1572,8 @@ test('run prd:auto-complete emits failed jsonl event streams for unexpected runt
   assert.equal(eventsJsonl, stdout.text);
   const resultJson = await readFile(join(runRecord, 'result.json'), 'utf8');
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
+  const stateJson = JSON.parse(await readFile(join(runRecord, 'state.json'), 'utf8'));
+  assert.equal(stateJson.status, 'failed');
   assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /git exploded/);
 });
 

@@ -21,6 +21,7 @@ export type RunnerExecFile = (
 export interface RunnerSpawnOptions {
   cwd: string;
   stdio: ['inherit', 'pipe', 'pipe'];
+  env?: NodeJS.ProcessEnv;
 }
 
 export type RunnerSpawn = (
@@ -39,6 +40,7 @@ export interface CodexRunOptions {
   model: string;
   prompt: string;
   streamOutput?: boolean;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface CodexRunner {
