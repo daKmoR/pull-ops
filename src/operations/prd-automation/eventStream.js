@@ -1,6 +1,11 @@
 import { appendFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
+import {
+  LOCAL_RUN_STATE_FILE_NAME,
+  updateLocalRunState,
+} from '../../local-run-state/localRunState.js';
+
 /**
  * @typedef {import('../../cli/types.js').WritableLike} WritableLike
  * @typedef {import('../../cli/types.js').OperationContextUsage} OperationContextUsage
@@ -31,6 +36,18 @@ const RESERVED_EVENT_DETAIL_KEYS = new Set([
   'target',
   'at',
 ]);
+const RUN_STATE_SEMANTIC_EVENT_NAMES = new Set(
+  /** @type {OperationProgressEventName[]} */ ([
+    'run.started',
+    'phase.started',
+    'phase.completed',
+    'child.started',
+    'child.progress',
+    'child.completed',
+    'child.blocked',
+    'waiting',
+  ]),
+);
 
 /**
  * @param {{
@@ -52,6 +69,8 @@ export function createOperationProgressEventWriter({
   let eventsText = '';
   /** @type {string | undefined} */
   let localRunRecord;
+  /** @type {Record<string, unknown> | undefined} */
+  let lastSemanticEvent;
   /** @type {Record<string, unknown> | undefined} */
   let terminalSummary;
 
@@ -79,6 +98,7 @@ export function createOperationProgressEventWriter({
 
       localRunRecord = nextLocalRunRecord;
       await writeFile(join(localRunRecord, 'events.jsonl'), eventsText);
+      await writeLastSemanticEventToLocalRunState(localRunRecord, lastSemanticEvent);
 
       if (terminalSummary !== undefined) {
         await writeFile(
@@ -108,6 +128,11 @@ export function createOperationProgressEventWriter({
         await appendFile(join(localRunRecord, 'events.jsonl'), line);
       }
 
+      if (RUN_STATE_SEMANTIC_EVENT_NAMES.has(event)) {
+        lastSemanticEvent = stampedEvent;
+        await writeLastSemanticEventToLocalRunState(localRunRecord, stampedEvent);
+      }
+
       if (event === 'run.summary') {
         terminalSummary = stampedEvent;
 
@@ -122,6 +147,72 @@ export function createOperationProgressEventWriter({
       return stampedEvent;
     },
   };
+}
+
+/**
+ * @param {string | undefined} localRunRecord
+ * @param {Record<string, unknown> | undefined} event
+ * @returns {Promise<void>}
+ */
+async function writeLastSemanticEventToLocalRunState(localRunRecord, event) {
+  if (localRunRecord === undefined || event === undefined) {
+    return;
+  }
+
+  const statePath = join(localRunRecord, LOCAL_RUN_STATE_FILE_NAME);
+  try {
+    await updateLocalRunState(statePath, currentState => ({
+      ...currentState,
+      lastEvent: createRunStateSemanticEvent(currentState, event),
+    }));
+  } catch (error) {
+    if (isFileNotFoundError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * @param {import('../../local-run-state/types.js').LocalRunState} currentState
+ * @param {Record<string, unknown>} event
+ * @returns {Record<string, unknown>}
+ */
+function createRunStateSemanticEvent(currentState, event) {
+  const {
+    schemaVersion: _schemaVersion,
+    runId: _runId,
+    operation: _operation,
+    operationLabelReference: _operationLabelReference,
+    target: _target,
+    event: name,
+    at,
+    ...details
+  } = event;
+  void _schemaVersion;
+  void _runId;
+  void _operation;
+  void _operationLabelReference;
+  void _target;
+
+  return {
+    schemaVersion: 1,
+    event: name,
+    operationReference: currentState.operationReference,
+    normalizedOperationReference: currentState.normalizedOperationReference,
+    target: currentState.target,
+    ...details,
+    at,
+  };
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isFileNotFoundError(error) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
 /**

@@ -1,5 +1,5 @@
 import { mkdir, readFile } from 'node:fs/promises';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
@@ -12,6 +12,10 @@ import { publishChildIssues } from '../issue-store/publishChildIssues.js';
 import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
+import {
+  LocalRunHeartbeatError,
+  recordLocalRunHeartbeat,
+} from '../local-run-state/localRunState.js';
 import {
   getOperationLabelReference,
   getWorkflowOperation,
@@ -154,7 +158,60 @@ export class PullOpsCli {
       return await this.runIssues(args);
     }
 
+    if (command === 'heartbeat') {
+      return await this.runHeartbeat(args);
+    }
+
     throw new CliUsageError(`Unknown command "${command}".\n\n${usage()}`);
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runHeartbeat(args) {
+    /** @type {{ statePath?: string, token?: string } | undefined} */
+    let parsedArgs;
+    /** @type {string | undefined} */
+    let statePath;
+
+    try {
+      parsedArgs = parseHeartbeatArgs(args, this.env);
+      if (parsedArgs.statePath === undefined) {
+        throw new CliUsageError(
+          'Missing run state path. Expected "--state <path>" or PULLOPS_RUN_STATE_PATH.',
+        );
+      }
+
+      statePath = resolve(this.cwd, parsedArgs.statePath);
+      const localRunRecord = dirname(statePath);
+      if (parsedArgs.token === undefined) {
+        throw new LocalRunHeartbeatError(`Missing heartbeat token for ${statePath}.`);
+      }
+
+      const runState = await recordLocalRunHeartbeat({
+        statePath,
+        token: parsedArgs.token,
+      });
+      this.writeValidatedJson({
+        status: 'accepted',
+        summary: `Recorded heartbeat for ${localRunRecord}.`,
+        localRunRecord,
+        runStatePath: statePath,
+        runState,
+      });
+      return 0;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      const localRunRecord = statePath === undefined ? undefined : dirname(statePath);
+      this.writeValidatedJson({
+        status: error instanceof LocalRunHeartbeatError ? 'refused' : 'failed',
+        summary: message,
+        ...(localRunRecord === undefined ? {} : { localRunRecord }),
+        ...(statePath === undefined ? {} : { runStatePath: statePath }),
+      });
+      return 1;
+    }
   }
 
   /**
@@ -863,6 +920,34 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
     runnerAdapter,
     ...(runnerRan === undefined ? {} : { runnerRan }),
     ...(reviewId === undefined ? {} : { reviewId }),
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{ statePath?: string, token?: string }}
+ */
+function parseHeartbeatArgs(args, env) {
+  const consumed = new Set();
+  const statePath =
+    parseOptionalStringOption(args, '--state', consumed) ??
+    readOptionalEnv(env.PULLOPS_RUN_STATE_PATH);
+  const token =
+    parseOptionalStringOption(args, '--token', consumed) ??
+    readOptionalEnv(env.PULLOPS_HEARTBEAT_TOKEN);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for heartbeat: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    ...(statePath === undefined ? {} : { statePath }),
+    ...(token === undefined ? {} : { token }),
   };
 }
 
@@ -1629,6 +1714,7 @@ function usage() {
     '  pullops issues publish-prd [--file <path>]',
     '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
+    '  pullops heartbeat [--state <path>] [--token <token>]',
     '  pullops labels ensure',
   ].join('\n');
 }

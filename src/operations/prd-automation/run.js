@@ -192,7 +192,7 @@ function createPullRequestOperationContext(
     },
     modelTier,
     model: context.config.runner.models[modelTier],
-    localRunRecordDirectory: undefined,
+    localRunRecordDirectory: context.localRunRecordDirectory,
     progress: suppressNestedOutput ? undefined : context.progress,
     progressEventWriter: undefined,
     suppressRunnerOutput: suppressNestedOutput,

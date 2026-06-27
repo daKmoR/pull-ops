@@ -31,6 +31,14 @@ import {
   runPrdPrepare,
 } from '../operations/prd-prepare/run.js';
 import {
+  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
+  LOCAL_RUN_HEARTBEAT_COMMAND,
+  initializeLocalRunState,
+  mapLocalRunResultStatusToTerminalStatus,
+  recordLocalRunTerminalStatus,
+} from '../local-run-state/localRunState.js';
+import {
   createLocalPrdRunRecordLocation,
   normalizeOperationReferenceForPath,
 } from './localRunRecord.js';
@@ -43,12 +51,14 @@ import {
  * @typedef {import('./childCoordination.types.js').ChildAutomationResult} ChildAutomationResult
  * @typedef {import('./childCoordination.types.js').ChildDependencyDecision} ChildDependencyDecision
  * @typedef {import('./childCoordination.types.js').ChildIssueCloseResult} ChildIssueCloseResult
+ * @typedef {import('./childCoordination.types.js').ChildIssueRunner} ChildIssueRunner
  * @typedef {import('./childCoordination.types.js').ChildIssuePrFacts} ChildIssuePrFacts
  * @typedef {import('./childCoordination.types.js').IssueWorkTarget} IssueWorkTarget
  * @typedef {import('./childCoordination.types.js').ParentIssueFacts} ParentIssueFacts
  * @typedef {import('./childCoordination.types.js').ParentReviewResult} ParentReviewResult
  * @typedef {import('./childCoordination.types.js').PrdAutomationMode} PrdAutomationMode
  * @typedef {import('./childCoordination.types.js').PrdAutomationResult} PrdAutomationResult
+ * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
  * @typedef {{ pullRequestNumber: number, operation: PullRequestOperationName }} PullRequestOperationRequest
  */
@@ -77,7 +87,7 @@ export async function coordinatePrdAutomation(context, { parentIssueNumber, mode
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -99,7 +109,7 @@ export async function coordinateLocalPrdAutoAdvance(
  * @param {OperationRunnerContext} context
  * @param {object} options
  * @param {number} options.parentIssueNumber
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -122,7 +132,7 @@ export async function coordinateLocalPrdAutoComplete(
  * @param {object} options
  * @param {number} options.parentIssueNumber
  * @param {PrdAutomationMode} options.mode
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runParentPullRequestOperation]
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<PrdAutomationResult>}
@@ -311,6 +321,13 @@ async function coordinateLocalPrdAutomation(
     });
   } catch (error) {
     await writeLocalPrdRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    const terminalStatus = readKnownLocalPrdRunBoundaryTerminalStatus(error) ?? 'failed';
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: terminalStatus,
+      summary: getErrorMessage(error),
+      phase: 'run',
+    });
     throw attachLocalRunRecordToError(error, runRecord.directory);
   }
 }
@@ -801,7 +818,7 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
  *   virtualCompletedChildren: number[],
@@ -963,7 +980,7 @@ function createLocalDryRunParentReviewFacts({ parentIssue, childIssues, children
  * @param {GitHubIssue} options.parentIssue
  * @param {string} options.parentBranchName
  * @param {GitHubIssue[]} options.childIssues
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @returns {Promise<{
  *   children: ChildAutomationResult[],
@@ -1161,7 +1178,7 @@ async function readAlreadyIntegratedLocalDryRunChild(
  * @param {GitHubIssue} options.childIssue
  * @param {PrdAutomationMode} options.mode
  * @param {'dry-run' | 'publish'} options.publicationMode
- * @param {(childIssueNumber: number, options?: { virtualCompletedIssueNumbers?: number[] }) => Promise<Record<string, unknown>>} options.runChildIssue
+ * @param {ChildIssueRunner} options.runChildIssue
  * @param {(request: PullRequestOperationRequest) => Promise<Record<string, unknown>>} [options.runChildPullRequestOperation]
  * @param {{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }} [options.dependencyFacts]
  * @returns {Promise<{ child: ChildAutomationResult, stop: boolean, restorePrdBase: boolean }>}
@@ -1289,9 +1306,17 @@ async function coordinateLocalChildIssue(
     });
   }
 
-  const output = await runChildIssue(childIssue.number, {
-    virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
-  });
+  const progressReporter = createLocalPrdAutoCompleteChildProgressReporter(context, childIssue);
+  /** @type {Record<string, unknown>} */
+  let output;
+  try {
+    output = await runChildIssue(childIssue.number, {
+      virtualCompletedIssueNumbers: resolvedDependencyFacts.decision.satisfiedByVirtualCompletions,
+      ...(progressReporter === undefined ? {} : { progress: progressReporter.progress }),
+    });
+  } finally {
+    await progressReporter?.flush();
+  }
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
   const child = childResult({
@@ -2962,13 +2987,14 @@ function readLocalPrdOperationReference(mode) {
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  * }} options
- * @returns {Promise<{ directory: string }>}
+ * @returns {Promise<LocalRunRecord>}
  */
 async function createLocalPrdRunRecord(
   context,
   { operationReference, targetNumber, publicationMode },
 ) {
   const normalizedReference = normalizeOperationReferenceForPath(operationReference);
+  const createdAt = new Date();
   const directory =
     context.localRunRecordDirectory ??
     createLocalPrdRunRecordLocation({
@@ -2991,7 +3017,10 @@ async function createLocalPrdRunRecord(
         },
         publicationMode,
         runGoal: context.runGoal ?? 'operation',
-        createdAt: new Date().toISOString(),
+        createdAt: createdAt.toISOString(),
+        heartbeatCommand: LOCAL_RUN_HEARTBEAT_COMMAND,
+        heartbeatIntervalMs: DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+        leaseDurationMs: DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
       },
       null,
       2,
@@ -2999,7 +3028,23 @@ async function createLocalPrdRunRecord(
   );
   await context.progressEventWriter?.bindLocalRunRecord(directory);
 
-  return { directory };
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: directory,
+    operationReference,
+    target: {
+      type: context.target.type,
+      number: targetNumber,
+    },
+    publicationMode,
+    runGoal: context.runGoal ?? 'operation',
+    createdAt,
+  });
+
+  return {
+    directory,
+    statePath: stateRecord.statePath,
+    heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+  };
 }
 
 /**
@@ -3061,7 +3106,7 @@ async function requireCleanLocalPrdWorktree(
 }
 
 /**
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {PrdAutomationResult} result
  * @returns {Promise<PrdAutomationResult>}
  */
@@ -3070,12 +3115,22 @@ async function completeLocalPrdRunRecord(runRecord, result) {
     ...result,
     localRunRecord: runRecord.directory,
   };
+  const terminalStatus = mapLocalRunResultStatusToTerminalStatus(
+    /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (result.status),
+  );
+  const terminalSummary = result.summary;
 
   await writeLocalPrdRunArtifact(
     runRecord,
     'result.json',
     `${JSON.stringify(withRunRecord, null, 2)}\n`,
   );
+  await recordLocalRunTerminalStatus({
+    statePath: runRecord.statePath,
+    status: terminalStatus,
+    summary: terminalSummary,
+    phase: 'run',
+  });
   return withRunRecord;
 }
 
@@ -3147,6 +3202,69 @@ async function emitLocalPrdAutoCompleteChildProgress(context, child) {
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @returns {{ progress(message: string): void, flush(): Promise<void> } | undefined}
+ */
+function createLocalPrdAutoCompleteChildProgressReporter(context, childIssue) {
+  if (context.progressEventWriter === undefined) {
+    return undefined;
+  }
+
+  /** @type {Promise<void>} */
+  let pending = Promise.resolve();
+
+  return {
+    progress(message) {
+      pending = pending.then(async () => {
+        await emitLocalPrdAutoCompleteChildProgressMessage(context, childIssue, message);
+      });
+    },
+    async flush() {
+      await pending;
+    },
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {GitHubIssue} childIssue
+ * @param {string} progressMessage
+ * @returns {Promise<void>}
+ */
+async function emitLocalPrdAutoCompleteChildProgressMessage(context, childIssue, progressMessage) {
+  if (context.progressEventWriter === undefined) {
+    return;
+  }
+
+  await context.progressEventWriter.emit('child.progress', {
+    phase: 'child-coordination',
+    childIssue: {
+      number: childIssue.number,
+      url: childIssue.url,
+    },
+    message: progressMessage,
+    progressMessage,
+    ...readLocalRunRecordProgress(progressMessage),
+  });
+}
+
+/**
+ * @param {string} progressMessage
+ * @returns {{ localRunRecord: string } | {}}
+ */
+function readLocalRunRecordProgress(progressMessage) {
+  const prefix = 'Local Run Record: ';
+  if (!progressMessage.startsWith(prefix)) {
+    return {};
+  }
+
+  return {
+    localRunRecord: progressMessage.slice(prefix.length),
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @param {ChildAutomationResult[]} children
  * @param {number} parentIssueNumber
  * @returns {Promise<void>}
@@ -3199,6 +3317,31 @@ async function writeLocalPrdRunArtifact(runRecord, fileName, contents) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {import('../local-run-state/types.js').LocalRunTerminalStatus | undefined}
+ */
+function readKnownLocalPrdRunBoundaryTerminalStatus(error) {
+  if (typeof error !== 'object' || error === null) {
+    return undefined;
+  }
+
+  const boundary = /** @type {{ localPrdRunBoundary?: unknown }} */ (error).localPrdRunBoundary;
+  if (typeof boundary !== 'object' || boundary === null) {
+    return undefined;
+  }
+
+  const status = /** @type {{ status?: unknown }} */ (boundary).status;
+  switch (status) {
+    case 'blocked':
+    case 'refused':
+    case 'failed':
+      return mapLocalRunResultStatusToTerminalStatus(status);
+    default:
+      return undefined;
+  }
 }
 
 /**

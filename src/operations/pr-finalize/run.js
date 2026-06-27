@@ -28,6 +28,7 @@ import { validatePrFinalizeOutput } from './output.js';
 import { updatePullRequestBodyForPrFinalize } from './prBody.js';
 import { buildPrFinalizePrompt } from './prompt.js';
 import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
+import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -57,6 +58,10 @@ export async function runPrFinalize(context) {
   }
 
   if (preparation.mode === 'planner') {
+    const localRunStateRecord =
+      context.localRunRecordDirectory === undefined
+        ? undefined
+        : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
     let rawOutput;
 
     try {
@@ -66,6 +71,7 @@ export async function runPrFinalize(context) {
         model: context.model,
         prompt: preparation.prompt,
         streamOutput: context.suppressRunnerOutput !== true,
+        env: localRunStateRecord?.heartbeatEnvironment,
       });
     } catch (error) {
       await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));

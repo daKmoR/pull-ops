@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { initializeLocalRunState } from '../../local-run-state/localRunState.js';
 import { createOperationProgressEventWriter } from './eventStream.js';
 
 describe('Operation progress event streams', () => {
@@ -52,6 +56,57 @@ describe('Operation progress event streams', () => {
       /Unsupported PullOps progress event "child.custom-completed"/,
     );
     assert.equal(stdout.text, '');
+  });
+
+  it('03: mirrors semantic child progress into the bound Local Run State last event', async () => {
+    const stdout = createWritableBuffer();
+    const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-progress-events-'));
+    const stateRecord = await initializeLocalRunState({
+      runRecordDirectory,
+      operationReference: 'prd:auto-complete',
+      target: {
+        type: 'issue',
+        number: 123,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+    const writer = createOperationProgressEventWriter({
+      stdout,
+      operation: 'prd-auto-complete',
+      operationLabelReference: 'prd:auto-complete',
+      runId: stateRecord.state.runId,
+      target: {
+        type: 'issue',
+        number: 123,
+      },
+    });
+
+    await writer.bindLocalRunRecord(runRecordDirectory);
+    await writer.emit('child.progress', {
+      phase: 'child-coordination',
+      childIssue: {
+        number: 34,
+        url: 'https://github.test/issues/34',
+      },
+      message: 'Checking local worktree.',
+      progressMessage: 'Checking local worktree.',
+    });
+
+    const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+    assert.equal(state.status, 'running');
+    assert.equal(state.heartbeatAt, '2024-01-01T00:00:00.000Z');
+    assert.equal(state.lastEvent.event, 'child.progress');
+    assert.equal(state.lastEvent.operationReference, 'prd:auto-complete');
+    assert.equal(state.lastEvent.normalizedOperationReference, 'prd-auto-complete');
+    assert.deepEqual(state.lastEvent.target, { type: 'issue', number: 123 });
+    assert.equal(state.lastEvent.phase, 'child-coordination');
+    assert.deepEqual(state.lastEvent.childIssue, {
+      number: 34,
+      url: 'https://github.test/issues/34',
+    });
+    assert.equal(state.lastEvent.progressMessage, 'Checking local worktree.');
+    assert.equal(state.lastEvent.message, 'Checking local worktree.');
   });
 });
 
