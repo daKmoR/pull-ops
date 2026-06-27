@@ -230,6 +230,27 @@ describe('PullOps skill contracts', () => {
     assert.match(issueTrackerText, /pullops issues publish-children --file <path>/);
     assert.match(issueTrackerText, /pullops issues publish-issue --file <path>/);
   });
+
+  it('keeps PullOps Go supervision guidance aligned with run state liveness', async () => {
+    const skillText = await readRepoFile('.agents/skills/pullops-go/SKILL.md');
+    const eventSupervisionText = await readRepoFile(
+      '.agents/skills/pullops-go/references/event-supervision.md',
+    );
+    const contractText = `${skillText}\n${eventSupervisionText}`;
+
+    assert.match(contractText, /JSONL PullOps Progress Events plus PullOps Run State/);
+    assert.match(contractText, /Progress Events[\s\S]*semantic/);
+    assert.match(contractText, /5-10 minutes/);
+    assert.match(contractText, /PullOps Lease/);
+    assert.match(contractText, /advanced heartbeat/);
+    assert.match(contractText, /changed\s+child run set/);
+    assert.match(contractText, /PullOps Stall Classification/);
+    assert.match(contractText, /Avoid artifact, process, git, CI, or GitHub probing/i);
+    assert.match(contractText, /Do not use logs, git diff, CI, or GitHub state/);
+    assert.match(contractText, /Do not kill unrelated processes/);
+    assert.match(contractText, /reset or discard local changes/);
+    assert.match(contractText, /start\s+parallel same-branch work/);
+  });
 });
 
 /**
