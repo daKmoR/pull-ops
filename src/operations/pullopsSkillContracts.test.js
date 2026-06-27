@@ -207,6 +207,29 @@ describe('PullOps skill contracts', () => {
     assert.ok(hasPrdFooter(skillCompleted.commitPlan.commits[0].footers));
     assert.ok(hasPrdFooter(promptCompleted.commitPlan.commits[0].footers));
   });
+
+  it('keeps the repo-local issue tracker summary aligned with PullOps issue publication', async () => {
+    const agentsText = await readRepoFile('AGENTS.md');
+
+    assert.match(agentsText, /published through PullOps issue commands/i);
+    assert.match(agentsText, /tracked in GitHub Issues/i);
+    assert.match(agentsText, /docs\/agents\/issue-tracker\.md/);
+  });
+
+  it('keeps the repo-local issue tracker instructions routed through PullOps publish commands', async () => {
+    const issueTrackerText = await readRepoFile('docs/agents/issue-tracker.md');
+
+    assert.doesNotMatch(issueTrackerText, /gh issue create/);
+    assert.match(issueTrackerText, /to-prd/);
+    assert.match(issueTrackerText, /to-issues/);
+    assert.match(issueTrackerText, /structured JSON/i);
+    assert.match(issueTrackerText, /auditability/i);
+    assert.match(issueTrackerText, /context recovery/i);
+    assert.match(issueTrackerText, /stdin is supported/i);
+    assert.match(issueTrackerText, /pullops issues publish-prd --file <path>/);
+    assert.match(issueTrackerText, /pullops issues publish-children --file <path>/);
+    assert.match(issueTrackerText, /pullops issues publish-issue --file <path>/);
+  });
 });
 
 /**
@@ -224,6 +247,17 @@ async function readSkillExamples(skillName) {
 
   assert.equal(examples.length, 2);
   return /** @type {[any, any]} */ (examples);
+}
+
+/**
+ * @param {string} relativePath
+ * @returns {Promise<string>}
+ */
+async function readRepoFile(relativePath) {
+  return await readFile(
+    new URL(`../../${relativePath}`, import.meta.url),
+    'utf8',
+  );
 }
 
 /**
