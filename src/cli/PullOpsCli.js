@@ -8,6 +8,7 @@ import {
   writeIssueStoreRunArtifact,
 } from '../issue-store/localRunRecord.js';
 import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
+import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import {
   getOperationLabelReference,
@@ -36,6 +37,7 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
  * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
+ * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
  */
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
@@ -160,7 +162,13 @@ export class PullOpsCli {
     const [subcommand, ...rest] = args;
 
     if (subcommand === undefined) {
-      throw new CliUsageError('Missing issues subcommand. Expected one of: publish-issue.');
+      throw new CliUsageError(
+        'Missing issues subcommand. Expected one of: publish-prd, publish-issue.',
+      );
+    }
+
+    if (subcommand === 'publish-prd') {
+      return await this.runPublishPrd(rest);
     }
 
     if (subcommand === 'publish-issue') {
@@ -168,8 +176,45 @@ export class PullOpsCli {
     }
 
     throw new CliUsageError(
-      `Unknown issues subcommand "${subcommand}". Expected one of: publish-issue.`,
+      `Unknown issues subcommand "${subcommand}". Expected one of: publish-prd, publish-issue.`,
     );
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runPublishPrd(args) {
+    const createdAt = new Date();
+    let rawRequest = '';
+
+    try {
+      const parsedArgs = parsePublishPrdArgs(args);
+      rawRequest = await readPublishPrdInput({
+        filePath: parsedArgs.filePath,
+        stdin: this.stdin,
+      });
+      const config = await loadPullOpsConfig({ cwd: this.cwd });
+      const output = await publishPrdIssue({
+        cwd: this.cwd,
+        config,
+        githubClient: this.githubClient,
+        rawRequest,
+        createdAt,
+      });
+
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return output.status === 'accepted' ? 0 : 1;
+    } catch (error) {
+      const output = await writePublishPrdFailure({
+        cwd: this.cwd,
+        createdAt,
+        rawRequest,
+        failureReason: getErrorMessage(error),
+      });
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return 1;
+    }
   }
 
   /**
@@ -1100,6 +1145,26 @@ function parsePublishIssueArgs(args) {
 }
 
 /**
+ * @param {string[]} args
+ * @returns {{ filePath?: string }}
+ */
+function parsePublishPrdArgs(args) {
+  const consumed = new Set();
+  const filePath = parseOptionalStringOption(args, '--file', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for issues publish-prd: ${remaining.join(' ')}.`);
+  }
+
+  return filePath === undefined ? {} : { filePath };
+}
+
+/**
  * @param {{
  *   filePath?: string,
  *   stdin: NodeJS.ReadableStream,
@@ -1107,6 +1172,26 @@ function parsePublishIssueArgs(args) {
  * @returns {Promise<string>}
  */
 async function readPublishIssueInput({ filePath, stdin }) {
+  if (filePath !== undefined) {
+    return await readFile(filePath, 'utf8');
+  }
+
+  let rawRequest = '';
+  for await (const chunk of stdin) {
+    rawRequest += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  }
+
+  return rawRequest;
+}
+
+/**
+ * @param {{
+ *   filePath?: string,
+ *   stdin: NodeJS.ReadableStream,
+ * }} options
+ * @returns {Promise<string>}
+ */
+async function readPublishPrdInput({ filePath, stdin }) {
   if (filePath !== undefined) {
     return await readFile(filePath, 'utf8');
   }
@@ -1398,6 +1483,7 @@ function usage() {
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --issue <number>',
     '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
+    '  pullops issues publish-prd [--file <path>]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops labels ensure',
   ].join('\n');
@@ -1529,6 +1615,41 @@ async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureRea
   const output = {
     status: 'failed',
     summary: 'Publish issue request failed.',
+    failureReason,
+    warnings: [],
+    localRunRecord: runRecord.directory,
+  };
+  await writeIssueStoreRunArtifact(
+    runRecord,
+    'response.json',
+    `${JSON.stringify(output, null, 2)}\n`,
+  );
+  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  return output;
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.cwd
+ * @param {Date} options.createdAt
+ * @param {string} options.rawRequest
+ * @param {string} options.failureReason
+ * @returns {Promise<PrdIssuePublishFailureOutput>}
+ */
+async function writePublishPrdFailure({ cwd, createdAt, rawRequest, failureReason }) {
+  const runRecord = createIssueStoreRunRecordLocation({
+    cwd,
+    operationReference: 'issues:publish-prd',
+    targetReference: 'invalid',
+    createdAt,
+  });
+
+  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+
+  /** @type {PrdIssuePublishFailureOutput} */
+  const output = {
+    status: 'failed',
+    summary: 'Publish PRD request failed.',
     failureReason,
     warnings: [],
     localRunRecord: runRecord.directory,
