@@ -2,11 +2,16 @@ import type { WorkflowOperationConfigKey } from '../operations/types.js';
 import type { RunnerAdapter } from '../runner/types.js';
 
 export type ModelTier = 'high' | 'mid' | 'low';
+export type IssueStoreProvider = 'github';
 
 export interface RunnerConfig {
   adapter: RunnerAdapter;
   command: string;
   models: Record<ModelTier, string>;
+}
+
+export interface IssueStoreConfig {
+  provider?: IssueStoreProvider;
 }
 
 export interface OperationConfig {
@@ -39,8 +44,13 @@ export type OperationsConfig = {
 export interface PullOpsConfig {
   baseBranch: string;
   branchPrefix: string;
+  issueStore: IssueStoreConfig;
   runner: RunnerConfig;
   operations: OperationsConfig;
+}
+
+export interface UserIssueStoreConfig {
+  provider?: unknown;
 }
 
 export interface UserRunnerConfig {
@@ -79,6 +89,7 @@ export type UserOperationsConfig = Partial<{
 export interface UserPullOpsConfig {
   baseBranch?: unknown;
   branchPrefix?: unknown;
+  issueStore?: UserIssueStoreConfig | unknown;
   runner?: UserRunnerConfig | unknown;
   operations?: UserOperationsConfig | unknown;
 }
