@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -329,6 +329,40 @@ describe('PRD Child Coordination', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.parentPullRequest?.status, 'finalized');
     assert.deepEqual(operations, ['pr-finalize', 'pr-review', 'pr-finalize']);
+  });
+
+  it('03c: local auto-complete preserves refused run state for dirty worktree guardrails', async () => {
+    const git = createFakeGit();
+    git.client.hasChanges = async () => true;
+    const localRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-prd-dirty-worktree-'));
+
+    await assert.rejects(
+      async () =>
+        await coordinateLocalPrdAutoComplete(
+          createContext({
+            operation: 'prd-auto-complete',
+            publicationMode: 'publish',
+            localRunRecordDirectory,
+            gitClient: git.client,
+          }),
+          {
+            parentIssueNumber: 12,
+            async runChildIssue() {
+              throw new Error('runChildIssue was not expected in this test.');
+            },
+          },
+        ),
+      error => {
+        const runError = /** @type {{ localRunRecord?: unknown }} */ (error);
+        assert.equal(runError.localRunRecord, localRunRecordDirectory);
+        return true;
+      },
+    );
+
+    const state = JSON.parse(await readFile(join(localRunRecordDirectory, 'state.json'), 'utf8'));
+    assert.equal(state.status, 'refused');
+    assert.equal(state.lastEvent.status, 'refused');
+    assert.match(String(state.lastEvent.summary), /requires a clean worktree/);
   });
 
   it('04: close-child requests Umbrella PR review even without an active automation mode', async () => {

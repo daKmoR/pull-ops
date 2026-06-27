@@ -46,10 +46,22 @@ describe('runLocalPullRequestOperation', () => {
     assert.equal(result.publicationMode, 'dry-run');
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Use the pullops-pr-review skill/);
+    const localRunRecord = String(result.localRunRecord);
+    const state = JSON.parse(await readFile(join(localRunRecord, 'state.json'), 'utf8'));
+    const call = codex.calls[0];
+    assert(call);
+    const env = call.env;
+    assert(env);
+    assert.equal(env.PULLOPS_RUN_STATE_PATH, join(localRunRecord, 'state.json'));
+    assert.equal(env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
+    assert.equal(env.PULLOPS_HEARTBEAT_TOKEN, state.heartbeatToken);
+    assert.equal(env.PULLOPS_HEARTBEAT_INTERVAL_MS, String(state.heartbeatIntervalMs));
+    assert.equal(state.status, 'accepted');
+    assert.equal(state.phase, 'run');
+    assert.equal(state.lastEvent.status, 'accepted');
     assert.equal(git.commits.length, 0);
     assert.equal(github.mutations, 0);
 
-    const localRunRecord = String(result.localRunRecord);
     assert.match(localRunRecord, /\.pullops\/runs\/.+pr-review-7$/);
     assert.match(await readFile(join(localRunRecord, 'pr-review-prompt.md'), 'utf8'), /PR #7/);
     assert.match(
@@ -77,8 +89,55 @@ describe('runLocalPullRequestOperation', () => {
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /not implemented yet for pr:update-branch/);
+    const state = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
+    );
+    assert.equal(state.status, 'blocked');
     assert.equal(codex.calls.length, 0);
     assert.equal(github.mutations, 0);
+  });
+
+  it('03: records accepted run-state status for planned local pr-finalize output', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-finalize-'));
+    const github = createFakeGitHub();
+    const git = createFakeGit({ hasChangesResults: [false, false] });
+    const codex = createFakeCodexRunner({
+      output: JSON.stringify({
+        status: 'planned',
+        summary: 'Planned local finalize run.',
+        commitPlan: {
+          commits: [
+            {
+              header: 'feat(issue): implement #42',
+              body: ['Finalize local PR history.'],
+              footers: ['Refs: #42'],
+              files: ['src/file.js'],
+            },
+          ],
+        },
+        followUps: [],
+      }),
+    });
+
+    const result = await runLocalPullRequestOperation(
+      createContext({
+        cwd,
+        operation: 'pr-finalize',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'planned');
+    const localRunRecord = String(result.localRunRecord);
+    const state = JSON.parse(await readFile(join(localRunRecord, 'state.json'), 'utf8'));
+    assert.equal(state.status, 'accepted');
+    assert.equal(state.lastEvent.status, 'accepted');
+    assert.match(
+      await readFile(join(localRunRecord, 'result.json'), 'utf8'),
+      /"status": "planned"/,
+    );
   });
 });
 

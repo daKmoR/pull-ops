@@ -2105,8 +2105,9 @@ describe('runPrdAutoComplete', () => {
       34,
     );
     assert.equal(progressWriter.events[3]?.status, 'dry-run-completed');
-    const childRunRecord =
-      /** @type {{ localRunRecord?: string }} */ (progressWriter.events[5] ?? {}).localRunRecord;
+    const childRunRecord = /** @type {{ localRunRecord?: string }} */ (
+      progressWriter.events[5] ?? {}
+    ).localRunRecord;
     assert.match(String(childRunRecord), /\.pullops\/runs\/.+issue-implement-35$/);
     assert.deepEqual(
       progressWriter.events.slice(5, 9).map(event => event.progressMessage),

@@ -24,6 +24,7 @@ import { collectPrAddressReviewFeedback } from './feedback.js';
 import { validateAddressReviewFeedbackCoverage } from './feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from './output.js';
 import { buildAddressPrReviewompt } from './prompt.js';
+import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -57,6 +58,10 @@ export async function runPrAddressReview(context) {
   }
 
   const executionContext = withSelectedModel(context, preparation);
+  const localRunStateRecord =
+    context.localRunRecordDirectory === undefined
+      ? undefined
+      : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
 
   let rawOutput;
 
@@ -73,6 +78,7 @@ export async function runPrAddressReview(context) {
         feedbackItems: preparation.feedbackItems,
       }),
       streamOutput: context.suppressRunnerOutput !== true,
+      env: localRunStateRecord?.heartbeatEnvironment,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

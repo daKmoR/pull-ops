@@ -18,6 +18,7 @@ import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
 import { determinePrReviewMode, resolveReviewModelSelection } from '../reviewSelection.js';
+import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -48,6 +49,10 @@ export async function runPrReview(context) {
   }
 
   const executionContext = withSelectedModel(context, preparation);
+  const localRunStateRecord =
+    context.localRunRecordDirectory === undefined
+      ? undefined
+      : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
 
   let rawOutput;
 
@@ -62,6 +67,7 @@ export async function runPrReview(context) {
         reviewContext: preparation.reviewContext,
         diff: preparation.diff,
       }),
+      env: localRunStateRecord?.heartbeatEnvironment,
     });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

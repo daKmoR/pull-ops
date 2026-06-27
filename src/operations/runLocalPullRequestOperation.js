@@ -15,6 +15,14 @@ import { filterCommentsToDiffAnchors } from './pr-review/anchors.js';
 import { validatePrReviewOutput } from './pr-review/output.js';
 import { buildPrReviewPrompt } from './pr-review/prompt.js';
 import { createPrReviewCommitMessage } from './pr-review/run.js';
+import {
+  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
+  LOCAL_RUN_HEARTBEAT_COMMAND,
+  initializeLocalRunState,
+  mapLocalRunResultStatusToTerminalStatus,
+  recordLocalRunTerminalStatus,
+} from '../local-run-state/localRunState.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -23,6 +31,7 @@ import { createPrReviewCommitMessage } from './pr-review/run.js';
  * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
+ * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  */
 
 const OPERATION_REFERENCES = new Map([
@@ -84,13 +93,19 @@ export async function runLocalPullRequestOperation(context) {
     });
   } catch (error) {
     await writeLocalPullRequestRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status: 'failed',
+      summary: getErrorMessage(error),
+      phase: 'run',
+    });
     throw error;
   }
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{
  *   pullRequest: GitHubPullRequest,
  *   issue: GitHubIssue,
@@ -150,7 +165,7 @@ async function runLocalPrReview(context, runRecord, preparation) {
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{
  *   pullRequest: GitHubPullRequest,
  *   issue: GitHubIssue,
@@ -221,7 +236,7 @@ async function runLocalPrAddressReview(context, runRecord, preparation) {
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{
  *   pullRequest: GitHubPullRequest,
  *   issue: GitHubIssue,
@@ -297,7 +312,7 @@ async function runLocalPrFinalize(context, runRecord, preparation) {
 /**
  * @template T
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{
  *   operationReference: string,
  *   prompt: string,
@@ -321,6 +336,7 @@ async function runLocalCodexOperation(
     model: context.model,
     prompt,
     streamOutput: context.suppressRunnerOutput !== true,
+    env: runRecord.heartbeatEnvironment,
   });
   await writeLocalPullRequestRunArtifact(
     runRecord,
@@ -332,7 +348,7 @@ async function runLocalCodexOperation(
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{ operationReference: string }} options
  * @returns {Promise<
  *   | {
@@ -476,11 +492,12 @@ async function requireCleanLocalPullRequestWorktree(context, runRecord, operatio
 /**
  * @param {OperationRunnerContext} context
  * @param {{ operationReference: string }} options
- * @returns {Promise<{ directory: string }>}
+ * @returns {Promise<LocalRunRecord>}
  */
 async function createLocalPullRequestRunRecord(context, { operationReference }) {
   const normalizedReference = normalizeOperationReferenceForPath(operationReference);
-  const timestamp = new Date().toISOString().replaceAll(':', '').replaceAll('.', '');
+  const createdAt = new Date();
+  const timestamp = createdAt.toISOString().replaceAll(':', '').replaceAll('.', '');
   const directory = join(
     context.cwd,
     '.pullops',
@@ -502,19 +519,35 @@ async function createLocalPullRequestRunRecord(context, { operationReference }) 
         runGoal: context.runGoal ?? 'operation',
         modelTier: context.modelTier,
         model: context.model,
-        createdAt: new Date().toISOString(),
+        createdAt: createdAt.toISOString(),
+        heartbeatCommand: LOCAL_RUN_HEARTBEAT_COMMAND,
+        heartbeatIntervalMs: DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+        leaseDurationMs: DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
       },
       null,
       2,
     )}\n`,
   );
 
-  return { directory };
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: directory,
+    operationReference,
+    target: context.target,
+    publicationMode: context.publicationMode ?? 'dry-run',
+    runGoal: context.runGoal ?? 'operation',
+    createdAt,
+  });
+
+  return {
+    directory,
+    statePath: stateRecord.statePath,
+    heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+  };
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {{ reason: string, pullRequest?: GitHubPullRequest }} options
  * @returns {Promise<Record<string, unknown>>}
  */
@@ -530,7 +563,7 @@ async function blockLocalPullRequestOperation(context, runRecord, { reason, pull
 }
 
 /**
- * @param {{ directory: string }} runRecord
+ * @param {LocalRunRecord} runRecord
  * @param {Record<string, unknown>} result
  * @returns {Promise<Record<string, unknown>>}
  */
@@ -540,12 +573,22 @@ async function completeLocalPullRequestRunRecord(runRecord, result) {
     publicationMode: 'dry-run',
     localRunRecord: runRecord.directory,
   };
+  const terminalStatus = mapLocalRunResultStatusToTerminalStatus(
+    /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (result.status),
+  );
+  const terminalSummary = /** @type {string} */ (result.summary);
 
   await writeLocalPullRequestRunArtifact(
     runRecord,
     'result.json',
     `${JSON.stringify(withRunRecord, null, 2)}\n`,
   );
+  await recordLocalRunTerminalStatus({
+    statePath: runRecord.statePath,
+    status: terminalStatus,
+    summary: terminalSummary,
+    phase: 'run',
+  });
   return withRunRecord;
 }
 
