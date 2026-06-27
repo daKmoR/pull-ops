@@ -433,6 +433,10 @@ function normalizeConcreteIssuePublicationRequest(rawRequest) {
     firstDefined(payload.blockedBy, rawRequest.blockedBy),
     'Request.blockedBy',
   );
+  const auditDetails = readStringArray(
+    firstDefined(payload.auditDetails, rawRequest.auditDetails),
+    'Request.auditDetails',
+  );
   const triageRoleValue = firstDefined(payload.triageRole, rawRequest.triageRole);
   const triageRole =
     triageRoleValue === undefined
@@ -445,6 +449,7 @@ function normalizeConcreteIssuePublicationRequest(rawRequest) {
     whatToBuild,
     acceptanceCriteria,
     blockedBy,
+    ...(auditDetails.length === 0 ? {} : { auditDetails }),
     ...(triageRole === undefined ? {} : { triageRole }),
   };
 }

@@ -31,6 +31,11 @@ export function createConcreteIssueBody(request) {
     sections.push('', '## Blocked by', '', ...request.blockedBy.map(number => `- #${number}`));
   }
 
+  const auditDetails = request.auditDetails ?? [];
+  if (auditDetails.length > 0) {
+    sections.push('', createPublicationAuditDetails(auditDetails));
+  }
+
   return `${sections.join('\n').trimEnd()}\n`;
 }
 
@@ -62,6 +67,21 @@ export function readConcreteIssuePublicationMarker(body) {
  */
 function createPublicationMarkerComment(marker) {
   return `${PULL_OPS_PUBLICATION_MARKER_PREFIX}${JSON.stringify(marker)}${PULL_OPS_PUBLICATION_MARKER_SUFFIX}`;
+}
+
+/**
+ * @param {string[]} auditDetails
+ * @returns {string}
+ */
+function createPublicationAuditDetails(auditDetails) {
+  return [
+    '<details>',
+    '<summary>PullOps publication audit</summary>',
+    '',
+    ...auditDetails.map(detail => `- ${detail}`),
+    '',
+    '</details>',
+  ].join('\n');
 }
 
 /**

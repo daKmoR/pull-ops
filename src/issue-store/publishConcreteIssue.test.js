@@ -35,6 +35,9 @@ describe('publishConcreteIssue', () => {
         whatToBuild: 'Add a standalone publish-issue command.',
         acceptanceCriteria: ['Command accepts structured JSON.', 'Command writes a run record.'],
         blockedBy: [12, 34],
+        auditDetails: [
+          'Source review: [Escalation Review Cycle on PR #100](https://github.test/pulls/100)',
+        ],
         triageRole: 'ready-for-agent',
       }),
       createdAt: new Date('2026-06-20T10:15:00.000Z'),
@@ -63,6 +66,14 @@ describe('publishConcreteIssue', () => {
     assert.match(github.createdIssueInputs[0].body, /^## Acceptance criteria$/m);
     assert.match(github.createdIssueInputs[0].body, /- #12/);
     assert.match(github.createdIssueInputs[0].body, /- #34/);
+    assert.match(
+      github.createdIssueInputs[0].body,
+      /<summary>PullOps publication audit<\/summary>/,
+    );
+    assert.match(
+      github.createdIssueInputs[0].body,
+      /- Source review: \[Escalation Review Cycle on PR #100\]\(https:\/\/github\.test\/pulls\/100\)/,
+    );
     assert.deepEqual(github.labelAdds, [
       {
         number: 17,
@@ -132,6 +143,7 @@ describe('publishConcreteIssue', () => {
         whatToBuild: 'Updated body.',
         acceptanceCriteria: ['Updated criterion.'],
         blockedBy: [],
+        auditDetails: [],
         triageRole: 'ready-for-human',
       },
       createdAt: new Date('2026-06-20T10:15:00.000Z'),
@@ -253,6 +265,70 @@ describe('publishConcreteIssue', () => {
     assert.equal(
       JSON.parse(await readFile(join(result.localRunRecord, 'response.json'), 'utf8')).status,
       'failed',
+    );
+  });
+
+  it('05: returns a partial failure with the created issue when triage-label sync fails after creation', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-concrete-partial-failure-'));
+    const github = createFakeGitHubClient({
+      async createIssue(options) {
+        github.createdIssueInputs.push(options);
+        return createIssue({
+          number: 23,
+          title: options.title,
+          body: options.body,
+          labels: [],
+        });
+      },
+      async addLabelsToIssue(options) {
+        github.labelAdds.push(options);
+        throw new Error('Triage label sync failed.');
+      },
+    });
+
+    const result = await publishConcreteIssue({
+      cwd,
+      config: {
+        issueStore: { provider: 'github' },
+      },
+      githubClient: github,
+      rawRequest: {
+        title: 'Publish concrete issue support',
+        whatToBuild: 'Add a standalone publish-issue command.',
+        acceptanceCriteria: ['Command accepts structured JSON.'],
+        blockedBy: [],
+        triageRole: 'needs-triage',
+      },
+      createdAt: new Date('2026-06-20T10:15:00.000Z'),
+    });
+
+    assert.deepEqual(result, {
+      status: 'failed',
+      summary: 'Created PullOps-published Concrete Issue #23, but publication failed.',
+      failureReason: 'Triage label sync failed.',
+      warnings: [],
+      localRunRecord: join(
+        cwd,
+        '.pullops',
+        'runs',
+        '2026-06-20T101500000Z-issues-publish-issue-new',
+      ),
+      issue: {
+        number: 23,
+        url: 'https://github.test/issues/23',
+      },
+      action: 'created',
+      triageRole: 'needs-triage',
+    });
+    assert.deepEqual(github.labelAdds, [
+      {
+        number: 23,
+        labels: ['needs-triage'],
+      },
+    ]);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(result.localRunRecord, 'response.json'), 'utf8')),
+      result,
     );
   });
 });

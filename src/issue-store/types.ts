@@ -11,6 +11,7 @@ export interface NormalizedConcreteIssueRequest {
   whatToBuild: string;
   acceptanceCriteria: string[];
   blockedBy: number[];
+  auditDetails?: string[];
   triageRole?: TriageRole;
 }
 

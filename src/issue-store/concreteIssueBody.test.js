@@ -13,6 +13,7 @@ describe('concreteIssueBody', () => {
       whatToBuild: 'Add a publish-issue command.',
       acceptanceCriteria: ['Command accepts structured JSON.', 'Command writes a run record.'],
       blockedBy: [12, 34],
+      auditDetails: [],
       triageRole: 'ready-for-agent',
     });
 
@@ -35,7 +36,29 @@ describe('concreteIssueBody', () => {
     });
   });
 
-  it('02: ignores issue bodies without a PullOps publication marker', () => {
+  it('02: renders optional PullOps publication audit details', () => {
+    const body = createConcreteIssueBody({
+      title: 'Publish review follow-up issue',
+      whatToBuild: 'Track the non-blocking review follow-up.',
+      acceptanceCriteria: ['Maintainer triages this Review Follow-up Issue.'],
+      blockedBy: [],
+      auditDetails: [
+        'Source review: [Escalation Review Cycle on PR #100](https://github.test/pulls/100)',
+        'Source PR: #100 (https://github.test/pulls/100)',
+        'Source issue: #42 (https://github.test/issues/42)',
+      ],
+    });
+
+    assert.match(body, /<summary>PullOps publication audit<\/summary>/);
+    assert.match(
+      body,
+      /- Source review: \[Escalation Review Cycle on PR #100\]\(https:\/\/github\.test\/pulls\/100\)/,
+    );
+    assert.match(body, /- Source PR: #100 \(https:\/\/github\.test\/pulls\/100\)/);
+    assert.match(body, /- Source issue: #42 \(https:\/\/github\.test\/issues\/42\)/);
+  });
+
+  it('03: ignores issue bodies without a PullOps publication marker', () => {
     assert.equal(
       readConcreteIssuePublicationMarker(
         ['## What to build', '', 'Ship the issue store path.'].join('\n'),
