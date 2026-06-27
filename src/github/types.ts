@@ -112,6 +112,11 @@ export interface UpdateIssueOptions extends CreateIssueOptions {
   number: number;
 }
 
+export interface AddSubIssueOptions {
+  parentIssueNumber: number;
+  childIssueNumber: number;
+}
+
 export interface ClosePullRequestOptions {
   number: number;
 }
@@ -212,6 +217,7 @@ export interface GitHubClient {
   createDraftPullRequest(options: CreateDraftPullRequestOptions): Promise<GitHubPullRequest>;
   createIssue?(options: CreateIssueOptions): Promise<GitHubIssue>;
   updateIssue?(options: UpdateIssueOptions): Promise<GitHubIssue>;
+  addSubIssue?(options: AddSubIssueOptions): Promise<void>;
   mergePullRequest?(options: MergePullRequestOptions): Promise<void>;
   addLabelsToIssue(options: EditLabelsOptions): Promise<void>;
   removeLabelsFromIssue(options: EditLabelsOptions): Promise<void>;
