@@ -23,6 +23,9 @@ export const MODEL_TIERS = ['high', 'mid', 'low'];
 export const DEFAULT_PULL_OPS_CONFIG = {
   baseBranch: 'main',
   branchPrefix: 'pullops',
+  issueStore: {
+    provider: 'github',
+  },
   runner: {
     adapter: DEFAULT_RUNNER_ADAPTER,
     command: 'codex exec',
@@ -82,6 +85,7 @@ export async function loadPullOpsConfig({
   const importedConfig = await importConfig(configPath);
   const userConfig = validateConfigObject(importedConfig, configPath);
   validateModelOverrides(userConfig);
+  validateIssueStoreOverrides(userConfig);
   validateOperationOverrides(userConfig);
 
   return mergeConfig(userConfig);
@@ -169,6 +173,31 @@ function validateModelOverrides(userConfig) {
         `PullOps Config runner.models.${tier} must be a non-empty string.`,
       );
     }
+  }
+}
+
+/**
+ * @param {UserPullOpsConfig} userConfig
+ */
+function validateIssueStoreOverrides(userConfig) {
+  const issueStore = userConfig.issueStore;
+  if (issueStore === undefined) {
+    return;
+  }
+
+  if (!isPlainObject(issueStore)) {
+    throw new PullOpsConfigError('PullOps Config issueStore must be an object.');
+  }
+
+  if (
+    issueStore.provider !== undefined &&
+    (typeof issueStore.provider !== 'string' || issueStore.provider !== 'github')
+  ) {
+    throw new PullOpsConfigError(
+      `PullOps Config issueStore.provider must be one of: github. Received ${JSON.stringify(
+        issueStore.provider,
+      )}.`,
+    );
   }
 }
 
@@ -281,6 +310,19 @@ function mergeConfig(userConfig) {
     config.branchPrefix = requireString(userConfig.branchPrefix, 'branchPrefix');
   }
 
+  const issueStore = userConfig.issueStore;
+  if (issueStore !== undefined) {
+    if (!isPlainObject(issueStore)) {
+      throw new PullOpsConfigError('PullOps Config issueStore must be an object.');
+    }
+    if (issueStore.provider !== undefined) {
+      config.issueStore.provider = requireIssueStoreProvider(
+        issueStore.provider,
+        'issueStore.provider',
+      );
+    }
+  }
+
   const runner = userConfig.runner;
   if (runner !== undefined) {
     if (!isPlainObject(runner)) {
@@ -331,6 +373,19 @@ function requireRunnerAdapter(value, path) {
     throw new PullOpsConfigError(
       `PullOps Config ${path} must be one of: ${RUNNER_ADAPTERS.join(', ')}.`,
     );
+  }
+
+  return value;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {import('./types.js').IssueStoreProvider}
+ */
+function requireIssueStoreProvider(value, path) {
+  if (value !== 'github') {
+    throw new PullOpsConfigError(`PullOps Config ${path} must be one of: github.`);
   }
 
   return value;

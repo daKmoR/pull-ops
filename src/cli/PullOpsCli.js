@@ -1,8 +1,13 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
+import {
+  createIssueStoreRunRecordLocation,
+  writeIssueStoreRunArtifact,
+} from '../issue-store/localRunRecord.js';
+import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import {
   getOperationLabelReference,
@@ -30,6 +35,7 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
  * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
+ * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  */
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
@@ -46,6 +52,7 @@ export class PullOpsCli {
    * @param {string} [options.cwd]
    * @param {WritableLike} [options.stdout]
    * @param {WritableLike} [options.stderr]
+   * @param {NodeJS.ReadableStream} [options.stdin]
    * @param {GitHubClient} [options.githubClient]
    * @param {GitClient} [options.gitClient]
    * @param {CodexRunner} [options.codexRunner]
@@ -56,6 +63,7 @@ export class PullOpsCli {
     cwd = process.cwd(),
     stdout = process.stdout,
     stderr = process.stderr,
+    stdin = process.stdin,
     githubClient = createGitHubClient(),
     gitClient,
     codexRunner,
@@ -65,6 +73,7 @@ export class PullOpsCli {
     this.cwd = cwd;
     this.stdout = stdout;
     this.stderr = stderr;
+    this.stdin = stdin;
     this.githubClient = githubClient;
     /** @type {(message: string) => void} */
     this.progress = message => {
@@ -136,7 +145,68 @@ export class PullOpsCli {
       return await this.runLabels(args);
     }
 
+    if (command === 'issues') {
+      return await this.runIssues(args);
+    }
+
     throw new CliUsageError(`Unknown command "${command}".\n\n${usage()}`);
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runIssues(args) {
+    const [subcommand, ...rest] = args;
+
+    if (subcommand === undefined) {
+      throw new CliUsageError('Missing issues subcommand. Expected one of: publish-issue.');
+    }
+
+    if (subcommand === 'publish-issue') {
+      return await this.runPublishIssue(rest);
+    }
+
+    throw new CliUsageError(
+      `Unknown issues subcommand "${subcommand}". Expected one of: publish-issue.`,
+    );
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runPublishIssue(args) {
+    const createdAt = new Date();
+    let rawRequest = '';
+
+    try {
+      const parsedArgs = parsePublishIssueArgs(args);
+      rawRequest = await readPublishIssueInput({
+        filePath: parsedArgs.filePath,
+        stdin: this.stdin,
+      });
+      const config = await loadPullOpsConfig({ cwd: this.cwd });
+      const output = await publishConcreteIssue({
+        cwd: this.cwd,
+        config,
+        githubClient: this.githubClient,
+        rawRequest,
+        createdAt,
+      });
+
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return output.status === 'accepted' ? 0 : 1;
+    } catch (error) {
+      const output = await writePublishIssueFailure({
+        cwd: this.cwd,
+        createdAt,
+        rawRequest,
+        failureReason: getErrorMessage(error),
+      });
+      this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+      return 1;
+    }
   }
 
   /**
@@ -1011,6 +1081,46 @@ function parseRequiredGitHubActionsBackend(args, reference, consumed) {
 
 /**
  * @param {string[]} args
+ * @returns {{ filePath?: string }}
+ */
+function parsePublishIssueArgs(args) {
+  const consumed = new Set();
+  const filePath = parseOptionalStringOption(args, '--file', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for issues publish-issue: ${remaining.join(' ')}.`);
+  }
+
+  return filePath === undefined ? {} : { filePath };
+}
+
+/**
+ * @param {{
+ *   filePath?: string,
+ *   stdin: NodeJS.ReadableStream,
+ * }} options
+ * @returns {Promise<string>}
+ */
+async function readPublishIssueInput({ filePath, stdin }) {
+  if (filePath !== undefined) {
+    return await readFile(filePath, 'utf8');
+  }
+
+  let rawRequest = '';
+  for await (const chunk of stdin) {
+    rawRequest += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  }
+
+  return rawRequest;
+}
+
+/**
+ * @param {string[]} args
  * @param {'--publish' | '--until' | '--events'} flag
  */
 function rejectGitHubActionsLocalOnlyFlag(args, flag) {
@@ -1288,6 +1398,7 @@ function usage() {
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --issue <number>',
     '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
     '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
+    '  pullops issues publish-issue [--file <path>]',
     '  pullops labels ensure',
   ].join('\n');
 }
@@ -1394,6 +1505,41 @@ function createLocalPrdAutoCompleteFailureOutput({
     publicationMode,
     localRunRecord,
   };
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.cwd
+ * @param {Date} options.createdAt
+ * @param {string} options.rawRequest
+ * @param {string} options.failureReason
+ * @returns {Promise<ConcreteIssuePublishFailureOutput>}
+ */
+async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureReason }) {
+  const runRecord = createIssueStoreRunRecordLocation({
+    cwd,
+    operationReference: 'issues:publish-issue',
+    targetReference: 'invalid',
+    createdAt,
+  });
+
+  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+
+  /** @type {ConcreteIssuePublishFailureOutput} */
+  const output = {
+    status: 'failed',
+    summary: 'Publish issue request failed.',
+    failureReason,
+    warnings: [],
+    localRunRecord: runRecord.directory,
+  };
+  await writeIssueStoreRunArtifact(
+    runRecord,
+    'response.json',
+    `${JSON.stringify(output, null, 2)}\n`,
+  );
+  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  return output;
 }
 
 class CliUsageError extends Error {}

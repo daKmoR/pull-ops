@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
 import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
@@ -1825,6 +1827,212 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Unknown arguments for issue:implement: --runner codex-action/);
   });
+});
+
+test('issues publish-issue accepts structured JSON from file and stdin', async t => {
+  await t.test('file input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-file-'));
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').CreateIssueOptions[]} */
+    const createIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      title: 'Publish standalone issue',
+      whatToBuild: 'Implement the issue-store publication path.',
+      acceptanceCriteria: ['Reads structured JSON from --file.', 'Writes stable JSON output.'],
+      blockedBy: [34],
+      triageRole: 'ready-for-agent',
+    };
+    const requestPath = join(cwd, 'request.json');
+    await writeFile(requestPath, `${JSON.stringify(request)}\n`);
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      githubClient: createFakeGitHubClient({
+        async createIssue(options) {
+          createIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 88,
+            url: 'https://github.test/owner/repo/issues/88',
+          });
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-issue', '--file', requestPath]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(createIssueCalls.length, 1);
+    assert.equal(createIssueCalls[0].title, request.title);
+    assert.equal(createIssueCalls[0].labels, undefined);
+    assert.match(createIssueCalls[0].body, /PullOps publication marker/);
+    assert.match(createIssueCalls[0].body, /## What to build/);
+    assert.match(createIssueCalls[0].body, /## Acceptance criteria/);
+    assert.match(createIssueCalls[0].body, /## Blocked by/);
+    assert.deepEqual(addLabelCalls, [{ number: 88, labels: ['ready-for-agent'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'created');
+    assert.equal(output.issue.number, 88);
+    assert.equal(output.triageRole, 'ready-for-agent');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-issue-new$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        title: request.title,
+        whatToBuild: request.whatToBuild,
+        acceptanceCriteria: request.acceptanceCriteria,
+        blockedBy: request.blockedBy,
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+
+  await t.test('stdin input', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-stdin-'));
+    const stdout = createWritableBuffer();
+    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
+    const updateIssueCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const removeLabelCalls = [];
+    /** @type {import('../github/types.js').EditLabelsOptions[]} */
+    const addLabelCalls = [];
+    const request = {
+      issueNumber: 41,
+      title: 'Refresh standalone issue',
+      whatToBuild: 'Update the rendered publication body.',
+      acceptanceCriteria: [
+        'Reads structured JSON from stdin.',
+        'Updates a PullOps-published issue.',
+      ],
+      triageRole: 'ready-for-human',
+    };
+    const existingBody = createConcreteIssueBody({
+      title: request.title,
+      whatToBuild: request.whatToBuild,
+      acceptanceCriteria: request.acceptanceCriteria,
+      blockedBy: [],
+    });
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
+      githubClient: createFakeGitHubClient({
+        async getIssue(number) {
+          assert.equal(number, 41);
+          return createGitHubIssue({
+            number: 41,
+            body: existingBody,
+            labels: ['needs-triage', 'needs-info'],
+          });
+        },
+        async updateIssue(options) {
+          updateIssueCalls.push(options);
+          return createGitHubIssue({
+            number: 41,
+            body: options.body,
+            labels: ['ready-for-human'],
+          });
+        },
+        async removeLabelsFromIssue(options) {
+          removeLabelCalls.push(options);
+        },
+        async addLabelsToIssue(options) {
+          addLabelCalls.push(options);
+        },
+      }),
+    });
+
+    const exitCode = await cli.run(['issues', 'publish-issue']);
+
+    assert.equal(exitCode, 0);
+    assert.equal(updateIssueCalls.length, 1);
+    assert.equal(updateIssueCalls[0].number, 41);
+    assert.equal(updateIssueCalls[0].labels, undefined);
+    assert.match(updateIssueCalls[0].body, /PullOps publication marker/);
+    assert.deepEqual(removeLabelCalls, [{ number: 41, labels: ['needs-triage', 'needs-info'] }]);
+    assert.deepEqual(addLabelCalls, [{ number: 41, labels: ['ready-for-human'] }]);
+
+    const output = JSON.parse(stdout.text);
+    assert.equal(output.status, 'accepted');
+    assert.equal(output.action, 'updated');
+    assert.equal(output.issue.number, 41);
+    assert.equal(output.triageRole, 'ready-for-human');
+    assert.deepEqual(output.warnings, []);
+    assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+    assert.match(output.localRunRecord, /issues-publish-issue-41$/);
+    assert.equal(
+      await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+      `${JSON.stringify(request)}\n`,
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'request.json'), 'utf8')),
+      {
+        issueNumber: request.issueNumber,
+        title: request.title,
+        whatToBuild: request.whatToBuild,
+        acceptanceCriteria: request.acceptanceCriteria,
+        blockedBy: [],
+        triageRole: request.triageRole,
+      },
+    );
+    assert.deepEqual(
+      JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+      output,
+    );
+  });
+});
+
+test('issues publish-issue rejects malformed JSON input with stable failure output', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-malformed-'));
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
+    githubClient: createFakeGitHubClient(),
+  });
+
+  const exitCode = await cli.run(['issues', 'publish-issue']);
+
+  assert.equal(exitCode, 1);
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'failed');
+  assert.equal(output.summary, 'Publish issue request failed.');
+  assert.match(output.failureReason, /Publish request must be valid JSON/);
+  assert.deepEqual(output.warnings, []);
+  assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
+  assert.match(output.localRunRecord, /issues-publish-issue-invalid$/);
+  assert.equal(
+    await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
+    '{ "title": "broken"\n',
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
+    output,
+  );
+  assert.match(
+    await readFile(join(output.localRunRecord, 'failure-reason.txt'), 'utf8'),
+    /Publish request must be valid JSON/,
+  );
 });
 
 test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {

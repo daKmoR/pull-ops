@@ -288,10 +288,7 @@ describe('createGitClient', () => {
   it('08: fetches local dry-run refs and checks out existing or new PullOps branches', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set([
-      'refs/heads/pullops/issue-15',
-      'refs/remotes/origin/pullops/issue-15',
-    ]);
+    const refs = new Set(['refs/heads/pullops/issue-15', 'refs/remotes/origin/pullops/issue-15']);
     const gitClient = createGitClient({
       env: {},
       execFile: async (file, args) => {

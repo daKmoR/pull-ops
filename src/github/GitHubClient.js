@@ -25,6 +25,7 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
  * @typedef {import('./types.js').CloseIssueOptions} CloseIssueOptions
  * @typedef {import('./types.js').CreateIssueOptions} CreateIssueOptions
+ * @typedef {import('./types.js').UpdateIssueOptions} UpdateIssueOptions
  * @typedef {import('./types.js').ClosePullRequestOptions} ClosePullRequestOptions
  * @typedef {import('./types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('./types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
@@ -442,6 +443,14 @@ export function createGitHubClient({
      */
     async createIssue({ title, body, labels = [] }) {
       return await createIssue(api, getRepository(), { title, body, labels });
+    },
+
+    /**
+     * @param {UpdateIssueOptions} options
+     * @returns {Promise<GitHubIssue>}
+     */
+    async updateIssue({ number, title, body, labels }) {
+      return await updateIssue(api, getRepository(), { number, title, body, labels });
     },
 
     /**
@@ -946,6 +955,29 @@ async function createIssue(octokit, repository, { title, body, labels }) {
     return parseRestIssue(response.data, 'created issue');
   } catch (error) {
     throw new Error(`Failed to create GitHub issue "${title}": ${getGitHubErrorMessage(error)}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @param {UpdateIssueOptions} options
+ * @returns {Promise<GitHubIssue>}
+ */
+async function updateIssue(octokit, repository, { number, title, body, labels }) {
+  try {
+    const response = await octokit.rest.issues.update({
+      ...repository,
+      issue_number: number,
+      title,
+      body,
+      ...(labels === undefined ? {} : { labels }),
+    });
+    return parseRestIssue(response.data, 'updated issue');
+  } catch (error) {
+    throw new Error(`Failed to update GitHub issue #${number}: ${getGitHubErrorMessage(error)}`, {
       cause: error,
     });
   }
