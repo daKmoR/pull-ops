@@ -118,4 +118,29 @@ export const PULL_OPS_LABELS = [
     color: 'D93F0B',
     description: 'PullOps automation needs maintainer attention.',
   },
+  {
+    name: PULL_OPS_STATUS_LABELS.inProgress,
+    color: 'D93F0B',
+    description: 'PullOps automation is actively working on the target.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.blocked,
+    color: 'D93F0B',
+    description: 'PullOps automation is blocked and needs maintainer attention.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.prepared,
+    color: 'D93F0B',
+    description: 'PullOps automation prepared the target and is waiting for the next step.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.done,
+    color: 'D93F0B',
+    description: 'PullOps automation completed the target and is waiting for the next step.',
+  },
+  {
+    name: PULL_OPS_STATUS_LABELS.failed,
+    color: 'D93F0B',
+    description: 'PullOps automation failed and needs maintainer attention.',
+  },
 ];

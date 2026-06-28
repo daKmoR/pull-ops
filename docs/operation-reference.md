@@ -90,9 +90,9 @@ active PRD automation mode and let later child merges resume coordination.
 
 ## Repository Commands
 
-| Command                 | Meaning                              |
-| ----------------------- | ------------------------------------ |
-| `pullops labels ensure` | Reconciles PullOps labels in GitHub. |
+| Command                       | Meaning                                                   |
+| ----------------------------- | --------------------------------------------------------- |
+| `pullops setup github-labels` | Reconciles PullOps operation and status labels in GitHub. |
 
 ## Workflow-Facing Commands
 
@@ -122,6 +122,11 @@ workflow lifecycle plumbing, not maintainer-facing controls.
 PullOps avoids using labels for ordinary progress. Status Labels are for
 exceptional states that need attention or cleanup.
 
-| Label                    | Meaning                                        | Installed by `pullops labels ensure`? |
-| ------------------------ | ---------------------------------------------- | ------------------------------------- |
-| `pullops:human-required` | PullOps automation needs maintainer attention. | Yes                                   |
+| Label                        | Meaning                                                                   | Installed by `pullops setup github-labels`? |
+| ---------------------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
+| `pullops:human-required`     | PullOps automation needs maintainer attention.                            | Yes                                         |
+| `pullops:status:in-progress` | PullOps automation is actively working on the target.                     | Yes                                         |
+| `pullops:status:blocked`     | PullOps automation is blocked and needs maintainer attention.             | Yes                                         |
+| `pullops:status:prepared`    | PullOps automation prepared the target and is waiting for the next step.  | Yes                                         |
+| `pullops:status:done`        | PullOps automation completed the target and is waiting for the next step. | Yes                                         |
+| `pullops:status:failed`      | PullOps automation failed and needs maintainer attention.                 | Yes                                         |
