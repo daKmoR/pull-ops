@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { test } from 'node:test';
 
 import { PullOpsCli } from './PullOpsCli.js';
@@ -501,6 +503,212 @@ test('heartbeat refuses a mismatched token without mutating the state file', asy
 
   const after = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
   assert.deepEqual(after, before);
+});
+
+test('step emits a heartbeat before the first wrapped command', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-first-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  /** @type {number[]} */
+  const spawnHeartbeatCounts = [];
+  const { spawnCommand } = createFakeStepSpawn({
+    onSpawn: () => {
+      spawnHeartbeatCounts.push(
+        JSON.parse(readFileSync(stateRecord.statePath, 'utf8')).heartbeatCount,
+      );
+    },
+  });
+  const cli = createStepCli({ stateRecord, spawnCommand });
+
+  const exitCode = await cli.run(['step', 'inspecting setup command tests', '--', 'echo', 'ok']);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(spawnHeartbeatCounts, [1]);
+  const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(state.heartbeatCount, 1);
+  assert.equal(state.completedNonHeartbeatStepsSinceHeartbeat, 0);
+  assert.equal(state.heartbeatSummary, 'inspecting setup command tests');
+});
+
+test('step does not heartbeat again for a repeated command shortly after', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-repeat-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const { spawnCommand } = createFakeStepSpawn();
+  const cli = createStepCli({ stateRecord, spawnCommand });
+
+  assert.equal(await cli.run(['step', 'first command', '--', 'echo', 'one']), 0);
+  const afterFirst = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+
+  assert.equal(await cli.run(['step', 'second command', '--', 'echo', 'two']), 0);
+
+  const afterSecond = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(afterSecond.heartbeatCount, 1);
+  assert.equal(afterSecond.heartbeatAt, afterFirst.heartbeatAt);
+  assert.equal(afterSecond.completedNonHeartbeatStepsSinceHeartbeat, 1);
+});
+
+test('step emits a heartbeat when the last heartbeat is stale', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-stale-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  let now = new Date('2024-01-01T00:00:01.000Z');
+  const { spawnCommand } = createFakeStepSpawn();
+  const cli = createStepCli({ stateRecord, spawnCommand, now: () => now });
+
+  assert.equal(await cli.run(['step', 'fresh command', '--', 'echo', 'one']), 0);
+
+  now = new Date('2024-01-01T00:04:02.000Z');
+  assert.equal(await cli.run(['step', 'stale command', '--', 'echo', 'two']), 0);
+
+  const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(state.heartbeatCount, 2);
+  assert.equal(state.completedNonHeartbeatStepsSinceHeartbeat, 0);
+  assert.equal(state.heartbeatSummary, 'stale command');
+});
+
+test('step emits a heartbeat after three completed non-heartbeat steps', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-count-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const { spawnCommand } = createFakeStepSpawn();
+  const cli = createStepCli({ stateRecord, spawnCommand });
+
+  assert.equal(await cli.run(['step', 'first command', '--', 'echo', 'one']), 0);
+  assert.equal(await cli.run(['step', 'second command', '--', 'echo', 'two']), 0);
+  assert.equal(await cli.run(['step', 'third command', '--', 'echo', 'three']), 0);
+  assert.equal(await cli.run(['step', 'fourth command', '--', 'echo', 'four']), 0);
+  const beforeDueStep = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(beforeDueStep.completedNonHeartbeatStepsSinceHeartbeat, 3);
+
+  assert.equal(await cli.run(['step', 'fifth command', '--', 'echo', 'five']), 0);
+
+  const afterDueStep = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(afterDueStep.heartbeatCount, 2);
+  assert.equal(afterDueStep.completedNonHeartbeatStepsSinceHeartbeat, 0);
+  assert.equal(afterDueStep.heartbeatSummary, 'fifth command');
+});
+
+test('step --long heartbeats before and during a long-running command', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-long-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    heartbeatIntervalMs: 15,
+    leaseDurationMs: 60,
+  });
+  /** @type {number[]} */
+  const spawnHeartbeatCounts = [];
+  const { spawnCommand } = createFakeStepSpawn({
+    closeAfterMs: 55,
+    onSpawn: () => {
+      spawnHeartbeatCounts.push(
+        JSON.parse(readFileSync(stateRecord.statePath, 'utf8')).heartbeatCount,
+      );
+    },
+  });
+  const cli = createStepCli({ stateRecord, spawnCommand, now: () => new Date() });
+
+  const exitCode = await cli.run([
+    'step',
+    '--long',
+    'waiting for slow verification',
+    '--',
+    'npm',
+    'test',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(spawnHeartbeatCounts, [1]);
+  const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.ok(state.heartbeatCount >= 2);
+  assert.equal(state.completedNonHeartbeatStepsSinceHeartbeat, 0);
+  assert.equal(state.heartbeatSummary, 'waiting for slow verification');
+});
+
+test('step preserves wrapped stdout, stderr, and exit code', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-step-streams-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const { spawnCommand, calls } = createFakeStepSpawn({
+    stdout: 'wrapped stdout\n',
+    stderr: 'wrapped stderr\n',
+    exitCode: 7,
+  });
+  const cli = createStepCli({ stateRecord, spawnCommand, stdout, stderr });
+
+  const exitCode = await cli.run(['step', 'running failing command', '--', 'node', '-e', 'fail']);
+
+  assert.equal(exitCode, 7);
+  assert.equal(stdout.text, 'wrapped stdout\n');
+  assert.equal(stderr.text, 'wrapped stderr\n');
+  assert.deepEqual(
+    calls.map(call => [call.command, call.args]),
+    [['node', ['-e', 'fail']]],
+  );
+});
+
+test('step shows usage for missing separator or command', async () => {
+  for (const args of [
+    ['step', 'running tests', 'npm', 'test'],
+    ['step', 'running tests', '--'],
+  ]) {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(args);
+
+    assert.equal(exitCode, 1);
+    assert.equal(stderr.text, 'Usage: pullops step [--long] "<summary>" -- <command...>\n');
+  }
 });
 
 test('run prd:auto-advance defaults local dry-run to finalized', async () => {
@@ -3123,14 +3331,89 @@ async function writeGitHubIssueStoreConfig(cwd) {
   );
 }
 
+/**
+ * @param {object} options
+ * @param {import('../local-run-state/types.js').LocalRunStateRecord} options.stateRecord
+ * @param {(command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess} options.spawnCommand
+ * @param {ReturnType<typeof createWritableBuffer>} [options.stdout]
+ * @param {ReturnType<typeof createWritableBuffer>} [options.stderr]
+ * @param {() => Date} [options.now]
+ * @returns {PullOpsCli}
+ */
+function createStepCli({
+  stateRecord,
+  spawnCommand,
+  stdout = createWritableBuffer(),
+  stderr = createWritableBuffer(),
+  now = () => new Date('2024-01-01T00:00:01.000Z'),
+}) {
+  return new PullOpsCli({
+    stdout,
+    stderr,
+    spawnCommand,
+    now,
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient(),
+    env: {
+      PULLOPS_RUN_STATE_PATH: stateRecord.statePath,
+      PULLOPS_HEARTBEAT_TOKEN: stateRecord.state.heartbeatToken,
+    },
+  });
+}
+
+/**
+ * @param {object} [options]
+ * @param {string} [options.stdout]
+ * @param {string} [options.stderr]
+ * @param {number} [options.exitCode]
+ * @param {number} [options.closeAfterMs]
+ * @param {() => void} [options.onSpawn]
+ * @returns {{
+ *   calls: { command: string, args: string[], options: import('node:child_process').SpawnOptions }[],
+ *   spawnCommand: (command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess,
+ * }}
+ */
+function createFakeStepSpawn({
+  stdout = '',
+  stderr = '',
+  exitCode = 0,
+  closeAfterMs = 0,
+  onSpawn = () => undefined,
+} = {}) {
+  /** @type {{ command: string, args: string[], options: import('node:child_process').SpawnOptions }[]} */
+  const calls = [];
+
+  return {
+    calls,
+    spawnCommand(command, args, options) {
+      calls.push({ command, args, options });
+      onSpawn();
+
+      const child = /** @type {any} */ (new EventEmitter());
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+
+      setTimeout(() => {
+        child.stdout?.write(stdout);
+        child.stdout?.end();
+        child.stderr?.write(stderr);
+        child.stderr?.end();
+        child.emit('close', exitCode, null);
+      }, closeAfterMs);
+
+      return /** @type {import('node:child_process').ChildProcess} */ (child);
+    },
+  };
+}
+
 function createWritableBuffer() {
   return {
     text: '',
     /**
-     * @param {string} chunk
+     * @param {string | Uint8Array} chunk
      */
     write(chunk) {
-      this.text += chunk;
+      this.text += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
     },
   };
 }

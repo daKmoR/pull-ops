@@ -213,13 +213,28 @@ describe('PullOps skill contracts', () => {
     for (const skillName of workerSkillNames) {
       const skillText = await readRepoFile(`.agents/skills/${skillName}/SKILL.md`);
 
-      assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
-      assert.match(skillText, /first tool call after reading this skill must be/);
-      assert.match(skillText, /every 4 minutes/);
-      assert.match(skillText, /before every fourth non-heartbeat tool call/);
-      assert.match(skillText, /whichever comes first/);
-      assert.match(skillText, /immediately before any command that may run longer/);
-      assert.match(skillText, /Heartbeats must come from this .* agent/);
+      if (skillName === 'pullops-issue-implement') {
+        assert.match(skillText, /## Liveness and command execution/);
+        assert.match(skillText, /Use PullOps as the command gate/);
+        assert.match(skillText, /npm exec pullops -- step "<brief current focus>" -- <command>/);
+        assert.match(
+          skillText,
+          /npm exec pullops -- step --long "<brief current focus>" -- <command>/,
+        );
+        assert.match(skillText, /Do not manually count time or tool calls for shell commands/);
+        assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
+        assert.match(skillText, /non-shell tool calls/);
+        assert.match(skillText, /Heartbeats must originate from this implementation agent process/);
+        assert.doesNotMatch(skillText, /before every fourth non-heartbeat tool call/);
+      } else {
+        assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
+        assert.match(skillText, /first tool call after reading this skill must be/);
+        assert.match(skillText, /every 4 minutes/);
+        assert.match(skillText, /before every fourth non-heartbeat tool call/);
+        assert.match(skillText, /whichever comes first/);
+        assert.match(skillText, /immediately before any command that may run longer/);
+        assert.match(skillText, /Heartbeats must come from this .* agent/);
+      }
       assert.match(skillText, /not from the\s+parent\s+PullOps\s+CLI/);
       assert.doesNotMatch(skillText, /PULLOPS_RUN_STATE_PATH/);
       assert.doesNotMatch(skillText, /PULLOPS_HEARTBEAT_TOKEN/);

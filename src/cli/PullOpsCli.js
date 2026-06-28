@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve } from 'node:path';
 
@@ -13,7 +14,10 @@ import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import {
+  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   LocalRunHeartbeatError,
+  readLocalRunState,
+  recordLocalRunCompletedNonHeartbeatStep,
   recordLocalRunHeartbeat,
 } from '../local-run-state/localRunState.js';
 import {
@@ -45,6 +49,7 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
+ * @typedef {(command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess} StepCommandSpawner
  */
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
@@ -54,6 +59,8 @@ const COMMAND_OUTPUT_CONTRACT = {
     summary: 'string',
   },
 };
+const STEP_USAGE = 'Usage: pullops step [--long] "<summary>" -- <command...>';
+const COMPLETED_NON_HEARTBEAT_STEPS_BEFORE_HEARTBEAT = 3;
 
 export class PullOpsCli {
   /**
@@ -67,6 +74,8 @@ export class PullOpsCli {
    * @param {CodexRunner} [options.codexRunner]
    * @param {OperationRunner} [options.operationRunner]
    * @param {NodeJS.ProcessEnv} [options.env]
+   * @param {StepCommandSpawner} [options.spawnCommand]
+   * @param {() => Date} [options.now]
    */
   constructor({
     cwd = process.cwd(),
@@ -78,6 +87,8 @@ export class PullOpsCli {
     codexRunner,
     operationRunner = runWorkflowOperation,
     env = process.env,
+    spawnCommand = spawn,
+    now = () => new Date(),
   } = {}) {
     this.cwd = cwd;
     this.stdout = stdout;
@@ -106,6 +117,8 @@ export class PullOpsCli {
       });
     this.operationRunner = operationRunner;
     this.env = env;
+    this.spawnCommand = spawnCommand;
+    this.now = now;
   }
 
   /**
@@ -162,7 +175,180 @@ export class PullOpsCli {
       return await this.runHeartbeat(args);
     }
 
+    if (command === 'step') {
+      return await this.runStep(args);
+    }
+
     throw new CliUsageError(`Unknown command "${command}".\n\n${usage()}`);
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runStep(args) {
+    const parsedArgs = parseStepArgs(args);
+    const statePath = this.readRequiredStepStatePath();
+    const token = this.readRequiredStepHeartbeatToken(statePath);
+    const firstHeartbeat = await this.recordStepHeartbeatIfDue({
+      force: parsedArgs.long,
+      statePath,
+      token,
+      summary: parsedArgs.summary,
+    });
+    const periodicHeartbeats = parsedArgs.long
+      ? this.startLongStepHeartbeats({
+          statePath,
+          token,
+          summary: parsedArgs.summary,
+          intervalMs: firstHeartbeat.heartbeatIntervalMs,
+        })
+      : undefined;
+
+    let exitCode;
+    try {
+      exitCode = await this.runWrappedCommand(parsedArgs.command);
+    } finally {
+      await periodicHeartbeats?.stop();
+    }
+
+    if (!firstHeartbeat.emitted) {
+      await this.recordCompletedNonHeartbeatStep(statePath);
+    }
+
+    return exitCode;
+  }
+
+  /**
+   * @returns {string}
+   */
+  readRequiredStepStatePath() {
+    const statePath = readOptionalEnv(this.env.PULLOPS_RUN_STATE_PATH);
+    if (statePath === undefined) {
+      throw new LocalRunHeartbeatError('Missing run state path for pullops step.');
+    }
+
+    return resolve(this.cwd, statePath);
+  }
+
+  /**
+   * @param {string} statePath
+   * @returns {string}
+   */
+  readRequiredStepHeartbeatToken(statePath) {
+    const token = readOptionalEnv(this.env.PULLOPS_HEARTBEAT_TOKEN);
+    if (token === undefined) {
+      throw new LocalRunHeartbeatError(`Missing heartbeat token for ${statePath}.`);
+    }
+
+    return token;
+  }
+
+  /**
+   * @param {{
+   *   force: boolean,
+   *   statePath: string,
+   *   token: string,
+   *   summary: string,
+   * }} options
+   * @returns {Promise<{ emitted: boolean, heartbeatIntervalMs: number }>}
+   */
+  async recordStepHeartbeatIfDue({ force, statePath, token, summary }) {
+    const state = await readLocalRunState(statePath);
+    const heartbeatIntervalMs = readStepHeartbeatIntervalMs(state);
+    if (!isStepHeartbeatDue(state, { force, now: this.now(), heartbeatIntervalMs })) {
+      return { emitted: false, heartbeatIntervalMs };
+    }
+
+    const updated = await recordLocalRunHeartbeat({
+      statePath,
+      token,
+      summary,
+      at: this.now(),
+    });
+    return {
+      emitted: true,
+      heartbeatIntervalMs: readStepHeartbeatIntervalMs(updated),
+    };
+  }
+
+  /**
+   * @param {{
+   *   statePath: string,
+   *   token: string,
+   *   summary: string,
+   *   intervalMs: number,
+   * }} options
+   * @returns {{ stop: () => Promise<void> }}
+   */
+  startLongStepHeartbeats({ statePath, token, summary, intervalMs }) {
+    /** @type {Promise<void>} */
+    let heartbeatWrite = Promise.resolve();
+    const timer = setInterval(() => {
+      heartbeatWrite = heartbeatWrite
+        .catch(() => undefined)
+        .then(async () => {
+          await recordLocalRunHeartbeat({
+            statePath,
+            token,
+            summary,
+            at: this.now(),
+          });
+        })
+        .catch(error => {
+          this.writeError(`[pullops] step heartbeat failed: ${getErrorMessage(error)}`);
+        });
+    }, intervalMs);
+
+    return {
+      stop: async () => {
+        clearInterval(timer);
+        await heartbeatWrite.catch(() => undefined);
+      },
+    };
+  }
+
+  /**
+   * @param {string} statePath
+   * @returns {Promise<void>}
+   */
+  async recordCompletedNonHeartbeatStep(statePath) {
+    try {
+      await recordLocalRunCompletedNonHeartbeatStep({ statePath });
+    } catch (error) {
+      this.writeError(`[pullops] failed to record completed step: ${getErrorMessage(error)}`);
+    }
+  }
+
+  /**
+   * @param {string[]} command
+   * @returns {Promise<number>}
+   */
+  async runWrappedCommand(command) {
+    const [executable, ...args] = command;
+    if (executable === undefined) {
+      throw new CliUsageError(STEP_USAGE);
+    }
+
+    const child = this.spawnCommand(executable, args, {
+      cwd: this.cwd,
+      env: this.env,
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    child.stdout?.on('data', chunk => {
+      this.stdout.write(chunk);
+    });
+    child.stderr?.on('data', chunk => {
+      this.stderr.write(chunk);
+    });
+
+    return await new Promise((resolvePromise, reject) => {
+      child.once('error', reject);
+      child.once('close', (code, signal) => {
+        resolvePromise(readWrappedCommandExitCode(code, signal));
+      });
+    });
   }
 
   /**
@@ -956,6 +1142,103 @@ function parseHeartbeatArgs(args, env) {
 
 /**
  * @param {string[]} args
+ * @returns {{ long: boolean, summary: string, command: string[] }}
+ */
+function parseStepArgs(args) {
+  const separatorIndex = args.indexOf('--');
+  if (separatorIndex === -1) {
+    throw new CliUsageError(STEP_USAGE);
+  }
+
+  const command = args.slice(separatorIndex + 1);
+  if (command.length === 0) {
+    throw new CliUsageError(STEP_USAGE);
+  }
+
+  let long = false;
+  const summaryArgs = [];
+  for (const arg of args.slice(0, separatorIndex)) {
+    if (arg === '--long') {
+      long = true;
+    } else {
+      summaryArgs.push(arg);
+    }
+  }
+
+  if (summaryArgs.length !== 1 || summaryArgs[0].trim() === '') {
+    throw new CliUsageError(STEP_USAGE);
+  }
+
+  return {
+    long,
+    summary: summaryArgs[0],
+    command,
+  };
+}
+
+/**
+ * @param {import('../local-run-state/types.js').LocalRunState} state
+ * @param {{
+ *   force: boolean,
+ *   now: Date,
+ *   heartbeatIntervalMs: number,
+ * }} options
+ * @returns {boolean}
+ */
+function isStepHeartbeatDue(state, { force, now, heartbeatIntervalMs }) {
+  if (force) {
+    return true;
+  }
+
+  if ((state.heartbeatCount ?? 0) === 0) {
+    return true;
+  }
+
+  const heartbeatAt = Date.parse(state.heartbeatAt);
+  if (!Number.isFinite(heartbeatAt) || now.getTime() - heartbeatAt >= heartbeatIntervalMs) {
+    return true;
+  }
+
+  return (
+    (state.completedNonHeartbeatStepsSinceHeartbeat ?? 0) >=
+    COMPLETED_NON_HEARTBEAT_STEPS_BEFORE_HEARTBEAT
+  );
+}
+
+/**
+ * @param {import('../local-run-state/types.js').LocalRunState} state
+ * @returns {number}
+ */
+function readStepHeartbeatIntervalMs(state) {
+  return state.heartbeatIntervalMs > 0
+    ? state.heartbeatIntervalMs
+    : DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS;
+}
+
+/**
+ * @param {number | null} code
+ * @param {NodeJS.Signals | null} signal
+ * @returns {number}
+ */
+function readWrappedCommandExitCode(code, signal) {
+  if (code !== null) {
+    return code;
+  }
+
+  switch (signal) {
+    case 'SIGHUP':
+      return 129;
+    case 'SIGINT':
+      return 130;
+    case 'SIGTERM':
+      return 143;
+    default:
+      return 1;
+  }
+}
+
+/**
+ * @param {string[]} args
  * @param {string} reference
  * @returns {{ targetNumber: number, backend: 'github-actions' }}
  */
@@ -1718,6 +2001,7 @@ function usage() {
     '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
+    '  pullops step [--long] "<summary>" -- <command...>',
     '  pullops labels ensure',
   ].join('\n');
 }

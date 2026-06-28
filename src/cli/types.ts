@@ -5,7 +5,7 @@ import type { LocalRunRunLink } from '../local-run-state/types.js';
 import type { CodexRunner, RunnerAdapter } from '../runner/types.js';
 
 export interface WritableLike {
-  write(chunk: string): void;
+  write(chunk: string | Uint8Array): void;
 }
 
 export interface OperationTarget {

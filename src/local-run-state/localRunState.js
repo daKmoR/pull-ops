@@ -13,6 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  * @typedef {import('./types.js').LocalRunStateRecord} LocalRunStateRecord
  * @typedef {import('./types.js').LocalRunTerminalStatus} LocalRunTerminalStatus
  * @typedef {import('./types.js').LocalRunTarget} LocalRunTarget
+ * @typedef {import('./types.js').RecordLocalRunCompletedNonHeartbeatStepOptions} RecordLocalRunCompletedNonHeartbeatStepOptions
  * @typedef {import('./types.js').RecordLocalRunHeartbeatOptions} RecordLocalRunHeartbeatOptions
  * @typedef {import('./types.js').RecordLocalRunChildRunOptions} RecordLocalRunChildRunOptions
  * @typedef {import('./types.js').RecordLocalRunTerminalStatusOptions} RecordLocalRunTerminalStatusOptions
@@ -70,8 +71,25 @@ export async function recordLocalRunHeartbeat({ statePath, token, summary, at = 
       ...currentState,
       heartbeatAt,
       heartbeatSummary,
+      heartbeatCount: (currentState.heartbeatCount ?? 0) + 1,
+      completedNonHeartbeatStepsSinceHeartbeat: 0,
       leaseExpiresAt: new Date(at.getTime() + currentState.leaseDurationMs).toISOString(),
       lastEvent: currentState.lastEvent,
+    };
+  });
+}
+
+/**
+ * @param {RecordLocalRunCompletedNonHeartbeatStepOptions} options
+ * @returns {Promise<LocalRunState>}
+ */
+export async function recordLocalRunCompletedNonHeartbeatStep({ statePath }) {
+  return await updateLocalRunState(statePath, currentState => {
+    assertMutableRunState(currentState, statePath);
+    return {
+      ...currentState,
+      completedNonHeartbeatStepsSinceHeartbeat:
+        (currentState.completedNonHeartbeatStepsSinceHeartbeat ?? 0) + 1,
     };
   });
 }
@@ -192,6 +210,8 @@ export function createLocalRunStateRecord({
     heartbeatIntervalMs,
     leaseDurationMs,
     heartbeatAt,
+    heartbeatCount: 0,
+    completedNonHeartbeatStepsSinceHeartbeat: 0,
     leaseExpiresAt,
     lastEvent: createRunStartedEvent({
       operationReference,
@@ -359,6 +379,21 @@ function parseLocalRunState(value, statePath) {
   }
   if (state.heartbeatSummary !== undefined && typeof state.heartbeatSummary !== 'string') {
     throw new Error(`Local run state at ${statePath} has an invalid heartbeatSummary.`);
+  }
+  if (
+    state.heartbeatCount !== undefined &&
+    (!Number.isInteger(state.heartbeatCount) || state.heartbeatCount < 0)
+  ) {
+    throw new Error(`Local run state at ${statePath} has an invalid heartbeatCount.`);
+  }
+  if (
+    state.completedNonHeartbeatStepsSinceHeartbeat !== undefined &&
+    (!Number.isInteger(state.completedNonHeartbeatStepsSinceHeartbeat) ||
+      state.completedNonHeartbeatStepsSinceHeartbeat < 0)
+  ) {
+    throw new Error(
+      `Local run state at ${statePath} has an invalid completedNonHeartbeatStepsSinceHeartbeat.`,
+    );
   }
   if (typeof state.leaseExpiresAt !== 'string' || state.leaseExpiresAt.trim() === '') {
     throw new Error(`Local run state at ${statePath} is missing leaseExpiresAt.`);

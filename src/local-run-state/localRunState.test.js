@@ -11,6 +11,7 @@ import {
   readLocalRunState,
   readLocalRunStateRecordFromDirectory,
   recordLocalRunChildRun,
+  recordLocalRunCompletedNonHeartbeatStep,
   recordLocalRunHeartbeat,
   recordLocalRunTerminalStatus,
   updateLocalRunState,
@@ -54,6 +55,8 @@ describe('localRunState', () => {
     assert.equal(state.leaseExpiresAt, new Date(createdAt.getTime() + 240000).toISOString());
     assert.equal(state.heartbeatIntervalMs, 120000);
     assert.equal(state.leaseDurationMs, 240000);
+    assert.equal(state.heartbeatCount, 0);
+    assert.equal(state.completedNonHeartbeatStepsSinceHeartbeat, 0);
     assert.deepEqual(state.childRuns, []);
     assert.equal(state.parentRun, undefined);
     assert.equal(state.lastEvent.event, 'run.started');
@@ -136,6 +139,8 @@ describe('localRunState', () => {
 
     assert.equal(updated.heartbeatAt, heartbeatAt.toISOString());
     assert.equal(updated.heartbeatSummary, 'inspecting setup command tests');
+    assert.equal(updated.heartbeatCount, 1);
+    assert.equal(updated.completedNonHeartbeatStepsSinceHeartbeat, 0);
     assert.equal(
       updated.leaseExpiresAt,
       new Date(heartbeatAt.getTime() + updated.leaseDurationMs).toISOString(),
@@ -160,6 +165,41 @@ describe('localRunState', () => {
     const afterRejection = JSON.parse(await readFile(initial.statePath, 'utf8'));
     assert.equal(afterRejection.heartbeatAt, heartbeatAt.toISOString());
     assert.equal(afterRejection.leaseExpiresAt, updated.leaseExpiresAt);
+  });
+
+  it('02b: counts non-heartbeat steps and resets the count on heartbeat', async () => {
+    const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-run-step-count-'));
+    const initial = await initializeLocalRunState({
+      runRecordDirectory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: 42,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+
+    await recordLocalRunHeartbeat({
+      statePath: initial.statePath,
+      token: initial.state.heartbeatToken,
+      summary: 'starting command gate',
+      at: new Date('2024-01-01T00:01:00.000Z'),
+    });
+    await recordLocalRunCompletedNonHeartbeatStep({ statePath: initial.statePath });
+    const counted = await recordLocalRunCompletedNonHeartbeatStep({ statePath: initial.statePath });
+
+    assert.equal(counted.completedNonHeartbeatStepsSinceHeartbeat, 2);
+
+    const reset = await recordLocalRunHeartbeat({
+      statePath: initial.statePath,
+      token: initial.state.heartbeatToken,
+      summary: 'refreshing command gate',
+      at: new Date('2024-01-01T00:02:00.000Z'),
+    });
+
+    assert.equal(reset.heartbeatCount, 2);
+    assert.equal(reset.completedNonHeartbeatStepsSinceHeartbeat, 0);
   });
 
   it('03: records terminal status without clearing the existing run history', async () => {

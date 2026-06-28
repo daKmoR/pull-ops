@@ -14,15 +14,31 @@ Implement the supplied issue as written.
 - Keep changes focused, allowing only adjacent work needed to complete the issue correctly.
 - Run focused verification that is appropriate for the change.
 
-Liveness: your first tool call after reading this skill must be
-`npm exec pullops -- heartbeat --summary "<brief current focus>"`. After that,
-repeat the same heartbeat tool call about every 4 minutes while work stays
-active or before every fourth non-heartbeat tool call, whichever comes first.
-Also heartbeat immediately before any command that may run longer than 4
-minutes. If you are unsure whether a heartbeat is due, send it before
-continuing.
-Heartbeats must come from this implementation agent, not from the parent PullOps
-CLI.
+## Liveness and command execution
+
+Use PullOps as the command gate.
+
+Do not run shell commands directly. For every shell command, use:
+
+```bash
+npm exec pullops -- step "<brief current focus>" -- <command>
+```
+
+For commands that may run longer than 4 minutes, use:
+
+```bash
+npm exec pullops -- step --long "<brief current focus>" -- <command>
+```
+
+`pullops step` automatically emits heartbeats when needed. Do not manually count time or tool calls for shell commands.
+
+If you are about to make several non-shell tool calls, send a manual heartbeat first:
+
+```bash
+npm exec pullops -- heartbeat --summary "<brief current focus>"
+```
+
+Heartbeats must originate from this implementation agent process, not from the parent PullOps CLI.
 
 PullOps boundary: use referenced skills for their discipline only. Do not ask the
 user, emit non-JSON, commit, push, change labels, create PRs, or leave this
