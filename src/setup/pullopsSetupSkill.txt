@@ -1,0 +1,14 @@
+# PullOps Setup Skill
+
+This repository only has the setup entry point installed so far.
+
+## Start
+- Work from the repository root.
+- Read `CONTEXT.md` and the setup-related ADRs under `docs/adr/`.
+- Check `.pullops/install-manifest.json` before changing generated files.
+- Use `pullops init --check` to inspect the setup entry point without writing.
+
+## Safety
+- Do not overwrite PullOps-owned files unless the manifest proves ownership and the maintainer asked for `--force`.
+- Do not install the full Workflow Kit from this starter.
+- Keep the manifest synchronized with `pullops.config.js` and this skill file.
