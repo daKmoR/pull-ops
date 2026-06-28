@@ -41,6 +41,9 @@ export interface GitHubApiClient {
   paginate(endpoint: OctokitEndpoint, parameters: Record<string, unknown>): Promise<unknown[]>;
   graphql(query: string, variables: Record<string, unknown>): Promise<unknown>;
   rest: {
+    actions: {
+      listRepoSecrets: OctokitEndpoint;
+    };
     checks: { listForRef: OctokitEndpoint };
     issues: {
       addLabels: OctokitEndpoint;

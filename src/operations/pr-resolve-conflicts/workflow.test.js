@@ -20,7 +20,7 @@ describe('pullops-pr-resolve-conflicts workflow', () => {
       true,
     );
     assert.match(workflow, /pullRequest\.head\.repo\?\.full_name !== `\$\{owner\}\/\$\{repo\}`/);
-    assert.match(workflow, /node src\/cli\/cli\.js run pr-resolve-conflicts/);
+    assert.match(workflow, /npm exec pullops -- run pr-resolve-conflicts/);
     assert.match(workflow, /--phase prepare/);
     assert.match(workflow, /--phase finalize/);
     assert.match(workflow, /openai\/codex-action@v1/);

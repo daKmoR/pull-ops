@@ -69,7 +69,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -78,7 +78,7 @@ jobs:
       - name: Run PullOps update branch
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-update-branch --pr "${{ inputs.pr }}"
+          npm exec pullops -- run pr-update-branch --pr "${{ inputs.pr }}"
         env:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}

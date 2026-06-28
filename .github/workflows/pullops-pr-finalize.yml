@@ -64,7 +64,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -75,7 +75,7 @@ jobs:
         run: |
           mkdir -p "$OUTPUT_DIR"
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-finalize \
+          npm exec pullops -- run pr-finalize \
             --phase prepare \
             --runner codex-action \
             --pr "${{ inputs.pr }}"
@@ -121,14 +121,14 @@ jobs:
         if: always()
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Finalize PullOps PR Finalize
         if: always()
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-finalize \
+          npm exec pullops -- run pr-finalize \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \

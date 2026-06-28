@@ -35,7 +35,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -44,7 +44,7 @@ jobs:
       - name: Run PullOps PRD auto-complete
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          npm run pullops:prd-auto-complete -- --issue ${{ inputs.issue }}
+          npm exec pullops -- run prd-auto-complete --issue ${{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
