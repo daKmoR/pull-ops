@@ -1,44 +1,48 @@
-import type {
-  IssueStoreConfig,
-  ModelTier,
-  OperationConfig,
-  PrFinalizeOperationConfig,
-  PrResolveConflictsOperationConfig,
-} from './types.js';
+import type { IssueStoreConfig, ModelTier } from './types.js';
 import type { RunnerAdapter } from '../runner/types.js';
 
-export type {
-  IssueStoreConfig,
-  IssueStoreProvider,
-  ModelTier,
-  OperationConfig,
-  PrFinalizeOperationConfig,
-  PrResolveConflictsOperationConfig,
-} from './types.js';
+export type { IssueStoreConfig, IssueStoreProvider, ModelTier } from './types.js';
 export type { RunnerAdapter } from '../runner/types.js';
 
 export interface RunnerConfig {
-  adapter: RunnerAdapter;
-  command: string;
-  models: Record<ModelTier, string>;
+  adapter?: RunnerAdapter;
+  command?: string;
+  models?: Record<ModelTier, string>;
+}
+
+export interface OperationConfig {
+  modelTier?: ModelTier;
+}
+
+export interface ReviewOperationConfig extends OperationConfig {
+  escalationModelTier?: ModelTier;
+  humanFeedbackResponseModelTier?: ModelTier;
+}
+
+export interface PrFinalizeOperationConfig extends OperationConfig {
+  aiHistoryCleanup?: boolean;
+}
+
+export interface PrResolveConflictsOperationConfig extends OperationConfig {
+  maxConflictResolutionPasses?: number;
 }
 
 export interface PullOpsConfig {
-  baseBranch: string;
-  branchPrefix: string;
-  issueStore: IssueStoreConfig;
-  runner: RunnerConfig;
-  operations: {
+  baseBranch?: string;
+  branchPrefix?: string;
+  issueStore?: IssueStoreConfig;
+  runner?: RunnerConfig;
+  operations?: Partial<{
     prdPrepare: OperationConfig;
     issueImplement: OperationConfig;
     prdAutoAdvance: OperationConfig;
     prdAutoComplete: OperationConfig;
-    prReview: OperationConfig;
-    prAddressReview: OperationConfig;
+    prReview: ReviewOperationConfig;
+    prAddressReview: ReviewOperationConfig;
     prFixCi: OperationConfig;
     prUpdateBranch: OperationConfig;
     prResolveConflicts: PrResolveConflictsOperationConfig;
     prFinalize: PrFinalizeOperationConfig;
     prCloseChildIssue: OperationConfig;
-  };
+  }>;
 }
