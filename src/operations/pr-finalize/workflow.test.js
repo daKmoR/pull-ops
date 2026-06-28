@@ -15,7 +15,7 @@ describe('pullops-pr-finalize workflow', () => {
     const setOriginIndex = prepareStep.indexOf(
       'git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"',
     );
-    const runPrepareIndex = prepareStep.indexOf('node src/cli/cli.js run pr-finalize');
+    const runPrepareIndex = prepareStep.indexOf('npm exec pullops -- run pr-finalize');
 
     assert.notEqual(setOriginIndex, -1);
     assert.notEqual(runPrepareIndex, -1);

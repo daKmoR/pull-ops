@@ -176,6 +176,10 @@ export interface GitHubPullRequestDiff {
   patch: string;
 }
 
+export interface GitHubRepositoryActionsSecret {
+  name: string;
+}
+
 export type GitHubPullRequestReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
 export interface PullRequestReviewCommentInput {
@@ -203,6 +207,8 @@ export interface DismissPullRequestReviewOptions {
 
 export interface GitHubClient {
   ensureLabels(labels: PullOpsLabel[]): Promise<EnsureLabelsResult>;
+  listRepositoryLabels?(): Promise<GitHubLabel[]>;
+  listRepositoryActionsSecretNames?(): Promise<string[]>;
   getIssue(number: number): Promise<GitHubIssue>;
   getPullRequest(number: number): Promise<GitHubPullRequest>;
   getPullRequestChecks(number: number): Promise<GitHubCheckRun[]>;

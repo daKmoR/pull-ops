@@ -22,7 +22,7 @@ describe('pullops-pr-update-branch workflow', () => {
     assert.match(workflow, /pullRequest\.head\.repo\?\.full_name !== `\$\{owner\}\/\$\{repo\}`/);
     assert.match(
       workflow,
-      /node src\/cli\/cli\.js run pr-update-branch --pr "\$\{\{ inputs\.pr \}\}"/,
+      /npm exec pullops -- run pr-update-branch --pr "\$\{\{ inputs\.pr \}\}"/,
     );
     assert.match(
       workflow,

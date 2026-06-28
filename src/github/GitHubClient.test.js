@@ -9,7 +9,7 @@ import { createGitHubClient, parseGitHubRepository, PULL_OPS_LABELS } from './Gi
  */
 
 describe('createGitHubClient', () => {
-  it('01: defines PullOps task and state labels', () => {
+  it('01: defines PullOps operation and status labels', () => {
     assert.deepEqual(
       PULL_OPS_LABELS.map(label => [label.name, label.color, label.description]),
       [
@@ -48,11 +48,67 @@ describe('createGitHubClient', () => {
           'Finalize a PullOps-managed PR for human review and merge.',
         ],
         ['pullops:human-required', 'D93F0B', 'PullOps automation needs maintainer attention.'],
+        [
+          'pullops:status:in-progress',
+          'D93F0B',
+          'PullOps automation is actively working on the target.',
+        ],
+        [
+          'pullops:status:blocked',
+          'D93F0B',
+          'PullOps automation is blocked and needs maintainer attention.',
+        ],
+        [
+          'pullops:status:prepared',
+          'D93F0B',
+          'PullOps automation prepared the target and is waiting for the next step.',
+        ],
+        [
+          'pullops:status:done',
+          'D93F0B',
+          'PullOps automation completed the target and is waiting for the next step.',
+        ],
+        [
+          'pullops:status:failed',
+          'D93F0B',
+          'PullOps automation failed and needs maintainer attention.',
+        ],
       ],
     );
   });
 
-  it('02: creates missing PullOps labels through Octokit', async () => {
+  it('02: lists repository labels through Octokit without mutating', async () => {
+    const labels = [
+      {
+        name: 'pullops:status:done',
+        color: 'd93f0b',
+        description: 'PullOps automation completed the target and is waiting for the next step.',
+      },
+      {
+        name: 'pullops:issue:implement',
+        color: '5319E7',
+        description:
+          'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+      },
+    ];
+    const { calls, octokit } = createFakeOctokit({ labels });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    const listRepositoryLabels = client.listRepositoryLabels;
+    if (listRepositoryLabels === undefined) {
+      throw new Error('Expected listRepositoryLabels to be defined.');
+    }
+
+    const result = await listRepositoryLabels();
+
+    assert.deepEqual(result, labels);
+    assert.deepEqual(
+      calls.map(call => call.name),
+      ['issues.listLabelsForRepo'],
+    );
+  });
+
+  it('03: creates missing PullOps labels through Octokit', async () => {
     const { calls, octokit } = createFakeOctokit({ labels: [] });
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
@@ -82,7 +138,7 @@ describe('createGitHubClient', () => {
     });
   });
 
-  it('03: leaves existing PullOps labels unchanged when already correct', async () => {
+  it('04: leaves existing PullOps labels unchanged when already correct', async () => {
     const labels = PULL_OPS_LABELS.map(label => ({
       ...label,
       color: label.color.toLowerCase(),
@@ -103,7 +159,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('04: creates missing labels and updates incorrect existing labels', async () => {
+  it('05: creates missing labels and updates incorrect existing labels', async () => {
     const labels = [
       {
         name: 'pullops:missing',
@@ -165,7 +221,7 @@ describe('createGitHubClient', () => {
     );
   });
 
-  it('05: reports GitHub API failures with label context', async () => {
+  it('06: reports GitHub API failures with label context', async () => {
     const { octokit } = createFakeOctokit({
       labels: [
         {
@@ -665,6 +721,51 @@ describe('createGitHubClient', () => {
     );
   });
 
+  it('lists repository Actions secrets for setup doctor warnings', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      repositoryActionsSecrets: [{ name: 'PULLOPS_GITHUB_TOKEN' }, { name: 'OPENAI_API_KEY' }],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.listRepositoryActionsSecretNames === undefined) {
+      throw new Error('Expected listRepositoryActionsSecretNames to be available.');
+    }
+
+    const secretNames = await client.listRepositoryActionsSecretNames();
+
+    assert.deepEqual(secretNames, ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY']);
+    assert.deepEqual(calls[0], {
+      name: 'actions.listRepoSecrets',
+      params: {
+        ...TEST_REPOSITORY,
+        per_page: 100,
+      },
+    });
+  });
+
+  it('lists repository Actions secrets across paginated responses', async () => {
+    const firstPageSecrets = Array.from({ length: 100 }, (_, index) => ({
+      name: `SECRET_${index + 1}`,
+    }));
+    const { octokit } = createFakeOctokit({
+      repositoryActionsSecretPages: [
+        firstPageSecrets,
+        [{ name: 'PULLOPS_GITHUB_TOKEN' }, { name: 'OPENAI_API_KEY' }],
+      ],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.listRepositoryActionsSecretNames === undefined) {
+      throw new Error('Expected listRepositoryActionsSecretNames to be available.');
+    }
+
+    const secretNames = await client.listRepositoryActionsSecretNames();
+
+    assert.equal(secretNames.length, 102);
+    assert.ok(secretNames.includes('PULLOPS_GITHUB_TOKEN'));
+    assert.ok(secretNames.includes('OPENAI_API_KEY'));
+  });
+
   it('18: creates GitHub issues with labels and reports API failures with issue context', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
@@ -834,6 +935,8 @@ const TEST_REPOSITORY = {
  * @param {string} [options.diff]
  * @param {Record<string, unknown>[]} [options.checkRuns]
  * @param {Record<string, unknown>[]} [options.statuses]
+ * @param {Record<string, unknown>[]} [options.repositoryActionsSecrets]
+ * @param {Record<string, unknown>[][]} [options.repositoryActionsSecretPages]
  * @param {string[]} [options.missingLabels]
  * @param {(call: OctokitCall) => boolean} [options.failOn]
  * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.types.js').GitHubApiClient }}
@@ -849,9 +952,13 @@ function createFakeOctokit({
   diff = '',
   checkRuns = [],
   statuses = [],
+  repositoryActionsSecrets = [],
+  repositoryActionsSecretPages,
   missingLabels = [],
   failOn = () => false,
 } = {}) {
+  const secretPages = repositoryActionsSecretPages ?? [repositoryActionsSecrets];
+
   /** @type {OctokitCall[]} */
   const calls = [];
 
@@ -888,6 +995,11 @@ function createFakeOctokit({
      * @returns {Promise<unknown[]>}
      */
     async paginate(endpointToPaginate, params) {
+      if (endpointToPaginate === octokit.rest.actions.listRepoSecrets) {
+        await endpointToPaginate(params);
+        return secretPages.flat();
+      }
+
       const response = await endpointToPaginate(params);
       assert.ok(Array.isArray(response.data));
       return response.data;
@@ -1039,6 +1151,12 @@ function createFakeOctokit({
             : readIssueLabelNames(issue).map(name => ({ name })),
         })),
         updateLabel: endpoint('issues.updateLabel', () => ({})),
+      },
+      actions: {
+        listRepoSecrets: endpoint('actions.listRepoSecrets', () => ({
+          total_count: secretPages.flat().length,
+          secrets: secretPages[0] ?? [],
+        })),
       },
       pulls: {
         create: endpoint('pulls.create', params =>
