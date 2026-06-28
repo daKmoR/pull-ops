@@ -48,6 +48,8 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
 
 export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
+const LOCAL_FINALIZED_REVIEW_CYCLE_GUARD = 8;
+
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
@@ -1304,7 +1306,7 @@ async function runLocalFinalizedIssuePipeline(
   implementationOutput,
   runRecord,
 ) {
-  const maxReviewCycles = 3;
+  const maxReviewCycles = LOCAL_FINALIZED_REVIEW_CYCLE_GUARD;
   let reviewCycle = 0;
   /** @type {unknown[]} */
   const reviewComments = [];

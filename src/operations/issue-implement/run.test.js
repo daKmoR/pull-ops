@@ -1895,73 +1895,78 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('34: local finalized runs block when review cycles are exhausted and preserve branch state', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
-    const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
+  it('34: local finalized runs continue past three review cycles before approval', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-fourth-review-'));
+    const issue = createIssue({ number: 42, title: 'Approve after repeated local review' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit({
-      hasChangesResults: [false, true, false, false, false, false],
+      hasChangesResults: [false, true, false, false, false, false, false, false, false, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
     });
+    /** @param {number} cycle */
+    const createReviewOutput = (cycle) =>
+      JSON.stringify({
+        status: 'changes_requested',
+        summary: `Review ${cycle}.`,
+        comments: [],
+        replies: [],
+        directChanges: [],
+        followUps: [],
+      });
+    /** @param {number} cycle */
+    const createAddressOutput = (cycle) =>
+      JSON.stringify({
+        status: 'addressed',
+        summary: `Addressed review ${cycle}.`,
+        addressed: [
+          {
+            feedbackId: 'local-review-summary:1',
+            response: `Applied review ${cycle}.`,
+          },
+        ],
+        declined: [],
+        deferred: [],
+        changes: [],
+        testPlan: [],
+        followUps: [],
+      });
     const codex = createFakeCodexRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
-          summary: 'Implemented with review issues.',
+          summary: 'Implemented with several review passes.',
           changes: ['Changed code.'],
           testPlan: ['node --test src/operations/issue-implement/run.test.js'],
         }),
+        createReviewOutput(1),
+        createAddressOutput(1),
+        createReviewOutput(2),
+        createAddressOutput(2),
+        createReviewOutput(3),
+        createAddressOutput(3),
         JSON.stringify({
-          status: 'changes_requested',
-          summary: 'First review.',
+          status: 'approved',
+          summary: 'Fourth review approved.',
           comments: [],
           replies: [],
           directChanges: [],
           followUps: [],
         }),
         JSON.stringify({
-          status: 'addressed',
-          summary: 'Addressed first review.',
-          addressed: [
-            {
-              feedbackId: 'local-review-summary:1',
-              response: 'Applied the first review feedback.',
-            },
-          ],
-          declined: [],
-          deferred: [],
-          changes: [],
-          testPlan: [],
-          followUps: [],
-        }),
-        JSON.stringify({
-          status: 'changes_requested',
-          summary: 'Second review.',
-          comments: [],
-          replies: [],
-          directChanges: [],
-          followUps: [],
-        }),
-        JSON.stringify({
-          status: 'addressed',
-          summary: 'Addressed second review.',
-          addressed: [
-            {
-              feedbackId: 'local-review-summary:1',
-              response: 'Applied the second review feedback.',
-            },
-          ],
-          declined: [],
-          deferred: [],
-          changes: [],
-          testPlan: [],
-          followUps: [],
-        }),
-        JSON.stringify({
-          status: 'changes_requested',
-          summary: 'Third review.',
-          comments: [],
-          replies: [],
-          directChanges: [],
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
           followUps: [],
         }),
       ],
@@ -1979,20 +1984,101 @@ describe('runIssueImplement', () => {
       }),
     );
 
+    assert.equal(result.status, 'accepted');
+    assert.deepEqual(
+      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      [
+        'pullops-issue-implement',
+        'pullops-pr-review',
+        'pullops-pr-address-review',
+        'pullops-pr-review',
+        'pullops-pr-address-review',
+        'pullops-pr-review',
+        'pullops-pr-address-review',
+        'pullops-pr-review',
+        'pullops-pr-finalize',
+      ],
+    );
+    assert.equal(git.rewrites.length, 1);
+  });
+
+  it('35: local finalized runs block when the generous review guard is exhausted', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-blocked-'));
+    const issue = createIssue({ number: 42, title: 'Block exhausted reviews', labels: [] });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit({
+      hasChangesResults: [false, true, ...Array(40).fill(false)],
+    });
+    const exhaustedCycleOutputs = [];
+    for (let cycle = 1; cycle <= 12; cycle += 1) {
+      exhaustedCycleOutputs.push(
+        JSON.stringify({
+          status: 'changes_requested',
+          summary: `Review ${cycle}.`,
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+      );
+      if (cycle < 12) {
+        exhaustedCycleOutputs.push(
+          JSON.stringify({
+            status: 'addressed',
+            summary: `Addressed review ${cycle}.`,
+            addressed: [
+              {
+                feedbackId: 'local-review-summary:1',
+                response: `Applied review ${cycle}.`,
+              },
+            ],
+            declined: [],
+            deferred: [],
+            changes: [],
+            testPlan: [],
+            followUps: [],
+          }),
+        );
+      }
+    }
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented with review issues.',
+          changes: ['Changed code.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        ...exhaustedCycleOutputs,
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'dry-run',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
     assert.equal(result.status, 'blocked');
-    assert.match(String(result.summary), /Review Cycles are exhausted \(3 \/ 3\)/);
+    assert.match(String(result.summary), /Review Cycles are exhausted \(12 \/ 12\)/);
     assert.equal(result.branch, 'pullops/issue-42');
     assert.equal(result.baseBranch, 'main');
     assert.deepEqual(git.pushes, []);
     assert.equal(github.createdPullRequests.length, 0);
-    assert.equal(codex.calls.length, 6);
+    assert.equal(codex.calls.length, 24);
     assert.match(
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
-      /Review Cycles are exhausted/,
+      /Review Cycles are exhausted \(12 \/ 12\)/,
     );
   });
 
-  it('35: local finalized approval commits direct review changes before finalization continues', async () => {
+  it('36: local finalized approval commits direct review changes before finalization continues', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-review-direct-changes-'));
     const issue = createIssue({ number: 42, title: 'Commit review-owned changes locally' });
     const github = createFakeGitHub({ issue });
@@ -2074,7 +2160,7 @@ describe('runIssueImplement', () => {
     ]);
   });
 
-  it('36: local finalized runs block when address-review omits local feedback coverage', async () => {
+  it('37: local finalized runs block when address-review omits local feedback coverage', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-address-coverage-'));
     const issue = createIssue({ number: 42, title: 'Cover every local feedback item', labels: [] });
     const github = createFakeGitHub({ issue });
@@ -2150,7 +2236,7 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('37: local finalized tree mismatch restores the reviewed head before blocking', async () => {
+  it('38: local finalized tree mismatch restores the reviewed head before blocking', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-tree-mismatch-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on finalize mismatch' });
     const github = createFakeGitHub({ issue });
@@ -2217,7 +2303,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('38: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
+  it('39: local finalized rewrite failures restore the reviewed head and return a blocked result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-rewrite-failure-'));
     const issue = createIssue({ number: 42, title: 'Restore reviewed head on rewrite failure' });
     const github = createFakeGitHub({ issue });
@@ -2289,7 +2375,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('39: local finalized child dry-runs prefer the local PRD base branch', async () => {
+  it('40: local finalized child dry-runs prefer the local PRD base branch', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-child-base-'));
     const issue = createIssue({
       number: 42,
@@ -2382,7 +2468,7 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('40: local finalized PR publication reports stale branch leases as blocked publication', async () => {
+  it('41: local finalized PR publication reports stale branch leases as blocked publication', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-publish-stale-lease-'));
     const issue = createIssue({
       number: 42,
