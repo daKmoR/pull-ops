@@ -21,10 +21,7 @@ test('init creates the setup entry point and records manifest hashes', async () 
 
   assert.equal(result.status, 'ready');
   assert.equal(result.area, 'setup-entry');
-  assert.deepEqual(
-    [...result.changes].sort(),
-    [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
-  );
+  assert.deepEqual([...result.changes].sort(), [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort());
   assert.deepEqual(result.changesNeeded, []);
   assert.deepEqual(result.blockers, []);
   assert.deepEqual(result.warnings, []);
@@ -39,7 +36,13 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.doesNotMatch(configText, /escalationModelTier/);
   assert.doesNotMatch(configText, /humanFeedbackResponseModelTier/);
   assert.match(skillText, /# PullOps Setup Skill/);
-  assert.match(skillText, /pullops init --check/);
+  assert.match(skillText, /pullops setup doctor --profile full --json/);
+  assert.match(skillText, /pullops setup skills --check --json/);
+  assert.match(skillText, /pullops setup agent-docs --check --json/);
+  assert.match(
+    skillText,
+    /Do not invoke `setup-matt-pocock-skills` or any remote skill package installer\./,
+  );
 
   /** @type {import('./init.types.js').PullOpsInstallManifest} */
   const manifest = JSON.parse(manifestText);
@@ -83,7 +86,10 @@ test('init --check reports missing starter artifacts without writing them', asyn
 test('init blocks modified generated files unless the manifest owns them and force is given', async () => {
   const ownedRepo = await createGitRepository();
   await runPullOpsInit({ cwd: ownedRepo });
-  await writeFile(join(ownedRepo, CONFIG_PATH), 'export default { issueStore: { provider: "github" } };\n');
+  await writeFile(
+    join(ownedRepo, CONFIG_PATH),
+    'export default { issueStore: { provider: "github" } };\n',
+  );
 
   const blocked = await runPullOpsInit({ cwd: ownedRepo });
   assert.equal(blocked.status, 'blocked');
@@ -126,10 +132,7 @@ test('init refreshes unchanged manifest-owned starter files without force', asyn
   const result = await runPullOpsInit({ cwd });
 
   assert.equal(result.status, 'ready');
-  assert.deepEqual(
-    [...result.changes].sort(),
-    [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
-  );
+  assert.deepEqual([...result.changes].sort(), [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort());
 
   const configText = await readFile(join(cwd, CONFIG_PATH), 'utf8');
   const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');

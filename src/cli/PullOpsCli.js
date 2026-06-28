@@ -15,6 +15,11 @@ import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import { runPullOpsInit } from '../setup/init.js';
 import {
+  runPullOpsSetupAgentDocs,
+  runPullOpsSetupDoctor,
+  runPullOpsSetupSkills,
+} from '../setup/setup.js';
+import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   LocalRunHeartbeatError,
   readLocalRunState,
@@ -178,6 +183,10 @@ export class PullOpsCli {
 
     if (command === 'init') {
       return await this.runInit(args);
+    }
+
+    if (command === 'setup') {
+      return await this.runSetup(args);
     }
 
     if (command === 'step') {
@@ -1016,6 +1025,103 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
+  async runSetup(args) {
+    const [subcommand, ...rest] = args;
+
+    if (subcommand === undefined) {
+      throw new CliUsageError(
+        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs.',
+      );
+    }
+
+    if (subcommand === '--help' || subcommand === '-h') {
+      this.stdout.write(`${usage()}\n`);
+      return 0;
+    }
+
+    if (subcommand === 'doctor') {
+      return await this.runSetupDoctor(rest);
+    }
+
+    if (subcommand === 'skills') {
+      return await this.runSetupSkills(rest);
+    }
+
+    if (subcommand === 'agent-docs') {
+      return await this.runSetupAgentDocs(rest);
+    }
+
+    throw new CliUsageError(
+      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs.`,
+    );
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupDoctor(args) {
+    const parsedArgs = parseSetupDoctorArgs(args);
+    const result = await runPullOpsSetupDoctor({
+      cwd: this.cwd,
+      profile: parsedArgs.profile,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupDoctorResult(result, parsedArgs.profile)}\n`);
+    }
+
+    return result.status === 'blocked' ? 1 : 0;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupSkills(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupSkills({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return result.status === 'ready' ? 0 : 1;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupAgentDocs(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupAgentDocs({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return result.status === 'ready' ? 0 : 1;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
   async runInit(args) {
     const parsedArgs = parseInitArgs(args);
     const result = await runPullOpsInit({
@@ -1193,6 +1299,67 @@ function parseInitArgs(args) {
 }
 
 /**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean }}
+ */
+function parseSetupArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for setup command: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean, profile: import('../setup/setup.types.js').PullOpsSetupProfile }}
+ */
+function parseSetupDoctorArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+  const rawProfile = parseOptionalStringOption(args, '--profile', consumed) ?? 'full';
+
+  if (!['full', 'local', 'authoring'].includes(rawProfile)) {
+    throw new CliUsageError(
+      `Unsupported setup doctor profile "${rawProfile}". Expected one of: full, local, authoring.`,
+    );
+  }
+  const profile = /** @type {import('../setup/setup.types.js').PullOpsSetupProfile} */ (rawProfile);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for setup doctor: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+    profile,
+  };
+}
+
+/**
  * @param {import('../setup/init.types.js').PullOpsSetupResult} result
  * @returns {string}
  */
@@ -1210,6 +1377,35 @@ function renderInitResult(result) {
   appendSetupSection(lines, 'Suggestions', result.suggestions);
 
   return lines.join('\n');
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @returns {string}
+ */
+function renderSetupResult(result) {
+  const lines = [
+    `PullOps Setup: ${result.status}`,
+    `Area: ${result.area}`,
+    `Summary: ${result.summary}`,
+  ];
+
+  appendSetupSection(lines, 'Changes', result.changes);
+  appendSetupSection(lines, 'Changes needed', result.changesNeeded);
+  appendSetupSection(lines, 'Blockers', result.blockers);
+  appendSetupSection(lines, 'Warnings', result.warnings);
+  appendSetupSection(lines, 'Suggestions', result.suggestions);
+
+  return lines.join('\n');
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @param {import('../setup/setup.types.js').PullOpsSetupProfile} profile
+ * @returns {string}
+ */
+function renderSetupDoctorResult(result, profile) {
+  return ['Profile: ' + profile, renderSetupResult(result)].join('\n');
 }
 
 /**
@@ -2075,6 +2271,9 @@ function usage() {
   return [
     'Usage:',
     '  pullops init [--check] [--json] [--force]',
+    '  pullops setup doctor [--check] [--profile full|local|authoring] [--json]',
+    '  pullops setup skills [--check] [--json] [--force]',
+    '  pullops setup agent-docs [--check] [--json] [--force]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
