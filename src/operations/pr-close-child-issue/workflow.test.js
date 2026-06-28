@@ -38,7 +38,7 @@ describe('pullops-pr-close-child-issue workflow', () => {
     assert.equal(workflow.includes("head_pattern='^pullops/prd-([0-9]+)-issue-([0-9]+)$'"), true);
     assert.match(
       workflow,
-      /node src\/cli\/cli\.js run pr-close-child-issue --pr "\$\{\{ github\.event\.pull_request\.number \}\}"/,
+      /npm exec pullops -- run pr-close-child-issue --pr "\$\{\{ github\.event\.pull_request\.number \}\}"/,
     );
     assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);
     assert.match(workflow, /PULLOPS_GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);

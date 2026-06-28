@@ -1,4 +1,4 @@
-export type PullOpsSetupProfile = 'full' | 'local' | 'authoring';
+export type PullOpsSetupProfile = 'full' | 'local' | 'authoring' | 'github-actions';
 
 export interface PullOpsSetupCommandOptions {
   cwd?: string;
@@ -8,4 +8,5 @@ export interface PullOpsSetupCommandOptions {
 
 export interface PullOpsSetupDoctorOptions extends PullOpsSetupCommandOptions {
   profile?: PullOpsSetupProfile;
+  readRepositoryActionsSecretNames?: (options: { cwd: string }) => Promise<string[]>;
 }

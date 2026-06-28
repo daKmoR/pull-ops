@@ -31,7 +31,10 @@ describe('PRD automation workflows', () => {
       ),
       true,
     );
-    assert.match(workflow, /npm run pullops:prd-auto-advance -- --issue \$\{\{ inputs\.issue \}\}/);
+    assert.match(
+      workflow,
+      /npm exec pullops -- run prd-auto-advance --issue \$\{\{ inputs\.issue \}\}/,
+    );
     assert.match(
       workflow,
       /git remote set-url origin "https:\/\/x-access-token:\$\{PULLOPS_GITHUB_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git"/,
@@ -48,7 +51,7 @@ describe('PRD automation workflows', () => {
     );
     assert.match(
       workflow,
-      /npm run pullops:prd-auto-complete -- --issue \$\{\{ inputs\.issue \}\}/,
+      /npm exec pullops -- run prd-auto-complete --issue \$\{\{ inputs\.issue \}\}/,
     );
     assert.match(workflow, /pullops-prd-auto-complete-\$\{\{ inputs\.issue \}\}/);
     assert.doesNotMatch(workflow, /openai\/codex-action|codex-action|--runner/);

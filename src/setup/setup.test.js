@@ -7,8 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, it } from 'node:test';
 
+import { OPERATION_LABEL_REFERENCES, WORKFLOW_OPERATIONS } from '../operations/operations.js';
 import { runPullOpsInit } from './init.js';
-import { runPullOpsSetupAgentDocs, runPullOpsSetupDoctor, runPullOpsSetupSkills } from './setup.js';
+import {
+  runPullOpsSetupAgentDocs,
+  runPullOpsSetupDoctor,
+  runPullOpsSetupGitHubActions,
+  runPullOpsSetupSkills,
+} from './setup.js';
 
 const execFileAsync = promisify(execFile);
 const MANIFEST_PATH = '.pullops/install-manifest.json';
@@ -291,6 +297,150 @@ describe('setup agent docs', () => {
   });
 });
 
+describe('setup github-actions', () => {
+  it('01: installs the workflow kit from the target local package and leaves non-PullOps workflows alone', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+
+    await mkdir(join(cwd, '.github', 'workflows'), { recursive: true });
+    const customWorkflowPath = join(cwd, '.github', 'workflows', 'custom.yml');
+    await writeFile(customWorkflowPath, 'name: Custom Workflow\n');
+
+    const dryRun = await runPullOpsSetupGitHubActions({ cwd, check: true });
+    assert.equal(dryRun.status, 'changes-needed');
+    assert.equal(dryRun.area, 'setup-github-actions');
+
+    const expectedWorkflowPaths = [
+      join('.github', 'workflows', 'pullops-dispatch.yml'),
+      ...WORKFLOW_OPERATIONS.map(operation =>
+        join('.github', 'workflows', `pullops-${operation.name}.yml`),
+      ),
+    ];
+
+    assert.deepEqual(
+      [...dryRun.changesNeeded].sort(),
+      [...expectedWorkflowPaths, MANIFEST_PATH].sort(),
+    );
+    assert.deepEqual(dryRun.blockers, []);
+
+    const applied = await runPullOpsSetupGitHubActions({ cwd });
+    assert.equal(applied.status, 'ready');
+    assert.equal(applied.area, 'setup-github-actions');
+    assert.deepEqual([...applied.changes].sort(), [...expectedWorkflowPaths, MANIFEST_PATH].sort());
+
+    const dispatchWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-dispatch.yml'),
+      'utf8',
+    );
+    const prdPrepareWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-prd-prepare.yml'),
+      'utf8',
+    );
+    const issueImplementWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-issue-implement.yml'),
+      'utf8',
+    );
+    const prCloseChildIssueWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-pr-close-child-issue.yml'),
+      'utf8',
+    );
+    const customWorkflowText = await readFile(customWorkflowPath, 'utf8');
+    const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
+
+    const actualDispatchRoutes = [...dispatchWorkflowText.matchAll(/'([^']+)': '([^']+\.yml)'/g)]
+      .map(([, labelName, workflowPath]) => [labelName, workflowPath])
+      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+    const expectedDispatchRoutes = OPERATION_LABEL_REFERENCES.map(operation => [
+      operation.label,
+      `pullops-${operation.workflowOperationName}.yml`,
+    ]).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+
+    assert.deepEqual(actualDispatchRoutes, expectedDispatchRoutes);
+    assert.ok(
+      !actualDispatchRoutes.some(
+        ([, workflowPath]) => workflowPath === 'pullops-pr-close-child-issue.yml',
+      ),
+    );
+    assert.match(prdPrepareWorkflowText, /node-version: 22/);
+    assert.match(prdPrepareWorkflowText, /npm exec pullops -- run prd-prepare/);
+    assert.match(issueImplementWorkflowText, /node-version: 22/);
+    assert.match(issueImplementWorkflowText, /npm exec pullops -- run issue-implement/);
+    assert.match(prCloseChildIssueWorkflowText, /node-version: 22/);
+    assert.match(prCloseChildIssueWorkflowText, /npm exec pullops -- run pr-close-child-issue/);
+    assert.equal(customWorkflowText, 'name: Custom Workflow\n');
+    assert.match(customWorkflowText, /Custom Workflow/);
+
+    /** @type {import('./init.types.js').PullOpsInstallManifest} */
+    const manifest = JSON.parse(manifestText);
+    assert.ok(
+      manifest.files.some(entry => entry.path === '.github/workflows/pullops-dispatch.yml'),
+    );
+    assert.ok(
+      manifest.files.some(
+        entry => entry.path === '.github/workflows/pullops-pr-close-child-issue.yml',
+      ),
+    );
+    assert.ok(!manifest.files.some(entry => entry.path === '.github/workflows/custom.yml'));
+  });
+
+  it('02: blocks when repository context is unavailable for secret inspection', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+
+    const result = await runPullOpsSetupDoctor({ cwd, profile: 'github-actions' });
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.area, 'setup-doctor');
+    assert.match(
+      joinMessages(result.blockers),
+      /GitHub Actions readiness requires a GitHub remote or explicit repository context\./,
+    );
+    assert.ok(result.changesNeeded.includes('.github/workflows/pullops-dispatch.yml'));
+  });
+
+  it('03: reports missing repository Actions secrets as warnings when they are visible', async () => {
+    const cwd = await createSetupRepository({ includeGitHubRemote: true });
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'github-actions',
+      readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN'],
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.match(
+      joinMessages(result.warnings),
+      /Missing repository Actions secrets: OPENAI_API_KEY\./,
+    );
+  });
+
+  it('04: warns when repository Actions secrets cannot be inspected', async () => {
+    const cwd = await createSetupRepository({ includeGitHubRemote: true });
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'github-actions',
+      readRepositoryActionsSecretNames: async () => {
+        throw new Error('repository secrets are hidden');
+      },
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.match(
+      joinMessages(result.warnings),
+      /Unable to inspect repository Actions secrets: repository secrets are hidden/,
+    );
+  });
+});
+
 describe('package files', () => {
   it('01: includes setup agent-doc templates in npm pack dry-run output', async () => {
     const { stdout } = await execFileAsync(
@@ -306,6 +456,10 @@ describe('package files', () => {
     assert.ok(packedPaths.includes('src/setup/agent-docs/issue-tracker.md'));
     assert.ok(packedPaths.includes('src/setup/agent-docs/triage-labels.md'));
     assert.ok(packedPaths.includes('src/setup/agent-docs/domain.md'));
+    assert.ok(packedPaths.includes('.github/workflows/pullops-dispatch.yml'));
+    for (const operation of WORKFLOW_OPERATIONS) {
+      assert.ok(packedPaths.includes(`.github/workflows/pullops-${operation.name}.yml`));
+    }
   });
 });
 
@@ -316,6 +470,7 @@ async function createSetupRepository({
   includeLocalDependency = true,
   includePackageLock = true,
   includeLocalExecutable = true,
+  includeGitHubRemote = false,
 } = {}) {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-setup-'));
   await execFileAsync('git', ['init', '--initial-branch=main'], { cwd });
@@ -331,6 +486,11 @@ async function createSetupRepository({
     };
   }
   await writeFile(join(cwd, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`);
+  if (includeGitHubRemote) {
+    await execFileAsync('git', ['remote', 'add', 'origin', 'git@github.com:acme/widgets.git'], {
+      cwd,
+    });
+  }
   if (includePackageLock) {
     await writeFile(
       join(cwd, 'package-lock.json'),
@@ -388,6 +548,10 @@ async function installLocalPullOpsPackage({ cwd }) {
       },
     );
   }
+
+  await cp(join(REPO_ROOT, '.github', 'workflows'), join(packageRoot, '.github', 'workflows'), {
+    recursive: true,
+  });
 
   await mkdir(join(packageRoot, 'src', 'setup', 'agent-docs'), { recursive: true });
   await cp(

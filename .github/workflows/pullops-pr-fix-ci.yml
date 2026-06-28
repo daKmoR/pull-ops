@@ -80,7 +80,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -90,7 +90,7 @@ jobs:
         id: prepare
         run: |
           mkdir -p "$OUTPUT_DIR"
-          node src/cli/cli.js run pr-fix-ci \
+          npm exec pullops -- run pr-fix-ci \
             --phase prepare \
             --runner codex-action \
             --pr "$PR"
@@ -136,14 +136,14 @@ jobs:
         if: always()
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Finalize PullOps fix CI
         if: always()
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          node src/cli/cli.js run pr-fix-ci \
+          npm exec pullops -- run pr-fix-ci \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \

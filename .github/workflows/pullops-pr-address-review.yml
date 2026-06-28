@@ -141,7 +141,7 @@ jobs:
         if: steps.gate.outputs.run_operation == 'true'
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -157,7 +157,7 @@ jobs:
           if [ -n "$REVIEW_ID" ]; then
             review_id_args=(--review-id "$REVIEW_ID")
           fi
-          node src/cli/cli.js run pr-address-review \
+          npm exec pullops -- run pr-address-review \
             --phase prepare \
             --runner codex-action \
             --pr "$PR" \
@@ -211,7 +211,7 @@ jobs:
         if: always() && steps.gate.outputs.run_operation == 'true'
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Finalize PullOps address review
@@ -222,7 +222,7 @@ jobs:
           if [ -n "$REVIEW_ID" ]; then
             review_id_args=(--review-id "$REVIEW_ID")
           fi
-          node src/cli/cli.js run pr-address-review \
+          npm exec pullops -- run pr-address-review \
             --phase finalize \
             --runner codex-action \
             --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \

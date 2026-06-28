@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
-import { execFile as nodeExecFile } from 'node:child_process';
+import { execFile as nodeExecFile, execFileSync as nodeExecFileSync } from 'node:child_process';
 import { access, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
+import { createGitHubClient } from '../github/GitHubClient.js';
+import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 
 /**
  * @typedef {import('./init.types.js').PullOpsInstallManifest} PullOpsInstallManifest
@@ -27,14 +29,17 @@ const LOCAL_PULL_OPS_PACKAGE_JSON_PATH = join(LOCAL_PULL_OPS_PACKAGE_PATH, 'pack
 const LOCAL_PULL_OPS_BUNDLED_SKILLS_PATH = join('.agents', 'skills');
 const LOCAL_PULL_OPS_SETUP_SKILL_TEMPLATE_PATH = join('src', 'setup', 'pullopsSetupSkill.txt');
 const LOCAL_PULL_OPS_AGENT_DOC_TEMPLATE_ROOT = join('src', 'setup', 'agent-docs');
+const LOCAL_PULL_OPS_WORKFLOW_TEMPLATE_ROOT = join('.github', 'workflows');
 const AGENT_DOC_TARGETS = [
   'docs/agents/issue-tracker.md',
   'docs/agents/triage-labels.md',
   'docs/agents/domain.md',
 ];
+const GITHUB_ACTIONS_REQUIRED_SECRETS = ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'];
 
 const SETUP_SKILLS_AREA = 'setup-skills';
 const SETUP_AGENT_DOCS_AREA = 'setup-agent-docs';
+const SETUP_GITHUB_ACTIONS_AREA = 'setup-github-actions';
 const SETUP_DOCTOR_AREA = 'setup-doctor';
 
 /**
@@ -79,10 +84,34 @@ export async function runPullOpsSetupAgentDocs({
 }
 
 /**
+ * @param {PullOpsSetupCommandOptions} [options]
+ * @returns {Promise<PullOpsSetupResult>}
+ */
+export async function runPullOpsSetupGitHubActions({
+  cwd = process.cwd(),
+  check = false,
+  force = false,
+} = {}) {
+  return await reconcileSetupFiles({
+    cwd,
+    check,
+    force,
+    area: SETUP_GITHUB_ACTIONS_AREA,
+    readySummary: 'Installed PullOps GitHub Actions workflows.',
+    incompleteSummary: 'PullOps GitHub Actions workflows are incomplete.',
+    collectDesiredFileContents: collectGitHubActionsWorkflowFileContents,
+  });
+}
+
+/**
  * @param {PullOpsSetupDoctorOptions} [options]
  * @returns {Promise<PullOpsSetupResult>}
  */
-export async function runPullOpsSetupDoctor({ cwd = process.cwd(), profile = 'full' } = {}) {
+export async function runPullOpsSetupDoctor({
+  cwd = process.cwd(),
+  profile = 'full',
+  readRepositoryActionsSecretNames,
+} = {}) {
   const resolvedCwd = await resolveExistingPath(cwd);
   const prereqResult = await readSetupPrereqs({ cwd: resolvedCwd, verifyRuntime: true });
   if (prereqResult.blockers.length > 0) {
@@ -112,6 +141,12 @@ export async function runPullOpsSetupDoctor({ cwd = process.cwd(), profile = 'fu
         desiredFileContents.set(path, contents);
       }
     }
+    if (profile === 'github-actions') {
+      const workflowFiles = await collectGitHubActionsWorkflowFileContents({ cwd: resolvedCwd });
+      for (const [path, contents] of workflowFiles.entries()) {
+        desiredFileContents.set(path, contents);
+      }
+    }
   } catch (error) {
     return createLocalPackageLoadFailureResult({
       area: SETUP_DOCTOR_AREA,
@@ -131,6 +166,14 @@ export async function runPullOpsSetupDoctor({ cwd = process.cwd(), profile = 'fu
       profile === 'full' || profile === 'authoring' ? new Set(AGENT_DOC_TARGETS) : new Set(),
   });
 
+  const githubActionsInspection =
+    profile === 'github-actions'
+      ? await inspectGitHubActionsReadiness({
+          cwd: resolvedCwd,
+          readRepositoryActionsSecretNames,
+        })
+      : { blockers: [], warnings: [], suggestions: [] };
+
   const optionalAuthoringResult =
     profile === 'full' || profile === 'authoring'
       ? await inspectOptionalAuthoringSkills({ cwd: resolvedCwd })
@@ -138,16 +181,19 @@ export async function runPullOpsSetupDoctor({ cwd = process.cwd(), profile = 'fu
   const runsIgnoreResult = await inspectPullOpsRunsIgnore({ cwd: resolvedCwd });
 
   const blockers = inspection.blockers;
+  blockers.push(...githubActionsInspection.blockers);
   const changesNeeded = inspection.changesNeeded;
   const warnings = dedupeStrings([
     ...prereqResult.warnings,
     ...inspection.warnings,
+    ...githubActionsInspection.warnings,
     ...optionalAuthoringResult.warnings,
     ...runsIgnoreResult.warnings,
   ]);
   const suggestions = dedupeStrings([
     ...prereqResult.suggestions,
     ...inspection.suggestions,
+    ...githubActionsInspection.suggestions,
     ...optionalAuthoringResult.suggestions,
     ...runsIgnoreResult.suggestions,
   ]);
@@ -808,6 +854,70 @@ async function inspectPullOpsRunsIgnore({ cwd }) {
 }
 
 /**
+ * @param {{
+ *   cwd?: string,
+ *   readRepositoryActionsSecretNames?: (options: { cwd: string }) => Promise<string[]>;
+ * }} [options]
+ * @returns {Promise<{ blockers: string[], warnings: string[], suggestions: string[] }>}
+ */
+async function inspectGitHubActionsReadiness({
+  cwd = process.cwd(),
+  readRepositoryActionsSecretNames = readRepositoryActionsSecretNamesDefault,
+} = {}) {
+  try {
+    const secretNames = await readRepositoryActionsSecretNames({ cwd });
+    const missingSecrets = GITHUB_ACTIONS_REQUIRED_SECRETS.filter(
+      secret => !secretNames.includes(secret),
+    );
+
+    if (missingSecrets.length === 0) {
+      return { blockers: [], warnings: [], suggestions: [] };
+    }
+
+    return {
+      blockers: [],
+      warnings: [`Missing repository Actions secrets: ${missingSecrets.join(', ')}.`],
+      suggestions: ['Add the missing repository Actions secrets before rerunning PullOps setup.'],
+    };
+  } catch (error) {
+    const message = getErrorMessage(error);
+    if (isGitHubRepositoryContextError(message)) {
+      return {
+        blockers: [
+          'GitHub Actions readiness requires a GitHub remote or explicit repository context.',
+        ],
+        warnings: [],
+        suggestions: [
+          'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
+        ],
+      };
+    }
+
+    return {
+      blockers: [],
+      warnings: [`Unable to inspect repository Actions secrets: ${message}`],
+      suggestions: [
+        'Make the repository Actions secrets visible or rerun PullOps setup with repository access.',
+      ],
+    };
+  }
+}
+
+/**
+ * @param {{ cwd: string }} options
+ * @returns {Promise<string[]>}
+ */
+async function readRepositoryActionsSecretNamesDefault({ cwd }) {
+  const client = createGitHubClient({
+    readRemoteOriginUrl: () => readGitRemoteOriginUrl(cwd),
+  });
+  if (client.listRepositoryActionsSecretNames === undefined) {
+    throw new Error('GitHub client does not support listing repository Actions secrets.');
+  }
+  return await client.listRepositoryActionsSecretNames();
+}
+
+/**
  * @param {{ cwd: string }} options
  * @returns {Promise<Map<string, string>>}
  */
@@ -864,6 +974,32 @@ async function collectAgentDocFileContents({ cwd }) {
 }
 
 /**
+ * @param {{ cwd: string }} options
+ * @returns {Promise<Map<string, string>>}
+ */
+async function collectGitHubActionsWorkflowFileContents({ cwd }) {
+  const localPackageRoot = await resolveInstalledLocalPullOpsPackageRoot({ cwd });
+  const workflowRoot = join(localPackageRoot, LOCAL_PULL_OPS_WORKFLOW_TEMPLATE_ROOT);
+
+  /** @type {Map<string, string>} */
+  const fileContents = new Map();
+  fileContents.set(
+    join('.github', 'workflows', 'pullops-dispatch.yml'),
+    await readFile(join(workflowRoot, 'pullops-dispatch.yml'), 'utf8'),
+  );
+
+  for (const operation of WORKFLOW_OPERATIONS) {
+    const fileName = `pullops-${operation.name}.yml`;
+    fileContents.set(
+      join('.github', 'workflows', fileName),
+      await readFile(join(workflowRoot, fileName), 'utf8'),
+    );
+  }
+
+  return fileContents;
+}
+
+/**
  * @param {{
  *   sourcePath: string,
  *   targetPath: string,
@@ -905,6 +1041,23 @@ async function readGitRepositoryRoot(cwd) {
     const result = await execFileAsync('git', ['rev-parse', '--show-toplevel'], { cwd });
     const repositoryRoot = String(result.stdout ?? '').trim();
     return repositoryRoot === '' ? undefined : repositoryRoot;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * @param {string} cwd
+ * @returns {string | undefined}
+ */
+function readGitRemoteOriginUrl(cwd) {
+  try {
+    const result = nodeExecFileSync('git', ['-C', cwd, 'config', '--get', 'remote.origin.url'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const remoteUrl = String(result ?? '').trim();
+    return remoteUrl === '' ? undefined : remoteUrl;
   } catch {
     return undefined;
   }
@@ -1173,6 +1326,10 @@ function completeSummaryForArea(area) {
     return 'PullOps-compatible agent docs are already installed.';
   }
 
+  if (area === SETUP_GITHUB_ACTIONS_AREA) {
+    return 'PullOps GitHub Actions workflows are already installed.';
+  }
+
   return 'PullOps setup is already complete.';
 }
 
@@ -1182,6 +1339,18 @@ function completeSummaryForArea(area) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isGitHubRepositoryContextError(message) {
+  return (
+    message.includes('GITHUB_REPOSITORY must be set to "OWNER/REPO"') ||
+    message.includes('remote.origin.url must point at a GitHub repository') ||
+    message.includes('Invalid GITHUB_REPOSITORY')
+  );
 }
 
 /**

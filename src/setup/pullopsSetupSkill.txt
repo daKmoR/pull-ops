@@ -13,6 +13,8 @@ This repository has the tiny init entry point installed. Use PullOps setup comma
 ## Commands
 - Use `pullops setup skills --check --json` to inspect bundled skill installation, then `pullops setup skills --json` to apply it.
 - Use `pullops setup agent-docs --check --json` to inspect compatible agent docs, then `pullops setup agent-docs --json` to create any missing files.
+- Use `pullops setup github-actions --check --json` to inspect the workflow kit, then `pullops setup github-actions --json` to create or reconcile it.
+- Re-run `pullops setup doctor --profile github-actions --json` after workflow setup to confirm GitHub Actions readiness.
 - Re-run `pullops setup doctor --profile full --json` after setup to confirm readiness.
 
 ## Safety

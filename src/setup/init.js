@@ -445,12 +445,7 @@ async function readInstallManifestState(filePath) {
         path: String(entry.path),
         hash: String(entry.hash),
       })),
-      entries: new Map(
-        parsed.files.map(entry => [
-          String(entry.path),
-          String(entry.hash),
-        ]),
-      ),
+      entries: new Map(parsed.files.map(entry => [String(entry.path), String(entry.hash)])),
     };
   } catch {
     return undefined;

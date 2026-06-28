@@ -16,6 +16,7 @@
   },
   "files": [
     "exports/",
+    ".github/workflows/*.yml",
     "src/**/*.js",
     "src/**/*.css",
     "src/**/*.svg",
