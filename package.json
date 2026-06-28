@@ -20,6 +20,8 @@
     "src/**/*.css",
     "src/**/*.svg",
     "src/**/*.txt",
+    "src/setup/agent-docs/*.md",
+    ".agents/skills/pullops-*/**",
     "dist-types/**/*.d.ts",
     "dist-types/**/*.d.ts.map",
     "docs/assets/",
