@@ -4,7 +4,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
-import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
+import { createGitHubClient, parseGitHubRepository } from '../github/GitHubClient.js';
 import {
   createIssueStoreRunRecordLocation,
   writeIssueStoreRunArtifact,
@@ -13,6 +13,15 @@ import { publishChildIssues } from '../issue-store/publishChildIssues.js';
 import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
+import { runPullOpsInit } from '../setup/init.js';
+import {
+  runPullOpsSetupGitHubActions,
+  runPullOpsSetupAgentDocs,
+  runPullOpsSetupDoctor,
+  runPullOpsSetupGitHubLabels,
+  runPullOpsSetupSkills,
+} from '../setup/setup.js';
+import { hasSetupChanges } from '../setup/setupResult.js';
 import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   LocalRunHeartbeatError,
@@ -45,7 +54,6 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
- * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
  * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
@@ -82,7 +90,7 @@ export class PullOpsCli {
     stdout = process.stdout,
     stderr = process.stderr,
     stdin = process.stdin,
-    githubClient = createGitHubClient(),
+    githubClient,
     gitClient,
     codexRunner,
     operationRunner = runWorkflowOperation,
@@ -94,7 +102,8 @@ export class PullOpsCli {
     this.stdout = stdout;
     this.stderr = stderr;
     this.stdin = stdin;
-    this.githubClient = githubClient;
+    this.providedGitHubClient = githubClient;
+    this.githubClient = githubClient ?? createGitHubClient();
     /** @type {(message: string) => void} */
     this.progress = message => {
       this.stderr.write(`[pullops] ${message}\n`);
@@ -163,16 +172,20 @@ export class PullOpsCli {
       return await this.runOperation(args);
     }
 
-    if (command === 'labels') {
-      return await this.runLabels(args);
-    }
-
     if (command === 'issues') {
       return await this.runIssues(args);
     }
 
     if (command === 'heartbeat') {
       return await this.runHeartbeat(args);
+    }
+
+    if (command === 'init') {
+      return await this.runInit(args);
+    }
+
+    if (command === 'setup') {
+      return await this.runSetup(args);
     }
 
     if (command === 'step') {
@@ -986,25 +999,171 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runLabels(args) {
+  async runSetup(args) {
     const [subcommand, ...rest] = args;
 
-    if (subcommand !== 'ensure') {
-      throw new CliUsageError('Expected "pullops labels ensure".');
+    if (subcommand === undefined) {
+      throw new CliUsageError(
+        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs, github-actions, github-labels.',
+      );
     }
 
-    if (rest.length > 0) {
-      throw new CliUsageError(`Unknown labels ensure arguments: ${rest.join(' ')}.`);
+    if (subcommand === '--help' || subcommand === '-h') {
+      this.stdout.write(`${usage()}\n`);
+      return 0;
     }
 
-    const result = await this.githubClient.ensureLabels(PULL_OPS_LABELS);
+    if (subcommand === 'doctor') {
+      return await this.runSetupDoctor(rest);
+    }
 
-    this.writeValidatedJson({
-      status: 'accepted',
-      summary: summarizeEnsureLabelsResult(PULL_OPS_LABELS.length, result),
-      labels: result,
+    if (subcommand === 'skills') {
+      return await this.runSetupSkills(rest);
+    }
+
+    if (subcommand === 'agent-docs') {
+      return await this.runSetupAgentDocs(rest);
+    }
+
+    if (subcommand === 'github-actions') {
+      return await this.runSetupGitHubActions(rest);
+    }
+
+    if (subcommand === 'github-labels') {
+      return await this.runSetupGitHubLabels(rest);
+    }
+
+    throw new CliUsageError(
+      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs, github-actions, github-labels.`,
+    );
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupDoctor(args) {
+    const parsedArgs = parseSetupDoctorArgs(args);
+    const result = await runPullOpsSetupDoctor({
+      cwd: this.cwd,
+      profile: parsedArgs.profile,
+      ...(parsedArgs.repo === undefined ? {} : { repository: parsedArgs.repo }),
     });
-    return 0;
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupDoctorResult(result, parsedArgs.profile)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupSkills(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupSkills({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupAgentDocs(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupAgentDocs({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupGitHubActions(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupGitHubActions({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupGitHubLabels(args) {
+    const parsedArgs = parseSetupGitHubLabelsArgs(args);
+    const result = await runPullOpsSetupGitHubLabels({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+      githubClient: parsedArgs.repo === undefined ? this.githubClient : this.providedGitHubClient,
+      ...(parsedArgs.repo === undefined ? {} : { repository: parsedArgs.repo }),
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runInit(args) {
+    const parsedArgs = parseInitArgs(args);
+    const result = await runPullOpsInit({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderInitResult(result)}\n`);
+    }
+
+    return readSetupExitCode({ result, check: parsedArgs.check });
   }
 
   /**
@@ -1138,6 +1297,229 @@ function parseHeartbeatArgs(args, env) {
     ...(token === undefined ? {} : { token }),
     ...(summary === undefined ? {} : { summary }),
   };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean }}
+ */
+function parseInitArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for init: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean }}
+ */
+function parseSetupArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for setup command: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean, repo?: string }}
+ */
+function parseSetupGitHubLabelsArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+  const repo = parseOptionalStringOption(args, '--repo', consumed);
+
+  if (repo !== undefined) {
+    parseGitHubRepository(repo);
+  }
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for setup github-labels: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+    ...(repo === undefined ? {} : { repo }),
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean, profile: import('../setup/setup.types.js').PullOpsSetupProfile, repo?: string }}
+ */
+function parseSetupDoctorArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+  const rawProfile = parseOptionalStringOption(args, '--profile', consumed) ?? 'full';
+  const repo = parseOptionalStringOption(args, '--repo', consumed);
+
+  if (!['full', 'local', 'authoring', 'github-actions'].includes(rawProfile)) {
+    throw new CliUsageError(
+      `Unsupported setup doctor profile "${rawProfile}". Expected one of: full, local, authoring, github-actions.`,
+    );
+  }
+  const profile = /** @type {import('../setup/setup.types.js').PullOpsSetupProfile} */ (rawProfile);
+
+  if (repo !== undefined) {
+    parseGitHubRepository(repo);
+  }
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for setup doctor: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+    profile,
+    ...(repo === undefined ? {} : { repo }),
+  };
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @returns {string}
+ */
+function renderInitResult(result) {
+  const lines = [
+    `PullOps Init: ${result.status}`,
+    `Area: ${result.area}`,
+    `Summary: ${result.summary}`,
+  ];
+
+  appendSetupChangeSection(lines, 'Changes', result.changes);
+  appendSetupChangeSection(lines, 'Changes needed', result.changesNeeded);
+  appendSetupSection(lines, 'Blockers', result.blockers);
+  appendSetupSection(lines, 'Warnings', result.warnings);
+  appendSetupSection(lines, 'Suggestions', result.suggestions);
+
+  return lines.join('\n');
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @returns {string}
+ */
+function renderSetupResult(result) {
+  const lines = [
+    `PullOps Setup: ${result.status}`,
+    `Area: ${result.area}`,
+    `Summary: ${result.summary}`,
+  ];
+
+  appendSetupChangeSection(lines, 'Changes', result.changes);
+  appendSetupChangeSection(lines, 'Changes needed', result.changesNeeded);
+  appendSetupSection(lines, 'Blockers', result.blockers);
+  appendSetupSection(lines, 'Warnings', result.warnings);
+  appendSetupSection(lines, 'Suggestions', result.suggestions);
+
+  return lines.join('\n');
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @param {import('../setup/setup.types.js').PullOpsSetupProfile} profile
+ * @returns {string}
+ */
+function renderSetupDoctorResult(result, profile) {
+  return ['Profile: ' + profile, renderSetupResult(result)].join('\n');
+}
+
+/**
+ * @param {{
+ *   result: import('../setup/init.types.js').PullOpsSetupResult,
+ *   check: boolean,
+ * }} options
+ * @returns {number}
+ */
+function readSetupExitCode({ result, check }) {
+  if (result.status === 'blocked') {
+    return 1;
+  }
+
+  if (check && hasSetupChanges(result.changesNeeded)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} heading
+ * @param {import('../setup/init.types.js').PullOpsSetupChangeSet} changeSet
+ */
+function appendSetupChangeSection(lines, heading, changeSet) {
+  const items = [
+    ...(changeSet.files ?? []),
+    ...(changeSet.labels?.created ?? []).map(label => `label created: ${label}`),
+    ...(changeSet.labels?.updated ?? []).map(label => `label updated: ${label}`),
+  ];
+  appendSetupSection(lines, heading, items);
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} heading
+ * @param {string[]} items
+ */
+function appendSetupSection(lines, heading, items) {
+  if (items.length === 0) {
+    return;
+  }
+
+  lines.push(`${heading}:`);
+  for (const item of items) {
+    lines.push(`- ${item}`);
+  }
 }
 
 /**
@@ -1986,6 +2368,12 @@ function localOperationLabelReferenceUnsupportedMessage(reference) {
 function usage() {
   return [
     'Usage:',
+    '  pullops init [--check] [--json] [--force]',
+    '  pullops setup doctor [--check] [--profile full|local|authoring|github-actions] [--json] [--repo <owner/repo>]',
+    '  pullops setup skills [--check] [--json] [--force]',
+    '  pullops setup agent-docs [--check] [--json] [--force]',
+    '  pullops setup github-actions [--check] [--json] [--force]',
+    '  pullops setup github-labels [--check] [--json] [--force] [--repo <owner/repo>]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
@@ -2002,22 +2390,7 @@ function usage() {
     '  pullops issues publish-issue [--file <path>]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
     '  pullops step [--long] "<summary>" -- <command...>',
-    '  pullops labels ensure',
   ].join('\n');
-}
-
-/**
- * @param {number} total
- * @param {EnsureLabelsResult} result
- * @returns {string}
- */
-function summarizeEnsureLabelsResult(total, result) {
-  return [
-    `Ensured ${total} PullOps labels:`,
-    `${result.created.length} created,`,
-    `${result.updated.length} updated,`,
-    `${result.alreadyCorrect.length} already correct.`,
-  ].join(' ');
 }
 
 /**
