@@ -276,6 +276,13 @@ export function createGitHubClient({
     },
 
     /**
+     * @returns {Promise<string[]>}
+     */
+    async listRepositoryActionsSecretNames() {
+      return await listRepositoryActionsSecretNames(api, getRepository());
+    },
+
+    /**
      * @param {number} number
      * @returns {Promise<GitHubIssue>}
      */
@@ -843,6 +850,38 @@ async function listLabels(octokit, repository) {
       cause: error,
     });
   }
+}
+
+/**
+ * @param {GitHubApiClient} octokit
+ * @param {GitHubRepository} repository
+ * @returns {Promise<string[]>}
+ */
+async function listRepositoryActionsSecretNames(octokit, repository) {
+  try {
+    const secrets = await octokit.paginate(octokit.rest.actions.listRepoSecrets, {
+      ...repository,
+      per_page: 100,
+    });
+    return secrets.flatMap((secret, index) => parseGitHubActionsSecretName(secret, index));
+  } catch (error) {
+    throw new Error(
+      `Failed to list GitHub repository Actions secrets: ${getGitHubErrorMessage(error)}`,
+      {
+        cause: error,
+      },
+    );
+  }
+}
+
+/**
+ * @param {unknown} secret
+ * @param {number} index
+ * @returns {string[]}
+ */
+function parseGitHubActionsSecretName(secret, index) {
+  const secretObject = requirePlainObject(secret, `repository Actions secret #${index}`);
+  return [requireString(secretObject.name, `repository Actions secret #${index}.name`)];
 }
 
 /**

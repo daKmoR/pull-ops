@@ -39,6 +39,8 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(skillText, /pullops setup doctor --profile full --json/);
   assert.match(skillText, /pullops setup skills --check --json/);
   assert.match(skillText, /pullops setup agent-docs --check --json/);
+  assert.match(skillText, /pullops setup github-actions --check --json/);
+  assert.match(skillText, /pullops setup doctor --profile github-actions --json/);
   assert.match(
     skillText,
     /Do not invoke `setup-matt-pocock-skills` or any remote skill package installer\./,

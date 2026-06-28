@@ -15,6 +15,7 @@ import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import { runPullOpsInit } from '../setup/init.js';
 import {
+  runPullOpsSetupGitHubActions,
   runPullOpsSetupAgentDocs,
   runPullOpsSetupDoctor,
   runPullOpsSetupSkills,
@@ -1030,7 +1031,7 @@ export class PullOpsCli {
 
     if (subcommand === undefined) {
       throw new CliUsageError(
-        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs.',
+        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs, github-actions.',
       );
     }
 
@@ -1051,8 +1052,12 @@ export class PullOpsCli {
       return await this.runSetupAgentDocs(rest);
     }
 
+    if (subcommand === 'github-actions') {
+      return await this.runSetupGitHubActions(rest);
+    }
+
     throw new CliUsageError(
-      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs.`,
+      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs, github-actions.`,
     );
   }
 
@@ -1104,6 +1109,27 @@ export class PullOpsCli {
   async runSetupAgentDocs(args) {
     const parsedArgs = parseSetupArgs(args);
     const result = await runPullOpsSetupAgentDocs({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return result.status === 'ready' ? 0 : 1;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupGitHubActions(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupGitHubActions({
       cwd: this.cwd,
       check: parsedArgs.check,
       force: parsedArgs.force,
@@ -1335,9 +1361,9 @@ function parseSetupDoctorArgs(args) {
   const force = parseBooleanFlag(args, '--force', consumed);
   const rawProfile = parseOptionalStringOption(args, '--profile', consumed) ?? 'full';
 
-  if (!['full', 'local', 'authoring'].includes(rawProfile)) {
+  if (!['full', 'local', 'authoring', 'github-actions'].includes(rawProfile)) {
     throw new CliUsageError(
-      `Unsupported setup doctor profile "${rawProfile}". Expected one of: full, local, authoring.`,
+      `Unsupported setup doctor profile "${rawProfile}". Expected one of: full, local, authoring, github-actions.`,
     );
   }
   const profile = /** @type {import('../setup/setup.types.js').PullOpsSetupProfile} */ (rawProfile);
@@ -2271,9 +2297,10 @@ function usage() {
   return [
     'Usage:',
     '  pullops init [--check] [--json] [--force]',
-    '  pullops setup doctor [--check] [--profile full|local|authoring] [--json]',
+    '  pullops setup doctor [--check] [--profile full|local|authoring|github-actions] [--json]',
     '  pullops setup skills [--check] [--json] [--force]',
     '  pullops setup agent-docs [--check] [--json] [--force]',
+    '  pullops setup github-actions [--check] [--json] [--force]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',

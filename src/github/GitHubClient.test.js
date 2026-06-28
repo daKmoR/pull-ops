@@ -665,6 +665,51 @@ describe('createGitHubClient', () => {
     );
   });
 
+  it('lists repository Actions secrets for setup doctor warnings', async () => {
+    const { calls, octokit } = createFakeOctokit({
+      repositoryActionsSecrets: [{ name: 'PULLOPS_GITHUB_TOKEN' }, { name: 'OPENAI_API_KEY' }],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.listRepositoryActionsSecretNames === undefined) {
+      throw new Error('Expected listRepositoryActionsSecretNames to be available.');
+    }
+
+    const secretNames = await client.listRepositoryActionsSecretNames();
+
+    assert.deepEqual(secretNames, ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY']);
+    assert.deepEqual(calls[0], {
+      name: 'actions.listRepoSecrets',
+      params: {
+        ...TEST_REPOSITORY,
+        per_page: 100,
+      },
+    });
+  });
+
+  it('lists repository Actions secrets across paginated responses', async () => {
+    const firstPageSecrets = Array.from({ length: 100 }, (_, index) => ({
+      name: `SECRET_${index + 1}`,
+    }));
+    const { octokit } = createFakeOctokit({
+      repositoryActionsSecretPages: [
+        firstPageSecrets,
+        [{ name: 'PULLOPS_GITHUB_TOKEN' }, { name: 'OPENAI_API_KEY' }],
+      ],
+    });
+    const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
+
+    if (client.listRepositoryActionsSecretNames === undefined) {
+      throw new Error('Expected listRepositoryActionsSecretNames to be available.');
+    }
+
+    const secretNames = await client.listRepositoryActionsSecretNames();
+
+    assert.equal(secretNames.length, 102);
+    assert.ok(secretNames.includes('PULLOPS_GITHUB_TOKEN'));
+    assert.ok(secretNames.includes('OPENAI_API_KEY'));
+  });
+
   it('18: creates GitHub issues with labels and reports API failures with issue context', async () => {
     const { calls, octokit } = createFakeOctokit();
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
@@ -834,6 +879,8 @@ const TEST_REPOSITORY = {
  * @param {string} [options.diff]
  * @param {Record<string, unknown>[]} [options.checkRuns]
  * @param {Record<string, unknown>[]} [options.statuses]
+ * @param {Record<string, unknown>[]} [options.repositoryActionsSecrets]
+ * @param {Record<string, unknown>[][]} [options.repositoryActionsSecretPages]
  * @param {string[]} [options.missingLabels]
  * @param {(call: OctokitCall) => boolean} [options.failOn]
  * @returns {{ calls: OctokitCall[], octokit: import('./GitHubClient.types.js').GitHubApiClient }}
@@ -849,9 +896,13 @@ function createFakeOctokit({
   diff = '',
   checkRuns = [],
   statuses = [],
+  repositoryActionsSecrets = [],
+  repositoryActionsSecretPages,
   missingLabels = [],
   failOn = () => false,
 } = {}) {
+  const secretPages = repositoryActionsSecretPages ?? [repositoryActionsSecrets];
+
   /** @type {OctokitCall[]} */
   const calls = [];
 
@@ -888,6 +939,11 @@ function createFakeOctokit({
      * @returns {Promise<unknown[]>}
      */
     async paginate(endpointToPaginate, params) {
+      if (endpointToPaginate === octokit.rest.actions.listRepoSecrets) {
+        await endpointToPaginate(params);
+        return secretPages.flat();
+      }
+
       const response = await endpointToPaginate(params);
       assert.ok(Array.isArray(response.data));
       return response.data;
@@ -1039,6 +1095,12 @@ function createFakeOctokit({
             : readIssueLabelNames(issue).map(name => ({ name })),
         })),
         updateLabel: endpoint('issues.updateLabel', () => ({})),
+      },
+      actions: {
+        listRepoSecrets: endpoint('actions.listRepoSecrets', () => ({
+          total_count: secretPages.flat().length,
+          secrets: secretPages[0] ?? [],
+        })),
       },
       pulls: {
         create: endpoint('pulls.create', params =>

@@ -82,6 +82,26 @@ test('setup doctor returns zero for changes-needed setup guidance', async () => 
   assert.ok(output.changesNeeded.includes('docs/agents/issue-tracker.md'));
 });
 
+test('setup github-actions --check returns a nonzero exit code for an incomplete workflow kit', async () => {
+  const cwd = await createSetupReadyGitRepository();
+  const initCli = new PullOpsCli({ cwd, stdout: createWritableBuffer() });
+  const initExitCode = await initCli.run(['init']);
+
+  assert.equal(initExitCode, 0);
+
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({ cwd, stdout });
+  const exitCode = await cli.run(['setup', 'github-actions', '--check', '--json']);
+
+  assert.equal(exitCode, 1);
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'changes-needed');
+  assert.equal(output.area, 'setup-github-actions');
+  assert.ok(output.changesNeeded.includes('.github/workflows/pullops-dispatch.yml'));
+  assert.ok(output.changesNeeded.includes('.github/workflows/pullops-issue-implement.yml'));
+});
+
 /**
  * @returns {{ text: string, write(chunk: string | Uint8Array): void }}
  */
@@ -181,6 +201,10 @@ async function installLocalPullOpsPackage({ cwd }) {
       },
     );
   }
+
+  await cp(join(REPO_ROOT, '.github', 'workflows'), join(packageRoot, '.github', 'workflows'), {
+    recursive: true,
+  });
 
   await cp(
     join(REPO_ROOT, 'src', 'setup', 'agent-docs'),
