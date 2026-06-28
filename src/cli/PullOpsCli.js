@@ -13,6 +13,7 @@ import { publishChildIssues } from '../issue-store/publishChildIssues.js';
 import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
 import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
+import { runPullOpsInit } from '../setup/init.js';
 import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   LocalRunHeartbeatError,
@@ -173,6 +174,10 @@ export class PullOpsCli {
 
     if (command === 'heartbeat') {
       return await this.runHeartbeat(args);
+    }
+
+    if (command === 'init') {
+      return await this.runInit(args);
     }
 
     if (command === 'step') {
@@ -1008,6 +1013,27 @@ export class PullOpsCli {
   }
 
   /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runInit(args) {
+    const parsedArgs = parseInitArgs(args);
+    const result = await runPullOpsInit({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderInitResult(result)}\n`);
+    }
+
+    return result.status === 'ready' ? 0 : 1;
+  }
+
+  /**
    * @param {unknown} output
    */
   writeValidatedJson(output) {
@@ -1138,6 +1164,68 @@ function parseHeartbeatArgs(args, env) {
     ...(token === undefined ? {} : { token }),
     ...(summary === undefined ? {} : { summary }),
   };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ check: boolean, json: boolean, force: boolean }}
+ */
+function parseInitArgs(args) {
+  const consumed = new Set();
+  const check = parseBooleanFlag(args, '--check', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+  const force = parseBooleanFlag(args, '--force', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for init: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    check,
+    json,
+    force,
+  };
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @returns {string}
+ */
+function renderInitResult(result) {
+  const lines = [
+    `PullOps Init: ${result.status}`,
+    `Area: ${result.area}`,
+    `Summary: ${result.summary}`,
+  ];
+
+  appendSetupSection(lines, 'Changes', result.changes);
+  appendSetupSection(lines, 'Changes needed', result.changesNeeded);
+  appendSetupSection(lines, 'Blockers', result.blockers);
+  appendSetupSection(lines, 'Warnings', result.warnings);
+  appendSetupSection(lines, 'Suggestions', result.suggestions);
+
+  return lines.join('\n');
+}
+
+/**
+ * @param {string[]} lines
+ * @param {string} heading
+ * @param {string[]} items
+ */
+function appendSetupSection(lines, heading, items) {
+  if (items.length === 0) {
+    return;
+  }
+
+  lines.push(`${heading}:`);
+  for (const item of items) {
+    lines.push(`- ${item}`);
+  }
 }
 
 /**
@@ -1986,6 +2074,7 @@ function localOperationLabelReferenceUnsupportedMessage(reference) {
 function usage() {
   return [
     'Usage:',
+    '  pullops init [--check] [--json] [--force]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
