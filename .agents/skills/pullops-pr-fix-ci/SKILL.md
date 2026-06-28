@@ -22,9 +22,12 @@ Use /diagnosing-bugs for test or build failures whose cause is not already isola
 Use /tdd when the repair needs a regression test at a clear behavior seam.
 
 Liveness: your first tool call after reading this skill must be
-`npm exec pullops -- heartbeat --summary "<brief current focus>"`. Repeat that
-heartbeat tool call about every 4 minutes while work stays active, and
-immediately before any command that may run longer than that interval.
+`npm exec pullops -- heartbeat --summary "<brief current focus>"`. After that,
+repeat the same heartbeat tool call about every 4 minutes while work stays
+active or before every fourth non-heartbeat tool call, whichever comes first.
+Also heartbeat immediately before any command that may run longer than 4
+minutes. If you are unsure whether a heartbeat is due, send it before
+continuing.
 Heartbeats must come from this CI-fix agent, not from the parent PullOps CLI.
 
 PullOps boundary: use referenced skills for their discipline only. Do not ask the

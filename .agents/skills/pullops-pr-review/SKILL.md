@@ -19,9 +19,12 @@ You may make small direct improvements in the working tree only when they are
 clearly review-owned and do not change PR scope. Record them in `directChanges`.
 
 Liveness: your first tool call after reading this skill must be
-`npm exec pullops -- heartbeat --summary "<brief current focus>"`. Repeat that
-heartbeat tool call about every 4 minutes while work stays active, and
-immediately before any command that may run longer than that interval.
+`npm exec pullops -- heartbeat --summary "<brief current focus>"`. After that,
+repeat the same heartbeat tool call about every 4 minutes while work stays
+active or before every fourth non-heartbeat tool call, whichever comes first.
+Also heartbeat immediately before any command that may run longer than 4
+minutes. If you are unsure whether a heartbeat is due, send it before
+continuing.
 Heartbeats must come from this review agent, not from the parent PullOps CLI.
 
 If you are approving the final Escalation Review Cycle, put standalone

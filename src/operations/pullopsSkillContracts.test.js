@@ -216,6 +216,8 @@ describe('PullOps skill contracts', () => {
       assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
       assert.match(skillText, /first tool call after reading this skill must be/);
       assert.match(skillText, /every 4 minutes/);
+      assert.match(skillText, /before every fourth non-heartbeat tool call/);
+      assert.match(skillText, /whichever comes first/);
       assert.match(skillText, /immediately before any command that may run longer/);
       assert.match(skillText, /Heartbeats must come from this .* agent/);
       assert.match(skillText, /not from the\s+parent\s+PullOps\s+CLI/);
