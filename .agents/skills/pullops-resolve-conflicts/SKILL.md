@@ -16,15 +16,31 @@ Use the conflict-resolution discipline from /resolving-merge-conflicts:
 The `resolvedFiles` array must exactly equal the supplied conflicted file list;
 do not omit, duplicate, or invent paths.
 
-Liveness: your first tool call after reading this skill must be
-`npm exec pullops -- heartbeat --summary "<brief current focus>"`. After that,
-repeat the same heartbeat tool call about every 4 minutes while work stays
-active or before every fourth non-heartbeat tool call, whichever comes first.
-Also heartbeat immediately before any command that may run longer than 4
-minutes. If you are unsure whether a heartbeat is due, send it before
-continuing.
-Heartbeats must come from this conflict-resolution agent, not from the parent
-PullOps CLI.
+## Liveness and command execution
+
+Use PullOps as the command gate.
+
+Do not run shell commands directly. For every shell command, use:
+
+```bash
+npm exec pullops -- step "<brief current focus>" -- <command>
+```
+
+For commands that may run longer than 4 minutes, use:
+
+```bash
+npm exec pullops -- step --long "<brief current focus>" -- <command>
+```
+
+`pullops step` automatically emits heartbeats when needed. Do not manually count time or tool calls for shell commands.
+
+If you are about to make several non-shell tool calls, send a manual heartbeat first:
+
+```bash
+npm exec pullops -- heartbeat --summary "<brief current focus>"
+```
+
+Heartbeats must originate from this conflict-resolution agent process, not from the parent PullOps CLI.
 
 Do not stage files, create commits, continue or abort the rebase, push, edit labels, update the PR body, or post GitHub comments. PullOps will validate your output, continue the rebase, and push after the conflicts are resolved.
 
