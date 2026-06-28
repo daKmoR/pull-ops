@@ -276,6 +276,13 @@ export function createGitHubClient({
     },
 
     /**
+     * @returns {Promise<GitHubLabel[]>}
+     */
+    async listRepositoryLabels() {
+      return await listLabels(api, getRepository());
+    },
+
+    /**
      * @returns {Promise<string[]>}
      */
     async listRepositoryActionsSecretNames() {

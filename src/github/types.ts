@@ -207,6 +207,7 @@ export interface DismissPullRequestReviewOptions {
 
 export interface GitHubClient {
   ensureLabels(labels: PullOpsLabel[]): Promise<EnsureLabelsResult>;
+  listRepositoryLabels?(): Promise<GitHubLabel[]>;
   listRepositoryActionsSecretNames?(): Promise<string[]>;
   getIssue(number: number): Promise<GitHubIssue>;
   getPullRequest(number: number): Promise<GitHubPullRequest>;

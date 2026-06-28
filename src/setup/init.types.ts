@@ -1,3 +1,5 @@
+import type { EnsureLabelsResult } from '../github/types.js';
+
 export type PullOpsSetupResultStatus = 'ready' | 'changes-needed' | 'blocked';
 
 export interface PullOpsSetupResult {
@@ -5,6 +7,9 @@ export interface PullOpsSetupResult {
   area: string;
   summary: string;
   changes: string[];
+  created?: EnsureLabelsResult['created'];
+  updated?: EnsureLabelsResult['updated'];
+  alreadyCorrect?: EnsureLabelsResult['alreadyCorrect'];
   changesNeeded: string[];
   blockers: string[];
   warnings: string[];

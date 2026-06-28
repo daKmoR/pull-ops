@@ -1,18 +1,24 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { test } from 'node:test';
+import { promisify } from 'node:util';
 
 import { PullOpsCli } from './PullOpsCli.js';
+import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
 import { initializeLocalRunState } from '../local-run-state/localRunState.js';
+import { runPullOpsInit } from '../setup/init.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * @typedef {import('./types.js').OperationRunnerContext} OperationRunnerContext
@@ -3142,11 +3148,56 @@ test('issues publish-prd rejects malformed JSON input with stable failure output
   );
 });
 
-test('labels ensure reports label reconciliation results from the GitHub client seam', async () => {
+test('setup github-labels --check reports label reconciliation results from the GitHub client seam', async () => {
+  const cwd = await createSetupRepository();
+  const stdout = createWritableBuffer();
+  /** @type {PullOpsLabel[]} */
+  const listedLabels = PULL_OPS_LABELS.map(label => ({ ...label }));
+  listedLabels[1] = {
+    ...listedLabels[1],
+    color: '000000',
+  };
+  listedLabels.splice(5, 1);
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    githubClient: createFakeGitHubClient({
+      async listRepositoryLabels() {
+        return listedLabels;
+      },
+      async ensureLabels() {
+        throw new Error('ensureLabels was not expected in this test.');
+      },
+    }),
+  });
+
+  const exitCode = await cli.run(['setup', 'github-labels', '--check', '--json']);
+
+  assert.equal(exitCode, 1);
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'changes-needed',
+    area: 'setup-github-labels',
+    summary: 'PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, 14 already correct.',
+    changes: [],
+    created: [PULL_OPS_LABELS[5].name],
+    updated: [PULL_OPS_LABELS[1].name],
+    alreadyCorrect: PULL_OPS_LABELS.filter(
+      label => label.name !== PULL_OPS_LABELS[5].name && label.name !== PULL_OPS_LABELS[1].name,
+    ).map(label => label.name),
+    changesNeeded: [PULL_OPS_LABELS[5].name, PULL_OPS_LABELS[1].name],
+    blockers: [],
+    warnings: [],
+    suggestions: ['Run PullOps setup github-labels to reconcile the repository labels.'],
+  });
+});
+
+test('setup github-labels reports label reconciliation results from the GitHub client seam', async () => {
+  const cwd = await createSetupRepository();
   const stdout = createWritableBuffer();
   /** @type {PullOpsLabel[]} */
   const ensuredLabels = [];
   const cli = new PullOpsCli({
+    cwd,
     stdout,
     githubClient: createFakeGitHubClient({
       async ensureLabels(labels) {
@@ -3157,10 +3208,13 @@ test('labels ensure reports label reconciliation results from the GitHub client 
           alreadyCorrect: labels.slice(2).map(label => label.name),
         };
       },
+      async listRepositoryLabels() {
+        throw new Error('listRepositoryLabels was not expected in this test.');
+      },
     }),
   });
 
-  const exitCode = await cli.run(['labels', 'ensure']);
+  const exitCode = await cli.run(['setup', 'github-labels', '--json']);
 
   assert.equal(exitCode, 0);
   assert.equal(
@@ -3172,11 +3226,11 @@ test('labels ensure reports label reconciliation results from the GitHub client 
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:prd:auto-advance'),
+    ensuredLabels.some(label => label.name === 'pullops:status:blocked'),
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:prd:auto-complete'),
+    ensuredLabels.some(label => label.name === 'pullops:status:failed'),
     true,
   );
   assert.equal(
@@ -3184,7 +3238,7 @@ test('labels ensure reports label reconciliation results from the GitHub client 
     true,
   );
   assert.equal(
-    ensuredLabels.some(label => label.name.startsWith('pullops:status:')),
+    ensuredLabels.some(label => label.name.startsWith('needs-')),
     false,
   );
   const expectedLabels = {
@@ -3193,27 +3247,40 @@ test('labels ensure reports label reconciliation results from the GitHub client 
     alreadyCorrect: ensuredLabels.slice(2).map(label => label.name),
   };
   assert.deepEqual(JSON.parse(stdout.text), {
-    status: 'accepted',
-    summary: 'Ensured 11 PullOps labels: 1 created, 1 updated, 9 already correct.',
-    labels: expectedLabels,
+    status: 'ready',
+    summary: 'Reconciled 16 PullOps labels: 1 created, 1 updated, 14 already correct.',
+    area: 'setup-github-labels',
+    changes: [expectedLabels.created[0], expectedLabels.updated[0]],
+    created: expectedLabels.created,
+    updated: expectedLabels.updated,
+    alreadyCorrect: expectedLabels.alreadyCorrect,
+    changesNeeded: [],
+    blockers: [],
+    warnings: [],
+    suggestions: [],
   });
 });
 
-test('labels ensure reports GitHub failures', async () => {
-  const stderr = createWritableBuffer();
+test('setup github-labels reports GitHub failures', async () => {
+  const cwd = await createSetupRepository();
+  const stdout = createWritableBuffer();
   const cli = new PullOpsCli({
-    stderr,
+    cwd,
+    stdout,
     githubClient: createFakeGitHubClient({
       async ensureLabels() {
         throw new Error('Failed to list GitHub labels: authentication required');
       },
+      async listRepositoryLabels() {
+        throw new Error('listRepositoryLabels was not expected in this test.');
+      },
     }),
   });
 
-  const exitCode = await cli.run(['labels', 'ensure']);
+  const exitCode = await cli.run(['setup', 'github-labels']);
 
   assert.equal(exitCode, 1);
-  assert.match(stderr.text, /Failed to list GitHub labels: authentication required/);
+  assert.match(stdout.text, /Unable to reconcile PullOps GitHub labels: Failed to list GitHub labels: authentication required/);
 });
 
 test('cli reports clear usage errors for unknown commands and missing arguments', async t => {
@@ -3225,6 +3292,16 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Unknown command "unknown"/);
+  });
+
+  await t.test('legacy labels command', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run(['labels', 'ensure']);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /Unknown command "labels"/);
   });
 
   await t.test('unknown operation', async () => {
@@ -3406,6 +3483,58 @@ function createFakeStepSpawn({
   };
 }
 
+/**
+ * @returns {Promise<string>}
+ */
+async function createSetupRepository() {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-cli-setup-'));
+  await execFileAsync('git', ['init', '--initial-branch=main'], { cwd });
+  await writeFile(
+    join(cwd, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'demo-target',
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@pull-ops/cli': '^0.1.0',
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    join(cwd, 'package-lock.json'),
+    `${JSON.stringify(
+      {
+        name: 'demo-target',
+        lockfileVersion: 3,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await mkdir(join(cwd, 'node_modules', '@pull-ops', 'cli'), { recursive: true });
+  await writeFile(
+    join(cwd, 'node_modules', '@pull-ops', 'cli', 'package.json'),
+    `${JSON.stringify(
+      {
+        name: '@pull-ops/cli',
+        version: '0.1.0',
+        type: 'module',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await mkdir(join(cwd, 'node_modules', '.bin'), { recursive: true });
+  await writeFile(join(cwd, 'node_modules', '.bin', 'pullops'), '#!/bin/sh\nexit 0\n');
+  await chmod(join(cwd, 'node_modules', '.bin', 'pullops'), 0o755);
+  await runPullOpsInit({ cwd });
+  return cwd;
+}
+
 function createWritableBuffer() {
   return {
     text: '',
@@ -3466,6 +3595,9 @@ function createFakeGitHubClient(overrides = {}) {
         updated: [],
         alreadyCorrect: [],
       };
+    },
+    async listRepositoryLabels() {
+      throw new Error('listRepositoryLabels was not expected in this test.');
     },
     async getIssue() {
       throw new Error('getIssue was not expected in this test.');

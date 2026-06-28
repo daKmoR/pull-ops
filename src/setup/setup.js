@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
-import { createGitHubClient } from '../github/GitHubClient.js';
+import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
 
 /**
@@ -14,7 +14,12 @@ import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
  * @typedef {import('./init.types.js').PullOpsSetupResult} PullOpsSetupResult
  * @typedef {import('./setup.types.js').PullOpsSetupCommandOptions} PullOpsSetupCommandOptions
  * @typedef {import('./setup.types.js').PullOpsSetupDoctorOptions} PullOpsSetupDoctorOptions
+ * @typedef {import('./setup.types.js').PullOpsSetupGitHubLabelsOptions} PullOpsSetupGitHubLabelsOptions
  * @typedef {import('./setup.types.js').PullOpsSetupProfile} PullOpsSetupProfile
+ * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
+ * @typedef {import('../github/types.js').GitHubClient} GitHubClient
+ * @typedef {import('../github/types.js').GitHubLabel} GitHubLabel
+ * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  */
 
 const execFileAsync = promisify(nodeExecFile);
@@ -40,6 +45,7 @@ const GITHUB_ACTIONS_REQUIRED_SECRETS = ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY
 const SETUP_SKILLS_AREA = 'setup-skills';
 const SETUP_AGENT_DOCS_AREA = 'setup-agent-docs';
 const SETUP_GITHUB_ACTIONS_AREA = 'setup-github-actions';
+const SETUP_GITHUB_LABELS_AREA = 'setup-github-labels';
 const SETUP_DOCTOR_AREA = 'setup-doctor';
 
 /**
@@ -104,6 +110,106 @@ export async function runPullOpsSetupGitHubActions({
 }
 
 /**
+ * @param {PullOpsSetupGitHubLabelsOptions} [options]
+ * @returns {Promise<PullOpsSetupResult>}
+ */
+export async function runPullOpsSetupGitHubLabels({
+  cwd = process.cwd(),
+  check = false,
+  force = false,
+  githubClient,
+} = {}) {
+  void force;
+  const resolvedCwd = await resolveExistingPath(cwd);
+  const prereqResult = await readSetupPrereqs({ cwd: resolvedCwd, verifyRuntime: true });
+  if (prereqResult.blockers.length > 0) {
+    return createSetupResult({
+      status: 'blocked',
+      area: SETUP_GITHUB_LABELS_AREA,
+      summary: prereqResult.suggestions[0] ?? 'PullOps GitHub label setup is incomplete.',
+      changes: [],
+      created: [],
+      updated: [],
+      alreadyCorrect: [],
+      changesNeeded: [],
+      blockers: prereqResult.blockers,
+      warnings: prereqResult.warnings,
+      suggestions: prereqResult.suggestions,
+    });
+  }
+
+  const client =
+    githubClient ??
+    createGitHubClient({
+      readRemoteOriginUrl: () => readGitRemoteOriginUrl(resolvedCwd),
+    });
+
+  try {
+    if (check) {
+      if (client.listRepositoryLabels === undefined) {
+        throw new Error('GitHub client does not support listing repository labels.');
+      }
+      const existingLabels = await client.listRepositoryLabels();
+      const inspection = inspectPullOpsGitHubLabels(existingLabels);
+      const changesNeeded = [...inspection.created, ...inspection.updated];
+      return createSetupResult({
+        status: changesNeeded.length > 0 ? 'changes-needed' : 'ready',
+        area: SETUP_GITHUB_LABELS_AREA,
+        summary:
+          changesNeeded.length > 0
+            ? summarizeGitHubLabelSetupResult('changes-needed', inspection)
+            : completeSummaryForArea(SETUP_GITHUB_LABELS_AREA),
+        changes: [],
+        created: inspection.created,
+        updated: inspection.updated,
+        alreadyCorrect: inspection.alreadyCorrect,
+        changesNeeded,
+        blockers: [],
+        warnings: [],
+        suggestions:
+          changesNeeded.length > 0
+            ? ['Run PullOps setup github-labels to reconcile the repository labels.']
+            : [],
+      });
+    }
+
+    const result = await client.ensureLabels(PULL_OPS_LABELS);
+    return createSetupResult({
+      status: 'ready',
+      area: SETUP_GITHUB_LABELS_AREA,
+      summary:
+        result.created.length + result.updated.length > 0
+          ? summarizeGitHubLabelSetupResult('ready', result)
+          : completeSummaryForArea(SETUP_GITHUB_LABELS_AREA),
+      changes: [...result.created, ...result.updated],
+      created: result.created,
+      updated: result.updated,
+      alreadyCorrect: result.alreadyCorrect,
+      changesNeeded: [],
+      blockers: [],
+      warnings: [],
+      suggestions: [],
+    });
+  } catch (error) {
+    return createSetupResult({
+      status: 'blocked',
+      area: SETUP_GITHUB_LABELS_AREA,
+      summary: 'PullOps GitHub label setup is incomplete.',
+      changes: [],
+      created: [],
+      updated: [],
+      alreadyCorrect: [],
+      changesNeeded: [],
+      blockers: [`Unable to reconcile PullOps GitHub labels: ${getErrorMessage(error)}`],
+      warnings: [],
+      suggestions: [
+        'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
+      ],
+    });
+  }
+}
+
+/**
  * @param {PullOpsSetupDoctorOptions} [options]
  * @returns {Promise<PullOpsSetupResult>}
  */
@@ -111,6 +217,7 @@ export async function runPullOpsSetupDoctor({
   cwd = process.cwd(),
   profile = 'full',
   readRepositoryActionsSecretNames,
+  readRepositoryLabels,
 } = {}) {
   const resolvedCwd = await resolveExistingPath(cwd);
   const prereqResult = await readSetupPrereqs({ cwd: resolvedCwd, verifyRuntime: true });
@@ -141,7 +248,7 @@ export async function runPullOpsSetupDoctor({
         desiredFileContents.set(path, contents);
       }
     }
-    if (profile === 'github-actions') {
+    if (profile === 'full' || profile === 'github-actions') {
       const workflowFiles = await collectGitHubActionsWorkflowFileContents({ cwd: resolvedCwd });
       for (const [path, contents] of workflowFiles.entries()) {
         desiredFileContents.set(path, contents);
@@ -167,12 +274,20 @@ export async function runPullOpsSetupDoctor({
   });
 
   const githubActionsInspection =
-    profile === 'github-actions'
+    profile === 'full' || profile === 'github-actions'
       ? await inspectGitHubActionsReadiness({
           cwd: resolvedCwd,
           readRepositoryActionsSecretNames,
+          warnOnRepositoryContextError: profile === 'full',
         })
       : { blockers: [], warnings: [], suggestions: [] };
+  const githubLabelsInspection =
+    profile === 'full'
+      ? await inspectGitHubLabelsReadiness({
+          cwd: resolvedCwd,
+          readRepositoryLabels,
+        })
+      : { changesNeeded: [], warnings: [], suggestions: [] };
 
   const optionalAuthoringResult =
     profile === 'full' || profile === 'authoring'
@@ -183,10 +298,12 @@ export async function runPullOpsSetupDoctor({
   const blockers = inspection.blockers;
   blockers.push(...githubActionsInspection.blockers);
   const changesNeeded = inspection.changesNeeded;
+  changesNeeded.push(...githubLabelsInspection.changesNeeded);
   const warnings = dedupeStrings([
     ...prereqResult.warnings,
     ...inspection.warnings,
     ...githubActionsInspection.warnings,
+    ...githubLabelsInspection.warnings,
     ...optionalAuthoringResult.warnings,
     ...runsIgnoreResult.warnings,
   ]);
@@ -194,6 +311,7 @@ export async function runPullOpsSetupDoctor({
     ...prereqResult.suggestions,
     ...inspection.suggestions,
     ...githubActionsInspection.suggestions,
+    ...githubLabelsInspection.suggestions,
     ...optionalAuthoringResult.suggestions,
     ...runsIgnoreResult.suggestions,
   ]);
@@ -857,12 +975,14 @@ async function inspectPullOpsRunsIgnore({ cwd }) {
  * @param {{
  *   cwd?: string,
  *   readRepositoryActionsSecretNames?: (options: { cwd: string }) => Promise<string[]>;
+ *   warnOnRepositoryContextError?: boolean;
  * }} [options]
  * @returns {Promise<{ blockers: string[], warnings: string[], suggestions: string[] }>}
  */
 async function inspectGitHubActionsReadiness({
   cwd = process.cwd(),
   readRepositoryActionsSecretNames = readRepositoryActionsSecretNamesDefault,
+  warnOnRepositoryContextError = false,
 } = {}) {
   try {
     const secretNames = await readRepositoryActionsSecretNames({ cwd });
@@ -882,6 +1002,16 @@ async function inspectGitHubActionsReadiness({
   } catch (error) {
     const message = getErrorMessage(error);
     if (isGitHubRepositoryContextError(message)) {
+      if (warnOnRepositoryContextError) {
+        return {
+          blockers: [],
+          warnings: [`Unable to inspect repository Actions secrets: ${message}`],
+          suggestions: [
+            'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
+          ],
+        };
+      }
+
       return {
         blockers: [
           'GitHub Actions readiness requires a GitHub remote or explicit repository context.',
@@ -901,6 +1031,109 @@ async function inspectGitHubActionsReadiness({
       ],
     };
   }
+}
+
+/**
+ * @param {{
+ *   cwd?: string,
+ *   readRepositoryLabels?: (options: { cwd: string }) => Promise<GitHubLabel[]>,
+ * }} [options]
+ * @returns {Promise<{ changesNeeded: string[], warnings: string[], suggestions: string[] }>}
+ */
+async function inspectGitHubLabelsReadiness({
+  cwd = process.cwd(),
+  readRepositoryLabels = readRepositoryLabelsDefault,
+} = {}) {
+  try {
+    const existingLabels = await readRepositoryLabels({ cwd });
+    const inspection = inspectPullOpsGitHubLabels(existingLabels);
+    const changesNeeded = [...inspection.created, ...inspection.updated];
+
+    if (changesNeeded.length === 0) {
+      return { changesNeeded: [], warnings: [], suggestions: [] };
+    }
+
+    return {
+      changesNeeded,
+      warnings: [],
+      suggestions: ['Run PullOps setup github-labels to reconcile the repository labels.'],
+    };
+  } catch (error) {
+    const message = getErrorMessage(error);
+    return {
+      changesNeeded: [],
+      warnings: [`Unable to inspect repository PullOps labels: ${message}`],
+      suggestions: [
+        'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
+      ],
+    };
+  }
+}
+
+/**
+ * @param {{ cwd: string }} options
+ * @returns {Promise<GitHubLabel[]>}
+ */
+async function readRepositoryLabelsDefault({ cwd }) {
+  const client = createGitHubClient({
+    readRemoteOriginUrl: () => readGitRemoteOriginUrl(cwd),
+  });
+  if (client.listRepositoryLabels === undefined) {
+    throw new Error('GitHub client does not support listing repository labels.');
+  }
+  return await client.listRepositoryLabels();
+}
+
+/**
+ * @param {GitHubLabel[]} existingLabels
+ * @returns {EnsureLabelsResult}
+ */
+function inspectPullOpsGitHubLabels(existingLabels) {
+  const existingLabelsByName = new Map(existingLabels.map(label => [label.name, label]));
+  /** @type {EnsureLabelsResult} */
+  const result = {
+    created: [],
+    updated: [],
+    alreadyCorrect: [],
+  };
+
+  for (const label of PULL_OPS_LABELS) {
+    const existingLabel = existingLabelsByName.get(label.name);
+
+    if (existingLabel === undefined) {
+      result.created.push(label.name);
+      continue;
+    }
+
+    if (labelNeedsUpdate(existingLabel, label)) {
+      result.updated.push(label.name);
+      continue;
+    }
+
+    result.alreadyCorrect.push(label.name);
+  }
+
+  return result;
+}
+
+/**
+ * @param {GitHubLabel} existingLabel
+ * @param {PullOpsLabel} expectedLabel
+ * @returns {boolean}
+ */
+function labelNeedsUpdate(existingLabel, expectedLabel) {
+  return (
+    normalizeLabelColor(existingLabel.color) !== normalizeLabelColor(expectedLabel.color) ||
+    existingLabel.description !== expectedLabel.description
+  );
+}
+
+/**
+ * @param {string} color
+ * @returns {string}
+ */
+function normalizeLabelColor(color) {
+  return color.replace(/^#/, '').toLowerCase();
 }
 
 /**
@@ -1285,6 +1518,9 @@ function shouldPreserveExistingUnmanagedSetupFile({ state, preserveUnmanagedExis
  *   area: string,
  *   summary: string,
  *   changes: string[],
+ *   created?: string[],
+ *   updated?: string[],
+ *   alreadyCorrect?: string[],
  *   changesNeeded: string[],
  *   blockers: string[],
  *   warnings: string[],
@@ -1330,7 +1566,41 @@ function completeSummaryForArea(area) {
     return 'PullOps GitHub Actions workflows are already installed.';
   }
 
+  if (area === SETUP_GITHUB_LABELS_AREA) {
+    return 'PullOps GitHub labels are already set up.';
+  }
+
   return 'PullOps setup is already complete.';
+}
+
+/**
+ * @param {PullOpsSetupResult['status']} status
+ * @param {EnsureLabelsResult} result
+ * @returns {string}
+ */
+function summarizeGitHubLabelSetupResult(status, result) {
+  const totalLabels = result.created.length + result.updated.length + result.alreadyCorrect.length;
+  const changedLabels = result.created.length + result.updated.length;
+
+  if (changedLabels === 0) {
+    return completeSummaryForArea(SETUP_GITHUB_LABELS_AREA);
+  }
+
+  if (status === 'changes-needed') {
+    return [
+      `PullOps GitHub label setup found ${changedLabels} labels needing changes:`,
+      `${result.created.length} created,`,
+      `${result.updated.length} updated,`,
+      `${result.alreadyCorrect.length} already correct.`,
+    ].join(' ');
+  }
+
+  return [
+    `Reconciled ${totalLabels} PullOps labels:`,
+    `${result.created.length} created,`,
+    `${result.updated.length} updated,`,
+    `${result.alreadyCorrect.length} already correct.`,
+  ].join(' ');
 }
 
 /**

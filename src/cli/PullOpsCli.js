@@ -4,7 +4,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
-import { createGitHubClient, PULL_OPS_LABELS } from '../github/GitHubClient.js';
+import { createGitHubClient } from '../github/GitHubClient.js';
 import {
   createIssueStoreRunRecordLocation,
   writeIssueStoreRunArtifact,
@@ -18,6 +18,7 @@ import {
   runPullOpsSetupGitHubActions,
   runPullOpsSetupAgentDocs,
   runPullOpsSetupDoctor,
+  runPullOpsSetupGitHubLabels,
   runPullOpsSetupSkills,
 } from '../setup/setup.js';
 import {
@@ -52,7 +53,6 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
- * @typedef {import('../github/types.js').EnsureLabelsResult} EnsureLabelsResult
  * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
@@ -168,10 +168,6 @@ export class PullOpsCli {
 
     if (command === 'run') {
       return await this.runOperation(args);
-    }
-
-    if (command === 'labels') {
-      return await this.runLabels(args);
     }
 
     if (command === 'issues') {
@@ -1001,37 +997,12 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runLabels(args) {
-    const [subcommand, ...rest] = args;
-
-    if (subcommand !== 'ensure') {
-      throw new CliUsageError('Expected "pullops labels ensure".');
-    }
-
-    if (rest.length > 0) {
-      throw new CliUsageError(`Unknown labels ensure arguments: ${rest.join(' ')}.`);
-    }
-
-    const result = await this.githubClient.ensureLabels(PULL_OPS_LABELS);
-
-    this.writeValidatedJson({
-      status: 'accepted',
-      summary: summarizeEnsureLabelsResult(PULL_OPS_LABELS.length, result),
-      labels: result,
-    });
-    return 0;
-  }
-
-  /**
-   * @param {string[]} args
-   * @returns {Promise<number>}
-   */
   async runSetup(args) {
     const [subcommand, ...rest] = args;
 
     if (subcommand === undefined) {
       throw new CliUsageError(
-        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs, github-actions.',
+        'Missing setup subcommand. Expected one of: doctor, skills, agent-docs, github-actions, github-labels.',
       );
     }
 
@@ -1056,8 +1027,12 @@ export class PullOpsCli {
       return await this.runSetupGitHubActions(rest);
     }
 
+    if (subcommand === 'github-labels') {
+      return await this.runSetupGitHubLabels(rest);
+    }
+
     throw new CliUsageError(
-      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs, github-actions.`,
+      `Unknown setup subcommand "${subcommand}". Expected one of: doctor, skills, agent-docs, github-actions, github-labels.`,
     );
   }
 
@@ -1133,6 +1108,28 @@ export class PullOpsCli {
       cwd: this.cwd,
       check: parsedArgs.check,
       force: parsedArgs.force,
+    });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderSetupResult(result)}\n`);
+    }
+
+    return result.status === 'ready' ? 0 : 1;
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runSetupGitHubLabels(args) {
+    const parsedArgs = parseSetupArgs(args);
+    const result = await runPullOpsSetupGitHubLabels({
+      cwd: this.cwd,
+      check: parsedArgs.check,
+      force: parsedArgs.force,
+      githubClient: this.githubClient,
     });
 
     if (parsedArgs.json) {
@@ -2301,6 +2298,7 @@ function usage() {
     '  pullops setup skills [--check] [--json] [--force]',
     '  pullops setup agent-docs [--check] [--json] [--force]',
     '  pullops setup github-actions [--check] [--json] [--force]',
+    '  pullops setup github-labels [--check] [--json] [--force]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
@@ -2317,22 +2315,7 @@ function usage() {
     '  pullops issues publish-issue [--file <path>]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
     '  pullops step [--long] "<summary>" -- <command...>',
-    '  pullops labels ensure',
   ].join('\n');
-}
-
-/**
- * @param {number} total
- * @param {EnsureLabelsResult} result
- * @returns {string}
- */
-function summarizeEnsureLabelsResult(total, result) {
-  return [
-    `Ensured ${total} PullOps labels:`,
-    `${result.created.length} created,`,
-    `${result.updated.length} updated,`,
-    `${result.alreadyCorrect.length} already correct.`,
-  ].join(' ');
 }
 
 /**

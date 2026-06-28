@@ -8,11 +8,13 @@ import { promisify } from 'node:util';
 import { describe, it } from 'node:test';
 
 import { OPERATION_LABEL_REFERENCES, WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { runPullOpsInit } from './init.js';
 import {
   runPullOpsSetupAgentDocs,
   runPullOpsSetupDoctor,
   runPullOpsSetupGitHubActions,
+  runPullOpsSetupGitHubLabels,
   runPullOpsSetupSkills,
 } from './setup.js';
 
@@ -438,6 +440,214 @@ describe('setup github-actions', () => {
       joinMessages(result.warnings),
       /Unable to inspect repository Actions secrets: repository secrets are hidden/,
     );
+  });
+
+  it('05: includes GitHub Actions workflow and secret readiness in the full doctor profile', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupSkills({ cwd });
+    await runPullOpsSetupAgentDocs({ cwd });
+
+    let actionsSecretReadCount = 0;
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readRepositoryActionsSecretNames: async () => {
+        actionsSecretReadCount += 1;
+        return ['PULLOPS_GITHUB_TOKEN'];
+      },
+      readRepositoryLabels: async () => PULL_OPS_LABELS.map(label => ({ ...label })),
+    });
+
+    assert.equal(result.status, 'changes-needed');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.equal(actionsSecretReadCount, 1);
+    assert.ok(result.changesNeeded.includes('.github/workflows/pullops-dispatch.yml'));
+    assert.match(
+      joinMessages(result.warnings),
+      /Missing repository Actions secrets: OPENAI_API_KEY\./,
+    );
+  });
+
+  it('06: warns instead of blocking when the full doctor profile cannot inspect repository Actions secrets', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupSkills({ cwd });
+    await runPullOpsSetupAgentDocs({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readRepositoryActionsSecretNames: async () => {
+        throw new Error(
+          'GITHUB_REPOSITORY must be set to "OWNER/REPO", or remote.origin.url must point at a GitHub repository.',
+        );
+      },
+      readRepositoryLabels: async () => PULL_OPS_LABELS.map(label => ({ ...label })),
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.deepEqual(result.changesNeeded, []);
+    assert.match(
+      joinMessages(result.warnings),
+      /Unable to inspect repository Actions secrets: GITHUB_REPOSITORY must be set to "OWNER\/REPO", or remote\.origin\.url must point at a GitHub repository\./,
+    );
+  });
+});
+
+describe('setup github-labels', () => {
+  it('01: checks and applies only PullOps operation and status labels', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+
+    /** @type {import('../github/types.js').GitHubLabel[]} */
+    const listedLabels = PULL_OPS_LABELS.map(label => ({ ...label }));
+    listedLabels[1] = {
+      ...listedLabels[1],
+      color: '000000',
+    };
+    const removedLabel = listedLabels.splice(5, 1)[0];
+    if (removedLabel === undefined) {
+      throw new Error('Expected a removed label.');
+    }
+    /** @type {import('../github/types.js').PullOpsLabel[]} */
+    const ensuredLabels = [];
+    let ensureCalls = 0;
+    let listedCalls = 0;
+    const githubClient = {
+      async listRepositoryLabels() {
+        listedCalls += 1;
+        return listedLabels;
+      },
+      /**
+       * @param {import('../github/types.js').PullOpsLabel[]} labels
+       */
+      async ensureLabels(labels) {
+        ensureCalls += 1;
+        ensuredLabels.push(...labels);
+        return {
+          created: [labels[0].name],
+          updated: [labels[1].name],
+          alreadyCorrect: labels.slice(2).map(label => label.name),
+        };
+      },
+    };
+
+    const dryRun = await runPullOpsSetupGitHubLabels({
+      cwd,
+      check: true,
+      githubClient,
+    });
+
+    assert.equal(dryRun.status, 'changes-needed');
+    assert.equal(dryRun.area, 'setup-github-labels');
+    assert.equal(dryRun.summary, 'PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, 14 already correct.');
+    assert.deepEqual(dryRun.changes, []);
+    assert.deepEqual(dryRun.created, [removedLabel.name]);
+    assert.deepEqual(dryRun.updated, [listedLabels[1].name]);
+    assert.deepEqual(
+      dryRun.alreadyCorrect,
+      PULL_OPS_LABELS.filter(
+        label => label.name !== removedLabel.name && label.name !== listedLabels[1].name,
+      ).map(label => label.name),
+    );
+    assert.deepEqual(
+      dryRun.changesNeeded.sort(),
+      [listedLabels[1].name, removedLabel.name].sort(),
+    );
+    assert.deepEqual(dryRun.blockers, []);
+    assert.deepEqual(dryRun.warnings, []);
+    assert.deepEqual(dryRun.suggestions, ['Run PullOps setup github-labels to reconcile the repository labels.']);
+    assert.equal(ensureCalls, 0);
+    assert.equal(listedCalls, 1);
+
+    const applied = await runPullOpsSetupGitHubLabels({
+      cwd,
+      githubClient,
+    });
+
+    assert.equal(applied.status, 'ready');
+    assert.equal(applied.area, 'setup-github-labels');
+    assert.equal(applied.summary, 'Reconciled 16 PullOps labels: 1 created, 1 updated, 14 already correct.');
+    assert.deepEqual(applied.changes, [PULL_OPS_LABELS[0].name, PULL_OPS_LABELS[1].name]);
+    assert.deepEqual(applied.created, [PULL_OPS_LABELS[0].name]);
+    assert.deepEqual(applied.updated, [PULL_OPS_LABELS[1].name]);
+    assert.deepEqual(applied.alreadyCorrect, PULL_OPS_LABELS.slice(2).map(label => label.name));
+    assert.deepEqual(applied.changesNeeded, []);
+    assert.deepEqual(applied.blockers, []);
+    assert.deepEqual(applied.warnings, []);
+    assert.deepEqual(applied.suggestions, []);
+    assert.equal(ensureCalls, 1);
+    assert.equal(ensuredLabels.length, PULL_OPS_LABELS.length);
+    assert.equal(ensuredLabels.some(label => label.name === 'pullops:human-required'), true);
+    assert.equal(ensuredLabels.some(label => label.name === 'pullops:status:blocked'), true);
+    assert.equal(ensuredLabels.some(label => label.name === 'pullops:status:done'), true);
+    assert.equal(ensuredLabels.some(label => label.name === 'needs-triage'), false);
+  });
+
+  it('02: reports label readiness gaps as warnings when repository labels cannot be inspected', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupSkills({ cwd });
+    await runPullOpsSetupAgentDocs({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readRepositoryActionsSecretNames: async () => [
+        'PULLOPS_GITHUB_TOKEN',
+        'OPENAI_API_KEY',
+      ],
+      readRepositoryLabels: async () => {
+        throw new Error('repository labels are hidden');
+      },
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.deepEqual(result.changesNeeded, []);
+    assert.match(
+      joinMessages(result.warnings),
+      /Unable to inspect repository PullOps labels: repository labels are hidden/,
+    );
+  });
+
+  it('03: reports PullOps label drift in the full doctor profile', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupSkills({ cwd });
+    await runPullOpsSetupAgentDocs({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readRepositoryActionsSecretNames: async () => [
+        'PULLOPS_GITHUB_TOKEN',
+        'OPENAI_API_KEY',
+      ],
+      readRepositoryLabels: async () => {
+        const labels = PULL_OPS_LABELS.map(label => ({ ...label }));
+        labels[2] = {
+          ...labels[2],
+          color: '000000',
+        };
+        labels.splice(7, 1);
+        return labels;
+      },
+    });
+
+    assert.equal(result.status, 'changes-needed');
+    assert.equal(result.area, 'setup-doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.ok(result.changesNeeded.includes(PULL_OPS_LABELS[2].name));
+    assert.ok(result.changesNeeded.includes(PULL_OPS_LABELS[7].name));
   });
 });
 

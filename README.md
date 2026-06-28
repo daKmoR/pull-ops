@@ -83,9 +83,11 @@ CLI reads GitHub API auth from `PULLOPS_GITHUB_TOKEN` first, then
 expose the install-facing secret under both names so PullOps and GitHub-aware
 tools use the same credential.
 
-For local commands such as `pullops labels ensure`, you can either export
+For local commands such as `pullops setup github-labels`, you can either export
 `PULLOPS_GITHUB_TOKEN` or run `gh auth login` once and let PullOps reuse that
-stored GitHub CLI authentication.
+stored GitHub CLI authentication. If you are targeting a different repository
+than the current checkout, set `GITHUB_REPOSITORY=OWNER/REPO` before running the
+label setup command.
 
 Prefer a fine-grained personal access token:
 
