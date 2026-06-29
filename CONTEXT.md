@@ -8,6 +8,10 @@ An npm CLI package for installing AI-native GitHub pull request workflows into a
 The repository where PullOps installs workflows, skills, and configuration.
 _Avoid_: Consumer repo, project
 
+**Target Repository Maintainer**:
+A person responsible for installing and operating PullOps in a Target Repository, including credentials, labels, and workflow choices.
+_Avoid_: PullOps user, consumer
+
 **Workflow Kit**:
 The repo-local set of generated GitHub Actions workflows, agent skills, and PullOps configuration committed into a Target Repository.
 _Avoid_: Scaffold, template
@@ -43,6 +47,10 @@ _Avoid_: Health check, environment probe, init validation
 **PullOps Label Setup**:
 The PullOps Setup Command that creates or reconciles PullOps Operation Labels and PullOps Status Labels in the configured GitHub repository.
 _Avoid_: Triage label setup, issue taxonomy setup
+
+**Authoring Workflow**:
+The planning path for turning a maintainer idea into PullOps-published PRD Issues and Child Issues, usually through authoring skills such as `grill-with-docs`, `to-prd`, and `to-issues`.
+_Avoid_: PullOps operation, manual issue entry
 
 **Authoring Skill Availability**:
 Whether optional repo-local planning and authoring skills such as `grill-with-docs`, `to-prd`, and `to-issues` are present under `.agents/skills/` in a Target Repository.
@@ -92,6 +100,10 @@ _Avoid_: Phase, task script, provider
 The place where a PullOps Operation is executed, such as the active local checkout or GitHub Actions.
 _Avoid_: Runner adapter, provider
 
+**Credential Readiness**:
+The context-specific authentication state needed by a selected PullOps path. Local PullOps work can rely on local GitHub and runner authentication, while GitHub Actions work depends on repository Actions secrets.
+_Avoid_: Secret setup, overall readiness
+
 **Publication Mode**:
 The intended visibility and persistence of a PullOps Operation result, such as opening a pull request or leaving local changes for review.
 _Avoid_: Output, execution backend
@@ -99,6 +111,10 @@ _Avoid_: Output, execution backend
 **Run Goal**:
 How far a PullOps Execution Backend should continue through PullOps follow-up operations for a target.
 _Avoid_: Publication mode, operation label
+
+**PullOps Go**:
+The local agent-facing entrypoint that selects, runs, supervises, and repairs PullOps work for a Target Repository Maintainer.
+_Avoid_: Local CLI command, GitHub label, manual workflow
 
 **Local Run Record**:
 A visible, gitignored `.pullops/runs/<timestamp>-<operation-label-reference>-<target-number>/` directory where local execution records artifacts from one PullOps run.
