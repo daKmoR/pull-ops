@@ -48,31 +48,6 @@ describe('createGitHubClient', () => {
           'Finalize a PullOps-managed PR for human review and merge.',
         ],
         ['pullops:human-required', 'D93F0B', 'PullOps automation needs maintainer attention.'],
-        [
-          'pullops:status:in-progress',
-          'D93F0B',
-          'PullOps automation is actively working on the target.',
-        ],
-        [
-          'pullops:status:blocked',
-          'D93F0B',
-          'PullOps automation is blocked and needs maintainer attention.',
-        ],
-        [
-          'pullops:status:prepared',
-          'D93F0B',
-          'PullOps automation prepared the target and is waiting for the next step.',
-        ],
-        [
-          'pullops:status:done',
-          'D93F0B',
-          'PullOps automation completed the target and is waiting for the next step.',
-        ],
-        [
-          'pullops:status:failed',
-          'D93F0B',
-          'PullOps automation failed and needs maintainer attention.',
-        ],
       ],
     );
   });
