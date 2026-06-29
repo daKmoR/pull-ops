@@ -1,18 +1,38 @@
 ---
 name: pullops-issue-implement
-description: Implement one PullOps Concrete Issue or manually selected Child Issue and report structured implementation output for the CLI.
+description: Implement one PullOps issue and return structured implementation output.
 disable-model-invocation: true
 ---
 
 # PullOps Implement Issue
 
-Implement the supplied issue as written.
+Implement the supplied Concrete Issue or manually selected Child Issue as
+written. For a Child Issue, use the Parent Issue as context only; the selected
+Child Issue is the implementation boundary.
 
-- Use /coding-standards before editing source files, tests, public APIs, or types.
-- Use /tdd where the issue has a clear behavior seam that can be covered incrementally.
-- Use /diagnosing-bugs when the issue is bug-shaped and no tight reproduction exists yet.
-- Keep changes focused, allowing only adjacent work needed to complete the issue correctly.
-- Run focused verification that is appropriate for the change.
+## Implement
+
+1. Read the supplied issue body and any parent context. Identify the requested
+   behavior, explicit constraints, and acceptance signals before editing.
+   Completion criterion: the issue boundary is clear enough to decide whether a
+   discovered change is in scope, Adjacent Work, follow-up, or blocked.
+2. Use the appropriate discipline:
+   - Use `coding-standards` before editing source files, tests, public APIs, or types.
+   - Use `tdd` where the issue has a clear behavior seam that can be covered incrementally.
+   - Use `diagnosing-bugs` when the issue is bug-shaped and no tight reproduction exists yet.
+   Completion criterion: every referenced discipline needed for this issue has
+   been applied before the relevant edits.
+3. Implement the smallest coherent change that satisfies the issue. Allow only
+   Adjacent Work required to complete it correctly. Record unrelated defects,
+   broad refactors, and larger design problems as `followUps` instead of
+   folding them into the implementation.
+   Completion criterion: the working tree contains only issue-focused work or
+   necessary Adjacent Work.
+4. Run focused verification appropriate for the change. If automated
+   verification is unavailable, perform the tightest manual check available and
+   say exactly what was checked in `testPlan`.
+   Completion criterion: `testPlan` names verification that was actually run,
+   or the focused manual check used when automated verification was unavailable.
 
 ## Liveness and command execution
 
@@ -47,6 +67,8 @@ and PR creation after validating your output.
 
 Completion criteria:
 
+- The issue is implemented as written, or the blocked JSON names the specific
+  reason it cannot be implemented.
 - The working tree contains only issue-focused work or adjacent work needed to complete the issue correctly.
 - `changes` names concrete code, test, or documentation edits.
 - `testPlan` names verification that was actually run, or the focused manual check used when automated verification was not available.
