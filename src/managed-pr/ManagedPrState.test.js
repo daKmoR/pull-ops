@@ -184,16 +184,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:review',
-          'pullops:pr:finalize',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:review', 'pullops:pr:finalize', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(github.pullRequestLabelsAdded, [
@@ -204,7 +195,7 @@ describe('ManagedPrState', () => {
     ]);
   });
 
-  it('04: leaves final review approvals ready for human merge without status labels', async () => {
+  it('04: leaves final review approvals ready for human merge without human-required label', async () => {
     const github = createFakeGitHub();
 
     await applyManagedPrTransition({
@@ -310,16 +301,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:address-review',
-          'pullops:pr:review',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:address-review', 'pullops:pr:review', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(github.pullRequestLabelsAdded, [
@@ -469,15 +451,7 @@ describe('ManagedPrState', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:update-branch',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:update-branch', 'pullops:human-required'],
       },
     ]);
   });

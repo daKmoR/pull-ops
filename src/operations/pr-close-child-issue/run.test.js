@@ -61,15 +61,7 @@ describe('runPrCloseChildIssue', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 42,
-        labels: [
-          'pullops:issue:implement',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:issue:implement', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(github.issueLabelsAdded, []);

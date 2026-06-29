@@ -81,26 +81,11 @@ describe('runPrdPrepare', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 12,
-        labels: [
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:human-required'],
       },
       {
         number: 12,
-        labels: [
-          'pullops:prd:prepare',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:prd:prepare', 'pullops:human-required'],
       },
     ]);
   });
@@ -159,15 +144,7 @@ describe('runPrdPrepare', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 12,
-        labels: [
-          'pullops:prd:prepare',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:prd:prepare', 'pullops:human-required'],
       },
     ]);
   });

@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import {
   PULL_OPS_OPERATION_LABELS,
   PULL_OPS_PR_OPERATION_LABELS,
-  PULL_OPS_STALE_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABEL_NAMES,
   PULL_OPS_STATUS_LABELS,
 } from '../labels/pullOpsLabels.js';
@@ -1194,7 +1193,6 @@ function labelsForSuccessfulOperation(operation, nextOperation = undefined) {
       operation,
       ...(nextOperation === undefined ? [] : [nextOperation]),
       PULL_OPS_STATUS_LABELS.humanRequired,
-      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
     ]),
   ];
 }
@@ -1204,7 +1202,7 @@ function labelsForSuccessfulOperation(operation, nextOperation = undefined) {
  * @returns {string[]}
  */
 function labelsForBlockedOperation(operation) {
-  return [operation, ...extraBlockedLabels(operation), ...PULL_OPS_STALE_STATUS_LABEL_NAMES];
+  return [operation, ...extraBlockedLabels(operation)];
 }
 
 /**

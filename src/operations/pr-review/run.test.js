@@ -115,16 +115,7 @@ describe('runPrReview', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:review',
-          'pullops:pr:finalize',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:review', 'pullops:pr:finalize', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(github.pullRequestLabelsAdded, [

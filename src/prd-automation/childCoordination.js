@@ -2,11 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { classifyCheckState } from '../checks/checkState.js';
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STALE_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../labels/pullOpsLabels.js';
+import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
 import {
   hasActiveManagedPrWorkflow,
   isFinalizedForRebase,
@@ -73,9 +69,6 @@ import {
 
 /** @type {ReadonlySet<string>} */
 const ACTIVE_CHILD_ISSUE_LABELS = new Set([PULL_OPS_OPERATION_LABELS.issueImplement]);
-
-/** @type {ReadonlySet<string>} */
-const STALE_STATUS_LABELS = new Set(PULL_OPS_STALE_STATUS_LABEL_NAMES);
 
 // Runaway guard only. Managed PR review/address-review budgets are enforced by
 // the PR operations through the managed PR state stored in the pull request body.
@@ -2958,11 +2951,7 @@ async function closeChildIssue(context, { issue, pullRequest, expectedBaseBranch
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.issueImplement,
-      PULL_OPS_STATUS_LABELS.humanRequired,
-      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
   });
 }
 
@@ -3044,7 +3033,7 @@ function isLocalChildPullRequestOperation(operation) {
 function selectLocalChildPullRequestOperation(pullRequest) {
   const labels = pullRequest.labels ?? [];
   for (const label of labels) {
-    if (STALE_STATUS_LABELS.has(label) || label === PULL_OPS_STATUS_LABELS.humanRequired) {
+    if (label === PULL_OPS_STATUS_LABELS.humanRequired) {
       continue;
     }
 
@@ -4012,11 +4001,7 @@ async function blockPrdAutomation(context, issue, { reason, mode }) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
-      PULL_OPS_OPERATION_LABELS.prdAutoComplete,
-      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.prdAutoAdvance, PULL_OPS_OPERATION_LABELS.prdAutoComplete],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,

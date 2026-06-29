@@ -1,11 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STALE_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
@@ -169,7 +165,7 @@ async function blockPreparation(context, issue, { reason }) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -193,7 +189,7 @@ async function blockPreparation(context, issue, { reason }) {
 async function markPreparationInProgress(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_STATUS_LABELS.humanRequired, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
 }
 
@@ -205,11 +201,7 @@ async function markPreparationInProgress(context, issue) {
 async function markPreparationPrepared(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.prdPrepare,
-      PULL_OPS_STATUS_LABELS.humanRequired,
-      ...PULL_OPS_STALE_STATUS_LABEL_NAMES,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, PULL_OPS_STATUS_LABELS.humanRequired],
   });
 }
 
@@ -227,7 +219,7 @@ async function recordPreparationFailure(context, issue, reason) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, ...PULL_OPS_STALE_STATUS_LABEL_NAMES],
+    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,

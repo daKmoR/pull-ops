@@ -17,11 +17,6 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
 
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
   humanRequired: 'pullops:human-required',
-  inProgress: 'pullops:status:in-progress',
-  blocked: 'pullops:status:blocked',
-  prepared: 'pullops:status:prepared',
-  done: 'pullops:status:done',
-  failed: 'pullops:status:failed',
 });
 
 export const PULL_OPS_PRD_OPERATION_LABELS = Object.freeze([
@@ -50,14 +45,6 @@ export const PULL_OPS_OPERATION_LABEL_NAMES = Object.freeze([
 ]);
 
 export const PULL_OPS_STATUS_LABEL_NAMES = Object.freeze(Object.values(PULL_OPS_STATUS_LABELS));
-
-export const PULL_OPS_STALE_STATUS_LABEL_NAMES = Object.freeze([
-  PULL_OPS_STATUS_LABELS.inProgress,
-  PULL_OPS_STATUS_LABELS.blocked,
-  PULL_OPS_STATUS_LABELS.prepared,
-  PULL_OPS_STATUS_LABELS.done,
-  PULL_OPS_STATUS_LABELS.failed,
-]);
 
 /** @type {PullOpsLabel[]} */
 export const PULL_OPS_LABELS = [

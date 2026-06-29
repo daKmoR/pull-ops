@@ -48,7 +48,7 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
 
 export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
-const LOCAL_FINALIZED_REVIEW_CYCLE_GUARD = 8;
+const LOCAL_FINALIZED_REVIEW_CYCLE_GUARD = 12;
 
 /**
  * @param {OperationRunnerContext} context
@@ -799,14 +799,7 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
     });
     await context.githubClient.removeLabelsFromIssue({
       number: issue.number,
-      labels: [
-        PULL_OPS_OPERATION_LABELS.issueImplement,
-        PULL_OPS_STATUS_LABELS.humanRequired,
-        PULL_OPS_STATUS_LABELS.inProgress,
-        PULL_OPS_STATUS_LABELS.blocked,
-        PULL_OPS_STATUS_LABELS.prepared,
-        PULL_OPS_STATUS_LABELS.failed,
-      ],
+      labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
     });
 
     return {
@@ -2062,10 +2055,6 @@ async function blockIssue(context, issue, { reason, summary = reason, humanRequi
     labels: [
       PULL_OPS_OPERATION_LABELS.issueImplement,
       ...(humanRequired ? [] : [PULL_OPS_STATUS_LABELS.humanRequired]),
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
     ],
   });
   await context.githubClient.commentOnIssue({
@@ -2092,13 +2081,7 @@ async function blockIssue(context, issue, { reason, summary = reason, humanRequi
 async function markIssueInProgress(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_STATUS_LABELS.humanRequired,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_STATUS_LABELS.humanRequired],
   });
 }
 
@@ -2116,13 +2099,7 @@ async function recordIssueFailure(context, issue, reason) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.issueImplement,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.issueImplement],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -2142,15 +2119,7 @@ async function recordIssueFailure(context, issue, reason) {
 async function clearIssueTaskLabels(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [
-      PULL_OPS_OPERATION_LABELS.issueImplement,
-      PULL_OPS_STATUS_LABELS.humanRequired,
-      PULL_OPS_STATUS_LABELS.inProgress,
-      PULL_OPS_STATUS_LABELS.blocked,
-      PULL_OPS_STATUS_LABELS.prepared,
-      PULL_OPS_STATUS_LABELS.failed,
-      PULL_OPS_STATUS_LABELS.done,
-    ],
+    labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
   });
 }
 

@@ -117,10 +117,10 @@ Codex Action workflow runs split Codex-backed operations into
 `--phase prepare` and `--phase finalize` commands. Those phase commands are
 workflow lifecycle plumbing, not maintainer-facing controls.
 
-## Status Labels
+## Status Label
 
-PullOps avoids using labels for ordinary progress. Status Labels are for
-exceptional states that need attention or cleanup.
+PullOps avoids using labels for ordinary progress. The only Status Label is for
+exceptional states that need attention.
 
 | Label                        | Meaning                                                                   | Installed by `pullops setup github-labels`? |
 | ---------------------------- | ------------------------------------------------------------------------- | ------------------------------------------- |

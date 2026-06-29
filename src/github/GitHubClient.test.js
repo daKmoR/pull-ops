@@ -505,7 +505,7 @@ describe('createGitHubClient', () => {
     });
     await client.addLabelsToIssue({
       number: 42,
-      labels: ['pullops:status:done'],
+      labels: ['pullops:human-required'],
     });
     await client.commentOnPullRequest({
       number: 100,
@@ -569,13 +569,13 @@ describe('createGitHubClient', () => {
 
   it('11: ignores missing labels while removing issue labels', async () => {
     const { calls, octokit } = createFakeOctokit({
-      missingLabels: ['pullops:status:blocked'],
+      missingLabels: ['pullops:human-required'],
     });
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
 
     await client.removeLabelsFromIssue({
       number: 42,
-      labels: ['pullops:issue:implement', 'pullops:status:blocked'],
+      labels: ['pullops:issue:implement', 'pullops:human-required'],
     });
 
     assert.deepEqual(
@@ -585,7 +585,7 @@ describe('createGitHubClient', () => {
     assert.deepEqual(calls[1].params, {
       ...TEST_REPOSITORY,
       issue_number: 42,
-      name: 'pullops:status:blocked',
+      name: 'pullops:human-required',
     });
   });
 

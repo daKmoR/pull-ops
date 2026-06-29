@@ -223,7 +223,10 @@ describe('PullOps skill contracts', () => {
         assert.match(skillText, /before every fourth non-heartbeat tool call/);
         assert.match(skillText, /whichever comes\s+first/);
         assert.match(skillText, /Heartbeats must originate from this .* agent process/);
-        assert.doesNotMatch(skillText, /npm exec pullops -- step "<brief current focus>" -- <command>/);
+        assert.doesNotMatch(
+          skillText,
+          /npm exec pullops -- step "<brief current focus>" -- <command>/,
+        );
       } else {
         assert.match(skillText, /## Liveness and command execution/);
         assert.match(skillText, /Use PullOps as the command gate/);

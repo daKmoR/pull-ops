@@ -85,8 +85,8 @@ describe('issueDependencies', () => {
 
   it('04: treats only closed dependency issues as done', () => {
     assert.equal(createDoneState({ state: 'CLOSED', labels: [] }), true);
-    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:status:done'] }), false);
-    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:status:prepared'] }), false);
+    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:human-required'] }), false);
+    assert.equal(createDoneState({ state: 'OPEN', labels: ['pullops:issue:implement'] }), false);
     assert.equal(createDoneState({ state: 'OPEN', labels: [] }), false);
   });
 });

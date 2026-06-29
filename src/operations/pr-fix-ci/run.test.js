@@ -85,16 +85,7 @@ describe('runPrFixCi', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:fix-ci',
-          'pullops:pr:review',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:fix-ci', 'pullops:pr:review', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(github.pullRequestLabelsAdded, [
@@ -163,15 +154,7 @@ describe('runPrFixCi', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [
-          'pullops:pr:fix-ci',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:done',
-          'pullops:status:failed',
-        ],
+        labels: ['pullops:pr:fix-ci', 'pullops:human-required'],
       },
     ]);
     assert.deepEqual(git.pushes, [{ branchName: 'human/fix-lint' }]);

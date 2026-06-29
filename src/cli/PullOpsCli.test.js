@@ -3218,29 +3218,21 @@ test('setup github-labels reports label reconciliation results from the GitHub c
   const exitCode = await cli.run(['setup', 'github-labels', '--json']);
 
   assert.equal(exitCode, 0);
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:prd:prepare'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:issue:implement'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:blocked'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:status:failed'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name === 'pullops:human-required'),
-    true,
-  );
-  assert.equal(
-    ensuredLabels.some(label => label.name.startsWith('needs-')),
-    false,
+  assert.deepEqual(
+    ensuredLabels.map(label => label.name),
+    [
+      'pullops:prd:prepare',
+      'pullops:prd:auto-advance',
+      'pullops:prd:auto-complete',
+      'pullops:issue:implement',
+      'pullops:pr:review',
+      'pullops:pr:address-review',
+      'pullops:pr:fix-ci',
+      'pullops:pr:update-branch',
+      'pullops:pr:resolve-conflicts',
+      'pullops:pr:finalize',
+      'pullops:human-required',
+    ],
   );
   const expectedLabels = {
     created: [ensuredLabels[0].name],

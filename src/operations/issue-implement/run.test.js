@@ -450,15 +450,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(github.issueLabelsRemoved, [
       {
         number: 42,
-        labels: [
-          'pullops:issue:implement',
-          'pullops:human-required',
-          'pullops:status:in-progress',
-          'pullops:status:blocked',
-          'pullops:status:prepared',
-          'pullops:status:failed',
-          'pullops:status:done',
-        ],
+        labels: ['pullops:issue:implement', 'pullops:human-required'],
       },
     ]);
   });
@@ -575,7 +567,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(github.issueLabelsAdded, []);
   });
 
-  it('13: blocks an issue when a dependency has only PullOps done status', async () => {
+  it('13: blocks an issue when a dependency is still open with human attention required', async () => {
     const issue = createIssue({
       number: 42,
       body: ['Blocked by: #7', '', '## What to build', '', 'Do the thing.'].join('\n'),
@@ -583,7 +575,7 @@ describe('runIssueImplement', () => {
     const dependency = createIssue({
       number: 7,
       title: 'Dependency',
-      labels: ['pullops:status:done'],
+      labels: ['pullops:human-required'],
     });
     const github = createFakeGitHub({
       issue,
@@ -1152,15 +1144,7 @@ describe('runIssueImplement', () => {
     ]);
     assert.deepEqual(github.issueLabelsRemoved.at(-1), {
       number: 42,
-      labels: [
-        'pullops:issue:implement',
-        'pullops:human-required',
-        'pullops:status:in-progress',
-        'pullops:status:blocked',
-        'pullops:status:prepared',
-        'pullops:status:failed',
-        'pullops:status:done',
-      ],
+      labels: ['pullops:issue:implement', 'pullops:human-required'],
     });
 
     const metadata = JSON.parse(
@@ -1906,7 +1890,7 @@ describe('runIssueImplement', () => {
       currentHeadSha: 'head-finalized',
     });
     /** @param {number} cycle */
-    const createReviewOutput = (cycle) =>
+    const createReviewOutput = cycle =>
       JSON.stringify({
         status: 'changes_requested',
         summary: `Review ${cycle}.`,
@@ -1916,7 +1900,7 @@ describe('runIssueImplement', () => {
         followUps: [],
       });
     /** @param {number} cycle */
-    const createAddressOutput = (cycle) =>
+    const createAddressOutput = cycle =>
       JSON.stringify({
         status: 'addressed',
         summary: `Addressed review ${cycle}.`,
