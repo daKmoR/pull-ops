@@ -38,8 +38,17 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(configText, /provider: 'github'/);
   assert.doesNotMatch(configText, /escalationModelTier/);
   assert.doesNotMatch(configText, /humanFeedbackResponseModelTier/);
+  assert.match(skillText, /^---\nname: pullops-setup\n/);
+  assert.match(skillText, /description: Setup and configure PullOps in the repository\./);
+  assert.match(skillText, /disable-model-invocation: true/);
   assert.match(skillText, /# PullOps Setup Skill/);
+  assert.match(skillText, /PullOps setup is a readiness loop/);
   assert.match(skillText, /pullops setup doctor --profile full --json/);
+  assert.match(
+    skillText,
+    /Completion criterion: every blocker and warning is classified as local action, remote approval, or external wait\./,
+  );
+  assert.match(skillText, /run the `--check --json` command/);
   assert.match(skillText, /pullops setup skills --check --json/);
   assert.match(skillText, /pullops setup agent-docs --check --json/);
   assert.match(skillText, /pullops setup github-actions --check --json/);
