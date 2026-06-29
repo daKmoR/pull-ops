@@ -1,22 +1,59 @@
 ---
 name: pullops-pr-review
-description: Review a PullOps-managed PR and return a structured Review Result.
+description: Review a PullOps-managed PR with Standards and Spec passes.
 disable-model-invocation: true
 ---
 
 # PullOps Review PR
 
-Run two review passes over the supplied PullOps-managed PR:
+Review the supplied PullOps-managed PR. The linked issue or PRD, PR body,
+changed files, diff, comments, reviews, and unresolved review threads are the
+operation boundary.
 
-- Standards: use /coding-standards and report actionable violations in the JSON comments.
-- Spec: compare the diff to the linked issue or PRD context and report missing, wrong, or out-of-scope behavior in the JSON comments.
+## Review
 
-Do not create commits, push, approve, request changes, edit labels, or update the PR body. PullOps will do those after validating your output.
+1. Inventory the review context before judging the diff. Completion criterion:
+   the linked issue or PRD intent, PR body claims, changed-file list, diff
+   hunks, prior comments, review summaries, and unresolved review threads have
+   all been considered.
+2. Run the Standards pass. Use `coding-standards` and report only actionable
+   repository-standard violations. Completion criterion: every Standards
+   finding is either represented as an inline `comments` item on a changed diff
+   line, fixed as a review-owned `directChanges` entry, or omitted because it is
+   non-actionable in this PR.
+3. Run the Spec pass. Compare the current diff to the linked issue or PRD
+   context and PR body. Completion criterion: every missing, wrong, or
+   out-of-scope behavior you find is represented as an inline `comments` item
+   on a changed diff line, a `replies` item on a matching unresolved thread, or
+   the reason for `blocked` when review cannot complete.
+4. Reconcile unresolved review threads. Reply only when the supplied thread is
+   still unresolved and the response should attach to an existing `commentId`.
+   Completion criterion: every `replies[].commentId` is a positive integer from
+   the supplied unresolved review threads.
+5. Make direct review improvements only when they are small, clearly
+   review-owned, and do not change PR scope. Completion criterion: every
+   working-tree edit is named in `directChanges`; otherwise `directChanges` is
+   empty.
+6. Decide the result. Use `changes_requested` when actionable feedback should
+   be handled by `pullops-pr-address-review`. Use `approved` only when the PR is
+   ready for the next PullOps automation step after any direct review changes.
+   Use `blocked` only when the review cannot be completed safely from the
+   supplied context.
 
-Inline comments must use changed lines from the supplied diff. Replies must use `commentId` values from unresolved review threads.
+## Output Rules
 
-You may make small direct improvements in the working tree only when they are
-clearly review-owned and do not change PR scope. Record them in `directChanges`.
+- Inline comments must use changed lines from the supplied diff. Non-diff
+  comments will be dropped by PullOps, so put only publishable comments in
+  `comments`.
+- Replies must use `commentId` values from unresolved review threads. Replies
+  to stale or unknown IDs will be dropped by PullOps.
+- `comments`, `replies`, `directChanges`, `reviewFollowUpIssues`, and
+  `followUps` may be empty arrays when there is nothing to report.
+- If you are approving the final Escalation Review Cycle, put standalone
+  `needs-triage` issue proposals in `reviewFollowUpIssues` with non-empty
+  `title` and `body` fields. Keep plain `followUps` as audit-only notes; they
+  must not create issues.
+- Do not add unsupported top-level fields.
 
 ## Liveness and command execution
 
@@ -44,10 +81,10 @@ npm exec pullops -- heartbeat --summary "<brief current focus>"
 
 Heartbeats must originate from this review agent process, not from the parent PullOps CLI.
 
-If you are approving the final Escalation Review Cycle, put standalone
-`needs-triage` issue proposals in `reviewFollowUpIssues` with `title` and `body`
-fields. Keep plain `followUps` as audit-only notes; they must not create
-issues.
+PullOps boundary: use referenced skills for their discipline only. Do not ask
+the user, emit non-JSON, create commits, push, approve, request changes, edit
+labels, update the PR body, post GitHub comments, or leave the review scope.
+PullOps handles GitHub mutations after validating your output.
 
 Final response must be only JSON:
 
@@ -78,8 +115,6 @@ Final response must be only JSON:
   "followUps": ["Optional follow-up that should not block this PR."]
 }
 ```
-
-Use `approved` when the PR is ready for the next PullOps automation step. Use `changes_requested` when `pullops-pr-address-review` should handle actionable feedback.
 
 If blocked, final response must be only JSON:
 
