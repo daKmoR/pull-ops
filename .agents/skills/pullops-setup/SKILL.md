@@ -1,0 +1,35 @@
+---
+name: pullops-setup
+description: Setup and configure PullOps in the repository.
+disable-model-invocation: true
+---
+
+# PullOps Setup Skill
+
+This repository has the tiny init entry point installed. Use PullOps setup commands to make the repo locally reviewable.
+
+## Start
+
+- Work from the repository root.
+- Run `pullops setup doctor --profile full --json` first and read the structured blockers and warnings.
+- Expect setup commands to write repo-local files; tool approval may be required for those local writes.
+- Keep git staging and commits untouched.
+- Do not invoke `setup-matt-pocock-skills` or any remote skill package installer.
+
+## Commands
+
+- Use `pullops setup skills --check --json` to inspect bundled skill installation, then `pullops setup skills --json` to apply it.
+- Use `pullops setup agent-docs --check --json` to inspect compatible agent docs, then `pullops setup agent-docs --json` to create any missing files.
+- Use `pullops setup github-actions --check --json` to inspect the workflow kit, then `pullops setup github-actions --json` to create or reconcile it.
+- Use `pullops setup github-labels --check --json` to inspect PullOps labels. Ask before running `pullops setup github-labels --json` because it mutates the remote repository.
+- If this checkout is not the target repository, pass `--repo OWNER/REPO` or set `GITHUB_REPOSITORY=OWNER/REPO` before running the GitHub label setup command.
+- Re-run `pullops setup doctor --profile github-actions --json` after workflow setup to confirm GitHub Actions readiness.
+- Re-run `pullops setup doctor --profile full --json` after label setup to confirm GitHub label readiness.
+- Re-run `pullops setup doctor --profile full --json` after setup to confirm readiness.
+
+## Safety
+
+- Do not overwrite PullOps-owned files unless the manifest proves ownership and `--force` is explicitly needed.
+- `pullops setup skills` installs only bundled PullOps-owned skills from the local `@pull-ops/cli` package dependency.
+- `pullops setup agent-docs` creates missing compatible issue tracker, triage label, and domain docs without editing global agent instruction files.
+- Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.js`.
