@@ -1,25 +1,61 @@
 ---
 name: pullops-pr-fix-ci
-description: Classify and safely fix actionable CI failures on a pull request.
+description: Classify and repair safe code-actionable CI failures on a pull request.
 disable-model-invocation: true
 ---
 
 # PullOps Fix CI
 
-Fix actionable CI failures on the pull request.
+Repair code-actionable failed checks on the pull request. The supplied Check
+Failure Classification is the operation boundary; the linked issue or PRD, PR
+body, changed files, and diff are context for keeping the repair in scope.
 
-Responsibilities:
+## Fix
 
-- Read the supplied Check Failure Classification before making code changes.
-- Echo every supplied `checkId` exactly once with its supplied classification and a rationale.
-- The `classifications` array must exactly equal the supplied `checkId` set; do not omit, duplicate, invent, or reclassify checks.
-- Fix failures classified as `formatting`, `lint`, `type`, `test`, or `build` when they are safely code-actionable.
-- Preserve the intent of the pull request and keep changes focused on the failed checks.
-- Run focused verification that demonstrates the repair.
+1. Inspect the supplied Check Failure Classification, linked issue or PRD, PR
+   body, changed files, and diff before editing. Completion criterion: every
+   supplied `checkId` has been copied into a local check ledger with its
+   supplied classification, actionable status, and rationale.
+2. Preserve the classification ledger. Do not reclassify checks. Completion
+   criterion: the final `classifications` array will echo every supplied
+   `checkId` exactly once with its supplied classification and a non-empty
+   rationale, with no omitted, duplicated, or invented check IDs.
+3. Decide repairability before changing code. Fix only failures classified as
+   `formatting`, `lint`, `type`, `test`, or `build` when they are safely
+   code-actionable. Return `blocked` for `environment`, `flaky`, or `secret`
+   failures, or when a safe code repair cannot be inferred from the supplied
+   context. Completion criterion: every actionable check has a focused repair
+   plan, or the output is blocked with a specific reason.
+4. Use the appropriate discipline:
+   - Use `coding-standards` for formatting, lint, type, and focused source/test repairs.
+   - Use `diagnosing-bugs` for test or build failures whose cause is not already isolated.
+   - Use `tdd` when the repair needs a regression test at a clear behavior seam.
+   Completion criterion: every referenced discipline needed for the failed
+   checks has been applied before the relevant edits.
+5. Keep the patch scoped to the failed checks and the pull request diff.
+   Preserve the intent of the pull request. Record unrelated defects, broad
+   refactors, and larger design problems as `followUps` instead of folding them
+   into this operation. Completion criterion: the working tree contains only CI
+   repair changes or necessary adjacent work.
+6. Run focused verification that demonstrates the repair. If automated
+   verification is unavailable, perform the tightest manual check available and
+   say exactly what was checked in `testPlan`. Completion criterion: `testPlan`
+   names verification that was actually run, or the focused manual check used
+   when automated verification was unavailable.
+7. Run the safety audit before returning `fixed`. Completion criterion:
+   `safetyChecks.weakenedTests`, `deletedAssertions`, `bypassedChecks`, and
+   `secretOrInfrastructureWorkaround` are all `false`. If any would be `true`,
+   return `blocked` instead.
 
-Use /coding-standards for formatting, lint, type, and focused source/test repairs.
-Use /diagnosing-bugs for test or build failures whose cause is not already isolated.
-Use /tdd when the repair needs a regression test at a clear behavior seam.
+## Completion Criteria
+
+- The `classifications` array exactly equals the supplied `checkId` set.
+- Each output classification matches the supplied classification for that
+  `checkId`.
+- `changes` names concrete code, test, documentation, or explanation edits.
+- `testPlan` names verification that was actually run, or the focused manual
+  check used when automated verification was unavailable.
+- `safetyChecks` are all `false` for a `fixed` result.
 
 ## Liveness and command execution
 
@@ -52,7 +88,10 @@ user, emit non-JSON, commit, push, edit labels, update the PR body, post GitHub
 comments, or leave the failed-check scope. PullOps handles GitHub mutations
 after validating your output.
 
-Do not weaken tests, delete assertions, bypass checks, skip verification, or work around missing secrets, credentials, permissions, external outages, or infrastructure failures. If a safe code repair is not possible, return `blocked`.
+Do not weaken tests, delete assertions, bypass checks, skip verification, or
+work around missing secrets, credentials, permissions, external outages, or
+infrastructure failures. If a safe code repair is not possible, return
+`blocked`.
 
 Final response must be only JSON:
 
