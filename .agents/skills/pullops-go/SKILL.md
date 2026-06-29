@@ -1,24 +1,24 @@
 ---
 name: pullops-go
-description: PullOps go drives PullOps PRDs or issues to the next real finish line. Use when the user says PullOps go, asks to start or resume PullOps work, wants a list of implementable PRDs/issues, wants Codex to run PullOps CLI commands, or wants automation errors diagnosed and fixed with minimal human intervention.
+description: Drive a PullOps PRD, issue, or PR operation to the next real finish line.
 disable-model-invocation: true
 ---
 
 # PullOps Go
 
-PullOps go is an operator loop around the PullOps CLI. Keep the work moving,
-repair PullOps itself when automation breaks, and ask the user only when the
-next action needs product judgment or external human approval.
+PullOps go is an operator loop: choose the target, run the repo-local PullOps
+command, repair PullOps when automation breaks, and stop only at a real finish
+line or an external decision.
 
-## Triage
+## Choose
 
 1. If the user named a PRD, issue, PR, or command, classify it before asking
    anything:
-   - Parent PRD: run `node ./src/cli/cli.js run prd:auto-complete <issue> --events jsonl --publish pr`.
-   - Concrete issue or manually selected child issue: run `node ./src/cli/cli.js run issue:implement <issue> --publish pr`.
+   - Parent PRD: run `npm exec pullops run prd:auto-complete <issue> --events jsonl --publish pr`.
+   - Concrete issue or manually selected child issue: run `npm exec pullops run issue:implement <issue> --publish pr`.
    - Explicit PullOps PR operation: run the matching `pr:*` command the user named.
-   Completion criterion: one target and one command are selected, or there is no
-   target.
+   Completion criterion: exactly one target and one command are selected, or
+   there is no target.
 2. If no target was supplied, discover open PRDs and implementable issues using
    GitHub issue metadata, labels, and PullOps conventions. Start with
    `gh issue list --repo daKmoR/pull-ops --state open --json number,title,labels,url,updatedAt`
@@ -28,44 +28,23 @@ next action needs product judgment or external human approval.
    likely command. Completion criterion: the user can pick one item without
    another lookup.
 3. If there are no PRDs or implementable issues, ask what topic the user wants
-   to turn into a PRD or issue. When they answer, start `/grill-with-docs`.
-   Completion criterion: the next step is a grill-with-docs session, not idle
-   waiting.
+   to turn into a PRD or issue. When they answer, ask them to invoke
+   `grill-with-docs` with that topic. Completion criterion: the user has a
+   concrete next prompt for the planning session, not idle waiting.
 
 ## Run
 
-Before running the CLI, record the current branch and `git status --short`.
-Avoid overwriting unrelated user changes.
-
-Run the selected command locally. Prefer `--events jsonl` for
-`prd:auto-complete`; it is currently supported only for that operation. For
-other operations, rely on the command output and run records.
-
-For long-running PRD automation, supervise through JSONL PullOps Progress
-Events plus PullOps Run State. Treat Progress Events as semantic milestones and
-terminal summaries, not heartbeat noise. Treat Run State as the machine-only
-liveness surface for fields such as status, phase, heartbeat, lease, last
-event, and child runs.
-
-During healthy execution:
-
-- Report semantic milestones immediately.
-- Give compact healthy-run updates every 5-10 minutes without displaying every
-  PullOps Heartbeat.
-- Wait while the PullOps Lease is active.
-- After lease expiry, reconcile v1 PullOps Liveness Signals before
-  intervening. In v1, reliable liveness is an advanced heartbeat or a changed
-  child run set.
-- Record PullOps Stall Classification before stopping, retrying, or replacing
-  work.
-- Do not use logs, git diff, CI, or GitHub state as required v1 liveness
-  signals.
-- Avoid artifact, process, git, CI, or GitHub probing while a run remains
-  healthy.
-- Do not kill unrelated processes, reset or discard local changes, or start
-  parallel same-branch work before lease reconciliation.
-
-Monitor the run until it reaches one of these finish lines:
+1. Before running the CLI, record the current branch and `git status --short`.
+   Avoid overwriting unrelated user changes.
+2. Run the selected command locally. Add `--events jsonl` for
+   `prd:auto-complete`; it is currently supported only for that operation. For
+   other operations, supervise stdout and run records.
+3. When supervising `prd:auto-complete --events jsonl`, read
+   [`references/event-supervision.md`](references/event-supervision.md) before
+   acting on events. Apply its event, liveness, and recovery rules. Completion
+   criterion: every `run.summary` status, blocker, suggested action, and local
+   next step has been completed, rerun, or reported as an external wait.
+4. Keep the operator loop moving until it reaches one finish line:
 
 - PRD accepted with a finalized or waiting umbrella/child PR state and clear
   local next steps.
@@ -73,26 +52,23 @@ Monitor the run until it reaches one of these finish lines:
 - PR operation accepted and no immediate routed PullOps operation remains.
 - A real blocker remains that the agent cannot clear without external approval.
 
-When supervising a PRD event stream, read
-[`references/event-supervision.md`](references/event-supervision.md) and apply
-its event and recovery rules. Completion criterion: every summary status,
-blocker, suggested action, and local next step has either been completed,
-rerun, or reported as an external wait.
+Completion criterion: one finish line is reached and no executable routed
+operation or suggested action remains.
 
 ## Repair
 
-Treat failed or silly human-required stops as PullOps bugs until proven
-otherwise. Diagnose from the event summary, run record, git state, PR body,
-labels, checks, and focused source/tests.
+Treat failures, refusals, loops, and unreasonable human-required stops as
+PullOps bugs until diagnosis proves an external decision is required.
 
-When the failure is in PullOps itself:
-
-- Use `/diagnosing-bugs` for the reproduction and root cause.
-- Use `/coding-standards` before editing source, tests, public APIs, or types.
-- Fix PullOps directly on the current repo branch, add a focused regression
-  test, run focused verification, and push the fix if the surrounding workflow
-  already requires remote state.
-- Rerun the original PullOps command after the fix.
+1. Diagnose from the event summary, run record, git state, PR body, labels,
+   checks, and focused source/tests.
+2. If the failure is in PullOps, use `diagnosing-bugs` for reproduction and
+   root cause. Use `coding-standards` before editing source, tests, public APIs,
+   or types.
+3. Fix PullOps directly on the current repo branch, add a focused regression
+   test, and run focused verification. Push the fix only when the surrounding
+   workflow already requires remote state.
+4. Rerun the original PullOps command with the same publication intent.
 
 Do not ask the user to manually run cleanup that can be performed safely by the
 agent. Ask only before destructive git operations, changing product scope, or

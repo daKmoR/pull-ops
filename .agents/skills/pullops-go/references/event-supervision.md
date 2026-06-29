@@ -35,18 +35,18 @@ Use an observe, reconcile, start next eligible operation, wait loop:
 - Give compact healthy-run updates every 5-10 minutes while work is still
   healthy. Base the update on the latest semantic event plus Run State; do not
   display every heartbeat.
-- While the PullOps Lease is active, wait. Do not probe artifacts, processes,
-  git state, CI, or GitHub merely because the event stream is quiet.
+- While the PullOps Lease is active, wait. Avoid artifact, process, git, CI, or GitHub probing
+  while a run remains healthy; do not probe artifacts, processes, git state, CI, or GitHub
+  merely because the event stream is quiet.
 - After lease expiry, reconcile v1 PullOps Liveness Signals before
-  intervening. Reliable v1 liveness is an advanced heartbeat or a changed child
-  run set.
+  intervening. Reliable v1 liveness is an advanced heartbeat or a changed child run set.
 - If liveness advanced, continue waiting from the refreshed state.
 - If liveness did not advance, record a PullOps Stall Classification before
   stopping, retrying, or replacing work.
 
-Logs, git diff, GitHub state, and CI state may help diagnose a failure after
-reconciliation, but they are not required v1 liveness signals and must not be
-used to declare a healthy leased run stuck.
+Do not use logs, git diff, CI, or GitHub state as required v1 liveness signals.
+They may help diagnose a failure after reconciliation, but they must not be used
+to declare a healthy leased run stuck.
 
 ## Stall Classification
 
@@ -55,9 +55,8 @@ provides a mechanism for doing so, or report the missing mechanism as a PullOps
 bug. Include phase, reason, last heartbeat, lease expiry, child runs, owned
 worker identity, and recommended action.
 
-Only stop the worker process owned by the current PullOps run. Do not kill
-unrelated processes, reset or discard local changes, or start parallel work on
-the same branch before lease reconciliation.
+Only stop the worker process owned by the current PullOps run. Do not kill unrelated processes,
+reset or discard local changes, or start parallel same-branch work before lease reconciliation.
 
 ## Status Rules
 
@@ -104,7 +103,7 @@ Known PullOps failure shapes and preferred recovery:
 When rerunning a PRD, include the same publication intent:
 
 ```bash
-node ./src/cli/cli.js run prd:auto-complete <issue> --events jsonl --publish pr
+npm exec pullops run prd:auto-complete <issue> --events jsonl --publish pr
 ```
 
 When an event `suggestedActions[].argv` omits `--events jsonl`, add it back for
