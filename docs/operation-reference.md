@@ -90,9 +90,9 @@ active PRD automation mode and let later child merges resume coordination.
 
 ## Repository Commands
 
-| Command                       | Meaning                                                   |
-| ----------------------------- | --------------------------------------------------------- |
-| `pullops setup github-labels` | Reconciles PullOps operation and status labels in GitHub. |
+| Command                       | Meaning                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `pullops setup github-labels` | Reconciles PullOps operation labels and status label. |
 
 ## Workflow-Facing Commands
 
@@ -119,14 +119,9 @@ workflow lifecycle plumbing, not maintainer-facing controls.
 
 ## Status Label
 
-PullOps avoids using labels for ordinary progress. The only Status Label is for
-exceptional states that need attention.
+PullOps avoids using labels for ordinary progress. The only status label is for
+exceptional states that need maintainer attention.
 
-| Label                        | Meaning                                                                   | Installed by `pullops setup github-labels`? |
-| ---------------------------- | ------------------------------------------------------------------------- | ------------------------------------------- |
-| `pullops:human-required`     | PullOps automation needs maintainer attention.                            | Yes                                         |
-| `pullops:status:in-progress` | PullOps automation is actively working on the target.                     | Yes                                         |
-| `pullops:status:blocked`     | PullOps automation is blocked and needs maintainer attention.             | Yes                                         |
-| `pullops:status:prepared`    | PullOps automation prepared the target and is waiting for the next step.  | Yes                                         |
-| `pullops:status:done`        | PullOps automation completed the target and is waiting for the next step. | Yes                                         |
-| `pullops:status:failed`      | PullOps automation failed and needs maintainer attention.                 | Yes                                         |
+| Label                    | Meaning                                        | Installed by `pullops setup github-labels`? |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------- |
+| `pullops:human-required` | PullOps automation needs maintainer attention. | Yes                                         |
