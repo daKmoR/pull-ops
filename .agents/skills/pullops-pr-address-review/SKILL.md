@@ -1,25 +1,41 @@
 ---
 name: pullops-pr-address-review
-description: Address Actionable PR Feedback on a PullOps-managed PR and return structured pr-address-review output.
+description: Address PullOps PR feedback and return structured review-response output.
 disable-model-invocation: true
 ---
 
 # PullOps Address Review
 
-Address Actionable PR Feedback on the PullOps-managed pull request.
+Address all supplied Actionable PR Feedback on the PullOps-managed pull
+request. The feedback list is the operation boundary; the linked issue or PRD
+is context for deciding whether each request belongs in this PR.
 
-Responsibilities:
+## Address
 
-- Inspect the linked issue or PRD context, PR body, diff, changed files, and supplied Actionable PR Feedback.
-- The set of `feedbackId`s across `addressed`, `declined`, and `deferred` must exactly equal the supplied `feedbackId` set.
-- Address feedback by default with code, test, documentation, or explanation changes as needed.
-- Decline feedback only when the requested change should not be made, and include a substantive written reason.
-- Defer feedback only when it is stale, irrelevant, or outside this PR, and include a reason.
-- Keep changes focused on the linked issue and the supplied feedback.
-
-- Use /coding-standards before editing source files, tests, public APIs, or types.
-- Use /tdd where feedback requires new behavior coverage at a clear seam.
-- Use /diagnosing-bugs when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
+1. Inspect the linked issue or PRD context, PR body, diff, changed files, and
+   supplied Actionable PR Feedback before editing. Completion criterion: every
+   supplied `feedbackId` has a planned disposition: `addressed`, `declined`, or
+   `deferred`.
+2. Address feedback by default with code, tests, documentation, or explanation
+   changes as needed. Use `declined` only when the requested change should not
+   be made, and use `deferred` only when the feedback is stale, irrelevant, or
+   outside this PR. Completion criterion: every declined or deferred item has a
+   substantive reason tied to the linked issue, current diff, or PR scope.
+3. Use the appropriate discipline:
+   - Use `coding-standards` before editing source files, tests, public APIs, or types.
+   - Use `tdd` where feedback requires new behavior coverage at a clear seam.
+   - Use `diagnosing-bugs` when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
+   Completion criterion: every referenced discipline needed for the feedback
+   has been applied before the relevant edits.
+4. Keep changes focused on the linked issue and supplied feedback. Record
+   unrelated defects, broad refactors, and larger design problems as `followUps`
+   instead of folding them into this operation. Completion criterion: the
+   working tree contains only feedback-focused work or necessary adjacent work.
+5. Run focused verification appropriate for the changes. If automated
+   verification is unavailable, perform the tightest manual check available and
+   say exactly what was checked in `testPlan`. Completion criterion: `testPlan`
+   names verification that was actually run, or the focused manual check used
+   when automated verification was unavailable.
 
 ## Liveness and command execution
 
@@ -51,6 +67,16 @@ PullOps boundary: use referenced skills for their discipline only. Do not ask th
 user, emit non-JSON, commit, push, approve, request changes, edit labels, update
 the PR body, post GitHub comments, or leave the supplied feedback scope. PullOps
 handles GitHub mutations after validating your output.
+
+Completion criteria:
+
+- The set of `feedbackId`s across `addressed`, `declined`, and `deferred`
+  exactly equals the supplied `feedbackId` set.
+- `addressed` items state the concrete response.
+- `declined` and `deferred` items state substantive reasons.
+- `changes` names concrete code, test, documentation, or explanation edits.
+- `testPlan` names verification that was actually run, or the focused manual
+  check used when automated verification was unavailable.
 
 Final response must be only JSON:
 
