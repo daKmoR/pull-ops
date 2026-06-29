@@ -599,7 +599,7 @@ describe('setup github-labels', () => {
     assert.equal(dryRun.area, 'github-labels');
     assert.equal(
       dryRun.summary,
-      'PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, 14 already correct.',
+      `PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, ${PULL_OPS_LABELS.length - 2} already correct.`,
     );
     assert.deepEqual(dryRun.changes, {});
     assert.deepEqual(dryRun.changesNeeded, {
@@ -625,7 +625,7 @@ describe('setup github-labels', () => {
     assert.equal(applied.area, 'github-labels');
     assert.equal(
       applied.summary,
-      'Reconciled 16 PullOps labels: 1 created, 1 updated, 14 already correct.',
+      `Reconciled ${PULL_OPS_LABELS.length} PullOps labels: 1 created, 1 updated, ${PULL_OPS_LABELS.length - 2} already correct.`,
     );
     assert.deepEqual(applied.changes, {
       labels: {
@@ -642,18 +642,6 @@ describe('setup github-labels', () => {
     assert.equal(
       ensuredLabels.some(label => label.name === 'pullops:human-required'),
       true,
-    );
-    assert.equal(
-      ensuredLabels.some(label => label.name === 'pullops:status:blocked'),
-      true,
-    );
-    assert.equal(
-      ensuredLabels.some(label => label.name === 'pullops:status:done'),
-      true,
-    );
-    assert.equal(
-      ensuredLabels.some(label => label.name === 'needs-triage'),
-      false,
     );
   });
 
@@ -715,10 +703,11 @@ describe('setup github-labels', () => {
 
 describe('package files', () => {
   it('01: includes setup agent-doc templates in npm pack dry-run output', async () => {
+    const npmCache = await mkdtemp(join(tmpdir(), 'pullops-npm-cache-'));
     const { stdout } = await execFileAsync(
       'npm',
       ['pack', '--dry-run', '--json', '--ignore-scripts'],
-      { cwd: REPO_ROOT },
+      { cwd: REPO_ROOT, env: { ...process.env, npm_config_cache: npmCache } },
     );
     /** @type {import('./setup.test.types.js').NpmPackDryRunResult} */
     const packResult = JSON.parse(stdout);

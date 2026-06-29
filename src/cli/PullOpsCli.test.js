@@ -3178,7 +3178,7 @@ test('setup github-labels --check reports label reconciliation results from the 
     status: 'blocked',
     area: 'github-labels',
     summary:
-      'PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, 14 already correct.',
+      `PullOps GitHub label setup found 2 labels needing changes: 1 created, 1 updated, ${PULL_OPS_LABELS.length - 2} already correct.`,
     changes: {},
     changesNeeded: {
       labels: {
@@ -3241,7 +3241,7 @@ test('setup github-labels reports label reconciliation results from the GitHub c
   };
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'changed',
-    summary: 'Reconciled 16 PullOps labels: 1 created, 1 updated, 14 already correct.',
+    summary: `Reconciled ${PULL_OPS_LABELS.length} PullOps labels: 1 created, 1 updated, ${PULL_OPS_LABELS.length - 2} already correct.`,
     area: 'github-labels',
     changes: {
       labels: {
