@@ -1,29 +1,27 @@
 ---
 name: pullops-pr-finalize
-description: Propose history grouping and commit messages only for ambiguous PullOps PR Finalize histories.
+description: Plan an ambiguous PullOps PR Finalize Logical Commit Stack.
 disable-model-invocation: true
 ---
 
 # PullOps PR Finalize
 
-Plan history cleanup for an ambiguous PullOps-managed PR only. PullOps invokes
-this skill as a fallback after deterministic PR Finalize cannot safely group
+Plan the Logical Commit Stack for an ambiguous PullOps-managed PR. PullOps
+invokes this skill only after deterministic PR Finalize cannot safely group the
 history itself.
 
-Responsibilities:
-
-- Read the supplied Parent Issue context, closed native Child Issues, PR body, changed-file list, and current commit history.
-- Propose a structured Commit Plan that groups the supplied changed files into the final Logical Commit Stack.
-- The concatenated planned commit `files` arrays must exactly equal the supplied changed-file list; do not omit, duplicate, or invent files.
-- Prefer one Child Issue Commit per closed native Child Issue represented by the files.
-- Include parent-level commits only for explicit PRD-level files.
-- Include `commitPlan.justification` only when grouping is not one commit per
-  closed Child Issue, and make it a non-empty explanation when included.
+This is a planner, not an operator. Propose commit grouping and commit messages
+only. Do not edit files, create commits, reset, stage files, push, edit labels,
+update PR bodies, change PR references, touch review state, touch checks, change
+draft state, change merge state, post GitHub comments, or merge the pull
+request. PullOps validates the Commit Plan, applies the rewrite
+deterministically, pushes with force-with-lease, and verifies the final tree
+still matches the reviewed tree.
 
 ## Liveness
 
-This planner must not run shell commands, so keep liveness with manual
-heartbeats instead of `pullops step`.
+This planner must not run shell commands except the heartbeat command below, so
+keep liveness with manual heartbeats instead of `pullops step`.
 
 Your first tool call after reading this skill must be:
 
@@ -38,19 +36,47 @@ first. If you are unsure whether a heartbeat is due, send it before continuing.
 Heartbeats must originate from this finalize-planning agent process, not from
 the parent PullOps CLI.
 
-Commit message rules:
+## Plan
+
+1. Inventory the supplied context: Parent Issue, closed native Child Issues, PR
+   body, changed-file list, changed-file summary, and current commit history.
+   Completion criterion: every supplied changed file has been copied into a
+   local file ledger exactly as written, and the parent and eligible child issue
+   numbers are known.
+2. Assign the file ledger. Use the issue context, file summary, PR body, and
+   commit history to infer whether each file belongs to a closed native Child
+   Issue or to explicit PRD-level work. Completion criterion: every changed file
+   has exactly one tentative owner, or the result is `blocked` because a safe
+   owner cannot be inferred from the supplied information.
+3. Group commits from the ledger. Prefer one Child Issue Commit per closed
+   native Child Issue represented by the files. Include parent-level commits
+   only for explicit PRD-level files. Completion criterion: every commit has at
+   least one file, and every represented owner has the narrowest safe commit.
+4. Write commit messages. Completion criterion: every planned commit passes the
+   footer rules below and uses a conventional commit header.
+5. Run the final ledger check before responding. Completion criterion: the
+   concatenated planned commit `files` arrays exactly equal the supplied
+   changed-file list; no file is omitted, duplicated, renamed, or invented.
+
+If any completion criterion cannot be met safely, return the blocked JSON shape.
+
+## Commit Plan Rules
+
+- `commitPlan.commits` must contain at least one commit.
+- Each commit's `body`, `footers`, and `files` arrays must contain only
+  non-empty strings.
+- Include `commitPlan.justification` only when grouping is not one commit per
+  closed Child Issue, and make it a non-empty explanation when included.
+- Put non-blocking notes in `followUps`; do not add unsupported top-level
+  fields.
+
+## Commit Message Rules
 
 - Use conventional commit headers.
 - Use `Refs: #<child>` and `PRD: #<parent>` footers for Child Issue work.
 - Use `Refs: #<parent>` footers for explicit parent-level PRD work.
+- Reference only the supplied parent issue and closed native Child Issues.
 - Do not use GitHub closing keywords in commit footers.
-
-Do not edit files, run commands, create commits, reset, stage files, push, edit
-labels, update PR bodies, change PR references, touch review state, touch
-checks, change draft state, change merge state, post GitHub comments, or merge
-the pull request. PullOps validates the Commit Plan, applies the rewrite
-deterministically, pushes with force-with-lease, and verifies the final tree
-still matches the reviewed tree.
 
 Final response must be only JSON:
 
