@@ -1,6 +1,7 @@
 /**
  * @typedef {import('../config/types.js').OperationConfig} OperationConfig
  * @typedef {import('../config/types.js').ReviewOperationConfig} ReviewOperationConfig
+ * @typedef {import('../config/types.js').PrResolveConflictsOperationConfig} PrResolveConflictsOperationConfig
  * @typedef {import('../cli/types.js').OperationPhase} OperationPhase
  * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  * @typedef {import('../operations/types.js').OperationLabelReference} OperationLabelReference
@@ -188,6 +189,118 @@ const PR_ADDRESS_REVIEW_DEFAULT_OPERATION_SETTINGS = Object.freeze({
   humanFeedbackResponseModelTier: 'high',
 });
 
+const PR_FIX_CI_OPERATION_NAME = 'pr-fix-ci';
+const PR_FIX_CI_OPERATION_LABEL_REFERENCE = 'pr:fix-ci';
+const PR_FIX_CI_OPERATION_LABEL_NAME = 'pullops:pr:fix-ci';
+const PR_FIX_CI_OPERATION_LABEL_DESCRIPTION = 'Classify and fix actionable CI failures.';
+const PR_FIX_CI_OPERATION_LABEL_COLOR = '5319E7';
+const PR_FIX_CI_WORKFLOW_FILE_NAME = 'pullops-pr-fix-ci.yml';
+const PR_FIX_CI_PACKAGE_SCRIPT_NAME = 'pullops:pr-fix-ci';
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const PR_FIX_CI_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([
+  ['codex-cli', 'run'],
+  ['codex-action', 'prepare'],
+  ['codex-action', 'finalize'],
+]);
+/** @type {WorkflowOperation} */
+const PR_FIX_CI_WORKFLOW_OPERATION = Object.freeze({
+  name: PR_FIX_CI_OPERATION_NAME,
+  target: 'pr',
+  option: 'pr',
+  configKey: 'prFixCi',
+});
+/** @type {OperationLabelReference} */
+const PR_FIX_CI_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PR_FIX_CI_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PR_FIX_CI_OPERATION_NAME,
+  target: 'pr',
+  label: PR_FIX_CI_OPERATION_LABEL_NAME,
+});
+/** @type {PullOpsLabel} */
+const PR_FIX_CI_LABEL_DEFINITION = Object.freeze({
+  name: PR_FIX_CI_OPERATION_LABEL_NAME,
+  color: PR_FIX_CI_OPERATION_LABEL_COLOR,
+  description: PR_FIX_CI_OPERATION_LABEL_DESCRIPTION,
+});
+/** @type {OperationConfig} */
+const PR_FIX_CI_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'mid',
+});
+
+const PR_UPDATE_BRANCH_OPERATION_NAME = 'pr-update-branch';
+const PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE = 'pr:update-branch';
+const PR_UPDATE_BRANCH_OPERATION_LABEL_NAME = 'pullops:pr:update-branch';
+const PR_UPDATE_BRANCH_OPERATION_LABEL_DESCRIPTION = 'Update a same-repository PR branch.';
+const PR_UPDATE_BRANCH_OPERATION_LABEL_COLOR = '5319E7';
+const PR_UPDATE_BRANCH_WORKFLOW_FILE_NAME = 'pullops-pr-update-branch.yml';
+const PR_UPDATE_BRANCH_PACKAGE_SCRIPT_NAME = 'pullops:pr-update-branch';
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const PR_UPDATE_BRANCH_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([['codex-cli', 'run']]);
+/** @type {WorkflowOperation} */
+const PR_UPDATE_BRANCH_WORKFLOW_OPERATION = Object.freeze({
+  name: PR_UPDATE_BRANCH_OPERATION_NAME,
+  target: 'pr',
+  option: 'pr',
+  configKey: 'prUpdateBranch',
+});
+/** @type {OperationLabelReference} */
+const PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PR_UPDATE_BRANCH_OPERATION_NAME,
+  target: 'pr',
+  label: PR_UPDATE_BRANCH_OPERATION_LABEL_NAME,
+});
+/** @type {PullOpsLabel} */
+const PR_UPDATE_BRANCH_LABEL_DEFINITION = Object.freeze({
+  name: PR_UPDATE_BRANCH_OPERATION_LABEL_NAME,
+  color: PR_UPDATE_BRANCH_OPERATION_LABEL_COLOR,
+  description: PR_UPDATE_BRANCH_OPERATION_LABEL_DESCRIPTION,
+});
+/** @type {OperationConfig} */
+const PR_UPDATE_BRANCH_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'low',
+});
+
+const PR_RESOLVE_CONFLICTS_OPERATION_NAME = 'pr-resolve-conflicts';
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE = 'pr:resolve-conflicts';
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_NAME = 'pullops:pr:resolve-conflicts';
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_DESCRIPTION =
+  'Resolve branch update conflicts with the PullOps runner.';
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_COLOR = '5319E7';
+const PR_RESOLVE_CONFLICTS_WORKFLOW_FILE_NAME = 'pullops-pr-resolve-conflicts.yml';
+const PR_RESOLVE_CONFLICTS_PACKAGE_SCRIPT_NAME = 'pullops:pr-resolve-conflicts';
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const PR_RESOLVE_CONFLICTS_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([
+  ['codex-cli', 'run'],
+  ['codex-action', 'prepare'],
+  ['codex-action', 'finalize'],
+]);
+/** @type {WorkflowOperation} */
+const PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION = Object.freeze({
+  name: PR_RESOLVE_CONFLICTS_OPERATION_NAME,
+  target: 'pr',
+  option: 'pr',
+  configKey: 'prResolveConflicts',
+});
+/** @type {OperationLabelReference} */
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PR_RESOLVE_CONFLICTS_OPERATION_NAME,
+  target: 'pr',
+  label: PR_RESOLVE_CONFLICTS_OPERATION_LABEL_NAME,
+});
+/** @type {PullOpsLabel} */
+const PR_RESOLVE_CONFLICTS_LABEL_DEFINITION = Object.freeze({
+  name: PR_RESOLVE_CONFLICTS_OPERATION_LABEL_NAME,
+  color: PR_RESOLVE_CONFLICTS_OPERATION_LABEL_COLOR,
+  description: PR_RESOLVE_CONFLICTS_OPERATION_LABEL_DESCRIPTION,
+});
+/** @type {PrResolveConflictsOperationConfig} */
+const PR_RESOLVE_CONFLICTS_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'high',
+  maxConflictResolutionPasses: 3,
+});
+
 /** @type {WorkflowOperation} */
 const PRD_PREPARE_WORKFLOW_OPERATION = Object.freeze({
   name: PRD_PREPARE_OPERATION_NAME,
@@ -353,6 +466,70 @@ async function runPrAddressReviewCodexActionFinalizeThroughCatalog(context) {
 }
 
 /**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrFixCiThroughCatalog(context) {
+  const { runPrFixCi } = await import('./pr-fix-ci/run.js');
+  return await runPrFixCi(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrFixCiCodexActionPrepareThroughCatalog(context) {
+  const { runPrFixCiCodexActionPrepare } = await import('./pr-fix-ci/run.js');
+  return await runPrFixCiCodexActionPrepare(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrFixCiCodexActionFinalizeThroughCatalog(context) {
+  const { runPrFixCiCodexActionFinalize } = await import('./pr-fix-ci/run.js');
+  return await runPrFixCiCodexActionFinalize(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrUpdateBranchThroughCatalog(context) {
+  const { runPrUpdateBranch } = await import('./pr-update-branch/run.js');
+  return await runPrUpdateBranch(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrResolveConflictsThroughCatalog(context) {
+  const { runPrResolveConflicts } = await import('./pr-resolve-conflicts/run.js');
+  return await runPrResolveConflicts(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrResolveConflictsCodexActionPrepareThroughCatalog(context) {
+  const { runPrResolveConflictsCodexActionPrepare } = await import('./pr-resolve-conflicts/run.js');
+  return await runPrResolveConflictsCodexActionPrepare(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrResolveConflictsCodexActionFinalizeThroughCatalog(context) {
+  const { runPrResolveConflictsCodexActionFinalize } =
+    await import('./pr-resolve-conflicts/run.js');
+  return await runPrResolveConflictsCodexActionFinalize(context);
+}
+
+/**
  * @param {readonly [RunnerAdapter, OperationPhase][]} lifecycles
  * @returns {readonly RunnerAdapter[]}
  */
@@ -373,6 +550,18 @@ function readUniqueSupportedRunnerPhases(lifecycles) {
  * @returns {readonly [RunnerAdapter, OperationPhase][] | undefined}
  */
 export function getOperationCatalogSupportedRunnerLifecycles(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_SUPPORTED_RUNNER_LIFECYCLES;
   }
@@ -404,6 +593,18 @@ export function getOperationCatalogSupportedRunnerLifecycles(operationName) {
  * @returns {WorkflowOperation | undefined}
  */
 export function getOperationCatalogWorkflowOperation(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_WORKFLOW_OPERATION;
   }
@@ -436,6 +637,18 @@ export function getOperationCatalogWorkflowOperation(operationName) {
  * @returns {OperationLabelReference | undefined}
  */
 export function getOperationCatalogOperationLabelReference(reference) {
+  if (reference === PR_FIX_CI_OPERATION_LABEL_REFERENCE) {
+    return PR_FIX_CI_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
+  if (reference === PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE) {
+    return PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
+  if (reference === PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE) {
+    return PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
   if (reference === PRD_PREPARE_OPERATION_LABEL_REFERENCE) {
     return PRD_PREPARE_OPERATION_LABEL_REFERENCE_ENTRY;
   }
@@ -465,9 +678,21 @@ export function getOperationCatalogOperationLabelReference(reference) {
 
 /**
  * @param {string} operationName
- * @returns {OperationConfig | ReviewOperationConfig | undefined}
+ * @returns {OperationConfig | ReviewOperationConfig | PrResolveConflictsOperationConfig | undefined}
  */
 export function getOperationCatalogDefaultOperationSettings(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_DEFAULT_OPERATION_SETTINGS;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_DEFAULT_OPERATION_SETTINGS;
   }
@@ -500,6 +725,18 @@ export function getOperationCatalogDefaultOperationSettings(operationName) {
  * @returns {PullOpsLabel | undefined}
  */
 export function getOperationCatalogLabelDefinition(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_LABEL_DEFINITION;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_LABEL_DEFINITION;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_LABEL_DEFINITION;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_LABEL_DEFINITION;
   }
@@ -532,6 +769,18 @@ export function getOperationCatalogLabelDefinition(operationName) {
  * @returns {string | undefined}
  */
 export function getOperationCatalogWorkflowFileName(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_WORKFLOW_FILE_NAME;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_WORKFLOW_FILE_NAME;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_WORKFLOW_FILE_NAME;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_WORKFLOW_FILE_NAME;
   }
@@ -564,6 +813,18 @@ export function getOperationCatalogWorkflowFileName(operationName) {
  * @returns {string | undefined}
  */
 export function getOperationCatalogPackageScriptName(operationName) {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    return PR_FIX_CI_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return PR_UPDATE_BRANCH_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    return PR_RESOLVE_CONFLICTS_PACKAGE_SCRIPT_NAME;
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_PACKAGE_SCRIPT_NAME;
   }
@@ -622,6 +883,38 @@ export function getOperationCatalogSupportedRunnerPhases(operationName) {
  * @returns {((context: import('../cli/types.js').OperationRunnerContext) => Promise<Record<string, unknown>> | Record<string, unknown>) | undefined}
  */
 export function getOperationCatalogHandler(operationName, phase = 'run') {
+  if (operationName === PR_FIX_CI_OPERATION_NAME) {
+    if (phase === 'run') {
+      return runPrFixCiThroughCatalog;
+    }
+
+    if (phase === 'prepare') {
+      return runPrFixCiCodexActionPrepareThroughCatalog;
+    }
+
+    if (phase === 'finalize') {
+      return runPrFixCiCodexActionFinalizeThroughCatalog;
+    }
+  }
+
+  if (operationName === PR_UPDATE_BRANCH_OPERATION_NAME) {
+    return phase === 'run' ? runPrUpdateBranchThroughCatalog : undefined;
+  }
+
+  if (operationName === PR_RESOLVE_CONFLICTS_OPERATION_NAME) {
+    if (phase === 'run') {
+      return runPrResolveConflictsThroughCatalog;
+    }
+
+    if (phase === 'prepare') {
+      return runPrResolveConflictsCodexActionPrepareThroughCatalog;
+    }
+
+    if (phase === 'finalize') {
+      return runPrResolveConflictsCodexActionFinalizeThroughCatalog;
+    }
+  }
+
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return phase === 'run' ? runPrdPrepareThroughCatalog : undefined;
   }

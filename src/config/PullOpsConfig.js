@@ -42,9 +42,9 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prdAutoComplete: defaultPrdAutoCompleteOperationSettings(),
     prReview: defaultPrReviewOperationSettings(),
     prAddressReview: defaultPrAddressReviewOperationSettings(),
-    prFixCi: { modelTier: 'mid' },
-    prUpdateBranch: { modelTier: 'low' },
-    prResolveConflicts: { modelTier: 'high', maxConflictResolutionPasses: 3 },
+    prFixCi: defaultPrFixCiOperationSettings(),
+    prUpdateBranch: defaultPrUpdateBranchOperationSettings(),
+    prResolveConflicts: defaultPrResolveConflictsOperationSettings(),
     prFinalize: { modelTier: 'high', aiHistoryCleanup: true },
     prCloseChildIssue: { modelTier: 'low' },
   },
@@ -120,6 +120,42 @@ function defaultPrAddressReviewOperationSettings() {
   }
 
   return /** @type {import('./types.js').ReviewOperationConfig} */ (defaults);
+}
+
+/**
+ * @returns {import('./types.js').OperationConfig}
+ */
+function defaultPrFixCiOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('pr-fix-ci');
+  if (defaults === undefined) {
+    throw new Error('pr-fix-ci defaults are missing from the operation catalog.');
+  }
+
+  return defaults;
+}
+
+/**
+ * @returns {import('./types.js').OperationConfig}
+ */
+function defaultPrUpdateBranchOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('pr-update-branch');
+  if (defaults === undefined) {
+    throw new Error('pr-update-branch defaults are missing from the operation catalog.');
+  }
+
+  return defaults;
+}
+
+/**
+ * @returns {import('./types.js').PrResolveConflictsOperationConfig}
+ */
+function defaultPrResolveConflictsOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('pr-resolve-conflicts');
+  if (defaults === undefined) {
+    throw new Error('pr-resolve-conflicts defaults are missing from the operation catalog.');
+  }
+
+  return /** @type {import('./types.js').PrResolveConflictsOperationConfig} */ (defaults);
 }
 
 export class PullOpsConfigError extends Error {

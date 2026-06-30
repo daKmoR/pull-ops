@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
+import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
 import { createManagedPrStateSection } from '../managed-pr/ManagedPrState.js';
 import { runWorkflowOperation } from './operations.js';
 
@@ -231,6 +232,67 @@ describe('runWorkflowOperation', () => {
       /prd-auto-complete with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
     );
   });
+
+  it('10: dispatches pr-fix-ci prepare through the catalog-backed workflow runner', async () => {
+    const githubClient = createCatalogFixCiGitHubClient();
+    const git = createFakeGit();
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-catalog-pr-fix-ci-'));
+    /** @type {import('../runner/types.js').CodexRunOptions[]} */
+    const codexCalls = [];
+
+    /** @type {import('../runner/types.js').CodexRunner} */
+    const codexRunner = {
+      async run(options) {
+        codexCalls.push(options);
+        throw new Error('codexRunner.run was not expected in this test.');
+      },
+    };
+
+    const result = await runWorkflowOperation(
+      createContext({
+        operation: 'pr-fix-ci',
+        phase: 'prepare',
+        runnerAdapter: 'codex-action',
+        target: {
+          type: 'pr',
+          number: 456,
+        },
+        modelTier: 'mid',
+        model: DEFAULT_PULL_OPS_CONFIG.runner.models.mid,
+        githubClient,
+        gitClient: git.client,
+        codexRunner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codexCalls.length, 0);
+    assert.match(String(result.summary), /Prepared Codex Action pr-fix-ci run/);
+    const codexAction = result.codexAction;
+    if (typeof codexAction !== 'object' || codexAction === null) {
+      assert.fail('Expected the prepared pr-fix-ci result to include a codexAction payload.');
+    }
+    assert.match(String(Reflect.get(codexAction, 'promptFile')), /codex_prompt\.md$/);
+    assert.equal(Reflect.get(codexAction, 'model'), DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
+  });
+
+  it('11: rejects unsupported codex-action lifecycle combinations for pr-update-branch before dispatch', async () => {
+    await assert.rejects(
+      runWorkflowOperation(
+        createContext({
+          operation: 'pr-update-branch',
+          phase: 'prepare',
+          runnerAdapter: 'codex-action',
+          target: {
+            type: 'pr',
+            number: 456,
+          },
+        }),
+      ),
+      /pr-update-branch with --runner codex-action and --phase prepare is not supported by the operation catalog\./,
+    );
+  });
 });
 
 /**
@@ -325,6 +387,82 @@ function createCatalogReviewGitHubClient() {
     },
     async getPullRequestChecksForRef() {
       return [];
+    },
+    async getPullRequestReviewContext() {
+      return {
+        comments: [],
+        reviews: [],
+        unresolvedThreads: [],
+        files: [],
+      };
+    },
+    async getPullRequestDiff() {
+      return {
+        patch: '',
+      };
+    },
+    async findOpenPullRequestByHead() {
+      return undefined;
+    },
+    async createDraftPullRequest() {
+      throw new Error('createDraftPullRequest was not expected in this test.');
+    },
+    async addLabelsToIssue() {},
+    async removeLabelsFromIssue() {},
+    async addLabelsToPullRequest() {},
+    async removeLabelsFromPullRequest() {},
+    async commentOnIssue() {},
+    async closeIssue() {},
+    async commentOnPullRequest() {},
+    async updatePullRequestBody() {},
+    async publishPullRequestReview() {},
+    async replyToPullRequestReviewComment() {},
+    async dismissPullRequestReview() {},
+    async mergePullRequest() {},
+    async resolveReviewThread() {},
+  };
+}
+
+/**
+ * @returns {any}
+ */
+function createCatalogFixCiGitHubClient() {
+  return {
+    async ensureLabels() {
+      return {
+        created: [],
+        updated: [],
+        alreadyCorrect: [],
+      };
+    },
+    /**
+     * @param {number} number
+     */
+    async getPullRequest(number) {
+      return {
+        number,
+        title: 'Manual CI fix request',
+        url: `https://github.test/owner/repo/pull/${number}`,
+        headRefName: 'fix/manual-ci',
+        baseRefName: 'main',
+        body: 'Human-authored PR.',
+        isDraft: false,
+        labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
+        isCrossRepository: false,
+      };
+    },
+    async getIssue() {
+      throw new Error('getIssue was not expected in this test.');
+    },
+    async getPullRequestChecks() {
+      return [
+        {
+          name: 'ESLint lint',
+          workflowName: 'CI',
+          bucket: 'fail',
+          conclusion: 'failure',
+        },
+      ];
     },
     async getPullRequestReviewContext() {
       return {

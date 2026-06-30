@@ -40,6 +40,25 @@ if (PR_ADDRESS_REVIEW_LABEL_DEFINITION === undefined) {
   throw new Error('pr-address-review label definition is missing from the operation catalog.');
 }
 
+const PR_FIX_CI_LABEL_DEFINITION = getOperationCatalogLabelDefinition('pr-fix-ci');
+
+if (PR_FIX_CI_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-fix-ci label definition is missing from the operation catalog.');
+}
+
+const PR_UPDATE_BRANCH_LABEL_DEFINITION = getOperationCatalogLabelDefinition('pr-update-branch');
+
+if (PR_UPDATE_BRANCH_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-update-branch label definition is missing from the operation catalog.');
+}
+
+const PR_RESOLVE_CONFLICTS_LABEL_DEFINITION =
+  getOperationCatalogLabelDefinition('pr-resolve-conflicts');
+
+if (PR_RESOLVE_CONFLICTS_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-resolve-conflicts label definition is missing from the operation catalog.');
+}
+
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: PRD_PREPARE_LABEL_DEFINITION.name,
   prdAutoAdvance: PRD_AUTO_ADVANCE_LABEL_DEFINITION.name,
@@ -47,9 +66,9 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   issueImplement: ISSUE_IMPLEMENT_LABEL_DEFINITION.name,
   prReview: PR_REVIEW_LABEL_DEFINITION.name,
   prAddressReview: PR_ADDRESS_REVIEW_LABEL_DEFINITION.name,
-  prFixCi: 'pullops:pr:fix-ci',
-  prUpdateBranch: 'pullops:pr:update-branch',
-  prResolveConflicts: 'pullops:pr:resolve-conflicts',
+  prFixCi: PR_FIX_CI_LABEL_DEFINITION.name,
+  prUpdateBranch: PR_UPDATE_BRANCH_LABEL_DEFINITION.name,
+  prResolveConflicts: PR_RESOLVE_CONFLICTS_LABEL_DEFINITION.name,
   prFinalize: 'pullops:pr:finalize',
 });
 
@@ -92,21 +111,9 @@ export const PULL_OPS_LABELS = [
   ISSUE_IMPLEMENT_LABEL_DEFINITION,
   PR_REVIEW_LABEL_DEFINITION,
   PR_ADDRESS_REVIEW_LABEL_DEFINITION,
-  {
-    name: PULL_OPS_OPERATION_LABELS.prFixCi,
-    color: '5319E7',
-    description: 'Classify and fix actionable CI failures.',
-  },
-  {
-    name: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
-    color: '5319E7',
-    description: 'Update a same-repository PR branch.',
-  },
-  {
-    name: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
-    color: '5319E7',
-    description: 'Resolve branch update conflicts with the PullOps runner.',
-  },
+  PR_FIX_CI_LABEL_DEFINITION,
+  PR_UPDATE_BRANCH_LABEL_DEFINITION,
+  PR_RESOLVE_CONFLICTS_LABEL_DEFINITION,
   {
     name: PULL_OPS_OPERATION_LABELS.prFinalize,
     color: '5319E7',

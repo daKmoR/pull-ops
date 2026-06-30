@@ -16,6 +16,10 @@ import {
   supportsOperationCatalogRunnerLifecycle,
 } from './operationCatalog.js';
 
+/**
+ * @typedef {[import('../cli/types.js').OperationPhase, import('../runner/types.js').RunnerAdapter, boolean]} SupportedLifecycleCheck
+ */
+
 const packageJson = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
 );
@@ -313,12 +317,158 @@ describe('operationCatalog', () => {
     }
   });
 
-  it('05: returns nothing for operations outside the catalog-owned slices', () => {
+  it('05: returns the pr-fix-ci, pr-update-branch, and pr-resolve-conflicts operation facts from purpose-specific lookups', () => {
+    for (const {
+      operationName,
+      labelReference,
+      labelName,
+      description,
+      defaultOperationSettings,
+      supportedRunnerLifecycles,
+      supportedRunnerAdapters,
+      supportedRunnerPhases,
+      supportedLifecycleChecks,
+      unsupportedHandlerPhases = [],
+    } of [
+      {
+        operationName: 'pr-fix-ci',
+        labelReference: 'pr:fix-ci',
+        labelName: 'pullops:pr:fix-ci',
+        description: 'Classify and fix actionable CI failures.',
+        defaultOperationSettings: {
+          modelTier: 'mid',
+        },
+        supportedRunnerLifecycles: [
+          ['codex-cli', 'run'],
+          ['codex-action', 'prepare'],
+          ['codex-action', 'finalize'],
+        ],
+        supportedRunnerAdapters: ['codex-cli', 'codex-action'],
+        supportedRunnerPhases: ['run', 'prepare', 'finalize'],
+        supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
+          ['run', 'codex-cli', true],
+          ['prepare', 'codex-action', true],
+          ['finalize', 'codex-action', true],
+          ['run', 'codex-action', false],
+          ['prepare', 'codex-cli', false],
+        ]),
+        unsupportedHandlerPhases: [],
+      },
+      {
+        operationName: 'pr-update-branch',
+        labelReference: 'pr:update-branch',
+        labelName: 'pullops:pr:update-branch',
+        description: 'Update a same-repository PR branch.',
+        defaultOperationSettings: {
+          modelTier: 'low',
+        },
+        supportedRunnerLifecycles: [['codex-cli', 'run']],
+        supportedRunnerAdapters: ['codex-cli'],
+        supportedRunnerPhases: ['run'],
+        supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
+          ['run', 'codex-cli', true],
+          ['run', 'codex-action', false],
+          ['prepare', 'codex-action', false],
+          ['finalize', 'codex-action', false],
+        ]),
+        unsupportedHandlerPhases: ['prepare', 'finalize'],
+      },
+      {
+        operationName: 'pr-resolve-conflicts',
+        labelReference: 'pr:resolve-conflicts',
+        labelName: 'pullops:pr:resolve-conflicts',
+        description: 'Resolve branch update conflicts with the PullOps runner.',
+        defaultOperationSettings: {
+          modelTier: 'high',
+          maxConflictResolutionPasses: 3,
+        },
+        supportedRunnerLifecycles: [
+          ['codex-cli', 'run'],
+          ['codex-action', 'prepare'],
+          ['codex-action', 'finalize'],
+        ],
+        supportedRunnerAdapters: ['codex-cli', 'codex-action'],
+        supportedRunnerPhases: ['run', 'prepare', 'finalize'],
+        supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
+          ['run', 'codex-cli', true],
+          ['prepare', 'codex-action', true],
+          ['finalize', 'codex-action', true],
+          ['run', 'codex-action', false],
+          ['prepare', 'codex-cli', false],
+        ]),
+        unsupportedHandlerPhases: [],
+      },
+    ]) {
+      assert.deepEqual(getOperationCatalogWorkflowOperation(operationName), {
+        name: operationName,
+        target: 'pr',
+        option: 'pr',
+        configKey:
+          operationName === 'pr-fix-ci'
+            ? 'prFixCi'
+            : operationName === 'pr-update-branch'
+              ? 'prUpdateBranch'
+              : 'prResolveConflicts',
+      });
+      assert.deepEqual(getOperationCatalogOperationLabelReference(labelReference), {
+        reference: labelReference,
+        workflowOperationName: operationName,
+        target: 'pr',
+        label: labelName,
+      });
+      assert.deepEqual(
+        getOperationCatalogDefaultOperationSettings(operationName),
+        defaultOperationSettings,
+      );
+      assert.deepEqual(getOperationCatalogLabelDefinition(operationName), {
+        name: labelName,
+        color: '5319E7',
+        description,
+      });
+      assert.equal(
+        getOperationCatalogWorkflowFileName(operationName),
+        `pullops-${operationName}.yml`,
+      );
+      assert.equal(getOperationCatalogPackageScriptName(operationName), `pullops:${operationName}`);
+      assert.equal(Object.hasOwn(packageJson.scripts, `pullops:${operationName}`), true);
+      assert.deepEqual(
+        getOperationCatalogSupportedRunnerLifecycles(operationName),
+        supportedRunnerLifecycles,
+      );
+      assert.deepEqual(
+        getOperationCatalogSupportedRunnerAdapters(operationName),
+        supportedRunnerAdapters,
+      );
+      assert.deepEqual(
+        getOperationCatalogSupportedRunnerPhases(operationName),
+        supportedRunnerPhases,
+      );
+
+      for (const [phase, runnerAdapter, expected] of supportedLifecycleChecks) {
+        assert.equal(
+          supportsOperationCatalogRunnerLifecycle(operationName, {
+            phase,
+            runnerAdapter,
+          }),
+          expected,
+        );
+      }
+
+      assert.equal(typeof getOperationCatalogHandler(operationName), 'function');
+      assert.equal(typeof getOperationCatalogHandler(operationName, 'run'), 'function');
+      for (const phase of unsupportedHandlerPhases) {
+        assert.equal(getOperationCatalogHandler(operationName, phase), undefined);
+      }
+      if (operationName !== 'pr-update-branch') {
+        assert.equal(typeof getOperationCatalogHandler(operationName, 'prepare'), 'function');
+        assert.equal(typeof getOperationCatalogHandler(operationName, 'finalize'), 'function');
+      }
+    }
+  });
+
+  it('06: returns nothing for operations outside the catalog-owned slices', () => {
     /** @type {Array<[string, string | undefined]>} */
     const cases = [
-      ['pr-fix-ci', 'pr:fix-ci'],
-      ['pr-update-branch', 'pr:update-branch'],
-      ['pr-resolve-conflicts', 'pr:resolve-conflicts'],
       ['pr-finalize', 'pr:finalize'],
       ['pr-close-child-issue', undefined],
     ];
