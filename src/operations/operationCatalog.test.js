@@ -7,10 +7,12 @@ import {
   getOperationCatalogHandler,
   getOperationCatalogLabelDefinition,
   getOperationCatalogOperationLabelReference,
+  getOperationCatalogOperationLabelReferences,
   getOperationCatalogPackageScriptName,
   getOperationCatalogSupportedRunnerAdapters,
   getOperationCatalogSupportedRunnerLifecycles,
   getOperationCatalogSupportedRunnerPhases,
+  getOperationCatalogWorkflowOperations,
   getOperationCatalogWorkflowFileName,
   getOperationCatalogWorkflowOperation,
   supportsOperationCatalogRunnerLifecycle,
@@ -469,8 +471,8 @@ describe('operationCatalog', () => {
   it('06: returns nothing for operations outside the catalog-owned slices', () => {
     /** @type {Array<[string, string | undefined]>} */
     const cases = [
-      ['pr-finalize', 'pr:finalize'],
-      ['pr-close-child-issue', undefined],
+      ['pr-finalizex', 'pr:finalizex'],
+      ['pr-close-child-issuex', undefined],
     ];
 
     for (const [operationName, labelReference] of cases) {
@@ -494,5 +496,99 @@ describe('operationCatalog', () => {
       );
       assert.equal(getOperationCatalogHandler(operationName), undefined);
     }
+  });
+
+  it('07: returns pr-finalize and pr-close-child-issue catalog facts without dispatching child closure', () => {
+    assert.deepEqual(getOperationCatalogWorkflowOperation('pr-finalize'), {
+      name: 'pr-finalize',
+      target: 'pr',
+      option: 'pr',
+      configKey: 'prFinalize',
+    });
+    assert.deepEqual(getOperationCatalogOperationLabelReference('pr:finalize'), {
+      reference: 'pr:finalize',
+      workflowOperationName: 'pr-finalize',
+      target: 'pr',
+      label: 'pullops:pr:finalize',
+    });
+    assert.deepEqual(getOperationCatalogDefaultOperationSettings('pr-finalize'), {
+      modelTier: 'high',
+      aiHistoryCleanup: true,
+    });
+    assert.deepEqual(getOperationCatalogLabelDefinition('pr-finalize'), {
+      name: 'pullops:pr:finalize',
+      color: '5319E7',
+      description: 'Finalize a PullOps-managed PR for human review and merge.',
+    });
+    assert.equal(getOperationCatalogWorkflowFileName('pr-finalize'), 'pullops-pr-finalize.yml');
+    assert.equal(getOperationCatalogPackageScriptName('pr-finalize'), 'pullops:pr-finalize');
+    assert.equal(Object.hasOwn(packageJson.scripts, 'pullops:pr-finalize'), true);
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('pr-finalize'), [
+      ['codex-cli', 'run'],
+      ['codex-action', 'prepare'],
+      ['codex-action', 'finalize'],
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('pr-finalize'), [
+      'codex-cli',
+      'codex-action',
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-finalize'), [
+      'run',
+      'prepare',
+      'finalize',
+    ]);
+    assert.equal(typeof getOperationCatalogHandler('pr-finalize'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'prepare'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'finalize'), 'function');
+
+    assert.deepEqual(getOperationCatalogWorkflowOperation('pr-close-child-issue'), {
+      name: 'pr-close-child-issue',
+      target: 'pr',
+      option: 'pr',
+      configKey: 'prCloseChildIssue',
+    });
+    assert.equal(getOperationCatalogOperationLabelReference('pr-close-child-issue'), undefined);
+    assert.deepEqual(getOperationCatalogDefaultOperationSettings('pr-close-child-issue'), {
+      modelTier: 'low',
+    });
+    assert.equal(getOperationCatalogLabelDefinition('pr-close-child-issue'), undefined);
+    assert.equal(
+      getOperationCatalogWorkflowFileName('pr-close-child-issue'),
+      'pullops-pr-close-child-issue.yml',
+    );
+    assert.equal(
+      getOperationCatalogPackageScriptName('pr-close-child-issue'),
+      'pullops:pr-close-child-issue',
+    );
+    assert.equal(Object.hasOwn(packageJson.scripts, 'pullops:pr-close-child-issue'), true);
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('pr-close-child-issue'), [
+      ['codex-cli', 'run'],
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('pr-close-child-issue'), [
+      'codex-cli',
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-close-child-issue'), ['run']);
+    assert.equal(typeof getOperationCatalogHandler('pr-close-child-issue'), 'function');
+    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'prepare'), undefined);
+    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'finalize'), undefined);
+
+    assert.ok(
+      getOperationCatalogWorkflowOperations().some(operation => operation.name === 'pr-finalize'),
+    );
+    assert.ok(
+      getOperationCatalogWorkflowOperations().some(
+        operation => operation.name === 'pr-close-child-issue',
+      ),
+    );
+    assert.ok(
+      getOperationCatalogOperationLabelReferences().some(
+        operation => operation.reference === 'pr:finalize',
+      ),
+    );
+    assert.ok(
+      !getOperationCatalogOperationLabelReferences().some(
+        operation => operation.reference === 'pr-close-child-issue',
+      ),
+    );
   });
 });

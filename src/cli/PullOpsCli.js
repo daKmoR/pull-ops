@@ -32,15 +32,14 @@ import {
 import {
   getOperationLabelReference,
   getWorkflowOperation,
-  LOCAL_OPERATION_LABEL_REFERENCE_NAMES,
-  OPERATION_LABEL_REFERENCE_NAMES,
   runWorkflowOperation,
-  WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
 import {
+  getOperationCatalogOperationLabelReferences,
   getOperationCatalogSupportedRunnerLifecycles,
   getOperationCatalogSupportedRunnerAdapters,
   getOperationCatalogSupportedRunnerPhases,
+  getOperationCatalogWorkflowOperations,
 } from '../operations/operationCatalog.js';
 import {
   createLocalPrdAutoCompleteSummary,
@@ -64,6 +63,33 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
  * @typedef {(command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess} StepCommandSpawner
  */
+
+/**
+ * @returns {readonly string[]}
+ */
+function readWorkflowOperationNames() {
+  return getOperationCatalogWorkflowOperations().map(operation => operation.name);
+}
+
+/**
+ * @returns {readonly string[]}
+ */
+function readOperationLabelReferenceNames() {
+  return getOperationCatalogOperationLabelReferences().map(operation => operation.reference);
+}
+
+/**
+ * @returns {readonly string[]}
+ */
+function readLocalOperationLabelReferenceNames() {
+  const operationLabelReferenceNames = readOperationLabelReferenceNames();
+  return [
+    'issue:implement',
+    ...operationLabelReferenceNames.filter(
+      reference => reference !== 'prd:prepare' && reference !== 'issue:implement',
+    ),
+  ];
+}
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
 const COMMAND_OUTPUT_CONTRACT = {
@@ -574,7 +600,7 @@ export class PullOpsCli {
 
     if (operationName === undefined) {
       throw new CliUsageError(
-        `Missing operation. Expected one of: ${WORKFLOW_OPERATION_NAMES.join(', ')}.`,
+        `Missing operation. Expected one of: ${readWorkflowOperationNames().join(', ')}.`,
       );
     }
 
@@ -585,7 +611,7 @@ export class PullOpsCli {
     const operation = getWorkflowOperation(operationName);
     if (operation === undefined) {
       throw new CliUsageError(
-        `Unknown operation "${operationName}". Expected one of: ${WORKFLOW_OPERATION_NAMES.join(
+        `Unknown operation "${operationName}". Expected one of: ${readWorkflowOperationNames().join(
           ', ',
         )}.`,
       );
@@ -632,7 +658,7 @@ export class PullOpsCli {
   async runOperationLabelReference(reference, args) {
     if (reference.startsWith('pullops:')) {
       throw new CliUsageError(
-        `Full PullOps labels are not accepted as operation references. Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+        `Full PullOps labels are not accepted as operation references. Expected one of: ${readOperationLabelReferenceNames().join(
           ', ',
         )}.`,
       );
@@ -641,7 +667,7 @@ export class PullOpsCli {
     const operation = getOperationLabelReference(reference);
     if (operation === undefined) {
       throw new CliUsageError(
-        `Unknown operation label reference "${reference}". Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+        `Unknown operation label reference "${reference}". Expected one of: ${readOperationLabelReferenceNames().join(
           ', ',
         )}.`,
       );
@@ -2446,7 +2472,7 @@ function formatTargetKind(target) {
  */
 function localOperationLabelReferenceUnsupportedMessage(reference) {
   return [
-    `Local execution is currently only supported for: ${LOCAL_OPERATION_LABEL_REFERENCE_NAMES.join(', ')}.`,
+    `Local execution is currently only supported for: ${readLocalOperationLabelReferenceNames().join(', ')}.`,
     `Use "${reference} --backend github-actions" to dispatch the canonical PullOps label through GitHub Actions.`,
   ].join(' ');
 }

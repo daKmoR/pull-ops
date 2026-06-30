@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 
 import { PullOpsCli } from './PullOpsCli.js';
 import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
-import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { getOperationCatalogWorkflowOperations } from '../operations/operationCatalog.js';
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
@@ -225,7 +225,7 @@ test('run pr-address-review accepts a trusted review id', async () => {
 });
 
 test('run operation accepts every workflow-facing operation shape', async () => {
-  for (const operation of WORKFLOW_OPERATIONS) {
+  for (const operation of getOperationCatalogWorkflowOperations()) {
     /** @type {OperationRunnerContext[]} */
     const calls = [];
     const cli = new PullOpsCli({

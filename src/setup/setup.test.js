@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, it } from 'node:test';
 
-import { getOperationCatalogWorkflowFileName } from '../operations/operationCatalog.js';
-import { OPERATION_LABEL_REFERENCES, WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import {
+  getOperationCatalogOperationLabelReferences,
+  getOperationCatalogWorkflowFileName,
+  getOperationCatalogWorkflowOperations,
+} from '../operations/operationCatalog.js';
 import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { runPullOpsInit } from './init.js';
 import {
@@ -359,7 +362,7 @@ describe('setup github-actions', () => {
 
     const expectedWorkflowPaths = [
       join('.github', 'workflows', 'pullops-dispatch.yml'),
-      ...WORKFLOW_OPERATIONS.map(operation =>
+      ...getOperationCatalogWorkflowOperations().map(operation =>
         join(
           '.github',
           'workflows',
@@ -411,11 +414,13 @@ describe('setup github-actions', () => {
     const actualDispatchRoutes = [...dispatchWorkflowText.matchAll(/'([^']+)': '([^']+\.yml)'/g)]
       .map(([, labelName, workflowPath]) => [labelName, workflowPath])
       .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
-    const expectedDispatchRoutes = OPERATION_LABEL_REFERENCES.map(operation => [
-      operation.label,
-      getOperationCatalogWorkflowFileName(operation.workflowOperationName) ??
-        `pullops-${operation.workflowOperationName}.yml`,
-    ]).sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
+    const expectedDispatchRoutes = getOperationCatalogOperationLabelReferences()
+      .map(operation => [
+        operation.label,
+        getOperationCatalogWorkflowFileName(operation.workflowOperationName) ??
+          `pullops-${operation.workflowOperationName}.yml`,
+      ])
+      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName));
 
     assert.deepEqual(actualDispatchRoutes, expectedDispatchRoutes);
     assert.ok(

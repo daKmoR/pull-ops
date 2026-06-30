@@ -41,7 +41,7 @@ const OPERATION_REFERENCES = new Map([
   ['pr-fix-ci', requireOperationCatalogLabelReference('pr:fix-ci')],
   ['pr-update-branch', requireOperationCatalogLabelReference('pr:update-branch')],
   ['pr-resolve-conflicts', requireOperationCatalogLabelReference('pr:resolve-conflicts')],
-  ['pr-finalize', 'pr:finalize'],
+  ['pr-finalize', requireOperationCatalogLabelReference('pr:finalize')],
 ]);
 
 /**

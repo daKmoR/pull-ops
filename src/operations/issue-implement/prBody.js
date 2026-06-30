@@ -32,7 +32,9 @@ export function createIssueImplementPullRequestBody({
 }) {
   const runnerTask = getOperationCatalogPackageScriptName('issue-implement');
   if (runnerTask === undefined) {
-    throw new Error('issue-implement package script identity is missing from the operation catalog.');
+    throw new Error(
+      'issue-implement package script identity is missing from the operation catalog.',
+    );
   }
 
   return [

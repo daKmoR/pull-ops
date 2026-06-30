@@ -23,6 +23,7 @@ describe('PULL_OPS_LABELS', () => {
       'pr-fix-ci',
       'pr-update-branch',
       'pr-resolve-conflicts',
+      'pr-finalize',
     ]) {
       const catalogLabelDefinition = requireCatalogLabelDefinition(operationName);
       assert.deepEqual(

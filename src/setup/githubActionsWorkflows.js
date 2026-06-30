@@ -1,7 +1,10 @@
 import { join } from 'node:path';
 
-import { getOperationCatalogWorkflowFileName } from '../operations/operationCatalog.js';
-import { OPERATION_LABEL_REFERENCES, WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import {
+  getOperationCatalogOperationLabelReferences,
+  getOperationCatalogWorkflowFileName,
+  getOperationCatalogWorkflowOperations,
+} from '../operations/operationCatalog.js';
 
 /**
  * @typedef {import('../operations/types.js').WorkflowOperation} WorkflowOperation
@@ -17,7 +20,7 @@ export function renderPullOpsGitHubActionsWorkflowFiles() {
   const workflows = new Map();
   workflows.set(join(WORKFLOW_ROOT, 'pullops-dispatch.yml'), renderDispatchWorkflow());
 
-  for (const operation of WORKFLOW_OPERATIONS) {
+  for (const operation of getOperationCatalogWorkflowOperations()) {
     const workflowFileName =
       getOperationCatalogWorkflowFileName(operation.name) ?? `pullops-${operation.name}.yml`;
     workflows.set(join(WORKFLOW_ROOT, workflowFileName), renderWorkflowOperation(operation.name));
@@ -43,10 +46,10 @@ function renderWorkflowOperation(operationName) {
  * @returns {string}
  */
 function renderDispatchWorkflow() {
-  const issueLabelReferences = OPERATION_LABEL_REFERENCES.filter(
+  const issueLabelReferences = getOperationCatalogOperationLabelReferences().filter(
     operation => operation.target === 'issue',
   );
-  const pullRequestLabelReferences = OPERATION_LABEL_REFERENCES.filter(
+  const pullRequestLabelReferences = getOperationCatalogOperationLabelReferences().filter(
     operation => operation.target === 'pr',
   );
   const issueConditions = issueLabelReferences

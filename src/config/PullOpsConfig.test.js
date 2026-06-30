@@ -41,6 +41,7 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
+  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
   assert.deepEqual(
     config.operations.prFixCi,
     getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
@@ -60,6 +61,14 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   assert.deepEqual(
     config.operations.prAddressReview,
     getOperationCatalogDefaultOperationSettings('pr-address-review'),
+  );
+  assert.deepEqual(
+    config.operations.prFinalize,
+    getOperationCatalogDefaultOperationSettings('pr-finalize'),
+  );
+  assert.deepEqual(
+    config.operations.prCloseChildIssue,
+    getOperationCatalogDefaultOperationSettings('pr-close-child-issue'),
   );
 });
 
@@ -147,6 +156,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prFinalize.modelTier, 'high');
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
+  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
 });

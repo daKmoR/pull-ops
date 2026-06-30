@@ -59,6 +59,12 @@ if (PR_RESOLVE_CONFLICTS_LABEL_DEFINITION === undefined) {
   throw new Error('pr-resolve-conflicts label definition is missing from the operation catalog.');
 }
 
+const PR_FINALIZE_LABEL_DEFINITION = getOperationCatalogLabelDefinition('pr-finalize');
+
+if (PR_FINALIZE_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-finalize label definition is missing from the operation catalog.');
+}
+
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: PRD_PREPARE_LABEL_DEFINITION.name,
   prdAutoAdvance: PRD_AUTO_ADVANCE_LABEL_DEFINITION.name,
@@ -69,7 +75,7 @@ export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prFixCi: PR_FIX_CI_LABEL_DEFINITION.name,
   prUpdateBranch: PR_UPDATE_BRANCH_LABEL_DEFINITION.name,
   prResolveConflicts: PR_RESOLVE_CONFLICTS_LABEL_DEFINITION.name,
-  prFinalize: 'pullops:pr:finalize',
+  prFinalize: PR_FINALIZE_LABEL_DEFINITION.name,
 });
 
 export const PULL_OPS_STATUS_LABELS = Object.freeze({
@@ -114,11 +120,7 @@ export const PULL_OPS_LABELS = [
   PR_FIX_CI_LABEL_DEFINITION,
   PR_UPDATE_BRANCH_LABEL_DEFINITION,
   PR_RESOLVE_CONFLICTS_LABEL_DEFINITION,
-  {
-    name: PULL_OPS_OPERATION_LABELS.prFinalize,
-    color: '5319E7',
-    description: 'Finalize a PullOps-managed PR for human review and merge.',
-  },
+  PR_FINALIZE_LABEL_DEFINITION,
   {
     name: PULL_OPS_STATUS_LABELS.humanRequired,
     color: 'D93F0B',
