@@ -41,9 +41,6 @@
   "bugs": {
     "url": "https://github.com/daKmoR/pull-ops/issues"
   },
-  "funding": {
-    "url": "https://opencollective.com/modern-web"
-  },
   "scripts": {
     "lint": "eslint . --ignore-pattern .gitignore && prettier \"**/*.{ts,js,json,md}\" --check --ignore-path .gitignore --ignore-path .prettierignore",
     "format": "eslint . --ignore-pattern .gitignore --fix && prettier \"**/*.{ts,js,json,md}\" --write --ignore-path .gitignore --ignore-path .prettierignore",
