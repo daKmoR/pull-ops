@@ -8,10 +8,8 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createGitClient } from '../../git/GitClient.js';
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-} from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABEL_NAMES } from '../../labels/pullOpsLabels.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { createPrFinalizeCommitMessage, runPrFinalize } from './run.js';
 
 const execFile = promisify(nodeExecFile);
@@ -94,7 +92,10 @@ describe('runPrFinalize', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+        labels: [
+          requireOperationCatalogOperationLabelName('pr-finalize'),
+          ...PULL_OPS_STATUS_LABEL_NAMES,
+        ],
       },
     ]);
     assertFinalizeAuditComment(github.comments[0], {
@@ -115,7 +116,7 @@ describe('runPrFinalize', () => {
           finalizedTree: reviewedTree,
           finalizedHead,
           status: 'Finalized for rebase merge',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
         }),
       }),
       checksByRef: new Map([
@@ -160,7 +161,10 @@ describe('runPrFinalize', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+        labels: [
+          requireOperationCatalogOperationLabelName('pr-finalize'),
+          ...PULL_OPS_STATUS_LABEL_NAMES,
+        ],
       },
     ]);
     assert.equal(github.pullRequestLabelsAdded.length, 0);
@@ -252,7 +256,10 @@ describe('runPrFinalize', () => {
     assert.deepEqual(github.pullRequestLabelsRemoved, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+        labels: [
+          requireOperationCatalogOperationLabelName('pr-finalize'),
+          ...PULL_OPS_STATUS_LABEL_NAMES,
+        ],
       },
     ]);
     assertFinalizeAuditComment(github.comments[0], {
@@ -341,7 +348,7 @@ describe('runPrFinalize', () => {
     assert.deepEqual(failing.github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
+        labels: [requireOperationCatalogOperationLabelName('pr-fix-ci')],
       },
     ]);
     assert.match(failing.github.comments[0].body, /Reviewed-head checks failed/);
@@ -370,7 +377,7 @@ describe('runPrFinalize', () => {
     assert.deepEqual(route.github.pullRequestLabelsAdded, [
       {
         number: 100,
-        labels: [PULL_OPS_OPERATION_LABELS.prReview],
+        labels: [requireOperationCatalogOperationLabelName('pr-review')],
       },
     ]);
     assert.doesNotMatch(route.github.updatedBodies[0].body, /Reviewed tree:/);
@@ -627,7 +634,10 @@ describe('runPrFinalize', () => {
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabelsRemoved.at(-1), {
       number: 100,
-      labels: [PULL_OPS_OPERATION_LABELS.prFinalize, ...PULL_OPS_STATUS_LABEL_NAMES],
+      labels: [
+        requireOperationCatalogOperationLabelName('pr-finalize'),
+        ...PULL_OPS_STATUS_LABEL_NAMES,
+      ],
     });
     assertFinalizeAuditComment(github.comments[0], {
       summary: 'Finalized PullOps-managed PR #100 for human rebase merge.',
@@ -940,7 +950,7 @@ describe('runPrFinalize', () => {
           finalizedTree,
           finalizedHead,
           status: 'Ready for human merge',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
         }),
       }),
       checksByRef: new Map([[finalizedHead, [createCheck({ name: 'test' })]]]),
@@ -1118,7 +1128,7 @@ function createPullRequest(overrides = {}) {
     body: createPullRequestBody(),
     isDraft: true,
     isCrossRepository: false,
-    labels: [PULL_OPS_OPERATION_LABELS.prFinalize],
+    labels: [requireOperationCatalogOperationLabelName('pr-finalize')],
     ...overrides,
   };
 }
@@ -1141,7 +1151,7 @@ function createPullRequestBody({
   reviewCycles = '1 / 3',
   parentIssueNumber,
   status = 'Review approved',
-  lastOperation = PULL_OPS_OPERATION_LABELS.prReview,
+  lastOperation = requireOperationCatalogOperationLabelName('pr-review'),
 } = {}) {
   const traceability =
     parentIssueNumber === undefined

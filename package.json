@@ -54,6 +54,7 @@
     "pullops:pr-update-branch": "node src/cli/cli.js run pr-update-branch",
     "pullops:pr-resolve-conflicts": "node src/cli/cli.js run pr-resolve-conflicts",
     "pullops:pr-finalize": "node src/cli/cli.js run pr-finalize",
+    "pullops:pr-close-child-issue": "node src/cli/cli.js run pr-close-child-issue",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",

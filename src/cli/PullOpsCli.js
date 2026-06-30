@@ -32,11 +32,15 @@ import {
 import {
   getOperationLabelReference,
   getWorkflowOperation,
-  LOCAL_OPERATION_LABEL_REFERENCE_NAMES,
-  OPERATION_LABEL_REFERENCE_NAMES,
   runWorkflowOperation,
-  WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
+import {
+  getOperationCatalogOperationLabelReferences,
+  getOperationCatalogSupportedRunnerLifecycles,
+  getOperationCatalogSupportedRunnerAdapters,
+  getOperationCatalogSupportedRunnerPhases,
+  getOperationCatalogWorkflowOperations,
+} from '../operations/operationCatalog.js';
 import {
   createLocalPrdAutoCompleteSummary,
   createOperationProgressEventWriter,
@@ -59,6 +63,33 @@ import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
  * @typedef {(command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess} StepCommandSpawner
  */
+
+/**
+ * @returns {readonly string[]}
+ */
+function readWorkflowOperationNames() {
+  return getOperationCatalogWorkflowOperations().map(operation => operation.name);
+}
+
+/**
+ * @returns {readonly string[]}
+ */
+function readOperationLabelReferenceNames() {
+  return getOperationCatalogOperationLabelReferences().map(operation => operation.reference);
+}
+
+/**
+ * @returns {readonly string[]}
+ */
+function readLocalOperationLabelReferenceNames() {
+  const operationLabelReferenceNames = readOperationLabelReferenceNames();
+  return [
+    'issue:implement',
+    ...operationLabelReferenceNames.filter(
+      reference => reference !== 'prd:prepare' && reference !== 'issue:implement',
+    ),
+  ];
+}
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
 const COMMAND_OUTPUT_CONTRACT = {
@@ -569,7 +600,7 @@ export class PullOpsCli {
 
     if (operationName === undefined) {
       throw new CliUsageError(
-        `Missing operation. Expected one of: ${WORKFLOW_OPERATION_NAMES.join(', ')}.`,
+        `Missing operation. Expected one of: ${readWorkflowOperationNames().join(', ')}.`,
       );
     }
 
@@ -580,7 +611,7 @@ export class PullOpsCli {
     const operation = getWorkflowOperation(operationName);
     if (operation === undefined) {
       throw new CliUsageError(
-        `Unknown operation "${operationName}". Expected one of: ${WORKFLOW_OPERATION_NAMES.join(
+        `Unknown operation "${operationName}". Expected one of: ${readWorkflowOperationNames().join(
           ', ',
         )}.`,
       );
@@ -627,7 +658,7 @@ export class PullOpsCli {
   async runOperationLabelReference(reference, args) {
     if (reference.startsWith('pullops:')) {
       throw new CliUsageError(
-        `Full PullOps labels are not accepted as operation references. Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+        `Full PullOps labels are not accepted as operation references. Expected one of: ${readOperationLabelReferenceNames().join(
           ', ',
         )}.`,
       );
@@ -636,7 +667,7 @@ export class PullOpsCli {
     const operation = getOperationLabelReference(reference);
     if (operation === undefined) {
       throw new CliUsageError(
-        `Unknown operation label reference "${reference}". Expected one of: ${OPERATION_LABEL_REFERENCE_NAMES.join(
+        `Unknown operation label reference "${reference}". Expected one of: ${readOperationLabelReferenceNames().join(
           ', ',
         )}.`,
       );
@@ -653,7 +684,7 @@ export class PullOpsCli {
       );
     }
 
-    if (reference === 'issue:implement') {
+    if (operation.workflowOperationName === 'issue-implement') {
       return await this.runLocalIssueImplementReference(args);
     }
 
@@ -2304,6 +2335,73 @@ function readPositiveIntegerEnv(value) {
  * @param {boolean | undefined} options.runnerRan
  */
 function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRan }) {
+  const supportedRunnerLifecycles = getOperationCatalogSupportedRunnerLifecycles(operationName);
+  if (supportedRunnerLifecycles !== undefined) {
+    const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
+    const supportedRunnerPhases = getOperationCatalogSupportedRunnerPhases(operationName);
+    if (supportedRunnerAdapters === undefined || supportedRunnerPhases === undefined) {
+      throw new Error(
+        `${operationName} runner lifecycle facts are missing from the operation catalog.`,
+      );
+    }
+
+    const supportedPhasesForRunnerAdapter = supportedRunnerLifecycles
+      .filter(([supportedRunnerAdapter]) => supportedRunnerAdapter === runnerAdapter)
+      .map(([, supportedPhase]) => supportedPhase);
+    const supportsLifecycle = supportedRunnerLifecycles.some(
+      ([supportedRunnerAdapter, supportedPhase]) =>
+        supportedRunnerAdapter === runnerAdapter && supportedPhase === phase,
+    );
+
+    if (!supportsLifecycle) {
+      if (runnerAdapter === 'codex-action') {
+        if (supportedPhasesForRunnerAdapter.length > 0) {
+          throw new CliUsageError(
+            `${operationName} with --runner codex-action requires ${formatPhaseRequirement(
+              supportedPhasesForRunnerAdapter,
+            )}.`,
+          );
+        }
+
+        throw new CliUsageError(
+          `${operationName} only supports ${supportedRunnerAdapters.join(
+            ', ',
+          )} with the ${supportedRunnerPhases.join(', ')} phase.`,
+        );
+      }
+
+      throw new CliUsageError(
+        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+      );
+    }
+
+    if (runnerAdapter === 'codex-action') {
+      if (phase === 'prepare' && runnerRan !== undefined) {
+        throw new CliUsageError('"--runner-ran" can only be used with "--phase finalize".');
+      }
+
+      if (phase === 'finalize' && runnerRan === undefined) {
+        throw new CliUsageError(
+          `${operationName} with --runner codex-action --phase finalize requires "--runner-ran <true|false>".`,
+        );
+      }
+
+      return;
+    }
+
+    if (phase !== 'run') {
+      throw new CliUsageError(
+        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+      );
+    }
+
+    if (runnerRan !== undefined) {
+      throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
+    }
+
+    return;
+  }
+
   if (runnerAdapter === 'codex-action') {
     if (phase === 'run') {
       throw new CliUsageError(
@@ -2336,6 +2434,23 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
 }
 
 /**
+ * @param {readonly import('../cli/types.js').OperationPhase[]} phases
+ * @returns {string}
+ */
+function formatPhaseRequirement(phases) {
+  if (phases.length === 1) {
+    return `"--phase ${phases[0]}"`;
+  }
+
+  if (phases.length === 2) {
+    return `"--phase ${phases[0]}" or "--phase ${phases[1]}"`;
+  }
+
+  const requiredPhases = phases.map(phase => `"--phase ${phase}"`);
+  return `${requiredPhases.slice(0, -1).join(', ')}, or ${requiredPhases.at(-1)}`;
+}
+
+/**
  * @param {string} value
  * @returns {boolean}
  */
@@ -2357,7 +2472,7 @@ function formatTargetKind(target) {
  */
 function localOperationLabelReferenceUnsupportedMessage(reference) {
   return [
-    `Local execution is currently only supported for: ${LOCAL_OPERATION_LABEL_REFERENCE_NAMES.join(', ')}.`,
+    `Local execution is currently only supported for: ${readLocalOperationLabelReferenceNames().join(', ')}.`,
     `Use "${reference} --backend github-actions" to dispatch the canonical PullOps label through GitHub Actions.`,
   ].join(' ');
 }

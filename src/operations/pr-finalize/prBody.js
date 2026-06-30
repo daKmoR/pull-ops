@@ -1,5 +1,5 @@
-import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import { updateManagedPrState } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 
 /**
  * @typedef {import('../../github/types.js').GitHubIssueReference} GitHubIssueReference
@@ -44,7 +44,7 @@ export function updatePullRequestBodyForPrFinalize({
     finalizedTreeHash,
     finalizedHeadSha,
     mergeMethod: 'rebase',
-    lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
   });
 }
 

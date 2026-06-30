@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
-import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
 import { createManagedPrStateSection } from '../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from './operationCatalog.js';
 import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 
 /**
@@ -89,11 +89,13 @@ describe('runLocalPullRequestOperation', () => {
     );
 
     assert.equal(result.status, 'blocked');
+    assert.equal(result.operation, 'pr:update-branch');
     assert.match(String(result.summary), /not implemented yet for pr:update-branch/);
     const state = JSON.parse(
       await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
     );
     assert.equal(state.status, 'blocked');
+    assert.equal(state.operationReference, 'pr:update-branch');
     assert.equal(codex.calls.length, 0);
     assert.equal(github.mutations, 0);
   });
@@ -439,7 +441,7 @@ function createManagedBody() {
       runnerTask: 'pullops-issue-implement',
       modelTier: 'high',
       model: 'gpt-5.5',
-      lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
       reviewCycles: {
         current: 1,
         max: 3,
