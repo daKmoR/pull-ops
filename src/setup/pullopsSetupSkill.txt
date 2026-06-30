@@ -12,6 +12,8 @@ PullOps setup is a readiness loop: inspect with `--check`, reconcile only needed
 
 Use `npm exec -- pullops ...` for every PullOps CLI command. The `--` immediately after `exec` is required so npm passes flags such as `--profile`, `--check`, and `--json` to PullOps. If a setup command exits nonzero but prints JSON, read the JSON before treating the command as a tool failure; incomplete setup is reported through structured blockers and warnings.
 
+When the agent runtime offers sandboxed and outside-sandbox command execution, run PullOps setup commands outside the sandbox. Setup commands inspect local packages, process state, GitHub authentication, and remote labels; sandboxed runs can be slow, memory-constrained, or network-restricted in ways that hide the real setup result.
+
 ## Start
 
 1. Work from the repository root. If a setup command says this is not the root, rerun from the reported root.

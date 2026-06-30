@@ -44,6 +44,7 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(skillText, /# PullOps Setup Skill/);
   assert.match(skillText, /PullOps setup is a readiness loop/);
   assert.match(skillText, /Use `npm exec -- pullops \.\.\.` for every PullOps CLI command\./);
+  assert.match(skillText, /run PullOps setup commands outside the sandbox/);
   assert.match(skillText, /npm exec -- pullops setup doctor --profile full --json/);
   assert.match(
     skillText,

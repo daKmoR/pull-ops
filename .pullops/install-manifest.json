@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "kind": "pullops-install-manifest",
+  "hashAlgorithm": "sha256",
+  "files": [
+    {
+      "path": ".agents/skills/pullops-setup/SKILL.md",
+      "hash": "edf8c27710faca556c0940f1abbe8aaf769a9439812222aef7a9ccc0869446bf"
+    },
+    {
+      "path": ".agents/skills/pullops-go/references/event-supervision.md",
+      "hash": "bb8ba9af017253de52cf6ad933922814521ea473b63951648d1bdc328f31e2b9"
+    },
+    {
+      "path": ".agents/skills/pullops-go/SKILL.md",
+      "hash": "6b3ce236f4e80c5de4ed3725629384de3077afbc668e43059ec0be7bba8e310b"
+    },
+    {
+      "path": ".agents/skills/pullops-issue-implement/SKILL.md",
+      "hash": "d1087947b9349ee52c5f8ce39c5cbb50f0f1b6ea3dfc4f4d7f1136272734dad3"
+    },
+    {
+      "path": ".agents/skills/pullops-pr-address-review/SKILL.md",
+      "hash": "cd3d628b422674c0881b90a93c5be6b89a58f482ec5a9304ab5052b4d5ae9848"
+    },
+    {
+      "path": ".agents/skills/pullops-pr-finalize/SKILL.md",
+      "hash": "9a2c84a446068dc3db5ab6911e58c8fb082d98919c08c8a7f018a09284b085cb"
+    },
+    {
+      "path": ".agents/skills/pullops-pr-fix-ci/SKILL.md",
+      "hash": "31244d76b43489a8a1f39babffd156e6b643d452cb05f526c6a7847d16b29e47"
+    },
+    {
+      "path": ".agents/skills/pullops-pr-review/SKILL.md",
+      "hash": "7e860e253814e9e858620924dc7dcb7f1d39a967f253707aabe45b93e9d0aaaf"
+    },
+    {
+      "path": ".agents/skills/pullops-resolve-conflicts/SKILL.md",
+      "hash": "a12de55a62a7c89fbf27348586cef6b97bb9462a0602b47d8877f45035388e8c"
+    },
+    {
+      "path": ".github/workflows/pullops-dispatch.yml",
+      "hash": "07e95f857b03dec2aaa4d501bee023ffecdb8a8159c6261949b8a43de3fdafb0"
+    },
+    {
+      "path": ".github/workflows/pullops-prd-prepare.yml",
+      "hash": "f45bb41af134a58703cb88573c733710423ccb0b450d45387db7b5b61e6e632e"
+    },
+    {
+      "path": ".github/workflows/pullops-issue-implement.yml",
+      "hash": "89ccc658abf852f66319901f00b0926a271b735ea7a5df61e03f6c8747cad13a"
+    },
+    {
+      "path": ".github/workflows/pullops-prd-auto-advance.yml",
+      "hash": "5f5c3752e767ea154d252d18491eee7264e3b9cc52be1b1117cc4513ffe214da"
+    },
+    {
+      "path": ".github/workflows/pullops-prd-auto-complete.yml",
+      "hash": "ddf0c1a3200e92d86c0610de058cdb76f0b41db4e35e84d76b66705e33c471b4"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-review.yml",
+      "hash": "52984e3386426898a644a36719445ba4bd21150617af2eee7a58535e96036c6a"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-address-review.yml",
+      "hash": "b1fc9763465f4bae9797cf861b052f9bb4eb07eff969d8c3bce9f004bccb8758"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-fix-ci.yml",
+      "hash": "a7da50866f8f7e535c5b6d0688ca5c764b85f8cbaf7b2b004b43cf1779e75d61"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-update-branch.yml",
+      "hash": "938e09cd8f39951460094a7ee61a1ebac86e2846c6b864a6373ee317bfee43eb"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-resolve-conflicts.yml",
+      "hash": "ff5a60d8fe93f8c9353d2a760bd9276a40086611e9ae54b91bb060c00aa12e50"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-finalize.yml",
+      "hash": "8af71c4a4aaf33af17e5b1c3b658b67c8f8bfa10bb9d8d10853c4027fbf80d6b"
+    },
+    {
+      "path": ".github/workflows/pullops-pr-close-child-issue.yml",
+      "hash": "4d80d90b1c84de15e50d86860d0b84befd639d5dc47eae9650c99ca68c5b5828"
+    }
+  ]
+}
