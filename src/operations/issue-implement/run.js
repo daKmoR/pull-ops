@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import {
   readBlockingDependencies,
   readIssueWorkTarget,
@@ -15,6 +15,7 @@ import {
 } from '../codexAction.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { getWorkflowOperation } from '../operations.js';
 import { validateAddressReviewFeedbackCoverage } from '../pr-address-review/feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from '../pr-address-review/output.js';
@@ -396,10 +397,10 @@ async function prepareIssueImplement(context) {
         reason: [
           `Issue #${issue.number} is a Parent Issue with child issues.`,
           [
-            `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} on the parent issue`,
+            `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
             'to create or update its umbrella branch and draft PR.',
           ].join(' '),
-          `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+          `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       }),
     };
@@ -412,8 +413,8 @@ async function prepareIssueImplement(context) {
         reason: [
           `Issue #${issue.number} looks like a Parent Issue or PRD.`,
           [
-            `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} for parent setup,`,
-            `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+            `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
+            `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
           ].join(' '),
         ].join(' '),
       }),
@@ -490,7 +491,7 @@ async function prepareIssueImplementDryRun(context, runRecord) {
     'metadata.json',
     `${JSON.stringify(
       {
-        operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+        operation: requireOperationCatalogOperationLabelName('issue-implement'),
         operationReference: 'issue:implement',
         target: {
           type: 'issue',
@@ -522,10 +523,10 @@ async function prepareIssueImplementDryRun(context, runRecord) {
       reason: [
         `Issue #${issue.number} is a Parent Issue with child issues.`,
         [
-          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} on the parent issue`,
+          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
           'to create or update its umbrella branch and draft PR.',
         ].join(' '),
-        `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+        `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
       ].join(' '),
       branchName: prepared.branchName,
       baseBranch: prepared.baseBranch,
@@ -537,8 +538,8 @@ async function prepareIssueImplementDryRun(context, runRecord) {
       reason: [
         `Issue #${issue.number} looks like a Parent Issue or PRD.`,
         [
-          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} for parent setup,`,
-          `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
+          `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       ].join(' '),
       branchName: prepared.branchName,
@@ -643,10 +644,10 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
       reason: [
         `Issue #${issue.number} is a Parent Issue with child issues.`,
         [
-          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} on the parent issue`,
+          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
           'to create or update its umbrella branch and draft PR.',
         ].join(' '),
-        `PullOps will not implement child issues from ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+        `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
       ].join(' '),
       branchName: prepared.branchName,
       baseBranch: prepared.baseBranch,
@@ -659,8 +660,8 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
       reason: [
         `Issue #${issue.number} looks like a Parent Issue or PRD.`,
         [
-          `Use ${PULL_OPS_OPERATION_LABELS.prdPrepare} for parent setup,`,
-          `then label concrete child issues with ${PULL_OPS_OPERATION_LABELS.issueImplement}.`,
+          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
+          `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       ].join(' '),
       branchName: prepared.branchName,
@@ -790,16 +791,19 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
 
     await context.githubClient.addLabelsToPullRequest({
       number: pullRequest.number,
-      labels: [PULL_OPS_OPERATION_LABELS.prReview],
+      labels: [requireOperationCatalogOperationLabelName('pr-review')],
     });
     await commentOnPullRequestWithOperationAudit(context, {
       pullRequestNumber: pullRequest.number,
-      operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      operation: requireOperationCatalogOperationLabelName('issue-implement'),
       summary: validatedOutput.value.summary,
     });
     await context.githubClient.removeLabelsFromIssue({
       number: issue.number,
-      labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
+      labels: [
+        requireOperationCatalogOperationLabelName('issue-implement'),
+        PULL_OPS_STATUS_LABELS.humanRequired,
+      ],
     });
 
     return {
@@ -1086,7 +1090,7 @@ async function publishIssueImplementPullRequest(
 
   await commentOnPullRequestWithOperationAudit(context, {
     pullRequestNumber: pullRequest.number,
-    operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+    operation: requireOperationCatalogOperationLabelName('issue-implement'),
     summary: output.summary,
   });
   if (followUpEvidenceRunRecord !== undefined) {
@@ -2053,7 +2057,7 @@ async function blockIssue(context, issue, { reason, summary = reason, humanRequi
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
     labels: [
-      PULL_OPS_OPERATION_LABELS.issueImplement,
+      requireOperationCatalogOperationLabelName('issue-implement'),
       ...(humanRequired ? [] : [PULL_OPS_STATUS_LABELS.humanRequired]),
     ],
   });
@@ -2099,7 +2103,7 @@ async function recordIssueFailure(context, issue, reason) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.issueImplement],
+    labels: [requireOperationCatalogOperationLabelName('issue-implement')],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -2119,7 +2123,10 @@ async function recordIssueFailure(context, issue, reason) {
 async function clearIssueTaskLabels(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
+    labels: [
+      requireOperationCatalogOperationLabelName('issue-implement'),
+      PULL_OPS_STATUS_LABELS.humanRequired,
+    ],
   });
 }
 
@@ -2383,15 +2390,15 @@ function createLocalFollowUpAuditContext(context, operationReference) {
  */
 function readPullOpsOperationLabelFromReference(operationReference) {
   if (operationReference === 'pr:review') {
-    return PULL_OPS_OPERATION_LABELS.prReview;
+    return requireOperationCatalogOperationLabelName('pr-review');
   }
 
   if (operationReference === 'pr:address-review') {
-    return PULL_OPS_OPERATION_LABELS.prAddressReview;
+    return requireOperationCatalogOperationLabelName('pr-address-review');
   }
 
   if (operationReference === 'pr:finalize') {
-    return PULL_OPS_OPERATION_LABELS.prFinalize;
+    return requireOperationCatalogOperationLabelName('pr-finalize');
   }
 
   return undefined;
@@ -2581,7 +2588,7 @@ async function writeIssueImplementLocalMetadata(
     'metadata.json',
     `${JSON.stringify(
       {
-        operation: PULL_OPS_OPERATION_LABELS.issueImplement,
+        operation: requireOperationCatalogOperationLabelName('issue-implement'),
         operationReference: 'issue:implement',
         target: {
           type: 'issue',
