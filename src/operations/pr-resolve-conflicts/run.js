@@ -1,15 +1,13 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-} from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABEL_NAMES } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
@@ -75,7 +73,7 @@ export async function runPrResolveConflicts(context) {
       if (!auditCommentPosted) {
         await commentOnPullRequestWithOperationAudit(context, {
           pullRequestNumber: preparation.pullRequest.number,
-          operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+          operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
         });
         auditCommentPosted = true;
       }
@@ -169,7 +167,7 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
     rawOutput = await readCodexActionOutput(context);
     await commentOnPullRequestWithOperationAudit(context, {
       pullRequestNumber: preparation.pullRequest.number,
-      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     });
   } catch (error) {
     await removeCodexActionPrompt(context);
@@ -514,7 +512,7 @@ async function completeResolvedRebase(context, preparation, rebaseResult, { conf
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest: preparation.pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'resolved',
@@ -610,7 +608,7 @@ async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
       reason,
     });
   }
@@ -638,7 +636,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'blocked',
@@ -652,7 +650,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+    operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     reason,
   });
 }
@@ -665,11 +663,14 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
 async function transitionNonManagedPullRequestToReview(context, pullRequest) {
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prResolveConflicts, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [
+      requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
+      ...PULL_OPS_STATUS_LABEL_NAMES,
+    ],
   });
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+    labels: [requireOperationCatalogOperationLabelName('pr-review')],
   });
 }
 

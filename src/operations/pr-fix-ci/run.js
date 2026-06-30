@@ -1,13 +1,11 @@
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-} from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABEL_NAMES } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
   isFinalizedForRebase,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
@@ -164,7 +162,8 @@ async function preparePrFixCi(context) {
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);
   const state = readManagedPrState(pullRequest.body);
-  const manual = pullRequest.labels?.includes(PULL_OPS_OPERATION_LABELS.prFixCi) === true;
+  const manual =
+    pullRequest.labels?.includes(requireOperationCatalogOperationLabelName('pr-fix-ci')) === true;
 
   if (pullRequest.isCrossRepository === true) {
     return {
@@ -180,7 +179,7 @@ async function preparePrFixCi(context) {
       ready: false,
       output: skipAutomaticPrFixCi(
         pullRequest,
-        `PR #${pullRequest.number} is not a PullOps-managed draft PR and does not have an explicit ${PULL_OPS_OPERATION_LABELS.prFixCi} label.`,
+        `PR #${pullRequest.number} is not a PullOps-managed draft PR and does not have an explicit ${requireOperationCatalogOperationLabelName('pr-fix-ci')} label.`,
       ),
     };
   }
@@ -299,7 +298,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
   try {
     await commentOnPullRequestWithOperationAudit(context, {
       pullRequestNumber: pullRequest.number,
-      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     });
 
     const validatedOutput = validatePrFixCiOutput(rawOutput);
@@ -387,7 +386,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
         githubClient: context.githubClient,
         outputDirectory: context.outputDirectory,
         pullRequest,
-        operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+        operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
         suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
         outcome: {
           kind: 'fixed',
@@ -531,13 +530,16 @@ function summarizeUnsafeSafetyChecks(pullRequest, output) {
 async function transitionPullRequestLabelsAfterFix(context, pullRequest, { managed }) {
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prFixCi, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [
+      requireOperationCatalogOperationLabelName('pr-fix-ci'),
+      ...PULL_OPS_STATUS_LABEL_NAMES,
+    ],
   });
 
   if (managed) {
     await context.githubClient.addLabelsToPullRequest({
       number: pullRequest.number,
-      labels: [PULL_OPS_OPERATION_LABELS.prReview],
+      labels: [requireOperationCatalogOperationLabelName('pr-review')],
     });
   }
 }
@@ -554,7 +556,7 @@ async function completeNoFailedChecks(context, pullRequest, { managed }) {
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'no-failed-checks',
@@ -617,7 +619,7 @@ async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFi
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
@@ -690,7 +692,7 @@ async function refusePullRequest(context, pullRequest, { reason }) {
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     reason,
   });
 
@@ -722,7 +724,7 @@ async function recordPullRequestFailure(
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
       reason,
     });
     return;
@@ -732,7 +734,7 @@ async function recordPullRequestFailure(
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+    operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
