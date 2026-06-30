@@ -117,8 +117,7 @@ async function runIssueImplementLocalPublish(context) {
 
     const preparation = await prepareIssueImplementLocalPublish(context, runRecord);
     if (!preparation.ready) {
-      await recordLocalRunTerminalStatus({
-        statePath: runRecord.statePath,
+      await recordIssueImplementTerminalStatus(context, runRecord, {
         status: mapLocalRunResultStatusToTerminalStatus(
           /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
             preparation.output.status
@@ -132,8 +131,7 @@ async function runIssueImplementLocalPublish(context) {
 
     if (preparation.preparedBranch) {
       const output = await publishPreparedIssueImplementBranch(context, preparation, runRecord);
-      await recordLocalRunTerminalStatus({
-        statePath: runRecord.statePath,
+      await recordIssueImplementTerminalStatus(context, runRecord, {
         status: mapLocalRunResultStatusToTerminalStatus(
           /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
             output.status
@@ -176,8 +174,7 @@ async function runIssueImplementLocalPublish(context) {
       rawOutput,
       runRecord,
     );
-    await recordLocalRunTerminalStatus({
-      statePath: runRecord.statePath,
+    await recordIssueImplementTerminalStatus(context, runRecord, {
       status: mapLocalRunResultStatusToTerminalStatus(
         /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (
           output.status
@@ -189,14 +186,55 @@ async function runIssueImplementLocalPublish(context) {
     return output;
   } catch (error) {
     await writeLocalRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
-    await recordLocalRunTerminalStatus({
-      statePath: runRecord.statePath,
+    await recordIssueImplementTerminalStatus(context, runRecord, {
       status: 'failed',
       summary: getErrorMessage(error),
       phase: 'run',
     });
     throw error;
   }
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {LocalRunRecord} runRecord
+ * @param {object} options
+ * @param {import('../../local-run-state/types.js').LocalRunTerminalStatus} options.status
+ * @param {string} options.summary
+ * @param {string} options.phase
+ * @returns {Promise<void>}
+ */
+async function recordIssueImplementTerminalStatus(context, runRecord, { status, summary, phase }) {
+  try {
+    await recordLocalRunTerminalStatus({
+      statePath: runRecord.statePath,
+      status,
+      summary,
+      phase,
+    });
+    return;
+  } catch (error) {
+    if (!isErrorWithCode(error, 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  const createdAt = new Date();
+  await initializeLocalRunState({
+    runRecordDirectory: runRecord.directory,
+    operationReference: 'issue:implement',
+    target: context.target,
+    publicationMode: context.publicationMode ?? 'publish',
+    runGoal: context.runGoal ?? 'operation',
+    createdAt,
+    ...(context.parentRun === undefined ? {} : { parentRun: context.parentRun }),
+  });
+  await recordLocalRunTerminalStatus({
+    statePath: runRecord.statePath,
+    status,
+    summary,
+    phase,
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -1679,6 +1679,104 @@ describe('runIssueImplement', () => {
     assert.equal(git.rewrites.length, 1);
     assert.equal(git.rewrites[0].push, false);
     assert.equal(codex.calls.length, 3);
+  });
+
+  it('32b: local finalized PR publication recreates missing run state before terminal recording', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-missing-state-'));
+    const issue = createIssue({
+      number: 42,
+      title: 'Publish finalized PR',
+      labels: [],
+      parent: {
+        number: 1,
+        title: 'PRD',
+        relationshipSource: 'native',
+      },
+    });
+    const github = createFakeGitHub({
+      issue,
+      existingPullRequests: [
+        {
+          number: 7,
+          title: 'Umbrella PR',
+          url: 'https://github.com/acme/widgets/pull/7',
+          headRefName: 'pullops/prd-1',
+          body: '',
+          isDraft: true,
+        },
+      ],
+    });
+    const git = createFakeGit({
+      currentBranch: 'main',
+      hasChangesResults: [false, true, false, false],
+      changedFilesSinceBase: ['src/file.js'],
+      currentTreeHash: 'tree-finalized',
+      currentHeadSha: 'head-finalized',
+    });
+    git.client.pushBranchWithLease = async options => {
+      git.forcePushes.push(options);
+      const runDirectoryNames = await readdir(join(cwd, '.pullops', 'runs'));
+      const runDirectoryName = runDirectoryNames.find(name => name.endsWith('issue-implement-42'));
+      assert(runDirectoryName);
+      await rm(join(cwd, '.pullops', 'runs', runDirectoryName, 'state.json'), { force: true });
+      return {
+        status: 'pushed',
+        headSha: 'head-finalized',
+        treeHash: 'tree-finalized',
+      };
+    };
+    const codex = createFakeCodexRunner({
+      output: [
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented finalized publication.',
+          changes: ['Added delayed publication.'],
+          testPlan: ['node --test src/operations/issue-implement/run.test.js'],
+        }),
+        JSON.stringify({
+          status: 'approved',
+          summary: 'Ready.',
+          comments: [],
+          replies: [],
+          directChanges: [],
+          followUps: [],
+        }),
+        JSON.stringify({
+          status: 'planned',
+          summary: 'Finalize the branch.',
+          commitPlan: {
+            commits: [
+              {
+                header: 'feat(issue): implement #42',
+                body: ['Finalize local issue implementation.'],
+                footers: ['Closes #42'],
+                files: ['src/file.js'],
+              },
+            ],
+          },
+          followUps: [],
+        }),
+      ],
+    });
+
+    const result = await runIssueImplement(
+      createContext({
+        cwd,
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    const state = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
+    );
+    assert.equal(state.status, 'accepted');
+    assert.equal(state.lastEvent.status, 'accepted');
   });
 
   it('33: local finalized PR publication reuses a successful finalized dry-run record', async () => {
