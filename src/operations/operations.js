@@ -1,7 +1,7 @@
 import {
-  runPrAddressReview,
   runPrAddressReviewCodexActionFinalize,
   runPrAddressReviewCodexActionPrepare,
+  runPrAddressReview,
 } from './pr-address-review/run.js';
 import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
 import { runPrdAutoAdvance, runPrdAutoComplete } from './prd-automation/run.js';
@@ -17,12 +17,6 @@ import {
 } from './pr-resolve-conflicts/run.js';
 import { runPrUpdateBranch } from './pr-update-branch/run.js';
 import {
-  runIssueImplement,
-  runIssueImplementCodexActionFinalize,
-  runIssueImplementCodexActionPrepare,
-} from './issue-implement/run.js';
-import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
-import {
   runPrFinalize,
   runPrFinalizeCodexActionFinalize,
   runPrFinalizeCodexActionPrepare,
@@ -37,7 +31,9 @@ import {
   getOperationCatalogHandler,
   getOperationCatalogOperationLabelReference,
   getOperationCatalogWorkflowOperation,
+  supportsOperationCatalogRunnerLifecycle,
 } from './operationCatalog.js';
+import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -52,6 +48,14 @@ if (PRD_PREPARE_WORKFLOW_OPERATION_CATALOG === undefined) {
 /** @type {WorkflowOperation} */
 const PRD_PREPARE_WORKFLOW_OPERATION = PRD_PREPARE_WORKFLOW_OPERATION_CATALOG;
 
+const ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('issue-implement');
+if (ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('issue-implement workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const ISSUE_IMPLEMENT_WORKFLOW_OPERATION = ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG;
+
 const PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG =
   getOperationCatalogOperationLabelReference('prd:prepare');
 if (PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
@@ -60,16 +64,19 @@ if (PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
 /** @type {OperationLabelReference} */
 const PRD_PREPARE_OPERATION_LABEL_REFERENCE = PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG;
 
+const ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('issue:implement');
+if (ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('issue:implement label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE = ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG;
+
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   // Issue / PRD operations
   PRD_PREPARE_WORKFLOW_OPERATION,
-  {
-    name: 'issue-implement',
-    target: 'issue',
-    option: 'issue',
-    configKey: 'issueImplement',
-  },
+  ISSUE_IMPLEMENT_WORKFLOW_OPERATION,
   {
     name: 'prd-auto-advance',
     target: 'issue',
@@ -150,12 +157,7 @@ export const OPERATION_LABEL_REFERENCES = [
     target: 'issue',
     label: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
   },
-  {
-    reference: 'issue:implement',
-    workflowOperationName: 'issue-implement',
-    target: 'issue',
-    label: PULL_OPS_OPERATION_LABELS.issueImplement,
-  },
+  ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE,
   {
     reference: 'pr:review',
     workflowOperationName: 'pr-review',
@@ -199,15 +201,12 @@ export const OPERATION_LABEL_REFERENCE_NAMES = OPERATION_LABEL_REFERENCES.map(
 );
 
 export const LOCAL_OPERATION_LABEL_REFERENCE_NAMES = [
-  'issue:implement',
-  'prd:auto-advance',
-  'prd:auto-complete',
-  'pr:review',
-  'pr:address-review',
-  'pr:fix-ci',
-  'pr:update-branch',
-  'pr:resolve-conflicts',
-  'pr:finalize',
+  ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE.reference,
+  ...OPERATION_LABEL_REFERENCES.filter(
+    operation =>
+      operation.reference !== PRD_PREPARE_OPERATION_LABEL_REFERENCE.reference &&
+      operation.reference !== ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE.reference,
+  ).map(operation => operation.reference),
 ];
 
 /**
@@ -259,21 +258,20 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     return await runLocalPullRequestOperation(context);
   }
 
-  if (context.operation === 'prd-prepare') {
-    const handler = getOperationCatalogHandler(context.operation);
-    if (handler === undefined) {
-      throw new Error('prd-prepare operation is not registered in the catalog.');
+  const catalogHandler = getOperationCatalogHandler(context.operation, context.phase);
+  if (catalogHandler !== undefined) {
+    if (
+      !supportsOperationCatalogRunnerLifecycle(context.operation, {
+        phase: context.phase,
+        runnerAdapter: context.runnerAdapter,
+      })
+    ) {
+      throw new Error(
+        `${context.operation} with --runner ${context.runnerAdapter} and --phase ${context.phase} is not supported by the operation catalog.`,
+      );
     }
 
-    return await handler(context);
-  }
-
-  if (context.operation === 'issue-implement') {
-    return await runCodexBackedOperation(context, {
-      run: runIssueImplement,
-      prepare: runIssueImplementCodexActionPrepare,
-      finalize: runIssueImplementCodexActionFinalize,
-    });
+    return await catalogHandler(context);
   }
 
   if (context.operation === 'prd-auto-advance') {

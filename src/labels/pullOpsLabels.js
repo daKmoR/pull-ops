@@ -10,11 +10,18 @@ if (PRD_PREPARE_LABEL_DEFINITION === undefined) {
   throw new Error('prd-prepare label definition is missing from the operation catalog.');
 }
 
+const ISSUE_IMPLEMENT_LABEL_DEFINITION =
+  getOperationCatalogLabelDefinition('issue-implement');
+
+if (ISSUE_IMPLEMENT_LABEL_DEFINITION === undefined) {
+  throw new Error('issue-implement label definition is missing from the operation catalog.');
+}
+
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: PRD_PREPARE_LABEL_DEFINITION.name,
   prdAutoAdvance: 'pullops:prd:auto-advance',
   prdAutoComplete: 'pullops:prd:auto-complete',
-  issueImplement: 'pullops:issue:implement',
+  issueImplement: ISSUE_IMPLEMENT_LABEL_DEFINITION.name,
   prReview: 'pullops:pr:review',
   prAddressReview: 'pullops:pr:address-review',
   prFixCi: 'pullops:pr:fix-ci',
@@ -68,12 +75,7 @@ export const PULL_OPS_LABELS = [
     description:
       'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
   },
-  {
-    name: PULL_OPS_OPERATION_LABELS.issueImplement,
-    color: '5319E7',
-    description:
-      'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
-  },
+  ISSUE_IMPLEMENT_LABEL_DEFINITION,
   {
     name: PULL_OPS_OPERATION_LABELS.prReview,
     color: '5319E7',

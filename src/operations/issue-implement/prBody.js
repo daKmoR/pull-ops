@@ -1,5 +1,6 @@
 import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js';
+import { getOperationCatalogPackageScriptName } from '../operationCatalog.js';
 
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
@@ -29,6 +30,11 @@ export function createIssueImplementPullRequestBody({
   modelTier,
   model,
 }) {
+  const runnerTask = getOperationCatalogPackageScriptName('issue-implement');
+  if (runnerTask === undefined) {
+    throw new Error('issue-implement package script identity is missing from the operation catalog.');
+  }
+
   return [
     createManagedPrStateSection({
       status: 'Draft automation',
@@ -38,7 +44,7 @@ export function createIssueImplementPullRequestBody({
       },
       branchName,
       triggerActor,
-      runnerTask: 'pullops-issue-implement',
+      runnerTask,
       modelTier,
       model,
       lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement,

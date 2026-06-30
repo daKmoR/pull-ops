@@ -139,6 +139,26 @@ test('loadPullOpsConfig rejects unknown runner adapters', async () => {
   );
 });
 
+test('loadPullOpsConfig rejects unknown operation keys', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-operation-key-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          issueImplement: { modelTier: 'mid' },
+          notARealOperation: { modelTier: 'high' },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations contains unknown operation keys: notARealOperation/,
+  );
+});
+
 test('loadPullOpsConfig rejects unsupported issue store providers', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-issue-store-provider-'));
   await writeFile(
