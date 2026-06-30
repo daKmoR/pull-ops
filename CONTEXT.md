@@ -121,15 +121,23 @@ A visible, gitignored `.pullops/runs/<timestamp>-<operation-label-reference>-<ta
 _Avoid_: Hidden cache, audit store
 
 **PullOps Event Supervision**:
-The PullOps Go behavior of observing a long-running Human-Facing Command through its PullOps Progress Events and PullOps Run State, intervening only after lease expiry and liveness reconciliation.
+The PullOps Go behavior of observing a long-running Human-Facing Command through its PullOps Progress Events, using PullOps Run State only for reconciliation, and intervening only after lease expiry and liveness reconciliation. For nested runs, the parent command's PullOps Progress Events are the default supervision surface.
 _Avoid_: Log watching, process polling, artifact scraping
 
 **PullOps Heartbeat**:
 A durable machine-only liveness update reported by the active PullOps worker, separate from semantic progress and intended to prevent false intervention during long-running work.
 _Avoid_: Progress event, human status update, milestone
 
+**Child Heartbeat Event**:
+A parent PullOps Progress Event emitted from a PullOps Parent Event Sink payload that proxies selected PullOps Heartbeat and PullOps Lease facts for an active Child Issue run, so PullOps Event Supervision can keep waiting or classify a stall from the parent event stream without treating liveness as semantic progress.
+_Avoid_: Child progress event, log ping, human status update
+
+**PullOps Parent Event Sink**:
+A parent-owned loopback HTTP live channel with bearer-token authentication that nested PullOps commands can publish narrow live events to while a parent Human-Facing Command is running.
+_Avoid_: State polling, stdout scraping, file watcher
+
 **PullOps Heartbeat Command**:
-A deterministic local PullOps command an active worker uses to report a PullOps Heartbeat to the current Local Run Record.
+A deterministic local PullOps command an active worker uses to report a PullOps Heartbeat to the current Local Run Record and, when configured, publish the heartbeat payload to a PullOps Parent Event Sink.
 _Avoid_: Log marker, stdout ping, progress command
 
 **PullOps Lease**:
@@ -137,7 +145,7 @@ A durable intervention guard for a running PullOps worker that defines the earli
 _Avoid_: Lock, timeout, ownership claim
 
 **PullOps Liveness Signal**:
-A durable observation that can extend or validate a PullOps Lease during supervision. In the first local model, the reliable liveness signals are an advanced PullOps Heartbeat or a changed child run set.
+A live or durable observation that can extend or validate a PullOps Lease during supervision. For nested local runs, the default live signal is a Child Heartbeat Event delivered through a PullOps Parent Event Sink; PullOps Run State is the durable fallback for reconciliation and postmortem recovery.
 _Avoid_: Human progress, CI status, git diff polling
 
 **PullOps Progress Event**:

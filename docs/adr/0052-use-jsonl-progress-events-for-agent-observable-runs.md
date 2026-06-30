@@ -6,17 +6,17 @@ Terminal `run.summary.status` uses PullOps' broad operation outcome vocabulary: 
 
 Every progress event repeats its run identity fields, including schema version, event name, run id, Operation Label Reference, and target. This makes individual events useful when sampled, copied, buffered, or inspected independently instead of requiring consumers to reconstruct context from the first line of the stream.
 
-PullOps also persists the same JSONL event stream in the Local Run Record as `events.jsonl`, and persists the terminal `run.summary` payload by itself as `result.json`. This gives agents and scripts a compact resumable artifact for later inspection while verbose stdout, stderr, runner output, and patch artifacts remain separate.
+PullOps also persists the same JSONL event stream in the Local Run Record as `events.jsonl`, and persists the terminal `run.summary` payload by itself as `result.json`. This gives agents and scripts a compact resumable artifact for later inspection while verbose stdout, stderr, runner output, and patch artifacts remain separate. PullOps does not need a separate completion marker such as `finished.json`; `result.json` is the terminal machine-readable artifact, and the `run.summary` JSONL event is the terminal stream marker.
 
 The event stream `runId` is the Local Run Record directory name. Events may also include the Local Run Record path, but PullOps does not introduce a second correlation identifier for the same run.
 
-For PRD Auto-Complete, the parent event stream summarizes Child Issue progress and links to child Local Run Records instead of embedding each child operation's full event stream inline. The parent `run.summary` includes child summaries and child run record paths, while each child operation keeps its own compact event stream and artifacts.
+For PRD Auto-Complete, the parent event stream summarizes Child Issue progress and links to child Local Run Records instead of embedding each child operation's full event stream inline. The parent stream is also the default supervision surface for nested Child Issue work: it must expose bounded child liveness facts needed for observe/wait decisions, while each child operation keeps its own compact event stream and artifacts for debugging and post-run inspection. The parent `run.summary` includes child summaries and child run record paths.
 
 Progress events may include a short human display `message`, but message text is not parseable state. Consumers must rely on structured fields for behavior and can show the message directly for concise progress updates.
 
 Every progress event includes an `at` timestamp. The terminal summary still carries `startedAt`, `finishedAt`, and `durationMs`; per-event timestamps let observing agents detect stalls and compute phase durations without inspecting process state.
 
-Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `child.started`, `child.progress`, `child.completed`, `child.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `childIssue`, and `pullRequest`, not in bespoke event names.
+Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `child.started`, `child.progress`, `child.heartbeat`, `child.completed`, `child.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `childIssue`, and `pullRequest`, not in bespoke event names.
 
 `waiting` is a nonterminal event for valid in-run waits such as pending checks or retry delays. A run that cannot continue reports that terminal boundary through `run.summary.status = "blocked"` with structured blockers and next steps.
 
@@ -55,12 +55,15 @@ The initial fixed vocabulary is:
 - `phase.completed`: PullOps completed a meaningful domain phase
 - `child.started`: PRD Child Coordination started a Child Issue unit of work
 - `child.progress`: PullOps observed a bounded nested Child Issue milestone while the Child Issue operation is still running
+- `child.heartbeat`: PullOps observed liveness for an active Child Issue operation without claiming semantic progress
 - `child.completed`: a Child Issue unit of work reached a non-blocked result
 - `child.blocked`: a Child Issue hit a terminal blocker for this run
 - `waiting`: PullOps is still validly running but is waiting on checks, review, or another nonterminal boundary
 - `run.summary`: the terminal PullOps Run Summary
 
 Operation-specific facts stay in structured fields such as `phase`, `status`, `childIssue`, `pullRequest`, `childCounts`, `blockers`, and `suggestedActions`.
+
+`child.heartbeat` events include the active child run identity and bounded liveness fields such as `localRunRecord`, `heartbeatAt`, `leaseExpiresAt`, `heartbeatCount`, `heartbeatSummary`, and `completedNonHeartbeatStepsSinceHeartbeat`. PullOps emits one `child.heartbeat` event for each distinct child heartbeat count received through the parent event sink. Consumers may use these events to keep waiting while the child lease is fresh or to decide when liveness reconciliation is needed. Consumers must not report `child.heartbeat` as semantic progress; human-facing supervisors may throttle or coalesce heartbeat display.
 
 ### Terminal summary fields
 
