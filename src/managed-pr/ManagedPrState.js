@@ -1,12 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { PULL_OPS_STATUS_LABEL_NAMES, PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
 import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_PR_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-  PULL_OPS_STATUS_LABELS,
-} from '../labels/pullOpsLabels.js';
+  getOperationCatalogOperationLabelNamesForTarget,
+  requireOperationCatalogOperationLabelName,
+} from '../operations/operationCatalog.js';
 
 /**
  * @typedef {import('./ManagedPrState.types.js').ApplyManagedPrTransitionOptions} ApplyManagedPrTransitionOptions
@@ -28,17 +27,17 @@ export const DEFAULT_MAX_ESCALATION_REVIEW_CYCLES = 1;
 
 /** @type {ReadonlySet<string>} */
 const PR_OPERATION_LABELS = new Set([
-  PULL_OPS_OPERATION_LABELS.prReview,
-  PULL_OPS_OPERATION_LABELS.prAddressReview,
-  PULL_OPS_OPERATION_LABELS.prFixCi,
-  PULL_OPS_OPERATION_LABELS.prUpdateBranch,
-  PULL_OPS_OPERATION_LABELS.prResolveConflicts,
-  PULL_OPS_OPERATION_LABELS.prFinalize,
+  requireOperationCatalogOperationLabelName('pr-review'),
+  requireOperationCatalogOperationLabelName('pr-address-review'),
+  requireOperationCatalogOperationLabelName('pr-fix-ci'),
+  requireOperationCatalogOperationLabelName('pr-update-branch'),
+  requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
+  requireOperationCatalogOperationLabelName('pr-finalize'),
 ]);
 
 /** @type {ReadonlySet<string>} */
 const ACTIVE_PULL_OPS_PR_LABELS = new Set([
-  ...PULL_OPS_PR_OPERATION_LABELS,
+  ...getOperationCatalogOperationLabelNamesForTarget('pr'),
   ...PULL_OPS_STATUS_LABEL_NAMES,
 ]);
 
@@ -125,7 +124,7 @@ function createPrReviewSpecialStateUpdate(state, reviewMode, reviewResult) {
     // first changes-requested pass that sends the PR back through address-review.
     const shouldCountEscalationReview =
       reviewResult === 'approved' ||
-      state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview;
+      state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review');
 
     if (!shouldCountEscalationReview) {
       return {};
@@ -272,13 +271,13 @@ export async function requestManagedPrReview({ githubClient, pullRequest }) {
 
   await githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+    labels: [requireOperationCatalogOperationLabelName('pr-review')],
   });
 
   return {
     status: 'review-requested',
     pullRequest: formatPullRequest(pullRequest),
-    nextOperation: PULL_OPS_OPERATION_LABELS.prReview,
+    nextOperation: requireOperationCatalogOperationLabelName('pr-review'),
   };
 }
 
@@ -626,11 +625,11 @@ function createTransition({ body, operation, outcome, state }) {
     });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-review')) {
     return createPrReviewTransition({ body, outcome, state });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prAddressReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-address-review')) {
     if (outcome.kind !== 'addressed') {
       throw new Error(`${outcome.kind} is not a valid ${operation} PullOps-Managed PR outcome.`);
     }
@@ -647,22 +646,25 @@ function createTransition({ body, operation, outcome, state }) {
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(operation, PULL_OPS_OPERATION_LABELS.prReview),
-      addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+      removeLabels: labelsForSuccessfulOperation(
+        operation,
+        requireOperationCatalogOperationLabelName('pr-review'),
+      ),
+      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
+      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
     };
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prFixCi) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-fix-ci')) {
     return createPrFixCiTransition({ body, outcome });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prUpdateBranch) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-update-branch')) {
     return createPrUpdateBranchTransition({ body, outcome });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prResolveConflicts) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-resolve-conflicts')) {
     return {
       body: updateManagedPrState({
         body,
@@ -670,10 +672,13 @@ function createTransition({ body, operation, outcome, state }) {
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(operation, PULL_OPS_OPERATION_LABELS.prReview),
-      addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+      removeLabels: labelsForSuccessfulOperation(
+        operation,
+        requireOperationCatalogOperationLabelName('pr-review'),
+      ),
+      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
+      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
     };
   }
 
@@ -694,7 +699,8 @@ function createPrReviewTransition({ body, outcome, state }) {
   );
 
   if (outcome.kind === 'approved') {
-    const finalizedReview = state.lastOperation === PULL_OPS_OPERATION_LABELS.prFinalize;
+    const finalizedReview =
+      state.lastOperation === requireOperationCatalogOperationLabelName('pr-finalize');
     return {
       body: updateManagedPrState({
         body,
@@ -706,21 +712,25 @@ function createPrReviewTransition({ body, outcome, state }) {
         ...specialStateUpdate,
         reviewedTreeHash: outcome.reviewedTreeHash,
         reviewFollowUpIssueNumbers: outcome.reviewFollowUpIssueNumbers,
-        lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+        lastOperation: requireOperationCatalogOperationLabelName('pr-review'),
       }),
       removeLabels: labelsForSuccessfulOperation(
-        PULL_OPS_OPERATION_LABELS.prReview,
-        finalizedReview ? undefined : PULL_OPS_OPERATION_LABELS.prFinalize,
+        requireOperationCatalogOperationLabelName('pr-review'),
+        finalizedReview ? undefined : requireOperationCatalogOperationLabelName('pr-finalize'),
       ),
-      addLabelsAfterRemove: finalizedReview ? [] : [PULL_OPS_OPERATION_LABELS.prFinalize],
+      addLabelsAfterRemove: finalizedReview
+        ? []
+        : [requireOperationCatalogOperationLabelName('pr-finalize')],
       addLabelsBeforeRemove: [],
-      ...(finalizedReview ? {} : { nextOperationLabel: PULL_OPS_OPERATION_LABELS.prFinalize }),
+      ...(finalizedReview
+        ? {}
+        : { nextOperationLabel: requireOperationCatalogOperationLabelName('pr-finalize') }),
     };
   }
 
   if (outcome.kind !== 'changes-requested') {
     throw new Error(
-      `${outcome.kind} is not a valid ${PULL_OPS_OPERATION_LABELS.prReview} PullOps-Managed PR outcome.`,
+      `${outcome.kind} is not a valid ${requireOperationCatalogOperationLabelName('pr-review')} PullOps-Managed PR outcome.`,
     );
   }
 
@@ -734,15 +744,15 @@ function createPrReviewTransition({ body, outcome, state }) {
       },
       ...specialStateUpdate,
       removeMergePreparationMarkers: true,
-      lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+      lastOperation: requireOperationCatalogOperationLabelName('pr-review'),
     }),
     removeLabels: labelsForSuccessfulOperation(
-      PULL_OPS_OPERATION_LABELS.prReview,
-      PULL_OPS_OPERATION_LABELS.prAddressReview,
+      requireOperationCatalogOperationLabelName('pr-review'),
+      requireOperationCatalogOperationLabelName('pr-address-review'),
     ),
-    addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prAddressReview],
+    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-address-review')],
     addLabelsBeforeRemove: [],
-    nextOperationLabel: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-address-review'),
   };
 }
 
@@ -754,18 +764,18 @@ function createPrFixCiTransition({ body, outcome }) {
   if (outcome.kind === 'no-failed-checks') {
     return {
       removeLabels: labelsForSuccessfulOperation(
-        PULL_OPS_OPERATION_LABELS.prFixCi,
-        PULL_OPS_OPERATION_LABELS.prReview,
+        requireOperationCatalogOperationLabelName('pr-fix-ci'),
+        requireOperationCatalogOperationLabelName('pr-review'),
       ),
-      addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
+      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
     };
   }
 
   if (outcome.kind !== 'fixed') {
     throw new Error(
-      `${outcome.kind} is not a valid ${PULL_OPS_OPERATION_LABELS.prFixCi} PullOps-Managed PR outcome.`,
+      `${outcome.kind} is not a valid ${requireOperationCatalogOperationLabelName('pr-fix-ci')} PullOps-Managed PR outcome.`,
     );
   }
 
@@ -778,15 +788,15 @@ function createPrFixCiTransition({ body, outcome }) {
         max: outcome.maxCiFixCycles,
       },
       removeMergePreparationMarkers: true,
-      lastOperation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      lastOperation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     }),
     removeLabels: labelsForSuccessfulOperation(
-      PULL_OPS_OPERATION_LABELS.prFixCi,
-      PULL_OPS_OPERATION_LABELS.prReview,
+      requireOperationCatalogOperationLabelName('pr-fix-ci'),
+      requireOperationCatalogOperationLabelName('pr-review'),
     ),
-    addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
     addLabelsBeforeRemove: [],
-    nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
+    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
   };
 }
 
@@ -801,28 +811,28 @@ function createPrUpdateBranchTransition({ body, outcome }) {
         body,
         status: 'Rebase conflicts',
         removeMergePreparationMarkers: true,
-        lastOperation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+        lastOperation: requireOperationCatalogOperationLabelName('pr-update-branch'),
       }),
       removeLabels: labelsForSuccessfulOperation(
-        PULL_OPS_OPERATION_LABELS.prUpdateBranch,
-        PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+        requireOperationCatalogOperationLabelName('pr-update-branch'),
+        requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
       ),
-      addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prResolveConflicts],
+      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-resolve-conflicts')],
       addLabelsBeforeRemove: [],
       commentBody: [
         'PullOps could not complete `pullops run pr-update-branch` without conflicts.',
         '',
         `Base branch: ${outcome.baseBranch}`,
         `Conflicted files: ${formatList(outcome.conflictedFiles)}`,
-        `Next operation: ${PULL_OPS_OPERATION_LABELS.prResolveConflicts}`,
+        `Next operation: ${requireOperationCatalogOperationLabelName('pr-resolve-conflicts')}`,
       ].join('\n'),
-      nextOperationLabel: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     };
   }
 
   if (outcome.kind !== 'updated') {
     throw new Error(
-      `${outcome.kind} is not a valid ${PULL_OPS_OPERATION_LABELS.prUpdateBranch} PullOps-Managed PR outcome.`,
+      `${outcome.kind} is not a valid ${requireOperationCatalogOperationLabelName('pr-update-branch')} PullOps-Managed PR outcome.`,
     );
   }
 
@@ -831,9 +841,11 @@ function createPrUpdateBranchTransition({ body, outcome }) {
       body,
       status: 'Branch updated',
       removeMergePreparationMarkers: true,
-      lastOperation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      lastOperation: requireOperationCatalogOperationLabelName('pr-update-branch'),
     }),
-    removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prUpdateBranch),
+    removeLabels: labelsForSuccessfulOperation(
+      requireOperationCatalogOperationLabelName('pr-update-branch'),
+    ),
     addLabelsAfterRemove: [],
     addLabelsBeforeRemove: [],
   };
@@ -852,9 +864,11 @@ function createPrFinalizeTransition({ body, outcome }) {
         finalizedTreeHash: outcome.finalizedTreeHash,
         finalizedHeadSha: outcome.finalizedHeadSha,
         mergeMethod: 'rebase',
-        lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
       }),
-      removeLabels: labelsForSuccessfulOperation(PULL_OPS_OPERATION_LABELS.prFinalize),
+      removeLabels: labelsForSuccessfulOperation(
+        requireOperationCatalogOperationLabelName('pr-finalize'),
+      ),
       addLabelsAfterRemove: [],
       addLabelsBeforeRemove: [],
     };
@@ -866,44 +880,44 @@ function createPrFinalizeTransition({ body, outcome }) {
         body,
         status: 'Review required',
         removeMergePreparationMarkers: true,
-        lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
       }),
       failureReason: outcome.reason,
       removeLabels: labelsForSuccessfulOperation(
-        PULL_OPS_OPERATION_LABELS.prFinalize,
-        PULL_OPS_OPERATION_LABELS.prReview,
+        requireOperationCatalogOperationLabelName('pr-finalize'),
+        requireOperationCatalogOperationLabelName('pr-review'),
       ),
-      addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prReview],
+      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
       addLabelsBeforeRemove: [],
       commentBody: [
         'PullOps routed `pullops run pr-finalize` back to review.',
         '',
         `Reason: ${outcome.reason}`,
       ].join('\n'),
-      nextOperationLabel: PULL_OPS_OPERATION_LABELS.prReview,
+      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
     };
   }
 
   if (outcome.kind !== 'route-to-ci-fix') {
     throw new Error(
-      `${outcome.kind} is not a valid ${PULL_OPS_OPERATION_LABELS.prFinalize} PullOps-Managed PR outcome.`,
+      `${outcome.kind} is not a valid ${requireOperationCatalogOperationLabelName('pr-finalize')} PullOps-Managed PR outcome.`,
     );
   }
 
   return {
     failureReason: outcome.reason,
     removeLabels: labelsForSuccessfulOperation(
-      PULL_OPS_OPERATION_LABELS.prFinalize,
-      PULL_OPS_OPERATION_LABELS.prFixCi,
+      requireOperationCatalogOperationLabelName('pr-finalize'),
+      requireOperationCatalogOperationLabelName('pr-fix-ci'),
     ),
-    addLabelsAfterRemove: [PULL_OPS_OPERATION_LABELS.prFixCi],
+    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-fix-ci')],
     addLabelsBeforeRemove: [],
     commentBody: [
       'PullOps routed `pullops run pr-finalize` to CI repair.',
       '',
       `Reason: ${outcome.reason}`,
     ].join('\n'),
-    nextOperationLabel: PULL_OPS_OPERATION_LABELS.prFixCi,
+    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-fix-ci'),
   };
 }
 
@@ -978,7 +992,7 @@ function createBlockedBody({
   ciFixCycle,
   maxCiFixCycles,
 }) {
-  if (operation === PULL_OPS_OPERATION_LABELS.prReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-review')) {
     return updateManagedPrState({
       body,
       status: 'Human required',
@@ -991,7 +1005,7 @@ function createBlockedBody({
     });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prAddressReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-address-review')) {
     return updateManagedPrState({
       body,
       status: 'Human required',
@@ -1003,7 +1017,7 @@ function createBlockedBody({
     });
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prFixCi) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-fix-ci')) {
     return updateManagedPrState({
       body,
       status: 'Human required',
@@ -1019,8 +1033,8 @@ function createBlockedBody({
     body,
     status: 'Human required',
     removeMergePreparationMarkers:
-      operation === PULL_OPS_OPERATION_LABELS.prUpdateBranch ||
-      operation === PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      operation === requireOperationCatalogOperationLabelName('pr-update-branch') ||
+      operation === requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     lastOperation: operation,
   });
 }
@@ -1115,23 +1129,23 @@ function validateOperationOutcome(operation, outcome) {
  * @returns {string[]}
  */
 function getAllowedOutcomes(operation) {
-  if (operation === PULL_OPS_OPERATION_LABELS.prReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-review')) {
     return ['approved', 'changes-requested', 'blocked'];
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prAddressReview) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-address-review')) {
     return ['addressed', 'blocked'];
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prFixCi) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-fix-ci')) {
     return ['fixed', 'no-failed-checks', 'blocked'];
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prUpdateBranch) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-update-branch')) {
     return ['updated', 'conflicts-found', 'blocked'];
   }
 
-  if (operation === PULL_OPS_OPERATION_LABELS.prResolveConflicts) {
+  if (operation === requireOperationCatalogOperationLabelName('pr-resolve-conflicts')) {
     return ['resolved', 'blocked'];
   }
 
@@ -1150,20 +1164,20 @@ function chooseNextManagedPrOperation({ body, state }) {
   }
 
   if (state.reviewedTreeHash !== undefined || status === 'Review approved') {
-    return PULL_OPS_OPERATION_LABELS.prFinalize;
+    return requireOperationCatalogOperationLabelName('pr-finalize');
   }
 
   if (status === 'Changes requested') {
-    return PULL_OPS_OPERATION_LABELS.prAddressReview;
+    return requireOperationCatalogOperationLabelName('pr-address-review');
   }
 
   if (
     status === 'Review feedback addressed' ||
     status === 'Draft automation' ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.issueImplement ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+    state.lastOperation === requireOperationCatalogOperationLabelName('issue-implement') ||
+    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
   ) {
-    return PULL_OPS_OPERATION_LABELS.prReview;
+    return requireOperationCatalogOperationLabelName('pr-review');
   }
 
   return undefined;
@@ -1211,10 +1225,10 @@ function labelsForBlockedOperation(operation) {
  */
 function extraBlockedLabels(operation) {
   if (
-    operation === PULL_OPS_OPERATION_LABELS.prAddressReview ||
-    operation === PULL_OPS_OPERATION_LABELS.prFixCi
+    operation === requireOperationCatalogOperationLabelName('pr-address-review') ||
+    operation === requireOperationCatalogOperationLabelName('pr-fix-ci')
   ) {
-    return [PULL_OPS_OPERATION_LABELS.prReview];
+    return [requireOperationCatalogOperationLabelName('pr-review')];
   }
 
   return [];

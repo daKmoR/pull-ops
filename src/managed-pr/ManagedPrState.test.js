@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
+import { requireOperationCatalogOperationLabelName } from '../operations/operationCatalog.js';
 import {
   applyManagedPrTransition,
   createManagedPrStateSection,
@@ -35,7 +35,7 @@ describe('ManagedPrState', () => {
       runnerTask: 'pullops-issue-implement',
       modelTier: 'high',
       model: 'gpt-test',
-      lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement,
+      lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
       reviewCycles: {
         current: 0,
         max: 3,
@@ -53,7 +53,7 @@ describe('ManagedPrState', () => {
     assert.equal(state.managed, true);
     assert.equal(state.sourceIssueNumber, 42);
     assert.equal(state.sourceKind, 'issue');
-    assert.equal(state.lastOperation, PULL_OPS_OPERATION_LABELS.issueImplement);
+    assert.equal(state.lastOperation, requireOperationCatalogOperationLabelName('issue-implement'));
     assert.deepEqual(state.reviewCycles, { current: 0, max: 3 });
     assert.deepEqual(state.ciFixCycles, { current: 0, max: 2 });
     assert.deepEqual(state.escalationReviewCycles, { current: 0, max: 1 });
@@ -96,7 +96,7 @@ describe('ManagedPrState', () => {
     );
 
     assert.equal(state.managed, true);
-    assert.equal(state.lastOperation, PULL_OPS_OPERATION_LABELS.issueImplement);
+    assert.equal(state.lastOperation, requireOperationCatalogOperationLabelName('issue-implement'));
     assert.equal(state.humanFeedbackResponseStateMarkersPresent, false);
     const oldGrammarState = readManagedPrState(
       '## PullOps\n\nManaged PR: yes\nStatus: Draft automation',
@@ -114,7 +114,9 @@ describe('ManagedPrState', () => {
 
   it('15: parses and updates explicit special-review markers in the workflow state block', () => {
     const updatedBody = updateManagedPrState({
-      body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+      body: createManagedBody({
+        lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
+      }),
       status: 'Draft automation',
       reviewCycles: {
         current: 3,
@@ -127,7 +129,7 @@ describe('ManagedPrState', () => {
       humanFeedbackResponseCycles: 2,
       processedHumanFeedbackReviewIds: ['review-1', 'review-2'],
       pendingHumanFeedbackReviewId: 'review-3',
-      lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+      lastOperation: requireOperationCatalogOperationLabelName('pr-review'),
     });
 
     assert.match(updatedBody, /Escalation review cycles: 1 \/ 1/);
@@ -147,7 +149,9 @@ describe('ManagedPrState', () => {
 
   it('16: records review follow-up issue numbers in the workflow state block', () => {
     const updatedBody = updateManagedPrState({
-      body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+      body: createManagedBody({
+        lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
+      }),
       reviewFollowUpIssueNumbers: [501, 502],
     });
 
@@ -163,9 +167,11 @@ describe('ManagedPrState', () => {
     await applyManagedPrTransition({
       githubClient: github.client,
       pullRequest: createPullRequest({
-        body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+        body: createManagedBody({
+          lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
+        }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       outcome: {
         kind: 'approved',
         reviewCycle: 2,
@@ -201,9 +207,11 @@ describe('ManagedPrState', () => {
     await applyManagedPrTransition({
       githubClient: github.client,
       pullRequest: createPullRequest({
-        body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize }),
+        body: createManagedBody({
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
+        }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       outcome: {
         kind: 'approved',
         reviewCycle: 3,
@@ -222,9 +230,11 @@ describe('ManagedPrState', () => {
     const result = await applyManagedPrTransition({
       githubClient: github.client,
       pullRequest: createPullRequest({
-        body: createManagedBody({ lastOperation: PULL_OPS_OPERATION_LABELS.issueImplement }),
+        body: createManagedBody({
+          lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
+        }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       outcome: {
         kind: 'approved',
         reviewCycle: 2,
@@ -248,14 +258,14 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Ready for human merge',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
           reviewedTreeHash: 'tree-reviewed',
           finalizedTreeHash: 'tree-finalized',
           finalizedHeadSha: 'head-finalized',
           mergeMethod: 'rebase',
         }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
       outcome: {
         kind: 'addressed',
         reviewCycle: 2,
@@ -286,11 +296,14 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Changes requested',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-review'),
         }),
-        labels: [PULL_OPS_OPERATION_LABELS.prReview, PULL_OPS_OPERATION_LABELS.prAddressReview],
+        labels: [
+          requireOperationCatalogOperationLabelName('pr-review'),
+          requireOperationCatalogOperationLabelName('pr-address-review'),
+        ],
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
       outcome: {
         kind: 'addressed',
         reviewCycle: 2,
@@ -322,7 +335,7 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: '## Summary\n\nHuman-authored PR.',
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       reason: 'PR #100 is not a PullOps-managed PR.',
     });
 
@@ -349,13 +362,13 @@ describe('ManagedPrState', () => {
         body: createManagedBody({
           status: 'Review approved',
           reviewedTreeHash: 'tree-reviewed',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prReview,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-review'),
         }),
       }),
     });
 
     assert.equal(result.status, 'resumed');
-    assert.equal(result.nextOperation, PULL_OPS_OPERATION_LABELS.prFinalize);
+    assert.equal(result.nextOperation, requireOperationCatalogOperationLabelName('pr-finalize'));
     assert.deepEqual(github.pullRequestLabelsAdded, [
       {
         number: 100,
@@ -375,7 +388,7 @@ describe('ManagedPrState', () => {
           finalizedTreeHash: 'tree-finalized',
           finalizedHeadSha: 'head-finalized',
           mergeMethod: 'rebase',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
         }),
       }),
     });
@@ -392,7 +405,7 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Draft parent preparation',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prdPrepare,
+          lastOperation: requireOperationCatalogOperationLabelName('prd-prepare'),
         }),
       }),
     });
@@ -428,14 +441,14 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Ready for human merge',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
           reviewedTreeHash: 'tree-reviewed',
           finalizedTreeHash: 'tree-finalized',
           finalizedHeadSha: 'head-finalized',
           mergeMethod: 'rebase',
         }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      operation: requireOperationCatalogOperationLabelName('pr-update-branch'),
       outcome: {
         kind: 'updated',
       },
@@ -464,14 +477,14 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Ready for human merge',
-          lastOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+          lastOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
           reviewedTreeHash: 'tree-reviewed',
           finalizedTreeHash: 'tree-finalized',
           finalizedHeadSha: 'head-finalized',
           mergeMethod: 'rebase',
         }),
       }),
-      operation: PULL_OPS_OPERATION_LABELS.prFixCi,
+      operation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
       outcome: {
         kind: 'fixed',
         ciFixCycle: 1,
@@ -524,7 +537,7 @@ function createPullRequest({ body = createManagedBody(), lastOperation, labels =
  */
 function createManagedBody({
   status = 'Draft automation',
-  lastOperation = PULL_OPS_OPERATION_LABELS.issueImplement,
+  lastOperation = requireOperationCatalogOperationLabelName('issue-implement'),
   reviewedTreeHash,
   finalizedTreeHash,
   finalizedHeadSha,

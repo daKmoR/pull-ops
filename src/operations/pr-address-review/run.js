@@ -1,9 +1,9 @@
-import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
   createSkippedCodexActionOutput,
   getCodexActionFiles,
@@ -328,7 +328,7 @@ async function finalizePreparedPrAddressReview(executionContext, context, prepar
   try {
     await commentOnPullRequestWithOperationAudit(executionContext, {
       pullRequestNumber: pullRequest.number,
-      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
     });
 
     const validatedOutput = validatePrAddressReviewOutput(rawOutput);
@@ -398,7 +398,7 @@ async function finalizePreparedPrAddressReview(executionContext, context, prepar
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'addressed',
@@ -530,7 +530,7 @@ async function postFeedbackResponse(context, pullRequest, feedback, response) {
   const body = appendOperationAuditFooter(
     [`PullOps ${response.disposition} this feedback.`, '', response.body].join('\n'),
     context,
-    { operation: PULL_OPS_OPERATION_LABELS.prAddressReview },
+    { operation: requireOperationCatalogOperationLabelName('pr-address-review') },
   );
 
   if (feedback.replyCommentId !== undefined) {
@@ -552,7 +552,7 @@ async function postFeedbackResponse(context, pullRequest, feedback, response) {
         response.body,
       ].join('\n'),
       context,
-      { operation: PULL_OPS_OPERATION_LABELS.prAddressReview },
+      { operation: requireOperationCatalogOperationLabelName('pr-address-review') },
     ),
   });
 }
@@ -727,7 +727,7 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    operation: requireOperationCatalogOperationLabelName('pr-address-review'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
@@ -773,7 +773,7 @@ async function blockPendingHumanFeedbackReview(
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    operation: requireOperationCatalogOperationLabelName('pr-address-review'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
@@ -821,7 +821,7 @@ async function refusePullRequest(context, pullRequest, { reason }) {
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    operation: requireOperationCatalogOperationLabelName('pr-address-review'),
     reason,
   });
 
@@ -853,7 +853,7 @@ async function recordPullRequestFailure(
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
       reason,
     });
     return;
@@ -863,7 +863,7 @@ async function recordPullRequestFailure(
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+    operation: requireOperationCatalogOperationLabelName('pr-address-review'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',

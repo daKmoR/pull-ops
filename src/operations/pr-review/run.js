@@ -1,4 +1,3 @@
-import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import { publishConcreteIssue } from '../../issue-store/publishConcreteIssue.js';
 import {
   applyManagedPrTransition,
@@ -14,6 +13,7 @@ import {
 } from '../codexAction.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { appendOperationAuditFooter } from '../auditComment.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { filterCommentsToDiffAnchors } from './anchors.js';
 import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
@@ -295,7 +295,7 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
         number: pullRequest.number,
         event: 'COMMENT',
         body: appendOperationAuditFooter(validatedOutput.value.summary, executionContext, {
-          operation: PULL_OPS_OPERATION_LABELS.prReview,
+          operation: requireOperationCatalogOperationLabelName('pr-review'),
         }),
         comments: [],
       });
@@ -363,7 +363,7 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
       // GitHub review event is rejected for draft PRs and same-token automation.
       event: 'COMMENT',
       body: appendOperationAuditFooter(reviewResult.summary, executionContext, {
-        operation: PULL_OPS_OPERATION_LABELS.prReview,
+        operation: requireOperationCatalogOperationLabelName('pr-review'),
       }),
       comments: comments.publishable,
     });
@@ -372,7 +372,7 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome:
         reviewResult.status === 'approved'
@@ -510,7 +510,7 @@ async function refusePullRequest(context, pullRequest, { reason }) {
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    operation: requireOperationCatalogOperationLabelName('pr-review'),
     reason,
   });
 
@@ -542,7 +542,7 @@ async function recordPullRequestFailure(
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prReview,
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
       reason,
     });
     return;
@@ -552,7 +552,7 @@ async function recordPullRequestFailure(
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    operation: requireOperationCatalogOperationLabelName('pr-review'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
@@ -579,7 +579,7 @@ async function blockReviewCycleBudget(context, pullRequest, { reviewCycle, maxRe
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prReview,
+    operation: requireOperationCatalogOperationLabelName('pr-review'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',
