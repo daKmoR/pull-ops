@@ -9,6 +9,7 @@ import {
   getOperationCatalogOperationLabelReference,
   getOperationCatalogPackageScriptName,
   getOperationCatalogSupportedRunnerAdapters,
+  getOperationCatalogSupportedRunnerLifecycles,
   getOperationCatalogSupportedRunnerPhases,
   getOperationCatalogWorkflowFileName,
   getOperationCatalogWorkflowOperation,
@@ -44,6 +45,9 @@ describe('operationCatalog', () => {
     assert.equal(getOperationCatalogWorkflowFileName('prd-prepare'), 'pullops-prd-prepare.yml');
     assert.equal(getOperationCatalogPackageScriptName('prd-prepare'), 'pullops:prd-prepare');
     assert.equal(Object.hasOwn(packageJson.scripts, 'pullops:prd-prepare'), true);
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('prd-prepare'), [
+      ['codex-cli', 'run'],
+    ]);
     assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('prd-prepare'), ['codex-cli']);
     assert.deepEqual(getOperationCatalogSupportedRunnerPhases('prd-prepare'), ['run']);
     assert.equal(
@@ -61,22 +65,105 @@ describe('operationCatalog', () => {
       false,
     );
     assert.equal(typeof getOperationCatalogHandler('prd-prepare'), 'function');
+    assert.equal(getOperationCatalogHandler('prd-prepare', 'prepare'), undefined);
   });
 
-  it('02: returns nothing for operations outside the prd:prepare catalog slice', () => {
-    assert.equal(getOperationCatalogWorkflowOperation('issue-implement'), undefined);
-    assert.equal(getOperationCatalogOperationLabelReference('issue:implement'), undefined);
-    assert.equal(getOperationCatalogDefaultOperationSettings('issue-implement'), undefined);
-    assert.equal(getOperationCatalogLabelDefinition('issue-implement'), undefined);
-    assert.equal(getOperationCatalogWorkflowFileName('issue-implement'), undefined);
-    assert.equal(getOperationCatalogPackageScriptName('issue-implement'), undefined);
+  it('02: returns the issue:implement operation facts from purpose-specific lookups', () => {
+    assert.deepEqual(getOperationCatalogWorkflowOperation('issue-implement'), {
+      name: 'issue-implement',
+      target: 'issue',
+      option: 'issue',
+      configKey: 'issueImplement',
+    });
+    assert.deepEqual(getOperationCatalogOperationLabelReference('issue:implement'), {
+      reference: 'issue:implement',
+      workflowOperationName: 'issue-implement',
+      target: 'issue',
+      label: 'pullops:issue:implement',
+    });
+    assert.deepEqual(getOperationCatalogDefaultOperationSettings('issue-implement'), {
+      modelTier: 'high',
+    });
+    assert.deepEqual(getOperationCatalogLabelDefinition('issue-implement'), {
+      name: 'pullops:issue:implement',
+      color: '5319E7',
+      description:
+        'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+    });
+    assert.equal(
+      getOperationCatalogWorkflowFileName('issue-implement'),
+      'pullops-issue-implement.yml',
+    );
+    assert.equal(getOperationCatalogPackageScriptName('issue-implement'), 'pullops:issue-implement');
+    assert.equal(Object.hasOwn(packageJson.scripts, 'pullops:issue-implement'), true);
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('issue-implement'), [
+      ['codex-cli', 'run'],
+      ['codex-action', 'prepare'],
+      ['codex-action', 'finalize'],
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('issue-implement'), [
+      'codex-cli',
+      'codex-action',
+    ]);
+    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('issue-implement'), [
+      'run',
+      'prepare',
+      'finalize',
+    ]);
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('issue-implement', {
         phase: 'run',
         runnerAdapter: 'codex-cli',
       }),
+      true,
+    );
+    assert.equal(
+      supportsOperationCatalogRunnerLifecycle('issue-implement', {
+        phase: 'prepare',
+        runnerAdapter: 'codex-action',
+      }),
+      true,
+    );
+    assert.equal(
+      supportsOperationCatalogRunnerLifecycle('issue-implement', {
+        phase: 'finalize',
+        runnerAdapter: 'codex-action',
+      }),
+      true,
+    );
+    assert.equal(
+      supportsOperationCatalogRunnerLifecycle('issue-implement', {
+        phase: 'run',
+        runnerAdapter: 'codex-action',
+      }),
       false,
     );
-    assert.equal(getOperationCatalogHandler('issue-implement'), undefined);
+    assert.equal(
+      supportsOperationCatalogRunnerLifecycle('issue-implement', {
+        phase: 'prepare',
+        runnerAdapter: 'codex-cli',
+      }),
+      false,
+    );
+    assert.equal(typeof getOperationCatalogHandler('issue-implement'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('issue-implement', 'prepare'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('issue-implement', 'finalize'), 'function');
+  });
+
+  it('03: returns nothing for operations outside the catalog-owned slices', () => {
+    assert.equal(getOperationCatalogWorkflowOperation('pr-review'), undefined);
+    assert.equal(getOperationCatalogOperationLabelReference('pr:review'), undefined);
+    assert.equal(getOperationCatalogDefaultOperationSettings('pr-review'), undefined);
+    assert.equal(getOperationCatalogLabelDefinition('pr-review'), undefined);
+    assert.equal(getOperationCatalogWorkflowFileName('pr-review'), undefined);
+    assert.equal(getOperationCatalogPackageScriptName('pr-review'), undefined);
+    assert.equal(
+      supportsOperationCatalogRunnerLifecycle('pr-review', {
+        phase: 'run',
+        runnerAdapter: 'codex-cli',
+      }),
+      false,
+    );
+    assert.equal(getOperationCatalogHandler('pr-review'), undefined);
   });
 });

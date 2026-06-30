@@ -8,6 +8,7 @@ import { runWorkflowOperation } from './operations.js';
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../git/types.js').CheckoutBranchOptions} CheckoutBranchOptions
  * @typedef {import('../git/types.js').CreateBranchOptions} CreateBranchOptions
+ * @typedef {import('../runner/types.js').CodexRunOptions} CodexRunOptions
  */
 
 describe('runWorkflowOperation', () => {
@@ -69,6 +70,52 @@ describe('runWorkflowOperation', () => {
       branch: 'main',
       reason: 'checkout failed',
     });
+  });
+
+  it('04: dispatches issue:implement through the catalog-backed workflow runner', async () => {
+    const git = createFakeGit();
+    const githubClient = createFakeGitHubClient();
+    githubClient.addLabelsToPullRequest = async () => {};
+    githubClient.commentOnPullRequest = async () => {};
+    /** @type {CodexRunOptions[]} */
+    const codexCalls = [];
+
+    /** @type {import('../runner/types.js').CodexRunner} */
+    const codexRunner = {
+      async run(options) {
+        codexCalls.push(options);
+        return JSON.stringify({
+          status: 'implemented',
+          summary: 'Implemented the issue through catalog dispatch.',
+          changes: ['Added issue implementation dispatch coverage.'],
+          testPlan: ['npm test -- src/operations/operations.test.js'],
+          followUps: [],
+        });
+      },
+    };
+
+    const result = await runWorkflowOperation(
+      createContext({
+        executionBackend: 'local',
+        operation: 'issue-implement',
+        githubClient,
+        gitClient: git.client,
+        codexRunner,
+        runnerAdapter: 'codex-cli',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(codexCalls.length, 1);
+    assert.match(codexCalls[0].prompt, /Use the pullops-issue-implement skill\./);
+    assert.match(codexCalls[0].prompt, /Issue #12/);
+    assert.deepEqual(git.createdBranches, [
+      {
+        branchName: 'pullops/issue-12',
+        baseBranch: 'main',
+      },
+    ]);
+    assert.equal(git.currentBranch, 'main');
   });
 });
 

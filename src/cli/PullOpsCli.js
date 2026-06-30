@@ -38,6 +38,7 @@ import {
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
 import {
+  getOperationCatalogSupportedRunnerLifecycles,
   getOperationCatalogSupportedRunnerAdapters,
   getOperationCatalogSupportedRunnerPhases,
 } from '../operations/operationCatalog.js';
@@ -657,7 +658,7 @@ export class PullOpsCli {
       );
     }
 
-    if (reference === 'issue:implement') {
+    if (operation.workflowOperationName === 'issue-implement') {
       return await this.runLocalIssueImplementReference(args);
     }
 
@@ -2308,19 +2309,63 @@ function readPositiveIntegerEnv(value) {
  * @param {boolean | undefined} options.runnerRan
  */
 function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRan }) {
-  if (operationName === 'prd-prepare') {
+  const supportedRunnerLifecycles = getOperationCatalogSupportedRunnerLifecycles(operationName);
+  if (supportedRunnerLifecycles !== undefined) {
     const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
     const supportedRunnerPhases = getOperationCatalogSupportedRunnerPhases(operationName);
     if (supportedRunnerAdapters === undefined || supportedRunnerPhases === undefined) {
-      throw new Error('prd-prepare runner lifecycle facts are missing from the operation catalog.');
+      throw new Error(
+        `${operationName} runner lifecycle facts are missing from the operation catalog.`,
+      );
     }
 
-    if (
-      !supportedRunnerAdapters.includes(runnerAdapter) ||
-      !supportedRunnerPhases.includes(phase)
-    ) {
+    const supportedPhasesForRunnerAdapter = supportedRunnerLifecycles
+      .filter(([supportedRunnerAdapter]) => supportedRunnerAdapter === runnerAdapter)
+      .map(([, supportedPhase]) => supportedPhase);
+    const supportsLifecycle = supportedRunnerLifecycles.some(
+      ([supportedRunnerAdapter, supportedPhase]) =>
+        supportedRunnerAdapter === runnerAdapter && supportedPhase === phase,
+    );
+
+    if (!supportsLifecycle) {
+      if (runnerAdapter === 'codex-action') {
+        if (supportedPhasesForRunnerAdapter.length > 0) {
+          throw new CliUsageError(
+            `${operationName} with --runner codex-action requires ${formatPhaseRequirement(
+              supportedPhasesForRunnerAdapter,
+            )}.`,
+          );
+        }
+
+        throw new CliUsageError(
+          `${operationName} only supports ${supportedRunnerAdapters.join(
+            ', ',
+          )} with the ${supportedRunnerPhases.join(', ')} phase.`,
+        );
+      }
+
       throw new CliUsageError(
-        `prd-prepare only supports ${supportedRunnerAdapters.join(', ')} with the ${supportedRunnerPhases.join(', ')} phase.`,
+        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+      );
+    }
+
+    if (runnerAdapter === 'codex-action') {
+      if (phase === 'prepare' && runnerRan !== undefined) {
+        throw new CliUsageError('"--runner-ran" can only be used with "--phase finalize".');
+      }
+
+      if (phase === 'finalize' && runnerRan === undefined) {
+        throw new CliUsageError(
+          `${operationName} with --runner codex-action --phase finalize requires "--runner-ran <true|false>".`,
+        );
+      }
+
+      return;
+    }
+
+    if (phase !== 'run') {
+      throw new CliUsageError(
+        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
       );
     }
 
@@ -2360,6 +2405,23 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
   if (runnerRan !== undefined) {
     throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
   }
+}
+
+/**
+ * @param {readonly import('../cli/types.js').OperationPhase[]} phases
+ * @returns {string}
+ */
+function formatPhaseRequirement(phases) {
+  if (phases.length === 1) {
+    return `"--phase ${phases[0]}"`;
+  }
+
+  if (phases.length === 2) {
+    return `"--phase ${phases[0]}" or "--phase ${phases[1]}"`;
+  }
+
+  const requiredPhases = phases.map(phase => `"--phase ${phase}"`);
+  return `${requiredPhases.slice(0, -1).join(', ')}, or ${requiredPhases.at(-1)}`;
 }
 
 /**
