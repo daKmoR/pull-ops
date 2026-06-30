@@ -42,6 +42,7 @@ import {
 
 const execFileAsync = promisify(nodeExecFile);
 const CONFIG_PATH = 'pullops.config.js';
+const PACKAGE_JSON_PATH = 'package.json';
 const PACKAGE_LOCK_PATH = 'package-lock.json';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
 const SETUP_SKILL_PATH = '.agents/skills/pullops-setup/SKILL.md';
@@ -706,31 +707,16 @@ async function readSetupPrereqs({ cwd, verifyRuntime = false }) {
     }
   }
 
-  const packageJsonPath = join(resolvedCwd, 'package.json');
+  const packageJsonPath = join(resolvedCwd, PACKAGE_JSON_PATH);
+  /** @type {Record<string, unknown> | undefined} */
+  let packageJson;
   if (!(await pathExists(packageJsonPath))) {
     blockers.push('Missing root package.json.');
     suggestions.push('Create a root package.json before rerunning PullOps setup.');
   } else {
-    /** @type {Record<string, unknown> | undefined} */
-    let packageJson;
     try {
       const packageJsonText = await readFile(packageJsonPath, 'utf8');
-      const parsedPackageJson = JSON.parse(packageJsonText);
-      if (
-        typeof parsedPackageJson !== 'object' ||
-        parsedPackageJson === null ||
-        Array.isArray(parsedPackageJson)
-      ) {
-        throw new Error('Root package.json must be a JSON object.');
-      }
-      const validatedPackageJson = /** @type {Record<string, unknown>} */ (parsedPackageJson);
-      if (
-        typeof validatedPackageJson.name !== 'string' ||
-        validatedPackageJson.name.trim() === ''
-      ) {
-        throw new Error('Root package.json must define a name.');
-      }
-      packageJson = validatedPackageJson;
+      packageJson = parseRootPackageJson(packageJsonText);
     } catch (error) {
       blockers.push(`Unable to load root package.json: ${getErrorMessage(error)}`);
       suggestions.push('Fix package.json before rerunning PullOps setup.');
@@ -755,15 +741,19 @@ async function readSetupPrereqs({ cwd, verifyRuntime = false }) {
     blockers.push(...nodeRuntimeStatus.blockers);
     suggestions.push(...nodeRuntimeStatus.suggestions);
 
-    const installedLocalPullOpsPackageStatus = await inspectInstalledLocalPullOpsPackage({
-      cwd: resolvedCwd,
-    });
-    blockers.push(...installedLocalPullOpsPackageStatus.blockers);
-    suggestions.push(...installedLocalPullOpsPackageStatus.suggestions);
+    if (packageJson === undefined || !isLocalPullOpsSourcePackage(packageJson)) {
+      const installedLocalPullOpsPackageStatus = await inspectInstalledLocalPullOpsPackage({
+        cwd: resolvedCwd,
+      });
+      blockers.push(...installedLocalPullOpsPackageStatus.blockers);
+      suggestions.push(...installedLocalPullOpsPackageStatus.suggestions);
 
-    const localPullOpsExecutableStatus = await inspectLocalPullOpsExecutable({ cwd: resolvedCwd });
-    blockers.push(...localPullOpsExecutableStatus.blockers);
-    suggestions.push(...localPullOpsExecutableStatus.suggestions);
+      const localPullOpsExecutableStatus = await inspectLocalPullOpsExecutable({
+        cwd: resolvedCwd,
+      });
+      blockers.push(...localPullOpsExecutableStatus.blockers);
+      suggestions.push(...localPullOpsExecutableStatus.suggestions);
+    }
   }
 
   const manifestState = await readInstallManifestState(join(resolvedCwd, MANIFEST_PATH));
@@ -1347,6 +1337,14 @@ async function resolveExistingPath(filePath) {
  * @returns {Promise<string>}
  */
 async function resolveInstalledLocalPullOpsPackageRoot({ cwd }) {
+  const rootPackageJsonText = await readTextFileIfExists(join(cwd, PACKAGE_JSON_PATH));
+  if (rootPackageJsonText !== undefined) {
+    const rootPackageJson = parseRootPackageJson(rootPackageJsonText);
+    if (isLocalPullOpsSourcePackage(rootPackageJson)) {
+      return cwd;
+    }
+  }
+
   const packageRoot = await resolveExistingPath(join(cwd, LOCAL_PULL_OPS_PACKAGE_PATH));
   const packageJsonText = await readFile(join(packageRoot, 'package.json'), 'utf8');
   parseInstalledLocalPullOpsPackageJson(packageJsonText);
@@ -1474,6 +1472,10 @@ function areManifestEntriesEqual(left, right) {
 function isManifestConsistentWithCurrentManagedFiles({ manifestState, managedFileStates }) {
   return managedFileStates.every(state => {
     if (state.currentContent === undefined) {
+      return true;
+    }
+
+    if (state.currentContent === state.desiredContent) {
       return true;
     }
 
@@ -1691,6 +1693,28 @@ function createLocalPackageLoadFailureResult({ area, summary, warnings, suggesti
  * @param {string} packageJsonText
  * @returns {Record<string, unknown>}
  */
+function parseRootPackageJson(packageJsonText) {
+  const parsedPackageJson = JSON.parse(packageJsonText);
+  if (
+    typeof parsedPackageJson !== 'object' ||
+    parsedPackageJson === null ||
+    Array.isArray(parsedPackageJson)
+  ) {
+    throw new Error('Root package.json must be a JSON object.');
+  }
+
+  const packageJson = /** @type {Record<string, unknown>} */ (parsedPackageJson);
+  if (typeof packageJson.name !== 'string' || packageJson.name.trim() === '') {
+    throw new Error('Root package.json must define a name.');
+  }
+
+  return packageJson;
+}
+
+/**
+ * @param {string} packageJsonText
+ * @returns {Record<string, unknown>}
+ */
 function parseInstalledLocalPullOpsPackageJson(packageJsonText) {
   const parsedPackageJson = JSON.parse(packageJsonText);
   if (
@@ -1714,6 +1738,12 @@ function parseInstalledLocalPullOpsPackageJson(packageJsonText) {
  * @returns {string | undefined}
  */
 function readLocalPullOpsDependencyVersion(packageJson) {
+  if (isLocalPullOpsSourcePackage(packageJson)) {
+    const version = packageJson.version;
+    if (typeof version === 'string' && version.trim() !== '') {
+      return version;
+    }
+  }
   for (const key of ['dependencies', 'devDependencies']) {
     const dependencyGroup = packageJson[key];
     if (
@@ -1733,6 +1763,14 @@ function readLocalPullOpsDependencyVersion(packageJson) {
   }
 
   return undefined;
+}
+
+/**
+ * @param {Record<string, unknown>} packageJson
+ * @returns {boolean}
+ */
+function isLocalPullOpsSourcePackage(packageJson) {
+  return packageJson.name === LOCAL_PULL_OPS_DEPENDENCY;
 }
 
 /**

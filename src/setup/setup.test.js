@@ -101,7 +101,22 @@ describe('setup doctor', () => {
     assert.match(joinMessages(result.suggestions), /Run npm ci before rerunning PullOps setup\./);
   });
 
-  it('05: blocks the full profile for unowned bundled skill files while preserving target-owned agent docs', async () => {
+  it('05: treats the PullOps source package as its local package for setup prereqs', async () => {
+    const cwd = await createPullOpsSourceRepository();
+    await runPullOpsInit({ cwd });
+
+    const result = await runPullOpsSetupDoctor({ cwd, profile: 'local' });
+
+    assert.equal(result.status, 'ready');
+    assert.equal(result.area, 'doctor');
+    assert.deepEqual(result.blockers, []);
+    assert.doesNotMatch(
+      joinMessages(result.suggestions),
+      /Run npm ci before rerunning PullOps setup\./,
+    );
+  });
+
+  it('06: blocks the full profile for unowned bundled skill files while preserving target-owned agent docs', async () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
 
@@ -217,6 +232,32 @@ describe('setup skills', () => {
     assert.match(
       joinMessages(applied.blockers),
       /Existing file \.agents\/skills\/pullops-pr-review\/SKILL\.md is not manifest-owned yet\./,
+    );
+  });
+
+  it('04: adopts matching bundled skills from the PullOps source package without local node_modules', async () => {
+    const cwd = await createPullOpsSourceRepository();
+    await runPullOpsInit({ cwd });
+    await installPullOpsSourceSkillDirectories({ cwd });
+
+    const dryRun = await runPullOpsSetupSkills({ cwd, check: true });
+    assert.equal(dryRun.status, 'blocked');
+    assert.equal(dryRun.area, 'skills');
+    assert.deepEqual(dryRun.blockers, []);
+    assert.ok(neededFiles(dryRun).includes(MANIFEST_PATH));
+
+    const applied = await runPullOpsSetupSkills({ cwd });
+    assert.equal(applied.status, 'changed');
+    assert.equal(applied.area, 'skills');
+    assert.deepEqual(applied.blockers, []);
+    assert.deepEqual(applied.warnings, []);
+    assert.ok(changedFiles(applied).includes(MANIFEST_PATH));
+
+    const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
+    /** @type {import('./init.types.js').PullOpsInstallManifest} */
+    const manifest = JSON.parse(manifestText);
+    assert.ok(
+      manifest.files.some(entry => entry.path === '.agents/skills/pullops-pr-review/SKILL.md'),
     );
   });
 });
@@ -769,6 +810,72 @@ async function createSetupRepository({
     await installLocalPullOpsExecutable({ cwd });
   }
   return cwd;
+}
+
+/**
+ * @returns {Promise<string>}
+ */
+async function createPullOpsSourceRepository({ includePackageLock = true } = {}) {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-source-'));
+  await execFileAsync('git', ['init', '--initial-branch=main'], { cwd });
+  await writeFile(
+    join(cwd, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: '@pull-ops/cli',
+        version: '0.1.0',
+        private: true,
+        type: 'module',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  if (includePackageLock) {
+    await writeFile(
+      join(cwd, 'package-lock.json'),
+      `${JSON.stringify(
+        {
+          name: '@pull-ops/cli',
+          lockfileVersion: 3,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  await mkdir(join(cwd, 'src', 'setup'), { recursive: true });
+  await cp(
+    join(REPO_ROOT, 'src', 'setup', 'pullopsSetupSkill.txt'),
+    join(cwd, 'src', 'setup', 'pullopsSetupSkill.txt'),
+  );
+  await cp(join(REPO_ROOT, 'src', 'setup', 'agent-docs'), join(cwd, 'src', 'setup', 'agent-docs'), {
+    recursive: true,
+  });
+  return cwd;
+}
+
+/**
+ * @param {{ cwd: string }} options
+ * @returns {Promise<void>}
+ */
+async function installPullOpsSourceSkillDirectories({ cwd }) {
+  const skillSourceRoot = join(REPO_ROOT, '.agents', 'skills');
+  const skillEntries = await readdir(skillSourceRoot, { withFileTypes: true });
+  for (const entry of skillEntries) {
+    if (
+      !entry.isDirectory() ||
+      !entry.name.startsWith('pullops-') ||
+      entry.name === 'pullops-setup'
+    ) {
+      continue;
+    }
+
+    await cp(join(skillSourceRoot, entry.name), join(cwd, '.agents', 'skills', entry.name), {
+      recursive: true,
+    });
+  }
 }
 
 /**
