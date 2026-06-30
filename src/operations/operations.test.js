@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
+import { createManagedPrStateSection } from '../managed-pr/ManagedPrState.js';
 import { runWorkflowOperation } from './operations.js';
 
 /**
@@ -118,7 +122,65 @@ describe('runWorkflowOperation', () => {
     assert.equal(git.currentBranch, 'main');
   });
 
-  it('05: rejects unsupported catalog lifecycles for prd-auto-advance before dispatch', async () => {
+  it('05: dispatches pr-review and pr-address-review through the catalog-backed workflow runner', async () => {
+    const githubClient = createCatalogReviewGitHubClient();
+    const git = createFakeGit();
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-catalog-review-'));
+    /** @type {CodexRunOptions[]} */
+    const codexCalls = [];
+
+    /** @type {import('../runner/types.js').CodexRunner} */
+    const codexRunner = {
+      async run(options) {
+        codexCalls.push(options);
+        throw new Error('codexRunner.run was not expected in this test.');
+      },
+    };
+
+    /** @type {Array<[string, 'prepare' | 'finalize', string | undefined, string | undefined]>} */
+    const cases = [
+      ['pr-review', 'prepare', 'high', 'gpt-5.5'],
+      ['pr-address-review', 'prepare', 'mid', 'gpt-5.4'],
+      ['pr-review', 'finalize', undefined, undefined],
+      ['pr-address-review', 'finalize', undefined, undefined],
+    ];
+
+    for (const [operation, phase, expectedModelTier, expectedModel] of cases) {
+      const result = await runWorkflowOperation(
+        createContext({
+          executionBackend: 'github-actions',
+          operation,
+          phase,
+          runnerAdapter: 'codex-action',
+          runnerRan: phase === 'finalize' ? false : undefined,
+          target: {
+            type: 'pr',
+            number: 456,
+          },
+          githubClient,
+          gitClient: git.client,
+          codexRunner,
+          outputDirectory,
+        }),
+      );
+
+      const reviewResult = /** @type {any} */ (result);
+      assert.equal(reviewResult.status, 'accepted');
+      if (phase === 'prepare') {
+        assert.equal(codexCalls.length, 0);
+        assert.equal(reviewResult.modelTier, expectedModelTier);
+        assert.equal(reviewResult.model, expectedModel);
+        assert.match(reviewResult.summary, /Prepared Codex Action/);
+        assert.match(reviewResult.codexAction.promptFile, /codex_prompt\.md$/);
+        assert.equal(reviewResult.codexAction.model, expectedModel);
+      } else {
+        assert.deepEqual(reviewResult.runner, { adapter: 'codex-action', ran: false });
+        assert.match(reviewResult.summary, /Skipped pr-/);
+      }
+    }
+  });
+
+  it('06: rejects unsupported catalog lifecycles for prd-auto-advance before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
@@ -131,7 +193,7 @@ describe('runWorkflowOperation', () => {
     );
   });
 
-  it('06: rejects unsupported catalog lifecycles for prd-auto-complete before dispatch', async () => {
+  it('07: rejects unsupported catalog lifecycles for prd-auto-complete before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
@@ -144,7 +206,7 @@ describe('runWorkflowOperation', () => {
     );
   });
 
-  it('07: rejects unsupported catalog phases for prd-auto-advance before dispatch', async () => {
+  it('08: rejects unsupported catalog phases for prd-auto-advance before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
@@ -157,7 +219,7 @@ describe('runWorkflowOperation', () => {
     );
   });
 
-  it('08: rejects unsupported catalog phases for prd-auto-complete before dispatch', async () => {
+  it('09: rejects unsupported catalog phases for prd-auto-complete before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
@@ -196,6 +258,106 @@ function createContext(overrides = {}) {
       },
     },
     ...overrides,
+  };
+}
+
+/**
+ * @returns {any}
+ */
+function createCatalogReviewGitHubClient() {
+  return {
+    async ensureLabels() {
+      return {
+        created: [],
+        updated: [],
+        alreadyCorrect: [],
+      };
+    },
+    /**
+     * @param {number} number
+     */
+    async getIssue(number) {
+      return {
+        number,
+        title: 'Linked issue',
+        body: 'Issue body.',
+        state: 'OPEN',
+        url: `https://github.test/owner/repo/issues/${number}`,
+        authorLogin: 'maintainer',
+        labels: [],
+        parent: null,
+        subIssues: [],
+      };
+    },
+    /**
+     * @param {number} number
+     */
+    async getPullRequest(number) {
+      return {
+        number,
+        title: 'Managed PR',
+        url: `https://github.test/owner/repo/pull/${number}`,
+        headRefName: 'pullops/issue-42',
+        baseRefName: 'main',
+        body: createManagedPrStateSection({
+          status: 'Draft automation',
+          source: {
+            kind: 'issue',
+            number: 42,
+          },
+          branchName: 'pullops/issue-42',
+          runnerTask: 'pr-review',
+          modelTier: 'high',
+          model: 'gpt-5.5',
+          reviewCycles: {
+            current: 1,
+            max: 3,
+          },
+          lastOperation: 'pullops:issue-implement',
+        }),
+        isDraft: true,
+        labels: [],
+        isCrossRepository: false,
+      };
+    },
+    async getPullRequestChecks() {
+      return [];
+    },
+    async getPullRequestChecksForRef() {
+      return [];
+    },
+    async getPullRequestReviewContext() {
+      return {
+        comments: [],
+        reviews: [],
+        unresolvedThreads: [],
+        files: [],
+      };
+    },
+    async getPullRequestDiff() {
+      return {
+        patch: '',
+      };
+    },
+    async findOpenPullRequestByHead() {
+      return undefined;
+    },
+    async createDraftPullRequest() {
+      throw new Error('createDraftPullRequest was not expected in this test.');
+    },
+    async addLabelsToIssue() {},
+    async removeLabelsFromIssue() {},
+    async addLabelsToPullRequest() {},
+    async removeLabelsFromPullRequest() {},
+    async commentOnIssue() {},
+    async closeIssue() {},
+    async commentOnPullRequest() {},
+    async updatePullRequestBody() {},
+    async publishPullRequestReview() {},
+    async replyToPullRequestReviewComment() {},
+    async dismissPullRequestReview() {},
+    async mergePullRequest() {},
+    async resolveReviewThread() {},
   };
 }
 

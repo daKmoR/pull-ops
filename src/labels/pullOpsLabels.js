@@ -28,13 +28,25 @@ if (ISSUE_IMPLEMENT_LABEL_DEFINITION === undefined) {
   throw new Error('issue-implement label definition is missing from the operation catalog.');
 }
 
+const PR_REVIEW_LABEL_DEFINITION = getOperationCatalogLabelDefinition('pr-review');
+
+if (PR_REVIEW_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-review label definition is missing from the operation catalog.');
+}
+
+const PR_ADDRESS_REVIEW_LABEL_DEFINITION = getOperationCatalogLabelDefinition('pr-address-review');
+
+if (PR_ADDRESS_REVIEW_LABEL_DEFINITION === undefined) {
+  throw new Error('pr-address-review label definition is missing from the operation catalog.');
+}
+
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
   prdPrepare: PRD_PREPARE_LABEL_DEFINITION.name,
   prdAutoAdvance: PRD_AUTO_ADVANCE_LABEL_DEFINITION.name,
   prdAutoComplete: PRD_AUTO_COMPLETE_LABEL_DEFINITION.name,
   issueImplement: ISSUE_IMPLEMENT_LABEL_DEFINITION.name,
-  prReview: 'pullops:pr:review',
-  prAddressReview: 'pullops:pr:address-review',
+  prReview: PR_REVIEW_LABEL_DEFINITION.name,
+  prAddressReview: PR_ADDRESS_REVIEW_LABEL_DEFINITION.name,
   prFixCi: 'pullops:pr:fix-ci',
   prUpdateBranch: 'pullops:pr:update-branch',
   prResolveConflicts: 'pullops:pr:resolve-conflicts',
@@ -78,16 +90,8 @@ export const PULL_OPS_LABELS = [
   PRD_AUTO_ADVANCE_LABEL_DEFINITION,
   PRD_AUTO_COMPLETE_LABEL_DEFINITION,
   ISSUE_IMPLEMENT_LABEL_DEFINITION,
-  {
-    name: PULL_OPS_OPERATION_LABELS.prReview,
-    color: '5319E7',
-    description: 'Run PullOps automated PR review.',
-  },
-  {
-    name: PULL_OPS_OPERATION_LABELS.prAddressReview,
-    color: '5319E7',
-    description: 'Address actionable PullOps PR review feedback.',
-  },
+  PR_REVIEW_LABEL_DEFINITION,
+  PR_ADDRESS_REVIEW_LABEL_DEFINITION,
   {
     name: PULL_OPS_OPERATION_LABELS.prFixCi,
     color: '5319E7',

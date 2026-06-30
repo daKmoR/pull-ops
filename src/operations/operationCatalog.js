@@ -1,5 +1,6 @@
 /**
  * @typedef {import('../config/types.js').OperationConfig} OperationConfig
+ * @typedef {import('../config/types.js').ReviewOperationConfig} ReviewOperationConfig
  * @typedef {import('../cli/types.js').OperationPhase} OperationPhase
  * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  * @typedef {import('../operations/types.js').OperationLabelReference} OperationLabelReference
@@ -102,6 +103,90 @@ const ISSUE_IMPLEMENT_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([
   ['codex-action', 'prepare'],
   ['codex-action', 'finalize'],
 ]);
+
+const PR_REVIEW_OPERATION_NAME = 'pr-review';
+const PR_REVIEW_OPERATION_LABEL_REFERENCE = 'pr:review';
+const PR_REVIEW_OPERATION_LABEL_NAME = 'pullops:pr:review';
+const PR_REVIEW_OPERATION_LABEL_DESCRIPTION = 'Run PullOps automated PR review.';
+const PR_REVIEW_OPERATION_LABEL_COLOR = '5319E7';
+const PR_REVIEW_WORKFLOW_FILE_NAME = 'pullops-pr-review.yml';
+const PR_REVIEW_PACKAGE_SCRIPT_NAME = 'pullops:pr-review';
+
+const PR_ADDRESS_REVIEW_OPERATION_NAME = 'pr-address-review';
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE = 'pr:address-review';
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_NAME = 'pullops:pr:address-review';
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_DESCRIPTION =
+  'Address actionable PullOps PR review feedback.';
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_COLOR = '5319E7';
+const PR_ADDRESS_REVIEW_WORKFLOW_FILE_NAME = 'pullops-pr-address-review.yml';
+const PR_ADDRESS_REVIEW_PACKAGE_SCRIPT_NAME = 'pullops:pr-address-review';
+
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const REVIEW_LOOP_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([
+  ['codex-cli', 'run'],
+  ['codex-action', 'prepare'],
+  ['codex-action', 'finalize'],
+]);
+
+/** @type {WorkflowOperation} */
+const PR_REVIEW_WORKFLOW_OPERATION = Object.freeze({
+  name: PR_REVIEW_OPERATION_NAME,
+  target: 'pr',
+  option: 'pr',
+  configKey: 'prReview',
+});
+
+/** @type {WorkflowOperation} */
+const PR_ADDRESS_REVIEW_WORKFLOW_OPERATION = Object.freeze({
+  name: PR_ADDRESS_REVIEW_OPERATION_NAME,
+  target: 'pr',
+  option: 'pr',
+  configKey: 'prAddressReview',
+});
+
+/** @type {OperationLabelReference} */
+const PR_REVIEW_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PR_REVIEW_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PR_REVIEW_OPERATION_NAME,
+  target: 'pr',
+  label: PR_REVIEW_OPERATION_LABEL_NAME,
+});
+
+/** @type {OperationLabelReference} */
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PR_ADDRESS_REVIEW_OPERATION_NAME,
+  target: 'pr',
+  label: PR_ADDRESS_REVIEW_OPERATION_LABEL_NAME,
+});
+
+/** @type {PullOpsLabel} */
+const PR_REVIEW_LABEL_DEFINITION = Object.freeze({
+  name: PR_REVIEW_OPERATION_LABEL_NAME,
+  color: PR_REVIEW_OPERATION_LABEL_COLOR,
+  description: PR_REVIEW_OPERATION_LABEL_DESCRIPTION,
+});
+
+/** @type {PullOpsLabel} */
+const PR_ADDRESS_REVIEW_LABEL_DEFINITION = Object.freeze({
+  name: PR_ADDRESS_REVIEW_OPERATION_LABEL_NAME,
+  color: PR_ADDRESS_REVIEW_OPERATION_LABEL_COLOR,
+  description: PR_ADDRESS_REVIEW_OPERATION_LABEL_DESCRIPTION,
+});
+
+/** @type {ReviewOperationConfig} */
+const PR_REVIEW_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'high',
+  escalationModelTier: 'high',
+  humanFeedbackResponseModelTier: 'high',
+});
+
+/** @type {ReviewOperationConfig} */
+const PR_ADDRESS_REVIEW_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'mid',
+  escalationModelTier: 'high',
+  humanFeedbackResponseModelTier: 'high',
+});
 
 /** @type {WorkflowOperation} */
 const PRD_PREPARE_WORKFLOW_OPERATION = Object.freeze({
@@ -214,6 +299,60 @@ async function runIssueImplementCodexActionFinalizeThroughCatalog(context) {
 }
 
 /**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrReviewThroughCatalog(context) {
+  const { runPrReview } = await import('./pr-review/run.js');
+  return await runPrReview(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrReviewCodexActionPrepareThroughCatalog(context) {
+  const { runPrReviewCodexActionPrepare } = await import('./pr-review/run.js');
+  return await runPrReviewCodexActionPrepare(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrReviewCodexActionFinalizeThroughCatalog(context) {
+  const { runPrReviewCodexActionFinalize } = await import('./pr-review/run.js');
+  return await runPrReviewCodexActionFinalize(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrAddressReviewThroughCatalog(context) {
+  const { runPrAddressReview } = await import('./pr-address-review/run.js');
+  return await runPrAddressReview(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrAddressReviewCodexActionPrepareThroughCatalog(context) {
+  const { runPrAddressReviewCodexActionPrepare } = await import('./pr-address-review/run.js');
+  return await runPrAddressReviewCodexActionPrepare(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrAddressReviewCodexActionFinalizeThroughCatalog(context) {
+  const { runPrAddressReviewCodexActionFinalize } = await import('./pr-address-review/run.js');
+  return await runPrAddressReviewCodexActionFinalize(context);
+}
+
+/**
  * @param {readonly [RunnerAdapter, OperationPhase][]} lifecycles
  * @returns {readonly RunnerAdapter[]}
  */
@@ -250,6 +389,13 @@ export function getOperationCatalogSupportedRunnerLifecycles(operationName) {
     return ISSUE_IMPLEMENT_SUPPORTED_RUNNER_LIFECYCLES;
   }
 
+  if (
+    operationName === PR_REVIEW_OPERATION_NAME ||
+    operationName === PR_ADDRESS_REVIEW_OPERATION_NAME
+  ) {
+    return REVIEW_LOOP_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
   return undefined;
 }
 
@@ -272,6 +418,14 @@ export function getOperationCatalogWorkflowOperation(operationName) {
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    return PR_REVIEW_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    return PR_ADDRESS_REVIEW_WORKFLOW_OPERATION;
   }
 
   return undefined;
@@ -298,12 +452,20 @@ export function getOperationCatalogOperationLabelReference(reference) {
     return ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_ENTRY;
   }
 
+  if (reference === PR_REVIEW_OPERATION_LABEL_REFERENCE) {
+    return PR_REVIEW_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
+  if (reference === PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE) {
+    return PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
   return undefined;
 }
 
 /**
  * @param {string} operationName
- * @returns {OperationConfig | undefined}
+ * @returns {OperationConfig | ReviewOperationConfig | undefined}
  */
 export function getOperationCatalogDefaultOperationSettings(operationName) {
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
@@ -320,6 +482,14 @@ export function getOperationCatalogDefaultOperationSettings(operationName) {
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    return PR_REVIEW_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    return PR_ADDRESS_REVIEW_DEFAULT_OPERATION_SETTINGS;
   }
 
   return undefined;
@@ -346,6 +516,14 @@ export function getOperationCatalogLabelDefinition(operationName) {
     return ISSUE_IMPLEMENT_LABEL_DEFINITION;
   }
 
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    return PR_REVIEW_LABEL_DEFINITION;
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    return PR_ADDRESS_REVIEW_LABEL_DEFINITION;
+  }
+
   return undefined;
 }
 
@@ -370,6 +548,14 @@ export function getOperationCatalogWorkflowFileName(operationName) {
     return ISSUE_IMPLEMENT_WORKFLOW_FILE_NAME;
   }
 
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    return PR_REVIEW_WORKFLOW_FILE_NAME;
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    return PR_ADDRESS_REVIEW_WORKFLOW_FILE_NAME;
+  }
+
   return undefined;
 }
 
@@ -392,6 +578,14 @@ export function getOperationCatalogPackageScriptName(operationName) {
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    return PR_REVIEW_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    return PR_ADDRESS_REVIEW_PACKAGE_SCRIPT_NAME;
   }
 
   return undefined;
@@ -451,6 +645,34 @@ export function getOperationCatalogHandler(operationName, phase = 'run') {
 
     if (phase === 'finalize') {
       return runIssueImplementCodexActionFinalizeThroughCatalog;
+    }
+  }
+
+  if (operationName === PR_REVIEW_OPERATION_NAME) {
+    if (phase === 'run') {
+      return runPrReviewThroughCatalog;
+    }
+
+    if (phase === 'prepare') {
+      return runPrReviewCodexActionPrepareThroughCatalog;
+    }
+
+    if (phase === 'finalize') {
+      return runPrReviewCodexActionFinalizeThroughCatalog;
+    }
+  }
+
+  if (operationName === PR_ADDRESS_REVIEW_OPERATION_NAME) {
+    if (phase === 'run') {
+      return runPrAddressReviewThroughCatalog;
+    }
+
+    if (phase === 'prepare') {
+      return runPrAddressReviewCodexActionPrepareThroughCatalog;
+    }
+
+    if (phase === 'finalize') {
+      return runPrAddressReviewCodexActionFinalizeThroughCatalog;
     }
   }
 

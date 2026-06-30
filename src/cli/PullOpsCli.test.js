@@ -116,6 +116,62 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
   });
 });
 
+test('run review loop operations accept catalog-backed Codex Action lifecycles', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+        operation: context.operation,
+        phase: context.phase,
+        runnerAdapter: context.runnerAdapter,
+        runnerRan: context.runnerRan,
+      };
+    },
+  });
+
+  /** @type {Array<[string, 'prepare' | 'finalize', string, string | undefined]>} */
+  const cases = [
+    ['pr-review', 'prepare', '456', undefined],
+    ['pr-address-review', 'finalize', '789', 'true'],
+  ];
+
+  for (const [operation, phase, targetNumber, runnerRan] of cases) {
+    /** @type {string[]} */
+    const args = [
+      'run',
+      operation,
+      '--phase',
+      phase,
+      '--runner',
+      'codex-action',
+      '--pr',
+      targetNumber,
+    ];
+    if (runnerRan !== undefined) {
+      args.push('--runner-ran', runnerRan);
+    }
+
+    const exitCode = await cli.run(args);
+
+    assert.equal(exitCode, 0);
+    assert.equal(calls.at(-1)?.operation, operation);
+    assert.equal(calls.at(-1)?.phase, phase);
+    assert.equal(calls.at(-1)?.runnerAdapter, 'codex-action');
+    assert.equal(
+      calls.at(-1)?.runnerRan,
+      runnerRan === undefined ? undefined : runnerRan === 'true',
+    );
+  }
+
+  assert.match(stdout.text, /"status": "accepted"/);
+});
+
 test('run operation rejects unsupported Codex Action lifecycle arguments for prd-prepare', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({ stderr });

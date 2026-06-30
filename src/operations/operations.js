@@ -1,8 +1,3 @@
-import {
-  runPrAddressReviewCodexActionFinalize,
-  runPrAddressReviewCodexActionPrepare,
-  runPrAddressReview,
-} from './pr-address-review/run.js';
 import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
 import {
   runPrFixCi,
@@ -20,11 +15,6 @@ import {
   runPrFinalizeCodexActionFinalize,
   runPrFinalizeCodexActionPrepare,
 } from './pr-finalize/run.js';
-import {
-  runPrReview,
-  runPrReviewCodexActionFinalize,
-  runPrReviewCodexActionPrepare,
-} from './pr-review/run.js';
 import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
 import {
   getOperationCatalogHandler,
@@ -71,6 +61,21 @@ if (ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG === undefined) {
 /** @type {WorkflowOperation} */
 const ISSUE_IMPLEMENT_WORKFLOW_OPERATION = ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG;
 
+const PR_REVIEW_WORKFLOW_OPERATION_CATALOG = getOperationCatalogWorkflowOperation('pr-review');
+if (PR_REVIEW_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('pr-review workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PR_REVIEW_WORKFLOW_OPERATION = PR_REVIEW_WORKFLOW_OPERATION_CATALOG;
+
+const PR_ADDRESS_REVIEW_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('pr-address-review');
+if (PR_ADDRESS_REVIEW_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('pr-address-review workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PR_ADDRESS_REVIEW_WORKFLOW_OPERATION = PR_ADDRESS_REVIEW_WORKFLOW_OPERATION_CATALOG;
+
 const PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG =
   getOperationCatalogOperationLabelReference('prd:prepare');
 if (PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
@@ -105,6 +110,23 @@ if (ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
 /** @type {OperationLabelReference} */
 const ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE = ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG;
 
+const PR_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('pr:review');
+if (PR_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('pr:review label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PR_REVIEW_OPERATION_LABEL_REFERENCE = PR_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG;
+
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('pr:address-review');
+if (PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('pr:address-review label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE =
+  PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG;
+
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   // Issue / PRD operations
@@ -113,18 +135,8 @@ export const WORKFLOW_OPERATIONS = [
   PRD_AUTO_ADVANCE_WORKFLOW_OPERATION,
   PRD_AUTO_COMPLETE_WORKFLOW_OPERATION,
   // PR review loop
-  {
-    name: 'pr-review',
-    target: 'pr',
-    option: 'pr',
-    configKey: 'prReview',
-  },
-  {
-    name: 'pr-address-review',
-    target: 'pr',
-    option: 'pr',
-    configKey: 'prAddressReview',
-  },
+  PR_REVIEW_WORKFLOW_OPERATION,
+  PR_ADDRESS_REVIEW_WORKFLOW_OPERATION,
   // PR maintenance
   {
     name: 'pr-fix-ci',
@@ -171,18 +183,8 @@ export const OPERATION_LABEL_REFERENCES = [
   PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE,
   PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE,
   ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE,
-  {
-    reference: 'pr:review',
-    workflowOperationName: 'pr-review',
-    target: 'pr',
-    label: PULL_OPS_OPERATION_LABELS.prReview,
-  },
-  {
-    reference: 'pr:address-review',
-    workflowOperationName: 'pr-address-review',
-    target: 'pr',
-    label: PULL_OPS_OPERATION_LABELS.prAddressReview,
-  },
+  PR_REVIEW_OPERATION_LABEL_REFERENCE,
+  PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE,
   {
     reference: 'pr:fix-ci',
     workflowOperationName: 'pr-fix-ci',
@@ -292,22 +294,6 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     }
 
     return await catalogHandler(context);
-  }
-
-  if (context.operation === 'pr-review') {
-    return await runCodexBackedOperation(context, {
-      run: runPrReview,
-      prepare: runPrReviewCodexActionPrepare,
-      finalize: runPrReviewCodexActionFinalize,
-    });
-  }
-
-  if (context.operation === 'pr-address-review') {
-    return await runCodexBackedOperation(context, {
-      run: runPrAddressReview,
-      prepare: runPrAddressReviewCodexActionPrepare,
-      finalize: runPrAddressReviewCodexActionFinalize,
-    });
   }
 
   if (context.operation === 'pr-fix-ci') {
