@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { getOperationCatalogDefaultOperationSettings } from '../operations/operationCatalog.js';
 import { loadPullOpsConfig } from './PullOpsConfig.js';
 
 test('loadPullOpsConfig returns defaults and infers GitHub issue store when a GitHub remote exists', async () => {
@@ -27,8 +28,14 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   });
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
-  assert.equal(config.operations.prdAutoAdvance.modelTier, 'low');
-  assert.equal(config.operations.prdAutoComplete.modelTier, 'low');
+  assert.deepEqual(
+    config.operations.prdAutoAdvance,
+    getOperationCatalogDefaultOperationSettings('prd-auto-advance'),
+  );
+  assert.deepEqual(
+    config.operations.prdAutoComplete,
+    getOperationCatalogDefaultOperationSettings('prd-auto-complete'),
+  );
   assert.equal(config.operations.prFixCi.modelTier, 'mid');
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
