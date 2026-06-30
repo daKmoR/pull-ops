@@ -1,5 +1,8 @@
-import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import { createManagedPrStateSection } from '../../managed-pr/ManagedPrState.js';
+import {
+  getOperationCatalogPackageScriptName,
+  requireOperationCatalogOperationLabelName,
+} from '../operationCatalog.js';
 
 /**
  * @typedef {import('../../config/types.js').ModelTier} ModelTier
@@ -25,6 +28,11 @@ export function createPrdPreparePullRequestBody({
   modelTier,
   model,
 }) {
+  const runnerTask = getOperationCatalogPackageScriptName('prd-prepare');
+  if (runnerTask === undefined) {
+    throw new Error('prd-prepare package script identity is missing from the operation catalog.');
+  }
+
   return [
     createManagedPrStateSection({
       status: 'Draft parent preparation',
@@ -34,10 +42,10 @@ export function createPrdPreparePullRequestBody({
       },
       branchName,
       triggerActor,
-      runnerTask: 'pullops-prd-prepare',
+      runnerTask,
       modelTier,
       model,
-      lastOperation: PULL_OPS_OPERATION_LABELS.prdPrepare,
+      lastOperation: requireOperationCatalogOperationLabelName('prd-prepare'),
     }),
     '',
     '## PullOps Link Summary',

@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { createPrdPreparePullRequestBody } from './prBody.js';
 
 /**
@@ -33,8 +34,8 @@ export async function runPrdPrepare(context) {
       reason: [
         `Issue #${issue.number} is already part of parent issue #${parentIssueNumber}.`,
         [
-          `Use ${PULL_OPS_OPERATION_LABELS.issueImplement} on concrete child issues,`,
-          `or ${PULL_OPS_OPERATION_LABELS.prdPrepare} on the parent issue.`,
+          `Use ${requireOperationCatalogOperationLabelName('issue-implement')} on concrete child issues,`,
+          `or ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue.`,
         ].join(' '),
       ].join(' '),
     });
@@ -165,7 +166,7 @@ async function blockPreparation(context, issue, { reason }) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare],
+    labels: [requireOperationCatalogOperationLabelName('prd-prepare')],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
@@ -201,7 +202,10 @@ async function markPreparationInProgress(context, issue) {
 async function markPreparationPrepared(context, issue) {
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare, PULL_OPS_STATUS_LABELS.humanRequired],
+    labels: [
+      requireOperationCatalogOperationLabelName('prd-prepare'),
+      PULL_OPS_STATUS_LABELS.humanRequired,
+    ],
   });
 }
 
@@ -219,7 +223,7 @@ async function recordPreparationFailure(context, issue, reason) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdPrepare],
+    labels: [requireOperationCatalogOperationLabelName('prd-prepare')],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
