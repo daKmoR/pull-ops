@@ -14,12 +14,15 @@ describe('PULL_OPS_LABELS', () => {
     }
   });
 
-  it('02: keeps PRD and review loop labels sourced from the operation catalog', () => {
+  it('02: keeps PRD, review loop, and maintenance labels sourced from the operation catalog', () => {
     for (const operationName of [
       'prd-auto-advance',
       'prd-auto-complete',
       'pr-review',
       'pr-address-review',
+      'pr-fix-ci',
+      'pr-update-branch',
+      'pr-resolve-conflicts',
     ]) {
       const catalogLabelDefinition = requireCatalogLabelDefinition(operationName);
       assert.deepEqual(

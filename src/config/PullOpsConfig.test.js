@@ -42,6 +42,18 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
   assert.deepEqual(
+    config.operations.prFixCi,
+    getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
+  );
+  assert.deepEqual(
+    config.operations.prUpdateBranch,
+    getOperationCatalogDefaultOperationSettings('pr-update-branch'),
+  );
+  assert.deepEqual(
+    config.operations.prResolveConflicts,
+    getOperationCatalogDefaultOperationSettings('pr-resolve-conflicts'),
+  );
+  assert.deepEqual(
     config.operations.prReview,
     getOperationCatalogDefaultOperationSettings('pr-review'),
   );
@@ -121,8 +133,18 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.prAddressReview.modelTier, 'mid');
   assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
   assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'low');
+  assert.deepEqual(
+    config.operations.prFixCi,
+    getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
+  );
+  assert.deepEqual(
+    config.operations.prUpdateBranch,
+    getOperationCatalogDefaultOperationSettings('pr-update-branch'),
+  );
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 5);
+  assert.equal(config.operations.prFixCi.modelTier, 'mid');
+  assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prFinalize.modelTier, 'high');
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
   assert.equal(config.operations.issueImplement.modelTier, 'high');

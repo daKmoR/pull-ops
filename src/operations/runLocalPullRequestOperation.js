@@ -38,9 +38,9 @@ import { getOperationCatalogOperationLabelReference } from './operationCatalog.j
 const OPERATION_REFERENCES = new Map([
   ['pr-review', requireOperationCatalogLabelReference('pr:review')],
   ['pr-address-review', requireOperationCatalogLabelReference('pr:address-review')],
-  ['pr-fix-ci', 'pr:fix-ci'],
-  ['pr-update-branch', 'pr:update-branch'],
-  ['pr-resolve-conflicts', 'pr:resolve-conflicts'],
+  ['pr-fix-ci', requireOperationCatalogLabelReference('pr:fix-ci')],
+  ['pr-update-branch', requireOperationCatalogLabelReference('pr:update-branch')],
+  ['pr-resolve-conflicts', requireOperationCatalogLabelReference('pr:resolve-conflicts')],
   ['pr-finalize', 'pr:finalize'],
 ]);
 

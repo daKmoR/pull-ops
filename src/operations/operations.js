@@ -1,16 +1,5 @@
 import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
 import {
-  runPrFixCi,
-  runPrFixCiCodexActionFinalize,
-  runPrFixCiCodexActionPrepare,
-} from './pr-fix-ci/run.js';
-import {
-  runPrResolveConflicts,
-  runPrResolveConflictsCodexActionFinalize,
-  runPrResolveConflictsCodexActionPrepare,
-} from './pr-resolve-conflicts/run.js';
-import { runPrUpdateBranch } from './pr-update-branch/run.js';
-import {
   runPrFinalize,
   runPrFinalizeCodexActionFinalize,
   runPrFinalizeCodexActionPrepare,
@@ -127,6 +116,55 @@ if (PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
 const PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE =
   PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE_CATALOG;
 
+const PR_FIX_CI_WORKFLOW_OPERATION_CATALOG = getOperationCatalogWorkflowOperation('pr-fix-ci');
+if (PR_FIX_CI_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('pr-fix-ci workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PR_FIX_CI_WORKFLOW_OPERATION = PR_FIX_CI_WORKFLOW_OPERATION_CATALOG;
+
+const PR_UPDATE_BRANCH_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('pr-update-branch');
+if (PR_UPDATE_BRANCH_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('pr-update-branch workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PR_UPDATE_BRANCH_WORKFLOW_OPERATION = PR_UPDATE_BRANCH_WORKFLOW_OPERATION_CATALOG;
+
+const PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('pr-resolve-conflicts');
+if (PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('pr-resolve-conflicts workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION = PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION_CATALOG;
+
+const PR_FIX_CI_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('pr:fix-ci');
+if (PR_FIX_CI_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('pr:fix-ci label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PR_FIX_CI_OPERATION_LABEL_REFERENCE = PR_FIX_CI_OPERATION_LABEL_REFERENCE_CATALOG;
+
+const PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('pr:update-branch');
+if (PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('pr:update-branch label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE =
+  PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE_CATALOG;
+
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('pr:resolve-conflicts');
+if (PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('pr:resolve-conflicts label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE =
+  PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE_CATALOG;
+
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   // Issue / PRD operations
@@ -138,24 +176,9 @@ export const WORKFLOW_OPERATIONS = [
   PR_REVIEW_WORKFLOW_OPERATION,
   PR_ADDRESS_REVIEW_WORKFLOW_OPERATION,
   // PR maintenance
-  {
-    name: 'pr-fix-ci',
-    target: 'pr',
-    option: 'pr',
-    configKey: 'prFixCi',
-  },
-  {
-    name: 'pr-update-branch',
-    target: 'pr',
-    option: 'pr',
-    configKey: 'prUpdateBranch',
-  },
-  {
-    name: 'pr-resolve-conflicts',
-    target: 'pr',
-    option: 'pr',
-    configKey: 'prResolveConflicts',
-  },
+  PR_FIX_CI_WORKFLOW_OPERATION,
+  PR_UPDATE_BRANCH_WORKFLOW_OPERATION,
+  PR_RESOLVE_CONFLICTS_WORKFLOW_OPERATION,
   // PR merge / bookkeeping
   {
     name: 'pr-finalize',
@@ -185,24 +208,9 @@ export const OPERATION_LABEL_REFERENCES = [
   ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE,
   PR_REVIEW_OPERATION_LABEL_REFERENCE,
   PR_ADDRESS_REVIEW_OPERATION_LABEL_REFERENCE,
-  {
-    reference: 'pr:fix-ci',
-    workflowOperationName: 'pr-fix-ci',
-    target: 'pr',
-    label: PULL_OPS_OPERATION_LABELS.prFixCi,
-  },
-  {
-    reference: 'pr:update-branch',
-    workflowOperationName: 'pr-update-branch',
-    target: 'pr',
-    label: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
-  },
-  {
-    reference: 'pr:resolve-conflicts',
-    workflowOperationName: 'pr-resolve-conflicts',
-    target: 'pr',
-    label: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
-  },
+  PR_FIX_CI_OPERATION_LABEL_REFERENCE,
+  PR_UPDATE_BRANCH_OPERATION_LABEL_REFERENCE,
+  PR_RESOLVE_CONFLICTS_OPERATION_LABEL_REFERENCE,
   {
     reference: 'pr:finalize',
     workflowOperationName: 'pr-finalize',
@@ -294,30 +302,6 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     }
 
     return await catalogHandler(context);
-  }
-
-  if (context.operation === 'pr-fix-ci') {
-    return await runCodexBackedOperation(context, {
-      run: runPrFixCi,
-      prepare: runPrFixCiCodexActionPrepare,
-      finalize: runPrFixCiCodexActionFinalize,
-    });
-  }
-
-  if (context.operation === 'pr-update-branch') {
-    if (context.runnerAdapter === 'codex-action') {
-      throw new Error('pr-update-branch does not support the codex-action runner adapter.');
-    }
-
-    return await runPrUpdateBranch(context);
-  }
-
-  if (context.operation === 'pr-resolve-conflicts') {
-    return await runCodexBackedOperation(context, {
-      run: runPrResolveConflicts,
-      prepare: runPrResolveConflictsCodexActionPrepare,
-      finalize: runPrResolveConflictsCodexActionFinalize,
-    });
   }
 
   if (context.operation === 'pr-finalize') {
