@@ -3,6 +3,7 @@ import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { getOperationCatalogDefaultOperationSettings } from '../operations/operationCatalog.js';
 import { WORKFLOW_OPERATIONS, WORKFLOW_OPERATION_CONFIG_KEYS } from '../operations/operations.js';
 import {
   DEFAULT_RUNNER_ADAPTER,
@@ -35,7 +36,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     },
   },
   operations: {
-    prdPrepare: { modelTier: 'low' },
+    prdPrepare: defaultPrdPrepareOperationSettings(),
     issueImplement: { modelTier: 'high' },
     prdAutoAdvance: { modelTier: 'low' },
     prdAutoComplete: { modelTier: 'low' },
@@ -56,6 +57,18 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     prCloseChildIssue: { modelTier: 'low' },
   },
 };
+
+/**
+ * @returns {import('./types.js').OperationConfig}
+ */
+function defaultPrdPrepareOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('prd-prepare');
+  if (defaults === undefined) {
+    throw new Error('prd-prepare defaults are missing from the operation catalog.');
+  }
+
+  return defaults;
+}
 
 export class PullOpsConfigError extends Error {
   /**
