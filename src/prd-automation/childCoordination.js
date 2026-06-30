@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { classifyCheckState } from '../checks/checkState.js';
-import { PULL_OPS_OPERATION_LABELS, PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABELS } from '../labels/pullOpsLabels.js';
 import {
   hasActiveManagedPrWorkflow,
   isFinalizedForRebase,
@@ -16,6 +16,7 @@ import {
   parseChildIssueBranchName,
 } from '../operations/branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../operations/githubActionsBot.js';
+import { requireOperationCatalogOperationLabelName } from '../operations/operationCatalog.js';
 import {
   createLocalPrdAutoCompleteChildProgressEvent,
   createLocalPrdAutoCompleteParentWaitingEvent,
@@ -68,7 +69,9 @@ import {
  */
 
 /** @type {ReadonlySet<string>} */
-const ACTIVE_CHILD_ISSUE_LABELS = new Set([PULL_OPS_OPERATION_LABELS.issueImplement]);
+const ACTIVE_CHILD_ISSUE_LABELS = new Set([
+  requireOperationCatalogOperationLabelName('issue-implement'),
+]);
 
 // Runaway guard only. Managed PR review/address-review budgets are enforced by
 // the PR operations through the managed PR state stored in the pull request body.
@@ -807,7 +810,7 @@ async function coordinateChildIssue(context, { parentIssue, parentBranchName, ch
 
   await context.githubClient.addLabelsToIssue({
     number: childIssue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.issueImplement],
+    labels: [requireOperationCatalogOperationLabelName('issue-implement')],
   });
 
   return childResult({
@@ -2318,7 +2321,7 @@ async function mergeFinalizedChildPullRequest(
   if (checkState === 'failed') {
     await context.githubClient.addLabelsToPullRequest({
       number: pullRequest.number,
-      labels: [PULL_OPS_OPERATION_LABELS.prFixCi],
+      labels: [requireOperationCatalogOperationLabelName('pr-fix-ci')],
     });
     return childPullRequestResult({
       issue: childIssue,
@@ -2624,7 +2627,7 @@ function inspectManagedPrForLocalReview(pullRequest) {
     return {
       status: 'ready-for-finalize',
       pullRequest: formatPullRequest(pullRequest),
-      nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      nextOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
     };
   }
 
@@ -2632,14 +2635,14 @@ function inspectManagedPrForLocalReview(pullRequest) {
     return {
       status: 'ready-for-address-review',
       pullRequest: formatPullRequest(pullRequest),
-      nextOperation: PULL_OPS_OPERATION_LABELS.prAddressReview,
+      nextOperation: requireOperationCatalogOperationLabelName('pr-address-review'),
     };
   }
 
   return {
     status: 'ready-for-review',
     pullRequest: formatPullRequest(pullRequest),
-    nextOperation: PULL_OPS_OPERATION_LABELS.prReview,
+    nextOperation: requireOperationCatalogOperationLabelName('pr-review'),
   };
 }
 
@@ -2787,7 +2790,7 @@ async function completePublishedLocalUmbrellaPullRequest(
         addressReviews,
         finalize,
         localRunRecords,
-        nextOperation: PULL_OPS_OPERATION_LABELS.prFinalize,
+        nextOperation: requireOperationCatalogOperationLabelName('pr-finalize'),
       };
     }
 
@@ -2829,7 +2832,7 @@ async function completePublishedLocalUmbrellaPullRequest(
  */
 function readRoutedParentPullRequestOperation(routedTo) {
   if (
-    routedTo === PULL_OPS_OPERATION_LABELS.prReview ||
+    routedTo === requireOperationCatalogOperationLabelName('pr-review') ||
     routedTo === 'pr:review' ||
     routedTo === 'pr-review'
   ) {
@@ -2837,7 +2840,7 @@ function readRoutedParentPullRequestOperation(routedTo) {
   }
 
   if (
-    routedTo === PULL_OPS_OPERATION_LABELS.prAddressReview ||
+    routedTo === requireOperationCatalogOperationLabelName('pr-address-review') ||
     routedTo === 'pr:address-review' ||
     routedTo === 'pr-address-review'
   ) {
@@ -2845,7 +2848,7 @@ function readRoutedParentPullRequestOperation(routedTo) {
   }
 
   if (
-    routedTo === PULL_OPS_OPERATION_LABELS.prFinalize ||
+    routedTo === requireOperationCatalogOperationLabelName('pr-finalize') ||
     routedTo === 'pr:finalize' ||
     routedTo === 'pr-finalize'
   ) {
@@ -2951,7 +2954,10 @@ async function closeChildIssue(context, { issue, pullRequest, expectedBaseBranch
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.issueImplement, PULL_OPS_STATUS_LABELS.humanRequired],
+    labels: [
+      requireOperationCatalogOperationLabelName('issue-implement'),
+      PULL_OPS_STATUS_LABELS.humanRequired,
+    ],
   });
 }
 
@@ -2989,11 +2995,11 @@ function isMergedPullRequest(pullRequest) {
  * @returns {PrdAutomationMode | undefined}
  */
 function readPrdAutomationMode(labels) {
-  if (labels?.includes(PULL_OPS_OPERATION_LABELS.prdAutoComplete)) {
+  if (labels?.includes(requireOperationCatalogOperationLabelName('prd-auto-complete'))) {
     return 'auto-complete';
   }
 
-  if (labels?.includes(PULL_OPS_OPERATION_LABELS.prdAutoAdvance)) {
+  if (labels?.includes(requireOperationCatalogOperationLabelName('prd-auto-advance'))) {
     return 'auto-advance';
   }
 
@@ -3039,9 +3045,9 @@ function selectLocalChildPullRequestOperation(pullRequest) {
 
     if (
       label.startsWith('pullops:pr:') &&
-      label !== PULL_OPS_OPERATION_LABELS.prReview &&
-      label !== PULL_OPS_OPERATION_LABELS.prAddressReview &&
-      label !== PULL_OPS_OPERATION_LABELS.prFinalize
+      label !== requireOperationCatalogOperationLabelName('pr-review') &&
+      label !== requireOperationCatalogOperationLabelName('pr-address-review') &&
+      label !== requireOperationCatalogOperationLabelName('pr-finalize')
     ) {
       return label;
     }
@@ -3063,8 +3069,8 @@ function selectLocalChildPullRequestOperation(pullRequest) {
   if (
     state.status === 'Review feedback addressed' ||
     state.status === 'Draft automation' ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.issueImplement ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+    state.lastOperation === requireOperationCatalogOperationLabelName('issue-implement') ||
+    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
   ) {
     return 'pr-review';
   }
@@ -3094,8 +3100,8 @@ function selectLocalParentPullRequestOperation(pullRequest) {
     state.status === 'Review feedback addressed' ||
     state.status === 'Review required' ||
     state.status === 'Draft parent preparation' ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.prdPrepare ||
-    state.lastOperation === PULL_OPS_OPERATION_LABELS.prAddressReview
+    state.lastOperation === requireOperationCatalogOperationLabelName('prd-prepare') ||
+    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
   ) {
     return 'pr-review';
   }
@@ -4001,7 +4007,10 @@ async function blockPrdAutomation(context, issue, { reason, mode }) {
   });
   await context.githubClient.removeLabelsFromIssue({
     number: issue.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prdAutoAdvance, PULL_OPS_OPERATION_LABELS.prdAutoComplete],
+    labels: [
+      requireOperationCatalogOperationLabelName('prd-auto-advance'),
+      requireOperationCatalogOperationLabelName('prd-auto-complete'),
+    ],
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
