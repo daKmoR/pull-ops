@@ -1,12 +1,10 @@
-import {
-  PULL_OPS_OPERATION_LABELS,
-  PULL_OPS_STATUS_LABEL_NAMES,
-} from '../../labels/pullOpsLabels.js';
+import { PULL_OPS_STATUS_LABEL_NAMES } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -98,7 +96,7 @@ async function completeBranchUpdate(
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      operation: requireOperationCatalogOperationLabelName('pr-update-branch'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'updated',
@@ -136,7 +134,7 @@ async function completeBranchUpdate(
 async function handOffConflicts(context, pullRequest, rebaseResult, { baseBranch, updateBody }) {
   const summary = [
     `Rebasing PR #${pullRequest.number} onto ${baseBranch} produced conflicts.`,
-    `Handing off to ${PULL_OPS_OPERATION_LABELS.prResolveConflicts}.`,
+    `Handing off to ${requireOperationCatalogOperationLabelName('pr-resolve-conflicts')}.`,
   ].join(' ');
 
   if (updateBody) {
@@ -144,7 +142,7 @@ async function handOffConflicts(context, pullRequest, rebaseResult, { baseBranch
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      operation: requireOperationCatalogOperationLabelName('pr-update-branch'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'conflicts-found',
@@ -167,7 +165,7 @@ async function handOffConflicts(context, pullRequest, rebaseResult, { baseBranch
       baseBranch,
       branchName: pullRequest.headRefName,
       conflicts: rebaseResult.conflictedFiles,
-      handedOffTo: PULL_OPS_OPERATION_LABELS.prResolveConflicts,
+      handedOffTo: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     },
   };
 }
@@ -234,7 +232,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+      operation: requireOperationCatalogOperationLabelName('pr-update-branch'),
       suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
       outcome: {
         kind: 'blocked',
@@ -248,7 +246,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prUpdateBranch,
+    operation: requireOperationCatalogOperationLabelName('pr-update-branch'),
     reason,
   });
 }
@@ -261,11 +259,14 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
 async function transitionNonManagedPullRequestToReview(context, pullRequest) {
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prUpdateBranch, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [
+      requireOperationCatalogOperationLabelName('pr-update-branch'),
+      ...PULL_OPS_STATUS_LABEL_NAMES,
+    ],
   });
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prReview],
+    labels: [requireOperationCatalogOperationLabelName('pr-review')],
   });
 }
 
@@ -279,11 +280,14 @@ async function transitionNonManagedPullRequestToReview(context, pullRequest) {
 async function handOffNonManagedConflicts(context, pullRequest, rebaseResult, { baseBranch }) {
   await context.githubClient.removeLabelsFromPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prUpdateBranch, ...PULL_OPS_STATUS_LABEL_NAMES],
+    labels: [
+      requireOperationCatalogOperationLabelName('pr-update-branch'),
+      ...PULL_OPS_STATUS_LABEL_NAMES,
+    ],
   });
   await context.githubClient.addLabelsToPullRequest({
     number: pullRequest.number,
-    labels: [PULL_OPS_OPERATION_LABELS.prResolveConflicts],
+    labels: [requireOperationCatalogOperationLabelName('pr-resolve-conflicts')],
   });
   await context.githubClient.commentOnPullRequest({
     number: pullRequest.number,
@@ -292,7 +296,7 @@ async function handOffNonManagedConflicts(context, pullRequest, rebaseResult, { 
       '',
       `Base branch: ${baseBranch}`,
       `Conflicted files: ${formatList(rebaseResult.conflictedFiles)}`,
-      `Next operation: ${PULL_OPS_OPERATION_LABELS.prResolveConflicts}`,
+      `Next operation: ${requireOperationCatalogOperationLabelName('pr-resolve-conflicts')}`,
     ].join('\n'),
   });
 }
