@@ -62,7 +62,7 @@ export const PULL_OPS_LABELS = [
     name: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
     color: '5319E7',
     description:
-      'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge the umbrella PR.',
+      'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
   },
   {
     name: PULL_OPS_OPERATION_LABELS.issueImplement,

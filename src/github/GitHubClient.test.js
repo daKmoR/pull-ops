@@ -26,7 +26,7 @@ describe('createGitHubClient', () => {
         [
           'pullops:prd:auto-complete',
           '5319E7',
-          'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge the umbrella PR.',
+          'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
         ],
         [
           'pullops:issue:implement',
