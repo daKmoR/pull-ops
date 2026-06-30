@@ -1,7 +1,7 @@
 {
   "name": "@pull-ops/cli",
   "version": "0.1.0",
-  "description": "",
+  "description": "Turn GitHub issues into reviewed pull requests with AI while keeping human approval boundaries explicit.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -25,6 +25,7 @@
     "dist-types/**/*.d.ts",
     "dist-types/**/*.d.ts.map",
     "docs/assets/",
+    "docs/operation-reference.md",
     "!src/**/*.test.js",
     "!dist-types/docs/**",
     "!dist-types/**/*.test.d.ts",
@@ -36,7 +37,7 @@
     "type": "git",
     "url": "git+https://github.com/daKmoR/pull-ops.git"
   },
-  "homepage": "https://rocket.modern-web.dev",
+  "homepage": "https://github.com/daKmoR/pull-ops#readme",
   "bugs": {
     "url": "https://github.com/daKmoR/pull-ops/issues"
   },
