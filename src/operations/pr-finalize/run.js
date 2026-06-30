@@ -1,10 +1,10 @@
 import { classifyCheckState } from '../../checks/checkState.js';
-import { PULL_OPS_OPERATION_LABELS } from '../../labels/pullOpsLabels.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
+import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
   readChildIssuePrFacts,
   readParentIssueFacts,
@@ -1106,7 +1106,7 @@ function formatChildCommitOrder(childCommitEntries) {
 async function completePrFinalizePlannerFallback(context, preparation, rawOutput) {
   await commentOnPullRequestWithOperationAudit(context, {
     pullRequestNumber: preparation.pullRequest.number,
-    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    operation: requireOperationCatalogOperationLabelName('pr-finalize'),
   });
 
   const validatedOutput = validatePrFinalizeOutput(rawOutput);
@@ -1480,7 +1480,7 @@ async function completeFinalizedHeadChecks(
       ...pullRequest,
       body: readyBody,
     },
-    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    operation: requireOperationCatalogOperationLabelName('pr-finalize'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'ready',
@@ -1496,7 +1496,7 @@ async function completeFinalizedHeadChecks(
   if (shouldRecordReadyAudit) {
     await commentOnPullRequestWithOperationAudit(context, {
       pullRequestNumber: pullRequest.number,
-      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      operation: requireOperationCatalogOperationLabelName('pr-finalize'),
       summary: readySummary,
     });
   }
@@ -1735,7 +1735,7 @@ async function routePullRequestToReview(context, pullRequest, reason) {
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    operation: requireOperationCatalogOperationLabelName('pr-finalize'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'route-to-review',
@@ -1751,7 +1751,7 @@ async function routePullRequestToReview(context, pullRequest, reason) {
       url: pullRequest.url,
     },
     prFinalize: {
-      routedTo: PULL_OPS_OPERATION_LABELS.prReview,
+      routedTo: requireOperationCatalogOperationLabelName('pr-review'),
       reason,
     },
   };
@@ -1768,7 +1768,7 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    operation: requireOperationCatalogOperationLabelName('pr-finalize'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'route-to-ci-fix',
@@ -1784,7 +1784,7 @@ async function routePullRequestToPrFixCi(context, pullRequest, reason) {
       url: pullRequest.url,
     },
     prFinalize: {
-      routedTo: PULL_OPS_OPERATION_LABELS.prFixCi,
+      routedTo: requireOperationCatalogOperationLabelName('pr-fix-ci'),
       reason,
     },
   };
@@ -1824,7 +1824,7 @@ async function refusePullRequest(context, pullRequest, reason, { updateBody }) {
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      operation: requireOperationCatalogOperationLabelName('pr-finalize'),
       reason,
     });
   }
@@ -1852,7 +1852,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
       githubClient: context.githubClient,
       outputDirectory: context.outputDirectory,
       pullRequest,
-      operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+      operation: requireOperationCatalogOperationLabelName('pr-finalize'),
       reason,
     });
     return;
@@ -1862,7 +1862,7 @@ async function recordPullRequestFailure(context, pullRequest, reason, { updateBo
     githubClient: context.githubClient,
     outputDirectory: context.outputDirectory,
     pullRequest,
-    operation: PULL_OPS_OPERATION_LABELS.prFinalize,
+    operation: requireOperationCatalogOperationLabelName('pr-finalize'),
     suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
     outcome: {
       kind: 'blocked',

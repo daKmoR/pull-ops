@@ -3,7 +3,10 @@ import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { WORKFLOW_OPERATIONS, WORKFLOW_OPERATION_CONFIG_KEYS } from '../operations/operations.js';
+import {
+  getOperationCatalogDefaultOperationSettings,
+  getOperationCatalogWorkflowOperations,
+} from '../operations/operationCatalog.js';
 import {
   DEFAULT_RUNNER_ADAPTER,
   isRunnerAdapter,
@@ -34,28 +37,26 @@ export const DEFAULT_PULL_OPS_CONFIG = {
       low: 'gpt-5.4-mini',
     },
   },
-  operations: {
-    prdPrepare: { modelTier: 'low' },
-    issueImplement: { modelTier: 'high' },
-    prdAutoAdvance: { modelTier: 'low' },
-    prdAutoComplete: { modelTier: 'low' },
-    prReview: {
-      modelTier: 'high',
-      escalationModelTier: 'high',
-      humanFeedbackResponseModelTier: 'high',
-    },
-    prAddressReview: {
-      modelTier: 'mid',
-      escalationModelTier: 'high',
-      humanFeedbackResponseModelTier: 'high',
-    },
-    prFixCi: { modelTier: 'mid' },
-    prUpdateBranch: { modelTier: 'low' },
-    prResolveConflicts: { modelTier: 'high', maxConflictResolutionPasses: 3 },
-    prFinalize: { modelTier: 'high', aiHistoryCleanup: true },
-    prCloseChildIssue: { modelTier: 'low' },
-  },
+  operations: buildDefaultOperationConfigs(),
 };
+
+/**
+ * @returns {PullOpsConfig['operations']}
+ */
+function buildDefaultOperationConfigs() {
+  const operations = /** @type {Record<string, unknown>} */ ({});
+
+  for (const operation of getOperationCatalogWorkflowOperations()) {
+    const defaultOperationSettings = getOperationCatalogDefaultOperationSettings(operation.name);
+    if (defaultOperationSettings === undefined) {
+      throw new Error(`${operation.name} defaults are missing from the operation catalog.`);
+    }
+
+    operations[operation.configKey] = defaultOperationSettings;
+  }
+
+  return /** @type {PullOpsConfig['operations']} */ (operations);
+}
 
 export class PullOpsConfigError extends Error {
   /**
@@ -227,11 +228,11 @@ function validateOperationOverrides(userConfig) {
     throw new PullOpsConfigError('PullOps Config operations must be an object.');
   }
 
+  const workflowOperations = getOperationCatalogWorkflowOperations();
+  const knownOperationConfigKeys = workflowOperations.map(operation => operation.configKey);
   const unknownOperations = Object.keys(operations).filter(
     operation =>
-      !WORKFLOW_OPERATION_CONFIG_KEYS.includes(
-        /** @type {WorkflowOperationConfigKey} */ (operation),
-      ),
+      !knownOperationConfigKeys.includes(/** @type {WorkflowOperationConfigKey} */ (operation)),
   );
 
   if (unknownOperations.length > 0) {
@@ -353,7 +354,7 @@ function mergeConfig(userConfig) {
   }
 
   if (isPlainObject(userConfig.operations)) {
-    for (const operation of WORKFLOW_OPERATIONS) {
+    for (const operation of getOperationCatalogWorkflowOperations()) {
       const settings = userConfig.operations[operation.configKey];
       if (settings !== undefined) {
         Object.assign(config.operations[operation.configKey], settings);

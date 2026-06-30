@@ -23,6 +23,7 @@ import {
   mapLocalRunResultStatusToTerminalStatus,
   recordLocalRunTerminalStatus,
 } from '../local-run-state/localRunState.js';
+import { getOperationCatalogOperationLabelReferenceForWorkflowOperation } from './operationCatalog.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -34,15 +35,6 @@ import {
  * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  */
 
-const OPERATION_REFERENCES = new Map([
-  ['pr-review', 'pr:review'],
-  ['pr-address-review', 'pr:address-review'],
-  ['pr-fix-ci', 'pr:fix-ci'],
-  ['pr-update-branch', 'pr:update-branch'],
-  ['pr-resolve-conflicts', 'pr:resolve-conflicts'],
-  ['pr-finalize', 'pr:finalize'],
-]);
-
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
@@ -50,7 +42,7 @@ const OPERATION_REFERENCES = new Map([
 export async function runLocalPullRequestOperation(context) {
   assertPullRequestTarget(context);
 
-  const operationReference = OPERATION_REFERENCES.get(context.operation);
+  const operationReference = readLocalPullRequestOperationReference(context.operation);
   const runRecord = await createLocalPullRequestRunRecord(context, {
     operationReference: operationReference ?? context.operation,
   });
@@ -558,10 +550,18 @@ async function blockLocalPullRequestOperation(context, runRecord, { reason, pull
   return await completeLocalPullRequestRunRecord(runRecord, {
     status: 'blocked',
     summary: reason,
-    operation: OPERATION_REFERENCES.get(context.operation) ?? context.operation,
+    operation: readLocalPullRequestOperationReference(context.operation) ?? context.operation,
     target: context.target,
     ...(pullRequest === undefined ? {} : { pullRequest: formatPullRequest(pullRequest) }),
   });
+}
+
+/**
+ * @param {string} operationName
+ * @returns {string | undefined}
+ */
+function readLocalPullRequestOperationReference(operationName) {
+  return getOperationCatalogOperationLabelReferenceForWorkflowOperation(operationName)?.reference;
 }
 
 /**

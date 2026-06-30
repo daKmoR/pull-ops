@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 
 import { PullOpsCli } from './PullOpsCli.js';
 import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
-import { WORKFLOW_OPERATIONS } from '../operations/operations.js';
+import { getOperationCatalogWorkflowOperations } from '../operations/operationCatalog.js';
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
@@ -116,6 +116,81 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
   });
 });
 
+test('run review loop operations accept catalog-backed Codex Action lifecycles', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+        operation: context.operation,
+        phase: context.phase,
+        runnerAdapter: context.runnerAdapter,
+        runnerRan: context.runnerRan,
+      };
+    },
+  });
+
+  /** @type {Array<[string, 'prepare' | 'finalize', string, string | undefined]>} */
+  const cases = [
+    ['pr-review', 'prepare', '456', undefined],
+    ['pr-address-review', 'finalize', '789', 'true'],
+  ];
+
+  for (const [operation, phase, targetNumber, runnerRan] of cases) {
+    /** @type {string[]} */
+    const args = [
+      'run',
+      operation,
+      '--phase',
+      phase,
+      '--runner',
+      'codex-action',
+      '--pr',
+      targetNumber,
+    ];
+    if (runnerRan !== undefined) {
+      args.push('--runner-ran', runnerRan);
+    }
+
+    const exitCode = await cli.run(args);
+
+    assert.equal(exitCode, 0);
+    assert.equal(calls.at(-1)?.operation, operation);
+    assert.equal(calls.at(-1)?.phase, phase);
+    assert.equal(calls.at(-1)?.runnerAdapter, 'codex-action');
+    assert.equal(
+      calls.at(-1)?.runnerRan,
+      runnerRan === undefined ? undefined : runnerRan === 'true',
+    );
+  }
+
+  assert.match(stdout.text, /"status": "accepted"/);
+});
+
+test('run operation rejects unsupported Codex Action lifecycle arguments for prd-prepare', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({ stderr });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd-prepare',
+    '--phase',
+    'prepare',
+    '--runner',
+    'codex-action',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /prd-prepare only supports codex-cli with the run phase/);
+});
+
 test('run pr-address-review accepts a trusted review id', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -150,7 +225,7 @@ test('run pr-address-review accepts a trusted review id', async () => {
 });
 
 test('run operation accepts every workflow-facing operation shape', async () => {
-  for (const operation of WORKFLOW_OPERATIONS) {
+  for (const operation of getOperationCatalogWorkflowOperations()) {
     /** @type {OperationRunnerContext[]} */
     const calls = [];
     const cli = new PullOpsCli({

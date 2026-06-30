@@ -4,7 +4,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { loadPullOpsConfig } from './PullOpsConfig.js';
+import {
+  getOperationCatalogDefaultOperationSettings,
+  getOperationCatalogWorkflowOperations,
+} from '../operations/operationCatalog.js';
+import { DEFAULT_PULL_OPS_CONFIG, loadPullOpsConfig } from './PullOpsConfig.js';
+
+test('DEFAULT_PULL_OPS_CONFIG derives operation defaults from the catalog workflow entries', () => {
+  const expectedOperationDefaults = /** @type {Record<string, unknown>} */ ({});
+
+  for (const operation of getOperationCatalogWorkflowOperations()) {
+    const defaultOperationSettings = getOperationCatalogDefaultOperationSettings(operation.name);
+    if (defaultOperationSettings === undefined) {
+      throw new Error(`${operation.name} defaults are missing from the operation catalog.`);
+    }
+
+    expectedOperationDefaults[operation.configKey] = defaultOperationSettings;
+  }
+
+  assert.deepEqual(
+    DEFAULT_PULL_OPS_CONFIG.operations,
+    /** @type {typeof DEFAULT_PULL_OPS_CONFIG.operations} */ (expectedOperationDefaults),
+  );
+});
 
 test('loadPullOpsConfig returns defaults and infers GitHub issue store when a GitHub remote exists', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-defaults-'));
@@ -27,19 +49,48 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   });
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
-  assert.equal(config.operations.prdAutoAdvance.modelTier, 'low');
-  assert.equal(config.operations.prdAutoComplete.modelTier, 'low');
+  assert.deepEqual(
+    config.operations.prdAutoAdvance,
+    getOperationCatalogDefaultOperationSettings('prd-auto-advance'),
+  );
+  assert.deepEqual(
+    config.operations.prdAutoComplete,
+    getOperationCatalogDefaultOperationSettings('prd-auto-complete'),
+  );
   assert.equal(config.operations.prFixCi.modelTier, 'mid');
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
-  assert.equal(config.operations.prReview.modelTier, 'high');
-  assert.equal(config.operations.prReview.escalationModelTier, 'high');
-  assert.equal(config.operations.prReview.humanFeedbackResponseModelTier, 'high');
-  assert.equal(config.operations.prAddressReview.modelTier, 'mid');
-  assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
-  assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'high');
+  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
+  assert.deepEqual(
+    config.operations.prFixCi,
+    getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
+  );
+  assert.deepEqual(
+    config.operations.prUpdateBranch,
+    getOperationCatalogDefaultOperationSettings('pr-update-branch'),
+  );
+  assert.deepEqual(
+    config.operations.prResolveConflicts,
+    getOperationCatalogDefaultOperationSettings('pr-resolve-conflicts'),
+  );
+  assert.deepEqual(
+    config.operations.prReview,
+    getOperationCatalogDefaultOperationSettings('pr-review'),
+  );
+  assert.deepEqual(
+    config.operations.prAddressReview,
+    getOperationCatalogDefaultOperationSettings('pr-address-review'),
+  );
+  assert.deepEqual(
+    config.operations.prFinalize,
+    getOperationCatalogDefaultOperationSettings('pr-finalize'),
+  );
+  assert.deepEqual(
+    config.operations.prCloseChildIssue,
+    getOperationCatalogDefaultOperationSettings('pr-close-child-issue'),
+  );
 });
 
 test('loadPullOpsConfig keeps issue store provider explicit when no GitHub remote is known', async () => {
@@ -112,10 +163,21 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.prAddressReview.modelTier, 'mid');
   assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
   assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'low');
+  assert.deepEqual(
+    config.operations.prFixCi,
+    getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
+  );
+  assert.deepEqual(
+    config.operations.prUpdateBranch,
+    getOperationCatalogDefaultOperationSettings('pr-update-branch'),
+  );
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 5);
+  assert.equal(config.operations.prFixCi.modelTier, 'mid');
+  assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prFinalize.modelTier, 'high');
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
+  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
 });
@@ -136,6 +198,26 @@ test('loadPullOpsConfig rejects unknown runner adapters', async () => {
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
     /runner\.adapter must be one of: codex-cli, codex-action/,
+  );
+});
+
+test('loadPullOpsConfig rejects unknown operation keys', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-operation-key-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        operations: {
+          issueImplement: { modelTier: 'mid' },
+          notARealOperation: { modelTier: 'high' },
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /operations contains unknown operation keys: notARealOperation/,
   );
 });
 
