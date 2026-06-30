@@ -38,6 +38,10 @@ import {
   WORKFLOW_OPERATION_NAMES,
 } from '../operations/operations.js';
 import {
+  getOperationCatalogSupportedRunnerAdapters,
+  getOperationCatalogSupportedRunnerPhases,
+} from '../operations/operationCatalog.js';
+import {
   createLocalPrdAutoCompleteSummary,
   createOperationProgressEventWriter,
 } from '../operations/prd-automation/eventStream.js';
@@ -2304,6 +2308,29 @@ function readPositiveIntegerEnv(value) {
  * @param {boolean | undefined} options.runnerRan
  */
 function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRan }) {
+  if (operationName === 'prd-prepare') {
+    const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
+    const supportedRunnerPhases = getOperationCatalogSupportedRunnerPhases(operationName);
+    if (supportedRunnerAdapters === undefined || supportedRunnerPhases === undefined) {
+      throw new Error('prd-prepare runner lifecycle facts are missing from the operation catalog.');
+    }
+
+    if (
+      !supportedRunnerAdapters.includes(runnerAdapter) ||
+      !supportedRunnerPhases.includes(phase)
+    ) {
+      throw new CliUsageError(
+        `prd-prepare only supports ${supportedRunnerAdapters.join(', ')} with the ${supportedRunnerPhases.join(', ')} phase.`,
+      );
+    }
+
+    if (runnerRan !== undefined) {
+      throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
+    }
+
+    return;
+  }
+
   if (runnerAdapter === 'codex-action') {
     if (phase === 'run') {
       throw new CliUsageError(

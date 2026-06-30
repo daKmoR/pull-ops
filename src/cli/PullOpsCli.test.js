@@ -116,6 +116,25 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
   });
 });
 
+test('run operation rejects unsupported Codex Action lifecycle arguments for prd-prepare', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({ stderr });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd-prepare',
+    '--phase',
+    'prepare',
+    '--runner',
+    'codex-action',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /prd-prepare only supports codex-cli with the run phase/);
+});
+
 test('run pr-address-review accepts a trusted review id', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */

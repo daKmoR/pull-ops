@@ -2,8 +2,16 @@
  * @typedef {import('../github/types.js').PullOpsLabel} PullOpsLabel
  */
 
+import { getOperationCatalogLabelDefinition } from '../operations/operationCatalog.js';
+
+const PRD_PREPARE_LABEL_DEFINITION = getOperationCatalogLabelDefinition('prd-prepare');
+
+if (PRD_PREPARE_LABEL_DEFINITION === undefined) {
+  throw new Error('prd-prepare label definition is missing from the operation catalog.');
+}
+
 export const PULL_OPS_OPERATION_LABELS = Object.freeze({
-  prdPrepare: 'pullops:prd:prepare',
+  prdPrepare: PRD_PREPARE_LABEL_DEFINITION.name,
   prdAutoAdvance: 'pullops:prd:auto-advance',
   prdAutoComplete: 'pullops:prd:auto-complete',
   issueImplement: 'pullops:issue:implement',
@@ -48,11 +56,7 @@ export const PULL_OPS_STATUS_LABEL_NAMES = Object.freeze(Object.values(PULL_OPS_
 
 /** @type {PullOpsLabel[]} */
 export const PULL_OPS_LABELS = [
-  {
-    name: PULL_OPS_OPERATION_LABELS.prdPrepare,
-    color: '5319E7',
-    description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
-  },
+  PRD_PREPARE_LABEL_DEFINITION,
   {
     name: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
     color: '5319E7',

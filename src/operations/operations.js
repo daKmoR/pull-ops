@@ -21,7 +21,6 @@ import {
   runIssueImplementCodexActionFinalize,
   runIssueImplementCodexActionPrepare,
 } from './issue-implement/run.js';
-import { runPrdPrepare } from './prd-prepare/run.js';
 import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 import {
   runPrFinalize,
@@ -34,6 +33,11 @@ import {
   runPrReviewCodexActionPrepare,
 } from './pr-review/run.js';
 import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
+import {
+  getOperationCatalogHandler,
+  getOperationCatalogOperationLabelReference,
+  getOperationCatalogWorkflowOperation,
+} from './operationCatalog.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -41,15 +45,25 @@ import { PULL_OPS_OPERATION_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  */
 
+const PRD_PREPARE_WORKFLOW_OPERATION_CATALOG = getOperationCatalogWorkflowOperation('prd-prepare');
+if (PRD_PREPARE_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('prd-prepare workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PRD_PREPARE_WORKFLOW_OPERATION = PRD_PREPARE_WORKFLOW_OPERATION_CATALOG;
+
+const PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('prd:prepare');
+if (PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('prd:prepare label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PRD_PREPARE_OPERATION_LABEL_REFERENCE = PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG;
+
 /** @type {WorkflowOperation[]} */
 export const WORKFLOW_OPERATIONS = [
   // Issue / PRD operations
-  {
-    name: 'prd-prepare',
-    target: 'issue',
-    option: 'issue',
-    configKey: 'prdPrepare',
-  },
+  PRD_PREPARE_WORKFLOW_OPERATION,
   {
     name: 'issue-implement',
     target: 'issue',
@@ -123,12 +137,7 @@ export const WORKFLOW_OPERATION_CONFIG_KEYS = WORKFLOW_OPERATIONS.map(
 
 /** @type {OperationLabelReference[]} */
 export const OPERATION_LABEL_REFERENCES = [
-  {
-    reference: 'prd:prepare',
-    workflowOperationName: 'prd-prepare',
-    target: 'issue',
-    label: PULL_OPS_OPERATION_LABELS.prdPrepare,
-  },
+  PRD_PREPARE_OPERATION_LABEL_REFERENCE,
   {
     reference: 'prd:auto-advance',
     workflowOperationName: 'prd-auto-advance',
@@ -206,6 +215,11 @@ export const LOCAL_OPERATION_LABEL_REFERENCE_NAMES = [
  * @returns {WorkflowOperation | undefined}
  */
 export function getWorkflowOperation(name) {
+  const catalogOperation = getOperationCatalogWorkflowOperation(name);
+  if (catalogOperation !== undefined) {
+    return catalogOperation;
+  }
+
   return WORKFLOW_OPERATIONS.find(operation => operation.name === name);
 }
 
@@ -214,6 +228,11 @@ export function getWorkflowOperation(name) {
  * @returns {OperationLabelReference | undefined}
  */
 export function getOperationLabelReference(reference) {
+  const catalogOperation = getOperationCatalogOperationLabelReference(reference);
+  if (catalogOperation !== undefined) {
+    return catalogOperation;
+  }
+
   return OPERATION_LABEL_REFERENCES.find(operation => operation.reference === reference);
 }
 
@@ -241,7 +260,12 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
   }
 
   if (context.operation === 'prd-prepare') {
-    return await runPrdPrepare(context);
+    const handler = getOperationCatalogHandler(context.operation);
+    if (handler === undefined) {
+      throw new Error('prd-prepare operation is not registered in the catalog.');
+    }
+
+    return await handler(context);
   }
 
   if (context.operation === 'issue-implement') {
