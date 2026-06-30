@@ -38,8 +38,8 @@ export const DEFAULT_PULL_OPS_CONFIG = {
   operations: {
     prdPrepare: defaultPrdPrepareOperationSettings(),
     issueImplement: defaultIssueImplementOperationSettings(),
-    prdAutoAdvance: { modelTier: 'low' },
-    prdAutoComplete: { modelTier: 'low' },
+    prdAutoAdvance: defaultPrdAutoAdvanceOperationSettings(),
+    prdAutoComplete: defaultPrdAutoCompleteOperationSettings(),
     prReview: {
       modelTier: 'high',
       escalationModelTier: 'high',
@@ -77,6 +77,30 @@ function defaultIssueImplementOperationSettings() {
   const defaults = getOperationCatalogDefaultOperationSettings('issue-implement');
   if (defaults === undefined) {
     throw new Error('issue-implement defaults are missing from the operation catalog.');
+  }
+
+  return defaults;
+}
+
+/**
+ * @returns {import('./types.js').OperationConfig}
+ */
+function defaultPrdAutoAdvanceOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('prd-auto-advance');
+  if (defaults === undefined) {
+    throw new Error('prd-auto-advance defaults are missing from the operation catalog.');
+  }
+
+  return defaults;
+}
+
+/**
+ * @returns {import('./types.js').OperationConfig}
+ */
+function defaultPrdAutoCompleteOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('prd-auto-complete');
+  if (defaults === undefined) {
+    throw new Error('prd-auto-complete defaults are missing from the operation catalog.');
   }
 
   return defaults;

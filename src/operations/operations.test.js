@@ -117,6 +117,58 @@ describe('runWorkflowOperation', () => {
     ]);
     assert.equal(git.currentBranch, 'main');
   });
+
+  it('05: rejects unsupported catalog lifecycles for prd-auto-advance before dispatch', async () => {
+    await assert.rejects(
+      runWorkflowOperation(
+        createContext({
+          executionBackend: 'local',
+          operation: 'prd-auto-advance',
+          runnerAdapter: 'codex-action',
+        }),
+      ),
+      /prd-auto-advance with --runner codex-action and --phase run is not supported by the operation catalog\./,
+    );
+  });
+
+  it('06: rejects unsupported catalog lifecycles for prd-auto-complete before dispatch', async () => {
+    await assert.rejects(
+      runWorkflowOperation(
+        createContext({
+          executionBackend: 'local',
+          operation: 'prd-auto-complete',
+          runnerAdapter: 'codex-action',
+        }),
+      ),
+      /prd-auto-complete with --runner codex-action and --phase run is not supported by the operation catalog\./,
+    );
+  });
+
+  it('07: rejects unsupported catalog phases for prd-auto-advance before dispatch', async () => {
+    await assert.rejects(
+      runWorkflowOperation(
+        createContext({
+          executionBackend: 'local',
+          operation: 'prd-auto-advance',
+          phase: 'prepare',
+        }),
+      ),
+      /prd-auto-advance with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
+    );
+  });
+
+  it('08: rejects unsupported catalog phases for prd-auto-complete before dispatch', async () => {
+    await assert.rejects(
+      runWorkflowOperation(
+        createContext({
+          executionBackend: 'local',
+          operation: 'prd-auto-complete',
+          phase: 'prepare',
+        }),
+      ),
+      /prd-auto-complete with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
+    );
+  });
 });
 
 /**

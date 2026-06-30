@@ -4,7 +4,6 @@ import {
   runPrAddressReview,
 } from './pr-address-review/run.js';
 import { runPrCloseChildIssue } from './pr-close-child-issue/run.js';
-import { runPrdAutoAdvance, runPrdAutoComplete } from './prd-automation/run.js';
 import {
   runPrFixCi,
   runPrFixCiCodexActionFinalize,
@@ -48,6 +47,22 @@ if (PRD_PREPARE_WORKFLOW_OPERATION_CATALOG === undefined) {
 /** @type {WorkflowOperation} */
 const PRD_PREPARE_WORKFLOW_OPERATION = PRD_PREPARE_WORKFLOW_OPERATION_CATALOG;
 
+const PRD_AUTO_ADVANCE_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('prd-auto-advance');
+if (PRD_AUTO_ADVANCE_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('prd-auto-advance workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PRD_AUTO_ADVANCE_WORKFLOW_OPERATION = PRD_AUTO_ADVANCE_WORKFLOW_OPERATION_CATALOG;
+
+const PRD_AUTO_COMPLETE_WORKFLOW_OPERATION_CATALOG =
+  getOperationCatalogWorkflowOperation('prd-auto-complete');
+if (PRD_AUTO_COMPLETE_WORKFLOW_OPERATION_CATALOG === undefined) {
+  throw new Error('prd-auto-complete workflow operation is missing from the operation catalog.');
+}
+/** @type {WorkflowOperation} */
+const PRD_AUTO_COMPLETE_WORKFLOW_OPERATION = PRD_AUTO_COMPLETE_WORKFLOW_OPERATION_CATALOG;
+
 const ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG =
   getOperationCatalogWorkflowOperation('issue-implement');
 if (ISSUE_IMPLEMENT_WORKFLOW_OPERATION_CATALOG === undefined) {
@@ -64,6 +79,24 @@ if (PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
 /** @type {OperationLabelReference} */
 const PRD_PREPARE_OPERATION_LABEL_REFERENCE = PRD_PREPARE_OPERATION_LABEL_REFERENCE_CATALOG;
 
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('prd:auto-advance');
+if (PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('prd:auto-advance label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE =
+  PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE_CATALOG;
+
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE_CATALOG =
+  getOperationCatalogOperationLabelReference('prd:auto-complete');
+if (PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
+  throw new Error('prd:auto-complete label reference is missing from the operation catalog.');
+}
+/** @type {OperationLabelReference} */
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE =
+  PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE_CATALOG;
+
 const ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG =
   getOperationCatalogOperationLabelReference('issue:implement');
 if (ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_CATALOG === undefined) {
@@ -77,18 +110,8 @@ export const WORKFLOW_OPERATIONS = [
   // Issue / PRD operations
   PRD_PREPARE_WORKFLOW_OPERATION,
   ISSUE_IMPLEMENT_WORKFLOW_OPERATION,
-  {
-    name: 'prd-auto-advance',
-    target: 'issue',
-    option: 'issue',
-    configKey: 'prdAutoAdvance',
-  },
-  {
-    name: 'prd-auto-complete',
-    target: 'issue',
-    option: 'issue',
-    configKey: 'prdAutoComplete',
-  },
+  PRD_AUTO_ADVANCE_WORKFLOW_OPERATION,
+  PRD_AUTO_COMPLETE_WORKFLOW_OPERATION,
   // PR review loop
   {
     name: 'pr-review',
@@ -145,18 +168,8 @@ export const WORKFLOW_OPERATION_CONFIG_KEYS = WORKFLOW_OPERATIONS.map(
 /** @type {OperationLabelReference[]} */
 export const OPERATION_LABEL_REFERENCES = [
   PRD_PREPARE_OPERATION_LABEL_REFERENCE,
-  {
-    reference: 'prd:auto-advance',
-    workflowOperationName: 'prd-auto-advance',
-    target: 'issue',
-    label: PULL_OPS_OPERATION_LABELS.prdAutoAdvance,
-  },
-  {
-    reference: 'prd:auto-complete',
-    workflowOperationName: 'prd-auto-complete',
-    target: 'issue',
-    label: PULL_OPS_OPERATION_LABELS.prdAutoComplete,
-  },
+  PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE,
+  PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE,
   ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE,
   {
     reference: 'pr:review',
@@ -258,8 +271,8 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     return await runLocalPullRequestOperation(context);
   }
 
-  const catalogHandler = getOperationCatalogHandler(context.operation, context.phase);
-  if (catalogHandler !== undefined) {
+  const catalogOperation = getOperationCatalogWorkflowOperation(context.operation);
+  if (catalogOperation !== undefined) {
     if (
       !supportsOperationCatalogRunnerLifecycle(context.operation, {
         phase: context.phase,
@@ -271,15 +284,14 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
       );
     }
 
+    const catalogHandler = getOperationCatalogHandler(context.operation, context.phase);
+    if (catalogHandler === undefined) {
+      throw new Error(
+        `${context.operation} catalog handler is missing for --runner ${context.runnerAdapter} and --phase ${context.phase}.`,
+      );
+    }
+
     return await catalogHandler(context);
-  }
-
-  if (context.operation === 'prd-auto-advance') {
-    return await runPrdAutoAdvance(context);
-  }
-
-  if (context.operation === 'prd-auto-complete') {
-    return await runPrdAutoComplete(context);
   }
 
   if (context.operation === 'pr-review') {

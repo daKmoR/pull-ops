@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { getOperationCatalogLabelDefinition } from '../operations/operationCatalog.js';
 import { PULL_OPS_LABELS } from './pullOpsLabels.js';
 
 describe('PULL_OPS_LABELS', () => {
@@ -12,4 +13,27 @@ describe('PULL_OPS_LABELS', () => {
       );
     }
   });
+
+  it('02: keeps PRD automation labels sourced from the operation catalog', () => {
+    for (const operationName of ['prd-auto-advance', 'prd-auto-complete']) {
+      const catalogLabelDefinition = requireCatalogLabelDefinition(operationName);
+      assert.deepEqual(
+        PULL_OPS_LABELS.find(label => label.name === catalogLabelDefinition.name),
+        catalogLabelDefinition,
+      );
+    }
+  });
 });
+
+/**
+ * @param {string} operationName
+ * @returns {import('../github/types.js').PullOpsLabel}
+ */
+function requireCatalogLabelDefinition(operationName) {
+  const catalogLabelDefinition = getOperationCatalogLabelDefinition(operationName);
+  if (catalogLabelDefinition === undefined) {
+    throw new Error(`${operationName} label definition is missing from the operation catalog.`);
+  }
+
+  return catalogLabelDefinition;
+}

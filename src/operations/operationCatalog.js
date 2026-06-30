@@ -18,6 +18,76 @@ const PRD_PREPARE_PACKAGE_SCRIPT_NAME = 'pullops:prd-prepare';
 /** @type {readonly [RunnerAdapter, OperationPhase][]} */
 const PRD_PREPARE_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([['codex-cli', 'run']]);
 
+const PRD_AUTO_ADVANCE_OPERATION_NAME = 'prd-auto-advance';
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE = 'prd:auto-advance';
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_NAME = 'pullops:prd:auto-advance';
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_DESCRIPTION =
+  'Prepare a PRD and drain the current unblocked child frontier.';
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_COLOR = '5319E7';
+const PRD_AUTO_ADVANCE_WORKFLOW_FILE_NAME = 'pullops-prd-auto-advance.yml';
+const PRD_AUTO_ADVANCE_PACKAGE_SCRIPT_NAME = 'pullops:prd-auto-advance';
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const PRD_AUTO_ADVANCE_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([['codex-cli', 'run']]);
+/** @type {WorkflowOperation} */
+const PRD_AUTO_ADVANCE_WORKFLOW_OPERATION = Object.freeze({
+  name: PRD_AUTO_ADVANCE_OPERATION_NAME,
+  target: 'issue',
+  option: 'issue',
+  configKey: 'prdAutoAdvance',
+});
+/** @type {OperationLabelReference} */
+const PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PRD_AUTO_ADVANCE_OPERATION_NAME,
+  target: 'issue',
+  label: PRD_AUTO_ADVANCE_OPERATION_LABEL_NAME,
+});
+/** @type {PullOpsLabel} */
+const PRD_AUTO_ADVANCE_LABEL_DEFINITION = Object.freeze({
+  name: PRD_AUTO_ADVANCE_OPERATION_LABEL_NAME,
+  color: PRD_AUTO_ADVANCE_OPERATION_LABEL_COLOR,
+  description: PRD_AUTO_ADVANCE_OPERATION_LABEL_DESCRIPTION,
+});
+/** @type {OperationConfig} */
+const PRD_AUTO_ADVANCE_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'low',
+});
+
+const PRD_AUTO_COMPLETE_OPERATION_NAME = 'prd-auto-complete';
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE = 'prd:auto-complete';
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_NAME = 'pullops:prd:auto-complete';
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_DESCRIPTION =
+  'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.';
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_COLOR = '5319E7';
+const PRD_AUTO_COMPLETE_WORKFLOW_FILE_NAME = 'pullops-prd-auto-complete.yml';
+const PRD_AUTO_COMPLETE_PACKAGE_SCRIPT_NAME = 'pullops:prd-auto-complete';
+/** @type {readonly [RunnerAdapter, OperationPhase][]} */
+const PRD_AUTO_COMPLETE_SUPPORTED_RUNNER_LIFECYCLES = Object.freeze([['codex-cli', 'run']]);
+/** @type {WorkflowOperation} */
+const PRD_AUTO_COMPLETE_WORKFLOW_OPERATION = Object.freeze({
+  name: PRD_AUTO_COMPLETE_OPERATION_NAME,
+  target: 'issue',
+  option: 'issue',
+  configKey: 'prdAutoComplete',
+});
+/** @type {OperationLabelReference} */
+const PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE_ENTRY = Object.freeze({
+  reference: PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE,
+  workflowOperationName: PRD_AUTO_COMPLETE_OPERATION_NAME,
+  target: 'issue',
+  label: PRD_AUTO_COMPLETE_OPERATION_LABEL_NAME,
+});
+/** @type {PullOpsLabel} */
+const PRD_AUTO_COMPLETE_LABEL_DEFINITION = Object.freeze({
+  name: PRD_AUTO_COMPLETE_OPERATION_LABEL_NAME,
+  color: PRD_AUTO_COMPLETE_OPERATION_LABEL_COLOR,
+  description: PRD_AUTO_COMPLETE_OPERATION_LABEL_DESCRIPTION,
+});
+/** @type {OperationConfig} */
+const PRD_AUTO_COMPLETE_DEFAULT_OPERATION_SETTINGS = Object.freeze({
+  modelTier: 'low',
+});
+
 const ISSUE_IMPLEMENT_OPERATION_NAME = 'issue-implement';
 const ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE = 'issue:implement';
 const ISSUE_IMPLEMENT_OPERATION_LABEL_NAME = 'pullops:issue:implement';
@@ -102,6 +172,24 @@ async function runPrdPrepareThroughCatalog(context) {
  * @param {import('../cli/types.js').OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
+async function runPrdAutoAdvanceThroughCatalog(context) {
+  const { runPrdAutoAdvance } = await import('./prd-automation/run.js');
+  return await runPrdAutoAdvance(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runPrdAutoCompleteThroughCatalog(context) {
+  const { runPrdAutoComplete } = await import('./prd-automation/run.js');
+  return await runPrdAutoComplete(context);
+}
+
+/**
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
 async function runIssueImplementThroughCatalog(context) {
   const { runIssueImplement } = await import('./issue-implement/run.js');
   return await runIssueImplement(context);
@@ -150,6 +238,14 @@ export function getOperationCatalogSupportedRunnerLifecycles(operationName) {
     return PRD_PREPARE_SUPPORTED_RUNNER_LIFECYCLES;
   }
 
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_SUPPORTED_RUNNER_LIFECYCLES;
+  }
+
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_SUPPORTED_RUNNER_LIFECYCLES;
   }
@@ -164,6 +260,14 @@ export function getOperationCatalogSupportedRunnerLifecycles(operationName) {
 export function getOperationCatalogWorkflowOperation(operationName) {
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_WORKFLOW_OPERATION;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_WORKFLOW_OPERATION;
   }
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
@@ -182,6 +286,14 @@ export function getOperationCatalogOperationLabelReference(reference) {
     return PRD_PREPARE_OPERATION_LABEL_REFERENCE_ENTRY;
   }
 
+  if (reference === PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE) {
+    return PRD_AUTO_ADVANCE_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
+  if (reference === PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE) {
+    return PRD_AUTO_COMPLETE_OPERATION_LABEL_REFERENCE_ENTRY;
+  }
+
   if (reference === ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE) {
     return ISSUE_IMPLEMENT_OPERATION_LABEL_REFERENCE_ENTRY;
   }
@@ -196,6 +308,14 @@ export function getOperationCatalogOperationLabelReference(reference) {
 export function getOperationCatalogDefaultOperationSettings(operationName) {
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_DEFAULT_OPERATION_SETTINGS;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_DEFAULT_OPERATION_SETTINGS;
   }
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
@@ -214,6 +334,14 @@ export function getOperationCatalogLabelDefinition(operationName) {
     return PRD_PREPARE_LABEL_DEFINITION;
   }
 
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_LABEL_DEFINITION;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_LABEL_DEFINITION;
+  }
+
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_LABEL_DEFINITION;
   }
@@ -230,6 +358,14 @@ export function getOperationCatalogWorkflowFileName(operationName) {
     return PRD_PREPARE_WORKFLOW_FILE_NAME;
   }
 
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_WORKFLOW_FILE_NAME;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_WORKFLOW_FILE_NAME;
+  }
+
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
     return ISSUE_IMPLEMENT_WORKFLOW_FILE_NAME;
   }
@@ -244,6 +380,14 @@ export function getOperationCatalogWorkflowFileName(operationName) {
 export function getOperationCatalogPackageScriptName(operationName) {
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return PRD_PREPARE_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return PRD_AUTO_ADVANCE_PACKAGE_SCRIPT_NAME;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return PRD_AUTO_COMPLETE_PACKAGE_SCRIPT_NAME;
   }
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
@@ -286,6 +430,14 @@ export function getOperationCatalogSupportedRunnerPhases(operationName) {
 export function getOperationCatalogHandler(operationName, phase = 'run') {
   if (operationName === PRD_PREPARE_OPERATION_NAME) {
     return phase === 'run' ? runPrdPrepareThroughCatalog : undefined;
+  }
+
+  if (operationName === PRD_AUTO_ADVANCE_OPERATION_NAME) {
+    return phase === 'run' ? runPrdAutoAdvanceThroughCatalog : undefined;
+  }
+
+  if (operationName === PRD_AUTO_COMPLETE_OPERATION_NAME) {
+    return phase === 'run' ? runPrdAutoCompleteThroughCatalog : undefined;
   }
 
   if (operationName === ISSUE_IMPLEMENT_OPERATION_NAME) {
