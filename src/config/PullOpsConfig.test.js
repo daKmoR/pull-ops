@@ -41,12 +41,14 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
-  assert.equal(config.operations.prReview.modelTier, 'high');
-  assert.equal(config.operations.prReview.escalationModelTier, 'high');
-  assert.equal(config.operations.prReview.humanFeedbackResponseModelTier, 'high');
-  assert.equal(config.operations.prAddressReview.modelTier, 'mid');
-  assert.equal(config.operations.prAddressReview.escalationModelTier, 'high');
-  assert.equal(config.operations.prAddressReview.humanFeedbackResponseModelTier, 'high');
+  assert.deepEqual(
+    config.operations.prReview,
+    getOperationCatalogDefaultOperationSettings('pr-review'),
+  );
+  assert.deepEqual(
+    config.operations.prAddressReview,
+    getOperationCatalogDefaultOperationSettings('pr-address-review'),
+  );
 });
 
 test('loadPullOpsConfig keeps issue store provider explicit when no GitHub remote is known', async () => {

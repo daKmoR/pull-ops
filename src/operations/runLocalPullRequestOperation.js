@@ -23,6 +23,7 @@ import {
   mapLocalRunResultStatusToTerminalStatus,
   recordLocalRunTerminalStatus,
 } from '../local-run-state/localRunState.js';
+import { getOperationCatalogOperationLabelReference } from './operationCatalog.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -35,13 +36,26 @@ import {
  */
 
 const OPERATION_REFERENCES = new Map([
-  ['pr-review', 'pr:review'],
-  ['pr-address-review', 'pr:address-review'],
+  ['pr-review', requireOperationCatalogLabelReference('pr:review')],
+  ['pr-address-review', requireOperationCatalogLabelReference('pr:address-review')],
   ['pr-fix-ci', 'pr:fix-ci'],
   ['pr-update-branch', 'pr:update-branch'],
   ['pr-resolve-conflicts', 'pr:resolve-conflicts'],
   ['pr-finalize', 'pr:finalize'],
 ]);
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+function requireOperationCatalogLabelReference(reference) {
+  const catalogReference = getOperationCatalogOperationLabelReference(reference);
+  if (catalogReference === undefined) {
+    throw new Error(`${reference} label reference is missing from the operation catalog.`);
+  }
+
+  return catalogReference.reference;
+}
 
 /**
  * @param {OperationRunnerContext} context

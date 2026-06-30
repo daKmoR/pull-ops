@@ -14,8 +14,13 @@ describe('PULL_OPS_LABELS', () => {
     }
   });
 
-  it('02: keeps PRD automation labels sourced from the operation catalog', () => {
-    for (const operationName of ['prd-auto-advance', 'prd-auto-complete']) {
+  it('02: keeps PRD and review loop labels sourced from the operation catalog', () => {
+    for (const operationName of [
+      'prd-auto-advance',
+      'prd-auto-complete',
+      'pr-review',
+      'pr-address-review',
+    ]) {
       const catalogLabelDefinition = requireCatalogLabelDefinition(operationName);
       assert.deepEqual(
         PULL_OPS_LABELS.find(label => label.name === catalogLabelDefinition.name),

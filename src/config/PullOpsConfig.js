@@ -40,16 +40,8 @@ export const DEFAULT_PULL_OPS_CONFIG = {
     issueImplement: defaultIssueImplementOperationSettings(),
     prdAutoAdvance: defaultPrdAutoAdvanceOperationSettings(),
     prdAutoComplete: defaultPrdAutoCompleteOperationSettings(),
-    prReview: {
-      modelTier: 'high',
-      escalationModelTier: 'high',
-      humanFeedbackResponseModelTier: 'high',
-    },
-    prAddressReview: {
-      modelTier: 'mid',
-      escalationModelTier: 'high',
-      humanFeedbackResponseModelTier: 'high',
-    },
+    prReview: defaultPrReviewOperationSettings(),
+    prAddressReview: defaultPrAddressReviewOperationSettings(),
     prFixCi: { modelTier: 'mid' },
     prUpdateBranch: { modelTier: 'low' },
     prResolveConflicts: { modelTier: 'high', maxConflictResolutionPasses: 3 },
@@ -104,6 +96,30 @@ function defaultPrdAutoCompleteOperationSettings() {
   }
 
   return defaults;
+}
+
+/**
+ * @returns {import('./types.js').ReviewOperationConfig}
+ */
+function defaultPrReviewOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('pr-review');
+  if (defaults === undefined) {
+    throw new Error('pr-review defaults are missing from the operation catalog.');
+  }
+
+  return /** @type {import('./types.js').ReviewOperationConfig} */ (defaults);
+}
+
+/**
+ * @returns {import('./types.js').ReviewOperationConfig}
+ */
+function defaultPrAddressReviewOperationSettings() {
+  const defaults = getOperationCatalogDefaultOperationSettings('pr-address-review');
+  if (defaults === undefined) {
+    throw new Error('pr-address-review defaults are missing from the operation catalog.');
+  }
+
+  return /** @type {import('./types.js').ReviewOperationConfig} */ (defaults);
 }
 
 export class PullOpsConfigError extends Error {

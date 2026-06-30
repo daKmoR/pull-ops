@@ -153,7 +153,101 @@ describe('operationCatalog', () => {
     assert.equal(typeof getOperationCatalogHandler('issue-implement', 'finalize'), 'function');
   });
 
-  it('03: returns the prd:auto-advance and prd:auto-complete operation facts from purpose-specific lookups', () => {
+  it('03: returns the pr-review and pr-address-review operation facts from purpose-specific lookups', () => {
+    for (const [operationName, labelReference, labelName, description, modelTier] of [
+      ['pr-review', 'pr:review', 'pullops:pr:review', 'Run PullOps automated PR review.', 'high'],
+      [
+        'pr-address-review',
+        'pr:address-review',
+        'pullops:pr:address-review',
+        'Address actionable PullOps PR review feedback.',
+        'mid',
+      ],
+    ]) {
+      assert.deepEqual(getOperationCatalogWorkflowOperation(operationName), {
+        name: operationName,
+        target: 'pr',
+        option: 'pr',
+        configKey: operationName === 'pr-review' ? 'prReview' : 'prAddressReview',
+      });
+      assert.deepEqual(getOperationCatalogOperationLabelReference(labelReference), {
+        reference: labelReference,
+        workflowOperationName: operationName,
+        target: 'pr',
+        label: labelName,
+      });
+      assert.deepEqual(getOperationCatalogDefaultOperationSettings(operationName), {
+        modelTier,
+        escalationModelTier: 'high',
+        humanFeedbackResponseModelTier: 'high',
+      });
+      assert.deepEqual(getOperationCatalogLabelDefinition(operationName), {
+        name: labelName,
+        color: '5319E7',
+        description,
+      });
+      assert.equal(
+        getOperationCatalogWorkflowFileName(operationName),
+        `pullops-${operationName}.yml`,
+      );
+      assert.equal(getOperationCatalogPackageScriptName(operationName), `pullops:${operationName}`);
+      assert.equal(Object.hasOwn(packageJson.scripts, `pullops:${operationName}`), true);
+      assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles(operationName), [
+        ['codex-cli', 'run'],
+        ['codex-action', 'prepare'],
+        ['codex-action', 'finalize'],
+      ]);
+      assert.deepEqual(getOperationCatalogSupportedRunnerAdapters(operationName), [
+        'codex-cli',
+        'codex-action',
+      ]);
+      assert.deepEqual(getOperationCatalogSupportedRunnerPhases(operationName), [
+        'run',
+        'prepare',
+        'finalize',
+      ]);
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'run',
+          runnerAdapter: 'codex-cli',
+        }),
+        true,
+      );
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'prepare',
+          runnerAdapter: 'codex-action',
+        }),
+        true,
+      );
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'finalize',
+          runnerAdapter: 'codex-action',
+        }),
+        true,
+      );
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'run',
+          runnerAdapter: 'codex-action',
+        }),
+        false,
+      );
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'prepare',
+          runnerAdapter: 'codex-cli',
+        }),
+        false,
+      );
+      assert.equal(typeof getOperationCatalogHandler(operationName), 'function');
+      assert.equal(typeof getOperationCatalogHandler(operationName, 'prepare'), 'function');
+      assert.equal(typeof getOperationCatalogHandler(operationName, 'finalize'), 'function');
+    }
+  });
+
+  it('04: returns the prd:auto-advance and prd:auto-complete operation facts from purpose-specific lookups', () => {
     for (const [operationName, labelReference, labelName, description] of [
       [
         'prd-auto-advance',
@@ -219,20 +313,36 @@ describe('operationCatalog', () => {
     }
   });
 
-  it('04: returns nothing for operations outside the catalog-owned slices', () => {
-    assert.equal(getOperationCatalogWorkflowOperation('pr-review'), undefined);
-    assert.equal(getOperationCatalogOperationLabelReference('pr:review'), undefined);
-    assert.equal(getOperationCatalogDefaultOperationSettings('pr-review'), undefined);
-    assert.equal(getOperationCatalogLabelDefinition('pr-review'), undefined);
-    assert.equal(getOperationCatalogWorkflowFileName('pr-review'), undefined);
-    assert.equal(getOperationCatalogPackageScriptName('pr-review'), undefined);
-    assert.equal(
-      supportsOperationCatalogRunnerLifecycle('pr-review', {
-        phase: 'run',
-        runnerAdapter: 'codex-cli',
-      }),
-      false,
-    );
-    assert.equal(getOperationCatalogHandler('pr-review'), undefined);
+  it('05: returns nothing for operations outside the catalog-owned slices', () => {
+    /** @type {Array<[string, string | undefined]>} */
+    const cases = [
+      ['pr-fix-ci', 'pr:fix-ci'],
+      ['pr-update-branch', 'pr:update-branch'],
+      ['pr-resolve-conflicts', 'pr:resolve-conflicts'],
+      ['pr-finalize', 'pr:finalize'],
+      ['pr-close-child-issue', undefined],
+    ];
+
+    for (const [operationName, labelReference] of cases) {
+      assert.equal(getOperationCatalogWorkflowOperation(operationName), undefined);
+      assert.equal(
+        getOperationCatalogOperationLabelReference(
+          labelReference === undefined ? 'pr-close-child-issue' : labelReference,
+        ),
+        undefined,
+      );
+      assert.equal(getOperationCatalogDefaultOperationSettings(operationName), undefined);
+      assert.equal(getOperationCatalogLabelDefinition(operationName), undefined);
+      assert.equal(getOperationCatalogWorkflowFileName(operationName), undefined);
+      assert.equal(getOperationCatalogPackageScriptName(operationName), undefined);
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'run',
+          runnerAdapter: 'codex-cli',
+        }),
+        false,
+      );
+      assert.equal(getOperationCatalogHandler(operationName), undefined);
+    }
   });
 });
