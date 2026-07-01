@@ -550,6 +550,54 @@ test('heartbeat accepts the worker environment and advances lease timing', async
   assert.equal(after.leaseDurationMs, before.leaseDurationMs);
 });
 
+test('heartbeat accepts durable recording when parent event sink delivery fails', async () => {
+  const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-sink-failed-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const stdout = createWritableBuffer();
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stdout,
+    stderr,
+    githubClient: createFakeGitHubClient(),
+    gitClient: createFakeGitClient(),
+    env: {
+      PULLOPS_RUN_STATE_PATH: stateRecord.statePath,
+      PULLOPS_HEARTBEAT_TOKEN: stateRecord.state.heartbeatToken,
+      PULLOPS_PARENT_EVENT_SINK_URL: 'http://127.0.0.1:1/events',
+      PULLOPS_PARENT_EVENT_SINK_TOKEN: 'parent-sink-token',
+      PULLOPS_PARENT_RUN_ID: '2026-06-20T010203000Z-prd-auto-complete-12',
+      PULLOPS_CHILD_RUN_ID: stateRecord.state.runId,
+      PULLOPS_CHILD_ISSUE_NUMBER: '42',
+      PULLOPS_CHILD_LOCAL_RUN_RECORD: runRecordDirectory,
+      PULLOPS_CHILD_RUN_STATE_PATH: stateRecord.statePath,
+    },
+  });
+
+  const exitCode = await cli.run(['heartbeat', '--summary', 'sink failure still records']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(stderr.text, '');
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'accepted');
+  assert.equal(output.warnings.length, 1);
+  assert.match(output.warnings[0], /^Parent event sink delivery failed:/);
+  assert.equal(output.runState.heartbeatCount, 1);
+  assert.equal(output.runState.heartbeatSummary, 'sink failure still records');
+
+  const after = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(after.heartbeatCount, 1);
+  assert.equal(after.heartbeatSummary, 'sink failure still records');
+});
+
 test('heartbeat refuses a mismatched token without mutating the state file', async () => {
   const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-cli-refused-'));
   const stateRecord = await initializeLocalRunState({

@@ -1612,6 +1612,7 @@ async function coordinateLocalChildIssue(
       ...(parentEventSinkEnvironment === undefined ? {} : { parentEventSinkEnvironment }),
     });
   } catch (error) {
+    context.parentEventSink?.closeChildRoute(childRunLink.runId);
     await progressReporter?.flush();
     if (parentRun !== undefined) {
       await recordLocalPrdChildRunState(parentRun, childRunLink, childRunStartedAt, {
@@ -1621,6 +1622,7 @@ async function coordinateLocalChildIssue(
     }
     throw error;
   }
+  context.parentEventSink?.closeChildRoute(childRunLink.runId);
   await progressReporter?.flush();
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
