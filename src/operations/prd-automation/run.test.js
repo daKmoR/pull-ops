@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
+import { PullOpsCli } from '../../cli/PullOpsCli.js';
 import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplete } from './run.js';
 
 /**
@@ -2095,6 +2096,7 @@ describe('runPrdAutoComplete', () => {
           '2026-06-20T010203000Z-prd-auto-complete-12',
         ),
         progressEventWriter: progressWriter,
+        parentEventSink: createFakeParentEventSink().sink,
         progress(message) {
           progressMessages.push(message);
         },
@@ -2158,6 +2160,182 @@ describe('runPrdAutoComplete', () => {
       codex.calls.every(call => call.streamOutput === false),
       true,
     );
+  });
+
+  it('19b: local auto-complete emits child heartbeat events without nested stdout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-heartbeats-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({ dirtyAfterRunner: true });
+    const stdout = createWritableBuffer();
+    const stderr = createWritableBuffer();
+    /** @type {CodexRunOptions[]} */
+    const codexCalls = [];
+    /** @type {NodeJS.ProcessEnv | undefined} */
+    let childHeartbeatEnvironment;
+    const codex = {
+      calls: codexCalls,
+      runner: {
+        /**
+         * @param {CodexRunOptions} options
+         */
+        async run(options) {
+          codexCalls.push(options);
+          assert.equal(options.streamOutput, false);
+          assert(options.env);
+          childHeartbeatEnvironment = options.env;
+          assert.match(
+            String(options.env.PULLOPS_PARENT_EVENT_SINK_URL),
+            /^http:\/\/127\.0\.0\.1:/,
+          );
+          assert.match(String(options.env.PULLOPS_PARENT_RUN_ID), /prd-auto-complete-12$/);
+          assert.equal(options.env.PULLOPS_CHILD_ISSUE_NUMBER, '34');
+
+          for (const summary of ['building child', 'testing child']) {
+            const stdout = createWritableBuffer();
+            /** @type {PullOpsCli} */
+            const cli = new PullOpsCli({
+              cwd,
+              stdout,
+              stderr: createWritableBuffer(),
+              githubClient: github.client,
+              gitClient: git.client,
+              env: options.env,
+            });
+            assert.equal(await cli.run(['heartbeat', '--summary', summary]), 0);
+            assert.equal(JSON.parse(stdout.text).runState.heartbeatSummary, summary);
+          }
+
+          git.markRunnerChangedWorktree();
+          return {
+            status: 'implemented',
+            summary: 'Implemented child issue run.',
+            changes: ['Changed child issue code.'],
+            testPlan: ['Not run in fake test.'],
+            followUps: [],
+          };
+        },
+      },
+    };
+
+    const cli = new PullOpsCli({
+      cwd,
+      stdout,
+      stderr,
+      githubClient: github.client,
+      gitClient: git.client,
+      codexRunner: codex.runner,
+      env: {
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      operationRunner: runPrdAutoComplete,
+    });
+
+    const exitCode = await cli.run([
+      'run',
+      'prd:auto-complete',
+      '12',
+      '--events',
+      'jsonl',
+      '--until',
+      'operation',
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.equal(stderr.text, '');
+    assert.equal(codex.calls.length, 1);
+    assert(childHeartbeatEnvironment);
+    const childHeartbeatEnv =
+      /** @type {import('../../parent-event-sink/types.js').PullOpsParentEventSinkChildEnvironment} */ (
+        childHeartbeatEnvironment
+      );
+    const events = stdout.text
+      .trimEnd()
+      .split('\n')
+      .map(line => JSON.parse(line));
+    assert.deepEqual(
+      events.map(event => event.event),
+      [
+        'run.started',
+        'phase.started',
+        'child.started',
+        'child.progress',
+        'child.progress',
+        'child.progress',
+        'child.heartbeat',
+        'child.heartbeat',
+        'child.progress',
+        'child.completed',
+        'phase.completed',
+        'waiting',
+        'run.summary',
+      ],
+    );
+    const heartbeatEvents = events.filter(event => event.event === 'child.heartbeat');
+    assert.deepEqual(
+      heartbeatEvents.map(event => event.heartbeatCount),
+      [1, 2],
+    );
+    assert.deepEqual(
+      heartbeatEvents.map(event => event.heartbeatSummary),
+      ['building child', 'testing child'],
+    );
+    for (const heartbeat of heartbeatEvents) {
+      const childIssue = /** @type {{ number?: number }} */ (heartbeat.childIssue);
+      assert.equal(childIssue.number, 34);
+      assert.match(String(heartbeat.childRunId), /issue-implement-34$/);
+      assert.match(String(heartbeat.localRunRecord), /\.pullops\/runs\/.+issue-implement-34$/);
+      assert.match(String(heartbeat.childRunStatePath), /issue-implement-34\/state\.json$/);
+      assert.equal(heartbeat.completedNonHeartbeatStepsSinceHeartbeat, 0);
+      assert.equal(typeof heartbeat.heartbeatAt, 'string');
+      assert.equal(typeof heartbeat.leaseExpiresAt, 'string');
+    }
+    assert.equal(
+      events.findIndex(event => event.event === 'child.heartbeat') <
+        events.findIndex(event => event.event === 'child.completed'),
+      true,
+    );
+    assert.equal(
+      events.findIndex(event => event.event === 'child.heartbeat') <
+        events.findIndex(event => event.event === 'run.summary'),
+      true,
+    );
+    const summaryEvent = events.at(-1);
+    assert.equal(summaryEvent?.event, 'run.summary');
+    assert.equal(summaryEvent?.status, 'accepted');
+    assert.equal(summaryEvent?.runId, childHeartbeatEnv.PULLOPS_PARENT_RUN_ID);
+    const runRecord = String(summaryEvent?.localRunRecord);
+    assert.match(runRecord, /\.pullops\/runs\/.+prd-auto-complete-12$/);
+    assert.equal(await readFile(join(runRecord, 'events.jsonl'), 'utf8'), stdout.text);
+
+    await assert.rejects(async () => {
+      await fetch(String(childHeartbeatEnv.PULLOPS_PARENT_EVENT_SINK_URL), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${childHeartbeatEnv.PULLOPS_PARENT_EVENT_SINK_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'heartbeat',
+          parentRunId: childHeartbeatEnv.PULLOPS_PARENT_RUN_ID,
+          childRunId: childHeartbeatEnv.PULLOPS_CHILD_RUN_ID,
+          childIssueNumber: Number(childHeartbeatEnv.PULLOPS_CHILD_ISSUE_NUMBER),
+          localRunRecord: childHeartbeatEnv.PULLOPS_CHILD_LOCAL_RUN_RECORD,
+          childRunStatePath: childHeartbeatEnv.PULLOPS_CHILD_RUN_STATE_PATH,
+          heartbeatAt: '2026-06-20T01:02:04.000Z',
+          leaseExpiresAt: '2026-06-20T01:07:04.000Z',
+          heartbeatCount: 3,
+          heartbeatSummary: 'post-run heartbeat',
+          completedNonHeartbeatStepsSinceHeartbeat: 0,
+        }),
+      });
+    });
   });
 
   it('20: local dry-run auto-complete records child run links in parent run state', async () => {
@@ -2369,6 +2547,82 @@ function createProgressEventWriterSpy() {
       };
       events.push(emitted);
       return emitted;
+    },
+  };
+}
+
+/**
+ * @param {{ progressWriter?: ReturnType<typeof createProgressEventWriterSpy> }} [options]
+ * @returns {{
+ *   sink: import('../../parent-event-sink/types.js').PullOpsParentEventSink,
+ *   fetch: typeof globalThis.fetch,
+ * }}
+ */
+function createFakeParentEventSink({ progressWriter } = {}) {
+  /** @type {Map<string, import('../../parent-event-sink/types.js').PullOpsParentEventSinkChildRoute>} */
+  const routes = new Map();
+  const endpoint = 'http://127.0.0.1:12345/events';
+  const token = 'test-parent-event-sink-token';
+
+  return {
+    sink: {
+      endpoint,
+      token,
+      createChildEnvironment(route) {
+        routes.set(route.childRunLink.runId, route);
+        return {
+          PULLOPS_PARENT_EVENT_SINK_URL: endpoint,
+          PULLOPS_PARENT_EVENT_SINK_TOKEN: token,
+          PULLOPS_PARENT_RUN_ID: '2026-06-20T010203000Z-prd-auto-complete-12',
+          PULLOPS_CHILD_RUN_ID: route.childRunLink.runId,
+          PULLOPS_CHILD_ISSUE_NUMBER: String(route.childIssueNumber),
+          PULLOPS_CHILD_LOCAL_RUN_RECORD: route.localRunRecord,
+          PULLOPS_CHILD_RUN_STATE_PATH: route.childRunLink.statePath,
+        };
+      },
+      closeChildRoute(childRunId) {
+        routes.delete(childRunId);
+      },
+      async close() {},
+    },
+    async fetch(url, options = {}) {
+      assert.equal(url, endpoint);
+      assert.equal(options.method, 'POST');
+      assert.equal(
+        /** @type {Record<string, string>} */ (options.headers).authorization,
+        `Bearer ${token}`,
+      );
+      const payload = JSON.parse(String(options.body));
+      const childRunId = String(payload.childRunId);
+      const route = routes.get(childRunId);
+      assert(route);
+      await progressWriter?.emit('child.heartbeat', {
+        phase: 'child-coordination',
+        childIssue: {
+          number: route.childIssueNumber,
+        },
+        childRunId,
+        localRunRecord: payload.localRunRecord,
+        childRunStatePath: payload.childRunStatePath,
+        heartbeatAt: payload.heartbeatAt,
+        leaseExpiresAt: payload.leaseExpiresAt,
+        heartbeatCount: payload.heartbeatCount,
+        heartbeatSummary: payload.heartbeatSummary,
+        completedNonHeartbeatStepsSinceHeartbeat: payload.completedNonHeartbeatStepsSinceHeartbeat,
+      });
+      return /** @type {Response} */ ({ ok: true, status: 202 });
+    },
+  };
+}
+
+function createWritableBuffer() {
+  return {
+    text: '',
+    /**
+     * @param {string | Uint8Array} chunk
+     */
+    write(chunk) {
+      this.text += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
     },
   };
 }

@@ -2239,7 +2239,13 @@ async function createLocalRunRecord(
   return {
     directory,
     statePath: stateRecord.statePath,
-    heartbeatEnvironment: stateRecord.heartbeatEnvironment,
+    heartbeatEnvironment:
+      context.parentEventSinkEnvironment === undefined
+        ? stateRecord.heartbeatEnvironment
+        : {
+            ...stateRecord.heartbeatEnvironment,
+            ...context.parentEventSinkEnvironment,
+          },
     runLink: stateRecord.runLink,
   };
 }
