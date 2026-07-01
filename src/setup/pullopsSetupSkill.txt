@@ -19,17 +19,30 @@ If `npm_config_cache` is already set to a sandbox-writable cache path, keep the 
 ## Start
 
 1. Work from the repository root. If a setup command says this is not the root, rerun from the reported root.
-2. Make sure GitHub Authentication is working 
+2. Record local changes before reconciliation so setup does not overwrite user work. Keep git staging and commits untouched throughout.
 3. Run `setup doctor --profile full --json` first and read `status`, `changesNeeded`, `blockers`, `warnings`, and `suggestions`. Completion criterion: every blocker and warning is classified as local action, remote approval, external credential handoff, or external wait.
-4. Keep git staging and commits untouched. Record local changes before reconciliation so setup does not overwrite user work.
+4. If doctor reports missing GitHub authentication, use the GitHub Authentication branch before reconciling remote setup areas.
 
 ## GitHub Authentication
 
-GitHub API authentication is contextual readiness. PullOps can use `GITHUB_TOKEN` only when that credential is visible to the current process. If it is missing add it to `~/.codex/.env` setting it via a privileged `gh auth token`. If it is not giving a token then ask the user to run `gh auth login` and if `gh` is missing ask user to install it.
+GitHub API authentication is contextual readiness. PullOps can use `PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`, but only when that credential is visible to the current process.
+
+If a sandboxed Codex agent reports missing GitHub authentication:
+
+1. Check for a visible token without printing it, for example `test -n "${GITHUB_TOKEN:-}"`.
+2. If the host has `gh`, prefer a host-side `GITHUB_TOKEN` sourced from `gh auth token`; if `gh auth token` fails, ask the user to run `gh auth login`; if `gh` is missing, ask the user to install GitHub CLI or provide a token through the environment.
+3. For Codex sandboxes, tell the user to add `GITHUB_TOKEN=...` to `~/.codex/.env` and allow it through `~/.codex/config.toml`:
+
+```toml
+[shell_environment_policy]
+include_only = ["GITHUB_TOKEN"]
+```
+
+If `include_only` already exists, add `GITHUB_TOKEN` to the existing list rather than replacing unrelated entries. Do not print tokens with `echo`, paste them into chat, commit them, or include them in logs.
 
 ## Reconcile
 
-For each setup area, use the same loop: run the check command, read `status`, `changesNeeded`, `blockers`, and `warnings`, run the apply command only when needed and unblocked, then re-run the check until the area is ready or a real blocker remains.
+For each setup area, use the same loop: run the check command, read `status`, `changesNeeded`, `blockers`, `warnings`, and `suggestions`; run the apply command only when changes are needed and no blocker remains; then re-run the check. Completion criterion: the area is ready, or every remaining blocker is classified and reported.
 
 - Skills: check `setup skills --check --json`; apply `setup skills --json`.
 - Agent docs: check `setup agent-docs --check --json`; apply `setup agent-docs --json`.
@@ -50,6 +63,7 @@ For each setup area, use the same loop: run the check command, read `status`, `c
 - Expect setup commands to write repo-local files; tool approval may be required for those local writes.
 - Do not overwrite PullOps-owned files unless the manifest proves ownership and `--force` is explicitly needed.
 - `setup skills` installs only bundled PullOps-owned skills from the local `@pull-ops/cli` package dependency.
+- Do not invoke `setup-matt-pocock-skills` or any remote skill package installer.
 - `setup agent-docs` creates missing compatible issue tracker, triage label, and domain docs without editing global agent instruction files.
 - When a blocker mentions local changes in a manifest-owned file, inspect the file before deciding whether `--force` is appropriate.
 - Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.js`.
