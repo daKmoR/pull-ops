@@ -45,6 +45,7 @@ import {
   createLocalPrdAutoCompleteSummary,
   createOperationProgressEventWriter,
 } from '../operations/prd-automation/eventStream.js';
+import { publishHeartbeatToParentEventSink } from '../parent-event-sink/parentEventSink.js';
 import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
@@ -304,12 +305,14 @@ export class PullOpsCli {
       return { emitted: false, heartbeatIntervalMs };
     }
 
-    const updated = await recordLocalRunHeartbeat({
+    const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
       statePath,
       token,
       summary,
       at: this.now(),
     });
+    this.writeParentEventSinkWarning(sinkDelivery.warning);
+    const updated = sinkDelivery.runState;
     return {
       emitted: true,
       heartbeatIntervalMs: readStepHeartbeatIntervalMs(updated),
@@ -332,12 +335,13 @@ export class PullOpsCli {
       heartbeatWrite = heartbeatWrite
         .catch(() => undefined)
         .then(async () => {
-          await recordLocalRunHeartbeat({
+          const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
             statePath,
             token,
             summary,
             at: this.now(),
           });
+          this.writeParentEventSinkWarning(sinkDelivery.warning);
         })
         .catch(error => {
           this.writeError(`[pullops] step heartbeat failed: ${getErrorMessage(error)}`);
@@ -419,7 +423,7 @@ export class PullOpsCli {
         throw new LocalRunHeartbeatError(`Missing heartbeat token for ${statePath}.`);
       }
 
-      const runState = await recordLocalRunHeartbeat({
+      const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
         statePath,
         token: parsedArgs.token,
         summary: parsedArgs.summary,
@@ -429,7 +433,8 @@ export class PullOpsCli {
         summary: `Recorded heartbeat for ${localRunRecord}.`,
         localRunRecord,
         runStatePath: statePath,
-        runState,
+        runState: sinkDelivery.runState,
+        ...(sinkDelivery.warning === undefined ? {} : { warnings: [sinkDelivery.warning] }),
       });
       return 0;
     } catch (error) {
@@ -442,6 +447,36 @@ export class PullOpsCli {
         ...(statePath === undefined ? {} : { runStatePath: statePath }),
       });
       return 1;
+    }
+  }
+
+  /**
+   * @param {import('../local-run-state/types.js').RecordLocalRunHeartbeatOptions} options
+   * @returns {Promise<{
+   *   runState: import('../local-run-state/types.js').LocalRunState,
+   *   warning?: string,
+   * }>}
+   */
+  async recordLocalRunHeartbeatAndPublish(options) {
+    const runState = await recordLocalRunHeartbeat(options);
+    const sinkDelivery = await publishHeartbeatToParentEventSink({
+      env: this.env,
+      localRunRecord: dirname(options.statePath),
+      runState,
+    });
+    return {
+      runState,
+      ...(sinkDelivery.warning === undefined ? {} : { warning: sinkDelivery.warning }),
+    };
+  }
+
+  /**
+   * @param {string | undefined} warning
+   * @returns {void}
+   */
+  writeParentEventSinkWarning(warning) {
+    if (warning !== undefined) {
+      this.writeError(`[pullops] ${warning}`);
     }
   }
 

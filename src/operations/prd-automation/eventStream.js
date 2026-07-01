@@ -21,6 +21,7 @@ const OPERATION_PROGRESS_EVENT_NAMES = new Set(
     'phase.completed',
     'child.started',
     'child.progress',
+    'child.heartbeat',
     'child.completed',
     'child.blocked',
     'waiting',
