@@ -24,48 +24,14 @@ export async function startPullOpsParentEventSink({ parentRun, progressEventWrit
   const routes = new Map();
 
   const server = createServer(async (request, response) => {
-    try {
-      if (request.method !== 'POST' || request.url !== '/events') {
-        writeSinkResponse(response, 404, { status: 'not-found' });
-        return;
-      }
-
-      const auth = request.headers.authorization;
-      if (auth !== `Bearer ${token}`) {
-        writeSinkResponse(response, 401, { status: 'refused', reason: 'unauthorized' });
-        return;
-      }
-
-      const payload = await readJsonRequestBody(request);
-      const heartbeat = readAcceptedHeartbeatPayload(payload, { parentRun, routes });
-      await progressEventWriter.emit('child.heartbeat', {
-        phase: 'child-coordination',
-        childIssue: {
-          number: heartbeat.childIssueNumber,
-        },
-        childRunId: heartbeat.childRunId,
-        localRunRecord: heartbeat.localRunRecord,
-        childRunStatePath: heartbeat.childRunStatePath,
-        heartbeatAt: heartbeat.heartbeatAt,
-        leaseExpiresAt: heartbeat.leaseExpiresAt,
-        heartbeatCount: heartbeat.heartbeatCount,
-        ...(heartbeat.heartbeatSummary === undefined
-          ? {}
-          : { heartbeatSummary: heartbeat.heartbeatSummary }),
-        completedNonHeartbeatStepsSinceHeartbeat:
-          heartbeat.completedNonHeartbeatStepsSinceHeartbeat,
-      });
-      const route = routes.get(heartbeat.childRunId);
-      if (route !== undefined) {
-        route.lastHeartbeatCount = heartbeat.heartbeatCount;
-      }
-      writeSinkResponse(response, 202, { status: 'accepted' });
-    } catch (error) {
-      writeSinkResponse(response, readSinkErrorStatus(error), {
-        status: 'refused',
-        reason: getErrorMessage(error),
-      });
-    }
+    await handleParentEventSinkRequest({
+      request,
+      response,
+      token,
+      parentRun,
+      routes,
+      progressEventWriter,
+    });
   });
 
   await listen(server);
@@ -91,6 +57,9 @@ export async function startPullOpsParentEventSink({ parentRun, progressEventWrit
         PULLOPS_CHILD_LOCAL_RUN_RECORD: route.localRunRecord,
         PULLOPS_CHILD_RUN_STATE_PATH: route.childRunLink.statePath,
       };
+    },
+    closeChildRoute(childRunId) {
+      routes.delete(childRunId);
     },
     async close() {
       await closeServer(server);
@@ -167,6 +136,69 @@ export async function publishHeartbeatToParentEventSink({ env, localRunRecord, r
       delivered: false,
       warning: `Parent event sink delivery failed: ${getErrorMessage(error)}`,
     };
+  }
+}
+
+/**
+ * @param {{
+ *   request: import('node:http').IncomingMessage,
+ *   response: import('node:http').ServerResponse,
+ *   token: string,
+ *   parentRun: LocalRunRunLink,
+ *   routes: Map<string, PullOpsParentEventSinkChildRoute & { lastHeartbeatCount: number }>,
+ *   progressEventWriter: OperationProgressEventWriter,
+ * }} options
+ * @returns {Promise<void>}
+ */
+export async function handleParentEventSinkRequest({
+  request,
+  response,
+  token,
+  parentRun,
+  routes,
+  progressEventWriter,
+}) {
+  try {
+    if (request.method !== 'POST' || request.url !== '/events') {
+      writeSinkResponse(response, 404, { status: 'not-found' });
+      return;
+    }
+
+    const auth = request.headers.authorization;
+    if (auth !== `Bearer ${token}`) {
+      writeSinkResponse(response, 401, { status: 'refused', reason: 'unauthorized' });
+      return;
+    }
+
+    const payload = await readJsonRequestBody(request);
+    const heartbeat = readAcceptedHeartbeatPayload(payload, { parentRun, routes });
+    const route = routes.get(heartbeat.childRunId);
+    if (route !== undefined) {
+      route.lastHeartbeatCount = heartbeat.heartbeatCount;
+    }
+    await progressEventWriter.emit('child.heartbeat', {
+      phase: 'child-coordination',
+      childIssue: {
+        number: heartbeat.childIssueNumber,
+      },
+      childRunId: heartbeat.childRunId,
+      localRunRecord: heartbeat.localRunRecord,
+      childRunStatePath: heartbeat.childRunStatePath,
+      heartbeatAt: heartbeat.heartbeatAt,
+      leaseExpiresAt: heartbeat.leaseExpiresAt,
+      heartbeatCount: heartbeat.heartbeatCount,
+      ...(heartbeat.heartbeatSummary === undefined
+        ? {}
+        : { heartbeatSummary: heartbeat.heartbeatSummary }),
+      completedNonHeartbeatStepsSinceHeartbeat:
+        heartbeat.completedNonHeartbeatStepsSinceHeartbeat,
+    });
+    writeSinkResponse(response, 202, { status: 'accepted' });
+  } catch (error) {
+    writeSinkResponse(response, readSinkErrorStatus(error), {
+      status: 'refused',
+      reason: getErrorMessage(error),
+    });
   }
 }
 
