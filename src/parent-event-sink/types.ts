@@ -22,5 +22,6 @@ export interface PullOpsParentEventSink {
   createChildEnvironment(
     route: PullOpsParentEventSinkChildRoute,
   ): PullOpsParentEventSinkChildEnvironment;
+  closeChildRoute(childRunId: string): void;
   close(): Promise<void>;
 }

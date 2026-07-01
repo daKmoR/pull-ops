@@ -2580,6 +2580,9 @@ function createFakeParentEventSink({ progressWriter } = {}) {
           PULLOPS_CHILD_RUN_STATE_PATH: route.childRunLink.statePath,
         };
       },
+      closeChildRoute(childRunId) {
+        routes.delete(childRunId);
+      },
       async close() {},
     },
     async fetch(url, options = {}) {
