@@ -7,8 +7,11 @@ import { promisify } from 'node:util';
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import {
   createGitHubClient,
+  MISSING_GITHUB_AUTHENTICATION_BLOCKER,
+  MISSING_GITHUB_AUTHENTICATION_SUGGESTION,
   parseGitHubRepository,
   PULL_OPS_LABELS,
+  readGitHubAuthToken as readDefaultGitHubAuthToken,
 } from '../github/GitHubClient.js';
 import { renderPullOpsGitHubActionsWorkflowFiles } from './githubActionsWorkflows.js';
 import {
@@ -156,14 +159,14 @@ export async function runPullOpsSetupGitHubLabels({
     });
   }
 
-  const client =
-    githubClient ??
-    createGitHubClient({
-      ...(repository === undefined ? {} : { repository: parseGitHubRepository(repository) }),
-      readRemoteOriginUrl: () => readGitRemoteOriginUrl(resolvedCwd),
-    });
-
   try {
+    const client =
+      githubClient ??
+      createGitHubClient({
+        ...(repository === undefined ? {} : { repository: parseGitHubRepository(repository) }),
+        readRemoteOriginUrl: () => readGitRemoteOriginUrl(resolvedCwd),
+      });
+
     if (check) {
       if (client.listRepositoryLabels === undefined) {
         throw new Error('GitHub client does not support listing repository labels.');
@@ -225,6 +228,7 @@ export async function runPullOpsSetupDoctor({
   cwd = process.cwd(),
   profile = 'full',
   repository,
+  readGitHubAuthToken = readDefaultGitHubAuthToken,
   readRepositoryActionsSecretNames,
   readRepositoryLabels,
 } = {}) {
@@ -296,19 +300,25 @@ export async function runPullOpsSetupDoctor({
       profile === 'full' || profile === 'authoring' ? new Set(AGENT_DOC_TARGETS) : new Set(),
   });
 
+  const gitHubAuthenticationInspection = shouldInspectLocalGitHubAuthentication(profile)
+    ? await inspectLocalGitHubAuthentication({ readGitHubAuthToken })
+    : { blockers: [], warnings: [], suggestions: [] };
+  const canInspectRemoteGitHub = gitHubAuthenticationInspection.blockers.length === 0;
   const githubActionsInspection =
-    profile === 'full' || profile === 'github-actions'
+    canInspectRemoteGitHub && (profile === 'full' || profile === 'github-actions')
       ? await inspectGitHubActionsReadiness({
           cwd: resolvedCwd,
           repository,
+          readGitHubAuthToken,
           readRepositoryActionsSecretNames,
         })
       : { blockers: [], warnings: [], suggestions: [] };
   const githubLabelsInspection =
-    profile === 'full' || profile === 'github-actions'
+    canInspectRemoteGitHub && (profile === 'full' || profile === 'github-actions')
       ? await inspectGitHubLabelsReadiness({
           cwd: resolvedCwd,
           repository,
+          readGitHubAuthToken,
           readRepositoryLabels,
         })
       : { changesNeeded: {}, warnings: [], suggestions: [] };
@@ -319,7 +329,11 @@ export async function runPullOpsSetupDoctor({
       : { warnings: [], suggestions: [] };
   const runsIgnoreResult = await inspectPullOpsRunsIgnore({ cwd: resolvedCwd });
 
-  const blockers = dedupeStrings([...inspection.blockers, ...githubActionsInspection.blockers]);
+  const blockers = dedupeStrings([
+    ...inspection.blockers,
+    ...gitHubAuthenticationInspection.blockers,
+    ...githubActionsInspection.blockers,
+  ]);
   const changesNeeded = mergeSetupChangeSets([
     createFileSetupChangeSet(inspection.changesNeeded),
     githubLabelsInspection.changesNeeded,
@@ -327,6 +341,7 @@ export async function runPullOpsSetupDoctor({
   const warnings = dedupeStrings([
     ...prereqResult.warnings,
     ...inspection.warnings,
+    ...gitHubAuthenticationInspection.warnings,
     ...githubActionsInspection.warnings,
     ...githubLabelsInspection.warnings,
     ...optionalAuthoringResult.warnings,
@@ -335,6 +350,7 @@ export async function runPullOpsSetupDoctor({
   const suggestions = dedupeStrings([
     ...prereqResult.suggestions,
     ...inspection.suggestions,
+    ...gitHubAuthenticationInspection.suggestions,
     ...githubActionsInspection.suggestions,
     ...githubLabelsInspection.suggestions,
     ...optionalAuthoringResult.suggestions,
@@ -992,16 +1008,51 @@ async function inspectPullOpsRunsIgnore({ cwd }) {
 }
 
 /**
+ * @param {PullOpsSetupProfile} profile
+ * @returns {boolean}
+ */
+function shouldInspectLocalGitHubAuthentication(profile) {
+  return profile === 'full' || profile === 'local' || profile === 'github-actions';
+}
+
+/**
+ * @param {{ readGitHubAuthToken: () => string | undefined }} options
+ * @returns {Promise<{ blockers: string[], warnings: string[], suggestions: string[] }>}
+ */
+async function inspectLocalGitHubAuthentication({ readGitHubAuthToken }) {
+  try {
+    const token = readGitHubAuthToken();
+    if (typeof token === 'string' && token.trim() !== '') {
+      return { blockers: [], warnings: [], suggestions: [] };
+    }
+  } catch (error) {
+    return {
+      blockers: [`Unable to inspect local GitHub API authentication: ${getErrorMessage(error)}`],
+      warnings: [],
+      suggestions: [MISSING_GITHUB_AUTHENTICATION_SUGGESTION],
+    };
+  }
+
+  return {
+    blockers: [MISSING_GITHUB_AUTHENTICATION_BLOCKER],
+    warnings: [],
+    suggestions: [MISSING_GITHUB_AUTHENTICATION_SUGGESTION],
+  };
+}
+
+/**
  * @param {{
  *   cwd?: string,
  *   repository?: string,
- *   readRepositoryActionsSecretNames?: (options: { cwd: string, repository?: string }) => Promise<string[]>;
+ *   readGitHubAuthToken?: () => string | undefined,
+ *   readRepositoryActionsSecretNames?: (options: { cwd: string, repository?: string, readGitHubAuthToken: () => string | undefined }) => Promise<string[]>;
  * }} [options]
  * @returns {Promise<{ blockers: string[], warnings: string[], suggestions: string[] }>}
  */
 async function inspectGitHubActionsReadiness({
   cwd = process.cwd(),
   repository,
+  readGitHubAuthToken = readDefaultGitHubAuthToken,
   readRepositoryActionsSecretNames = readRepositoryActionsSecretNamesDefault,
 } = {}) {
   /** @type {string[]} */
@@ -1022,6 +1073,7 @@ async function inspectGitHubActionsReadiness({
     const secretNames = await readRepositoryActionsSecretNames({
       cwd,
       ...(repository === undefined ? {} : { repository }),
+      readGitHubAuthToken,
     });
     const missingSecrets = GITHUB_ACTIONS_REQUIRED_SECRETS.filter(
       secret => !secretNames.includes(secret),
@@ -1061,19 +1113,22 @@ async function inspectGitHubActionsReadiness({
  * @param {{
  *   cwd?: string,
  *   repository?: string,
- *   readRepositoryLabels?: (options: { cwd: string, repository?: string }) => Promise<GitHubLabel[]>,
+ *   readGitHubAuthToken?: () => string | undefined,
+ *   readRepositoryLabels?: (options: { cwd: string, repository?: string, readGitHubAuthToken: () => string | undefined }) => Promise<GitHubLabel[]>,
  * }} [options]
  * @returns {Promise<{ changesNeeded: import('./init.types.js').PullOpsSetupChangeSet, warnings: string[], suggestions: string[] }>}
  */
 async function inspectGitHubLabelsReadiness({
   cwd = process.cwd(),
   repository,
+  readGitHubAuthToken = readDefaultGitHubAuthToken,
   readRepositoryLabels = readRepositoryLabelsDefault,
 } = {}) {
   try {
     const existingLabels = await readRepositoryLabels({
       cwd,
       ...(repository === undefined ? {} : { repository }),
+      readGitHubAuthToken,
     });
     const inspection = inspectPullOpsGitHubLabels(existingLabels);
     const changesNeeded = createLabelSetupChangeSet(inspection);
@@ -1100,13 +1155,14 @@ async function inspectGitHubLabelsReadiness({
 }
 
 /**
- * @param {{ cwd: string, repository?: string }} options
+ * @param {{ cwd: string, repository?: string, readGitHubAuthToken: () => string | undefined }} options
  * @returns {Promise<GitHubLabel[]>}
  */
-async function readRepositoryLabelsDefault({ cwd, repository }) {
-  const client = createGitHubClient({
-    ...(repository === undefined ? {} : { repository: parseGitHubRepository(repository) }),
-    readRemoteOriginUrl: () => readGitRemoteOriginUrl(cwd),
+async function readRepositoryLabelsDefault({ cwd, repository, readGitHubAuthToken }) {
+  const client = createAuthenticatedSetupGitHubClient({
+    cwd,
+    repository,
+    readGitHubAuthToken,
   });
   if (client.listRepositoryLabels === undefined) {
     throw new Error('GitHub client does not support listing repository labels.');
@@ -1167,18 +1223,33 @@ function normalizeLabelColor(color) {
 }
 
 /**
- * @param {{ cwd: string, repository?: string }} options
+ * @param {{ cwd: string, repository?: string, readGitHubAuthToken: () => string | undefined }} options
  * @returns {Promise<string[]>}
  */
-async function readRepositoryActionsSecretNamesDefault({ cwd, repository }) {
-  const client = createGitHubClient({
-    ...(repository === undefined ? {} : { repository: parseGitHubRepository(repository) }),
-    readRemoteOriginUrl: () => readGitRemoteOriginUrl(cwd),
+async function readRepositoryActionsSecretNamesDefault({ cwd, repository, readGitHubAuthToken }) {
+  const client = createAuthenticatedSetupGitHubClient({
+    cwd,
+    repository,
+    readGitHubAuthToken,
   });
   if (client.listRepositoryActionsSecretNames === undefined) {
     throw new Error('GitHub client does not support listing repository Actions secrets.');
   }
   return await client.listRepositoryActionsSecretNames();
+}
+
+/**
+ * @param {{ cwd: string, repository?: string, readGitHubAuthToken: () => string | undefined }} options
+ * @returns {GitHubClient}
+ */
+function createAuthenticatedSetupGitHubClient({ cwd, repository, readGitHubAuthToken }) {
+  const auth = readGitHubAuthToken();
+  return createGitHubClient({
+    env: auth === undefined ? {} : { PULLOPS_GITHUB_TOKEN: auth },
+    readGitHubCliToken: () => undefined,
+    ...(repository === undefined ? {} : { repository: parseGitHubRepository(repository) }),
+    readRemoteOriginUrl: () => readGitRemoteOriginUrl(cwd),
+  });
 }
 
 /**

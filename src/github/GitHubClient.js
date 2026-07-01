@@ -37,9 +37,15 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./GitHubClient.types.js').GitHubRepository} GitHubRepository
  * @typedef {import('./GitHubClient.types.js').GitHubApiClient} GitHubApiClient
  * @typedef {import('./GitHubClient.types.js').CreateOctokit} CreateOctokit
+ * @typedef {import('./GitHubClient.types.js').CreateOctokitOptions} CreateOctokitOptions
  * @typedef {import('./GitHubClient.types.js').ReadRemoteOriginUrl} ReadRemoteOriginUrl
  * @typedef {import('./GitHubClient.types.js').ReadGitHubCliToken} ReadGitHubCliToken
  */
+
+export const MISSING_GITHUB_AUTHENTICATION_BLOCKER =
+  'GitHub API authentication is required. PullOps does not make unauthenticated GitHub API requests.';
+export const MISSING_GITHUB_AUTHENTICATION_SUGGESTION =
+  'Set PULLOPS_GITHUB_TOKEN or GITHUB_TOKEN, or run gh auth login and ensure gh is on PATH for this process before rerunning PullOps.';
 
 const ISSUE_RELATIONSHIPS_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
@@ -235,7 +241,12 @@ export function createGitHubClient({
   readRemoteOriginUrl = readGitRemoteOriginUrl,
   readGitHubCliToken = readLocalGitHubCliToken,
 } = {}) {
-  const api = octokit ?? createOctokit({ auth: readGitHubToken({ env, readGitHubCliToken }) });
+  const api =
+    octokit ??
+    createOctokit({
+      auth: readRequiredGitHubAuthToken({ env, readGitHubCliToken }),
+      throttle: createPullOpsThrottleOptions(),
+    });
   const getRepository = createRepositoryResolver({ repository, env, readRemoteOriginUrl });
 
   return {
@@ -587,26 +598,89 @@ export function createGitHubClient({
 }
 
 /**
- * @param {{ auth?: string }} options
+ * @param {CreateOctokitOptions} options
  * @returns {GitHubApiClient}
  */
-function createOctokitClient({ auth }) {
-  const options = auth === undefined ? {} : { auth };
+function createOctokitClient(options) {
   return /** @type {GitHubApiClient} */ (/** @type {unknown} */ (new Octokit(options)));
+}
+
+/**
+ * @returns {NonNullable<CreateOctokitOptions['throttle']>}
+ */
+function createPullOpsThrottleOptions() {
+  return {
+    onRateLimit: logRateLimitWithoutRetry,
+    onSecondaryRateLimit: logSecondaryRateLimitWithoutRetry,
+  };
+}
+
+/**
+ * @param {number} retryAfter
+ * @param {import('./GitHubClient.types.js').GitHubThrottleRequestOptions} options
+ * @param {import('./GitHubClient.types.js').GitHubThrottleOctokit} octokit
+ * @returns {undefined}
+ */
+function logRateLimitWithoutRetry(retryAfter, options, octokit) {
+  octokit.log.warn(
+    `Request quota exhausted for request ${readThrottleRequest(options)}; not retrying automatically after ${retryAfter} second(s).`,
+  );
+}
+
+/**
+ * @param {number} retryAfter
+ * @param {import('./GitHubClient.types.js').GitHubThrottleRequestOptions} options
+ * @param {import('./GitHubClient.types.js').GitHubThrottleOctokit} octokit
+ * @returns {undefined}
+ */
+function logSecondaryRateLimitWithoutRetry(retryAfter, options, octokit) {
+  octokit.log.warn(
+    `Secondary rate limit detected for request ${readThrottleRequest(options)}; not retrying automatically after ${retryAfter} second(s).`,
+  );
+}
+
+/**
+ * @param {import('./GitHubClient.types.js').GitHubThrottleRequestOptions} options
+ * @returns {string}
+ */
+function readThrottleRequest(options) {
+  const method = options.method ?? 'UNKNOWN';
+  const url = options.url ?? 'unknown URL';
+  return `${method} ${url}`;
+}
+
+/**
+ * @param {object} [options]
+ * @param {NodeJS.ProcessEnv} [options.env]
+ * @param {ReadGitHubCliToken} [options.readGitHubCliToken]
+ * @returns {string | undefined}
+ */
+export function readGitHubAuthToken({
+  env = process.env,
+  readGitHubCliToken = readLocalGitHubCliToken,
+} = {}) {
+  return (
+    readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN) ??
+    readNonEmptyEnv(env.GITHUB_TOKEN) ??
+    readGitHubCliToken()
+  );
 }
 
 /**
  * @param {object} options
  * @param {NodeJS.ProcessEnv} options.env
  * @param {ReadGitHubCliToken} options.readGitHubCliToken
- * @returns {string | undefined}
+ * @returns {string}
  */
-function readGitHubToken({ env, readGitHubCliToken }) {
-  return (
-    readNonEmptyEnv(env.PULLOPS_GITHUB_TOKEN) ??
-    readNonEmptyEnv(env.GITHUB_TOKEN) ??
-    readGitHubCliToken()
-  );
+function readRequiredGitHubAuthToken(options) {
+  const token = readGitHubAuthToken(options);
+  if (token === undefined) {
+    throw new Error(
+      `${MISSING_GITHUB_AUTHENTICATION_BLOCKER} ${MISSING_GITHUB_AUTHENTICATION_SUGGESTION}`,
+    );
+  }
+
+  return token;
 }
 
 /**

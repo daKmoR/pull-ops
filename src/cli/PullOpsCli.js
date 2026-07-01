@@ -72,6 +72,31 @@ function readWorkflowOperationNames() {
 }
 
 /**
+ * @param {() => GitHubClient} readClient
+ * @returns {GitHubClient}
+ */
+function createLazyGitHubClient(readClient) {
+  return /** @type {GitHubClient} */ (
+    new Proxy(
+      {},
+      {
+        get(_target, property) {
+          if (property === Symbol.toStringTag) {
+            return 'PullOpsLazyGitHubClient';
+          }
+
+          const client = readClient();
+          const value = /** @type {Record<PropertyKey, unknown>} */ (
+            /** @type {unknown} */ (client)
+          )[property];
+          return typeof value === 'function' ? value.bind(client) : value;
+        },
+      },
+    )
+  );
+}
+
+/**
  * @returns {readonly string[]}
  */
 function readOperationLabelReferenceNames() {
@@ -134,7 +159,9 @@ export class PullOpsCli {
     this.stderr = stderr;
     this.stdin = stdin;
     this.providedGitHubClient = githubClient;
-    this.githubClient = githubClient ?? createGitHubClient();
+    this.defaultGitHubClient = githubClient;
+    /** @type {GitHubClient | undefined} */
+    this.defaultOperationGitHubClient = undefined;
     /** @type {(message: string) => void} */
     this.progress = message => {
       this.stderr.write(`[pullops] ${message}\n`);
@@ -159,6 +186,22 @@ export class PullOpsCli {
     this.env = env;
     this.spawnCommand = spawnCommand;
     this.now = now;
+  }
+
+  /**
+   * @returns {GitHubClient}
+   */
+  get githubClient() {
+    this.defaultGitHubClient ??= createGitHubClient();
+    return this.defaultGitHubClient;
+  }
+
+  /**
+   * @returns {GitHubClient}
+   */
+  get operationGitHubClient() {
+    this.defaultOperationGitHubClient ??= createLazyGitHubClient(() => this.githubClient);
+    return this.defaultOperationGitHubClient;
   }
 
   /**
@@ -634,7 +677,7 @@ export class PullOpsCli {
       config,
       modelTier: operationConfig.modelTier,
       model,
-      githubClient: this.githubClient,
+      githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
@@ -790,7 +833,7 @@ export class PullOpsCli {
       config,
       modelTier: operationConfig.modelTier,
       model,
-      githubClient: this.githubClient,
+      githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
@@ -839,7 +882,7 @@ export class PullOpsCli {
       config,
       modelTier: operationConfig.modelTier,
       model,
-      githubClient: this.githubClient,
+      githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
@@ -888,7 +931,7 @@ export class PullOpsCli {
       config,
       modelTier: operationConfig.modelTier,
       model,
-      githubClient: this.githubClient,
+      githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
       codexRunner: this.codexRunner,
       triggerActor: this.env.GITHUB_ACTOR,
@@ -962,7 +1005,7 @@ export class PullOpsCli {
         config,
         modelTier: operationConfig.modelTier,
         model,
-        githubClient: this.githubClient,
+        githubClient: this.operationGitHubClient,
         gitClient: this.gitClient,
         codexRunner: this.codexRunner,
         triggerActor: this.env.GITHUB_ACTOR,
@@ -1163,7 +1206,9 @@ export class PullOpsCli {
       cwd: this.cwd,
       check: parsedArgs.check,
       force: parsedArgs.force,
-      githubClient: parsedArgs.repo === undefined ? this.githubClient : this.providedGitHubClient,
+      ...(this.providedGitHubClient === undefined
+        ? {}
+        : { githubClient: this.providedGitHubClient }),
       ...(parsedArgs.repo === undefined ? {} : { repository: parsedArgs.repo }),
     });
 

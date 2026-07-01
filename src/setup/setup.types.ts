@@ -17,11 +17,17 @@ export interface PullOpsSetupGitHubLabelsOptions extends PullOpsSetupCommandOpti
 export interface PullOpsSetupDoctorOptions extends PullOpsSetupCommandOptions {
   profile?: PullOpsSetupProfile;
   repository?: string;
+  readGitHubAuthToken?: () => string | undefined;
   readRepositoryActionsSecretNames?: (options: {
     cwd: string;
     repository?: string;
+    readGitHubAuthToken: () => string | undefined;
   }) => Promise<string[]>;
-  readRepositoryLabels?: (options: { cwd: string; repository?: string }) => Promise<GitHubLabel[]>;
+  readRepositoryLabels?: (options: {
+    cwd: string;
+    repository?: string;
+    readGitHubAuthToken: () => string | undefined;
+  }) => Promise<GitHubLabel[]>;
 }
 
 export interface SetupWrite {

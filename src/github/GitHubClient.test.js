@@ -631,6 +631,91 @@ describe('createGitHubClient', () => {
     assert.equal(auth, 'gh-token');
   });
 
+  it('14b: refuses to create unauthenticated GitHub API clients', () => {
+    assert.throws(
+      () =>
+        createGitHubClient({
+          env: {
+            GITHUB_REPOSITORY: 'acme/widgets',
+          },
+          readGitHubCliToken() {
+            return undefined;
+          },
+          createOctokit() {
+            throw new Error('createOctokit should not be called without authentication.');
+          },
+        }),
+      /GitHub API authentication is required/,
+    );
+  });
+
+  it('14c: does not automatically sleep and retry after GitHub rate limits', async () => {
+    const { octokit } = createFakeOctokit({ labels: [] });
+    /** @type {import('./GitHubClient.types.js').CreateOctokitOptions | undefined} */
+    let createOptions;
+    /** @type {string[]} */
+    const warnings = [];
+    /** @type {import('./GitHubClient.types.js').GitHubThrottleOctokit} */
+    const throttleOctokit = {
+      log: {
+        info(message) {
+          throw new Error(`Unexpected throttle info log: ${message}`);
+        },
+        warn(message) {
+          warnings.push(message);
+        },
+      },
+    };
+    const client = createGitHubClient({
+      env: {
+        GITHUB_REPOSITORY: 'acme/widgets',
+      },
+      readGitHubCliToken() {
+        return 'gh-token';
+      },
+      createOctokit(options) {
+        createOptions = options;
+        return octokit;
+      },
+    });
+
+    await client.ensureLabels([]);
+
+    assert.ok(createOptions?.throttle);
+    assert.equal(
+      await createOptions.throttle.onRateLimit(
+        900,
+        {
+          method: 'POST',
+          url: '/graphql',
+          request: {
+            retryCount: 0,
+          },
+        },
+        throttleOctokit,
+      ),
+      undefined,
+    );
+    assert.equal(
+      await createOptions.throttle.onSecondaryRateLimit(
+        60,
+        {
+          method: 'GET',
+          url: '/repos/acme/widgets/issues',
+          request: {
+            retryCount: 0,
+          },
+        },
+        throttleOctokit,
+      ),
+      undefined,
+    );
+    assert.deepEqual(warnings, [
+      'Request quota exhausted for request POST /graphql; not retrying automatically after 900 second(s).',
+      'Secondary rate limit detected for request GET /repos/acme/widgets/issues; not retrying automatically after 60 second(s).',
+    ]);
+  });
+
   it('15: infers the GitHub repository from common origin formats', async () => {
     for (const origin of [
       'git@github.com:acme/widgets.git\n',

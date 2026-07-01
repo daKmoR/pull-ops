@@ -35,7 +35,11 @@ describe('setup doctor', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'local' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'local',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -78,7 +82,11 @@ describe('setup doctor', () => {
     });
     await runPullOpsInit({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'local' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'local',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -94,7 +102,11 @@ describe('setup doctor', () => {
     const cwd = await createSetupRepository({ includeLocalExecutable: false });
     await runPullOpsInit({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'local' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'local',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -109,7 +121,11 @@ describe('setup doctor', () => {
     const cwd = await createPullOpsSourceRepository();
     await runPullOpsInit({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'local' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'local',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'ready');
     assert.equal(result.area, 'doctor');
@@ -117,6 +133,30 @@ describe('setup doctor', () => {
     assert.doesNotMatch(
       joinMessages(result.suggestions),
       /Run npm ci before rerunning PullOps setup\./,
+    );
+  });
+
+  it('05b: blocks local readiness when GitHub API authentication is unavailable', async () => {
+    const cwd = await createPullOpsSourceRepository();
+    await runPullOpsInit({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'local',
+      readGitHubAuthToken() {
+        return undefined;
+      },
+    });
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.area, 'doctor');
+    assert.match(
+      joinMessages(result.blockers),
+      /GitHub API authentication is required\. PullOps does not make unauthenticated GitHub API requests\./,
+    );
+    assert.match(
+      joinMessages(result.suggestions),
+      /Set PULLOPS_GITHUB_TOKEN or GITHUB_TOKEN, or run gh auth login and ensure gh is on PATH/,
     );
   });
 
@@ -135,7 +175,11 @@ describe('setup doctor', () => {
       '# Existing unowned review skill\n',
     );
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'full' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -454,7 +498,11 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'github-actions' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'github-actions',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -475,6 +523,7 @@ describe('setup github-actions', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'github-actions',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'],
       readRepositoryLabels: async () => PULL_OPS_LABELS.map(label => ({ ...label })),
     });
@@ -495,6 +544,7 @@ describe('setup github-actions', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'github-actions',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN'],
       readRepositoryLabels: async () => PULL_OPS_LABELS.map(label => ({ ...label })),
     });
@@ -516,6 +566,7 @@ describe('setup github-actions', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'github-actions',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => {
         throw new Error('repository secrets are hidden');
       },
@@ -537,7 +588,11 @@ describe('setup github-actions', () => {
     await runPullOpsSetupSkills({ cwd });
     await runPullOpsSetupAgentDocs({ cwd });
 
-    const result = await runPullOpsSetupDoctor({ cwd, profile: 'full' });
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'full',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+    });
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
@@ -558,6 +613,7 @@ describe('setup github-actions', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'full',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => {
         throw new Error('repository secrets are hidden');
       },
@@ -587,6 +643,7 @@ describe('setup github-actions', () => {
       cwd,
       profile: 'github-actions',
       repository: 'acme/widgets',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async options => {
         secretReaderCalls.push(options);
         return ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'];
@@ -707,6 +764,7 @@ describe('setup github-labels', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'full',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'],
       readRepositoryLabels: async () => {
         throw new Error('repository labels are hidden');
@@ -733,6 +791,7 @@ describe('setup github-labels', () => {
     const result = await runPullOpsSetupDoctor({
       cwd,
       profile: 'full',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
       readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'],
       readRepositoryLabels: async () => {
         const labels = PULL_OPS_LABELS.map(label => ({ ...label }));
@@ -966,6 +1025,13 @@ async function installLocalPullOpsExecutable({ cwd }) {
  */
 function joinMessages(messages) {
   return messages.join('\n');
+}
+
+/**
+ * @returns {string}
+ */
+function readReadyGitHubAuthToken() {
+  return 'github-token';
 }
 
 /**
