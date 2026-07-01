@@ -1,0 +1,11 @@
+default_permissions = "pullops_github"
+
+[permissions.pullops_github]
+description = "Workspace write with GitHub-only network access."
+extends = ":workspace"
+
+[permissions.pullops_github.network]
+enabled = true
+
+[permissions.pullops_github.network.domains]
+"**.github.com" = "allow"
