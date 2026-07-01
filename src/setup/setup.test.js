@@ -12,7 +12,13 @@ import {
   getOperationCatalogWorkflowFileName,
   getOperationCatalogWorkflowOperations,
 } from '../operations/operationCatalog.js';
-import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
+import {
+  MISSING_GITHUB_AUTHENTICATION_BLOCKER,
+  MISSING_GITHUB_AUTHENTICATION_SUGGESTION,
+  PULL_OPS_LABELS,
+  SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION,
+  SECURE_GITHUB_AUTHENTICATION_SUGGESTION,
+} from '../github/GitHubClient.js';
 import { runPullOpsInit } from './init.js';
 import {
   runPullOpsSetupAgentDocs,
@@ -158,6 +164,11 @@ describe('setup doctor', () => {
       joinMessages(result.suggestions),
       /Set PULLOPS_GITHUB_TOKEN or GITHUB_TOKEN, or run gh auth login and ensure gh is on PATH/,
     );
+    assert.match(
+      joinMessages(result.suggestions),
+      /For Codex sandboxes, make GITHUB_TOKEN available to the host shell/,
+    );
+    assert.match(joinMessages(result.suggestions), /Do not print GitHub tokens with echo/);
   });
 
   it('06: blocks the full profile for unowned bundled skill files while preserving target-owned agent docs', async () => {
@@ -809,6 +820,36 @@ describe('setup github-labels', () => {
     assert.deepEqual(result.blockers, []);
     assert.ok((result.changesNeeded.labels?.updated ?? []).includes(PULL_OPS_LABELS[2].name));
     assert.ok((result.changesNeeded.labels?.created ?? []).includes(PULL_OPS_LABELS[7].name));
+  });
+
+  it('04: reports auth handoff steps when GitHub label inspection lacks a token', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+
+    const result = await runPullOpsSetupGitHubLabels({
+      cwd,
+      check: true,
+      githubClient: {
+        async ensureLabels() {
+          throw new Error('ensureLabels was not expected in this test.');
+        },
+        async listRepositoryLabels() {
+          throw new Error(
+            `${MISSING_GITHUB_AUTHENTICATION_BLOCKER} ${MISSING_GITHUB_AUTHENTICATION_SUGGESTION}`,
+          );
+        },
+      },
+    });
+
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.blockers, [
+      `Unable to reconcile PullOps GitHub labels: ${MISSING_GITHUB_AUTHENTICATION_BLOCKER}`,
+    ]);
+    assert.deepEqual(result.suggestions, [
+      MISSING_GITHUB_AUTHENTICATION_SUGGESTION,
+      SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION,
+      SECURE_GITHUB_AUTHENTICATION_SUGGESTION,
+    ]);
   });
 });
 

@@ -43,31 +43,36 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(skillText, /disable-model-invocation: true/);
   assert.match(skillText, /# PullOps Setup Skill/);
   assert.match(skillText, /PullOps setup is a readiness loop/);
-  assert.match(skillText, /Use `npm exec -- pullops \.\.\.` for every PullOps CLI command\./);
-  assert.match(skillText, /npm exec -- pullops setup doctor --profile full --json/);
+  assert.match(skillText, /Use this command form for every PullOps CLI command:/);
+  assert.match(skillText, /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops <args>/);
+  assert.match(skillText, /setup doctor --profile full --json/);
   assert.match(
     skillText,
-    /Completion criterion: every blocker and warning is classified as local action, remote approval, or external wait\./,
+    /Completion criterion: every blocker and warning is classified as local action, remote approval, external credential handoff, or external wait\./,
   );
-  assert.match(skillText, /run the `--check --json` command/);
-  assert.match(skillText, /npm exec -- pullops setup skills --check --json/);
-  assert.match(skillText, /npm exec -- pullops setup agent-docs --check --json/);
-  assert.match(skillText, /npm exec -- pullops setup github-actions --check --json/);
-  assert.match(skillText, /npm exec -- pullops setup github-labels --check --json/);
+  assert.match(skillText, /run the check command/);
+  assert.match(skillText, /setup skills --check --json/);
+  assert.match(skillText, /setup agent-docs --check --json/);
+  assert.match(skillText, /setup github-actions --check --json/);
+  assert.match(skillText, /setup github-labels --check --json/);
   assert.match(
     skillText,
-    /Ask before running `npm exec -- pullops setup github-labels --json` because it mutates the remote repository\./,
+    /Ask before applying `setup github-labels --json` because it mutates the remote repository\./,
   );
   assert.match(
     skillText,
     /pass `--repo OWNER\/REPO` or set `GITHUB_REPOSITORY=OWNER\/REPO` before running the GitHub label setup command\./,
   );
-  assert.match(skillText, /npm exec -- pullops setup doctor --profile github-actions --json/);
-  assert.match(skillText, /npm exec -- pullops setup doctor --profile full --json/);
+  assert.match(skillText, /setup doctor --profile github-actions --json/);
+  assert.match(skillText, /setup doctor --profile full --json/);
   assert.match(
     skillText,
     /Do not invoke `setup-matt-pocock-skills` or any remote skill package installer\./,
   );
+  assert.match(skillText, /## GitHub Authentication/);
+  assert.match(skillText, /If a sandboxed Codex agent reports missing GitHub authentication/);
+  assert.match(skillText, /include_only = \["GITHUB_TOKEN"\]/);
+  assert.match(skillText, /Do not print tokens with `echo`/);
   assert.match(
     skillText,
     /Keep `\.pullops\/install-manifest\.json` synchronized only with PullOps-owned generated files[\s\S]*not with the target-owned `pullops\.config\.js`\./,

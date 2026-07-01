@@ -124,6 +124,40 @@ Lower-level command variants live in
 [docs/operation-reference.md](./docs/operation-reference.md). The README keeps
 `pullops run ...` commands secondary on purpose.
 
+### Local GitHub Credentials
+
+Local setup and operation commands authenticate GitHub API calls from
+`PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token` in the current
+process. Sandboxed agents may not see the host machine's `gh` credentials; in
+that case, forward `GITHUB_TOKEN` into the sandbox through Codex config.
+
+In a trusted host shell, check whether `GITHUB_TOKEN` is present without printing
+the token:
+
+```sh
+test -n "${GITHUB_TOKEN:-}"
+```
+
+If it is not set, prefer adding a command-backed export such as this to your
+shell startup file instead of storing the raw token there:
+
+```sh
+export GITHUB_TOKEN="$(gh auth token)"
+```
+
+Add the same token to `~/.codex/.env` as `GITHUB_TOKEN=...`, keep that file
+private, and configure Codex to pass the variable into shell sessions:
+
+```toml
+[shell_environment_policy]
+include_only = ["GITHUB_TOKEN"]
+```
+
+If `include_only` already exists, add `GITHUB_TOKEN` to the existing list rather
+than replacing unrelated entries. Restart Codex after changing host env or Codex
+config. Do not print GitHub tokens with `echo`, paste them into chat, commit
+them, or include them in logs.
+
 ### GitHub Actions Credentials
 
 Repository Actions secrets are needed only for label-dispatched GitHub Actions

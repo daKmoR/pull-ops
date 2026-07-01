@@ -8,7 +8,7 @@ import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import {
   createGitHubClient,
   MISSING_GITHUB_AUTHENTICATION_BLOCKER,
-  MISSING_GITHUB_AUTHENTICATION_SUGGESTION,
+  MISSING_GITHUB_AUTHENTICATION_SUGGESTIONS,
   parseGitHubRepository,
   PULL_OPS_LABELS,
   readGitHubAuthToken as readDefaultGitHubAuthToken,
@@ -205,17 +205,16 @@ export async function runPullOpsSetupGitHubLabels({
       suggestions: [],
     });
   } catch (error) {
+    const failure = formatGitHubLabelSetupFailure(error);
     return createSetupResult({
       status: 'blocked',
       area: SETUP_GITHUB_LABELS_AREA,
       summary: 'PullOps GitHub label setup is incomplete.',
       changes: {},
       changesNeeded: {},
-      blockers: [`Unable to reconcile PullOps GitHub labels: ${getErrorMessage(error)}`],
+      blockers: [failure.blocker],
       warnings: [],
-      suggestions: [
-        'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
-      ],
+      suggestions: failure.suggestions,
     });
   }
 }
@@ -1029,14 +1028,14 @@ async function inspectLocalGitHubAuthentication({ readGitHubAuthToken }) {
     return {
       blockers: [`Unable to inspect local GitHub API authentication: ${getErrorMessage(error)}`],
       warnings: [],
-      suggestions: [MISSING_GITHUB_AUTHENTICATION_SUGGESTION],
+      suggestions: missingGitHubAuthenticationSuggestions(),
     };
   }
 
   return {
     blockers: [MISSING_GITHUB_AUTHENTICATION_BLOCKER],
     warnings: [],
-    suggestions: [MISSING_GITHUB_AUTHENTICATION_SUGGESTION],
+    suggestions: missingGitHubAuthenticationSuggestions(),
   };
 }
 
@@ -1703,6 +1702,49 @@ function summarizeGitHubLabelSetupResult({ mode, result }) {
  */
 function getErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {{ blocker: string, suggestions: string[] }}
+ */
+function formatGitHubLabelSetupFailure(error) {
+  const message = getErrorMessage(error);
+  if (isMissingGitHubAuthenticationError(message)) {
+    return {
+      blocker: `Unable to reconcile PullOps GitHub labels: ${MISSING_GITHUB_AUTHENTICATION_BLOCKER}`,
+      suggestions: missingGitHubAuthenticationSuggestions(),
+    };
+  }
+
+  if (isGitHubRepositoryContextError(message)) {
+    return {
+      blocker: `Unable to reconcile PullOps GitHub labels: ${message}`,
+      suggestions: [
+        'Set GITHUB_REPOSITORY or configure remote.origin.url before rerunning PullOps setup.',
+      ],
+    };
+  }
+
+  return {
+    blocker: `Unable to reconcile PullOps GitHub labels: ${message}`,
+    suggestions: ['Rerun PullOps setup after resolving the reported GitHub API failure.'],
+  };
+}
+
+/**
+ * @returns {string[]}
+ */
+function missingGitHubAuthenticationSuggestions() {
+  return [...MISSING_GITHUB_AUTHENTICATION_SUGGESTIONS];
+}
+
+/**
+ * @param {string} message
+ * @returns {boolean}
+ */
+function isMissingGitHubAuthenticationError(message) {
+  return message.includes(MISSING_GITHUB_AUTHENTICATION_BLOCKER);
 }
 
 /**

@@ -46,6 +46,15 @@ export const MISSING_GITHUB_AUTHENTICATION_BLOCKER =
   'GitHub API authentication is required. PullOps does not make unauthenticated GitHub API requests.';
 export const MISSING_GITHUB_AUTHENTICATION_SUGGESTION =
   'Set PULLOPS_GITHUB_TOKEN or GITHUB_TOKEN, or run gh auth login and ensure gh is on PATH for this process before rerunning PullOps.';
+export const SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION =
+  'For Codex sandboxes, make GITHUB_TOKEN available to the host shell, add it to ~/.codex/.env, and allow it through ~/.codex/config.toml with [shell_environment_policy] include_only = ["GITHUB_TOKEN"]; add GITHUB_TOKEN to any existing include_only list instead of replacing unrelated entries.';
+export const SECURE_GITHUB_AUTHENTICATION_SUGGESTION =
+  'Do not print GitHub tokens with echo, paste them into chat, or commit them; check presence with test -n "${GITHUB_TOKEN:-}" and keep token-bearing dotfiles private.';
+export const MISSING_GITHUB_AUTHENTICATION_SUGGESTIONS = [
+  MISSING_GITHUB_AUTHENTICATION_SUGGESTION,
+  SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION,
+  SECURE_GITHUB_AUTHENTICATION_SUGGESTION,
+];
 
 const ISSUE_RELATIONSHIPS_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {
@@ -676,7 +685,7 @@ function readRequiredGitHubAuthToken(options) {
   const token = readGitHubAuthToken(options);
   if (token === undefined) {
     throw new Error(
-      `${MISSING_GITHUB_AUTHENTICATION_BLOCKER} ${MISSING_GITHUB_AUTHENTICATION_SUGGESTION}`,
+      `${MISSING_GITHUB_AUTHENTICATION_BLOCKER} ${MISSING_GITHUB_AUTHENTICATION_SUGGESTIONS.join(' ')}`,
     );
   }
 
