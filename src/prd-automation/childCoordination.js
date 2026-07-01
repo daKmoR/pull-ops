@@ -41,6 +41,7 @@ import {
   createLocalPrdRunRecordLocation,
   normalizeOperationReferenceForPath,
 } from './localRunRecord.js';
+import { startPullOpsParentEventSink } from '../parent-event-sink/parentEventSink.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -60,6 +61,7 @@ import {
  * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  * @typedef {import('../local-run-state/types.js').LocalRunChildRun} LocalRunChildRun
  * @typedef {import('../local-run-state/types.js').LocalRunRunLink} LocalRunRunLink
+ * @typedef {import('../parent-event-sink/types.js').PullOpsParentEventSink} PullOpsParentEventSink
  * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
  * @typedef {{
  *   pullRequestNumber: number,
@@ -159,19 +161,21 @@ async function coordinateLocalPrdAutomation(
     publicationMode,
   });
   const parentRun = runRecord.runLink;
+  const parentEventSink = await maybeStartLocalPrdParentEventSink(context, { mode, parentRun });
+  const runContext = parentEventSink === undefined ? context : { ...context, parentEventSink };
 
   try {
-    await emitLocalPrdAutoCompleteRunStarted(context, parentIssueNumber);
-    await emitLocalPrdAutoCompletePhaseStarted(context, parentIssueNumber);
-    await requireCleanLocalPrdWorktree(context, runRecord, {
+    await emitLocalPrdAutoCompleteRunStarted(runContext, parentIssueNumber);
+    await emitLocalPrdAutoCompletePhaseStarted(runContext, parentIssueNumber);
+    await requireCleanLocalPrdWorktree(runContext, runRecord, {
       operationReference,
       parentIssueNumber,
       mode,
       publicationMode,
     });
-    const parentIssue = await context.githubClient.getIssue(parentIssueNumber);
+    const parentIssue = await runContext.githubClient.getIssue(parentIssueNumber);
     if (parentIssue.state !== 'OPEN') {
-      await emitLocalPrdAutoCompletePhaseCompleted(context, [], parentIssue.number);
+      await emitLocalPrdAutoCompletePhaseCompleted(runContext, [], parentIssue.number);
       return await completeLocalPrdRunRecord(runRecord, {
         status: 'skipped',
         summary: `PRD issue #${parentIssue.number} is ${parentIssue.state.toLowerCase()}.`,
@@ -190,33 +194,33 @@ async function coordinateLocalPrdAutomation(
         mode,
         publicationMode,
       });
-      await emitLocalPrdAutoCompletePhaseCompleted(context, [], parentIssue.number);
+      await emitLocalPrdAutoCompletePhaseCompleted(runContext, [], parentIssue.number);
       return await completeLocalPrdRunRecord(runRecord, result);
     }
 
     const parentBranchName = createParentBranchName({
-      branchPrefix: context.config.branchPrefix,
+      branchPrefix: runContext.config.branchPrefix,
       parentNumber: parentIssue.number,
     });
-    const preparation = await prepareLocalPrdAutomation(context, parentIssue, {
+    const preparation = await prepareLocalPrdAutomation(runContext, parentIssue, {
       parentBranchName,
       publicationMode,
     });
-    const childIssues = await readNativeChildIssues(context, parentIssue);
+    const childIssues = await readNativeChildIssues(runContext, parentIssue);
     /** @type {ChildAutomationResult[]} */
     const children = [];
     /** @type {number[]} */
     let virtualCompletedChildren = [];
     let preserveInspectableBranchState = false;
     const completeThroughDependencyFrontiers =
-      mode === 'auto-complete' && context.runGoal !== 'operation';
+      mode === 'auto-complete' && runContext.runGoal !== 'operation';
 
     if (publicationMode === 'publish') {
-      await checkoutLocalPrdBase(context, { parentBranchName });
+      await checkoutLocalPrdBase(runContext, { parentBranchName });
     }
 
     if (completeThroughDependencyFrontiers && publicationMode === 'dry-run') {
-      const dryRun = await coordinateLocalAutoCompleteDryRunChildren(context, {
+      const dryRun = await coordinateLocalAutoCompleteDryRunChildren(runContext, {
         parentIssue,
         parentBranchName,
         childIssues,
@@ -227,7 +231,7 @@ async function coordinateLocalPrdAutomation(
       virtualCompletedChildren = dryRun.virtualCompletedChildren;
       preserveInspectableBranchState = dryRun.preserveInspectableBranchState;
     } else if (completeThroughDependencyFrontiers && publicationMode === 'publish') {
-      const published = await coordinateLocalAutoCompletePublishChildren(context, {
+      const published = await coordinateLocalAutoCompletePublishChildren(runContext, {
         parentIssue,
         parentBranchName,
         childIssues,
@@ -239,8 +243,8 @@ async function coordinateLocalPrdAutomation(
       preserveInspectableBranchState = published.preserveInspectableBranchState;
     } else {
       for (const childIssue of childIssues) {
-        await emitLocalPrdAutoCompleteChildStarted(context, childIssue);
-        const localResult = await coordinateLocalChildIssue(context, {
+        await emitLocalPrdAutoCompleteChildStarted(runContext, childIssue);
+        const localResult = await coordinateLocalChildIssue(runContext, {
           parentIssue,
           parentBranchName,
           childIssue,
@@ -259,7 +263,7 @@ async function coordinateLocalPrdAutomation(
           localResult.restorePrdBase &&
           !preserveInspectableBranchState
         ) {
-          await checkoutLocalPrdBase(context, { parentBranchName });
+          await checkoutLocalPrdBase(runContext, { parentBranchName });
         }
 
         if (completeThroughDependencyFrontiers && localResult.stop) {
@@ -270,11 +274,11 @@ async function coordinateLocalPrdAutomation(
 
     const refreshedPreparation =
       publicationMode === 'publish' && didIntegrateChildWork(children)
-        ? await ensurePrdPrepared(context, parentIssue, { forceRefresh: true })
+        ? await ensurePrdPrepared(runContext, parentIssue, { forceRefresh: true })
         : preparation;
 
     if (publicationMode === 'publish' && !preserveInspectableBranchState) {
-      await checkoutLocalPrdBase(context, { parentBranchName });
+      await checkoutLocalPrdBase(runContext, { parentBranchName });
     }
 
     const parentReviewFacts =
@@ -285,7 +289,7 @@ async function coordinateLocalPrdAutomation(
       completeThroughDependencyFrontiers &&
       publicationMode === 'publish' &&
       !preserveInspectableBranchState
-        ? await completePublishedLocalUmbrellaPullRequest(context, {
+        ? await completePublishedLocalUmbrellaPullRequest(runContext, {
             parentIssue,
             parentIssueNumber: parentIssue.number,
             parentBranchName,
@@ -293,7 +297,7 @@ async function coordinateLocalPrdAutomation(
             parentRun,
             runParentPullRequestOperation,
           })
-        : await requestUmbrellaReviewIfComplete(context, {
+        : await requestUmbrellaReviewIfComplete(runContext, {
             parentIssue: parentReviewFacts.parentIssue,
             parentIssueNumber: parentIssue.number,
             parentBranchName,
@@ -301,8 +305,8 @@ async function coordinateLocalPrdAutomation(
             requestReview: false,
           });
 
-    await emitLocalPrdAutoCompletePhaseCompleted(context, children, parentIssue.number);
-    await emitLocalPrdAutoCompleteParentWaiting(context, parentPullRequest);
+    await emitLocalPrdAutoCompletePhaseCompleted(runContext, children, parentIssue.number);
+    await emitLocalPrdAutoCompleteParentWaiting(runContext, parentPullRequest);
 
     return await completeLocalPrdRunRecord(runRecord, {
       status: 'accepted',
@@ -338,6 +342,8 @@ async function coordinateLocalPrdAutomation(
       phase: 'run',
     });
     throw attachLocalRunRecordToError(error, runRecord.directory);
+  } finally {
+    await parentEventSink?.close();
   }
 }
 
@@ -1576,6 +1582,11 @@ async function coordinateLocalChildIssue(
     },
     statePath: join(childRunLocation.directory, 'state.json'),
   });
+  const parentEventSinkEnvironment = context.parentEventSink?.createChildEnvironment({
+    childRunLink,
+    childIssueNumber: childIssue.number,
+    localRunRecord: childRunLocation.directory,
+  });
   if (parentRun !== undefined) {
     await recordLocalRunChildRun({
       statePath: parentRun.statePath,
@@ -1598,6 +1609,7 @@ async function coordinateLocalChildIssue(
       ...(progressReporter === undefined ? {} : { progress: progressReporter.progress }),
       localRunRecordDirectory: childRunLocation.directory,
       parentRun,
+      ...(parentEventSinkEnvironment === undefined ? {} : { parentEventSinkEnvironment }),
     });
   } catch (error) {
     await progressReporter?.flush();
@@ -3402,6 +3414,28 @@ async function createLocalPrdRunRecord(
     heartbeatEnvironment: stateRecord.heartbeatEnvironment,
     runLink: stateRecord.runLink,
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   mode: PrdAutomationMode,
+ *   parentRun: LocalRunRunLink,
+ * }} options
+ * @returns {Promise<PullOpsParentEventSink | undefined>}
+ */
+async function maybeStartLocalPrdParentEventSink(context, { mode, parentRun }) {
+  if (mode !== 'auto-complete' || context.progressEventWriter === undefined) {
+    return undefined;
+  }
+  if (context.parentEventSink !== undefined) {
+    return context.parentEventSink;
+  }
+
+  return await startPullOpsParentEventSink({
+    parentRun,
+    progressEventWriter: context.progressEventWriter,
+  });
 }
 
 /**
