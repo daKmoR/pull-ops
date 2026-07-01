@@ -46,6 +46,9 @@ export async function runPrdAutoAdvance(context) {
           publicationMode: localContext.publicationMode,
           localRunRecordDirectory: options.localRunRecordDirectory,
           ...(options.parentRun === undefined ? {} : { parentRun: options.parentRun }),
+          ...(options.parentEventSinkEnvironment === undefined
+            ? {}
+            : { parentEventSinkEnvironment: options.parentEventSinkEnvironment }),
           progress: suppressNestedOutput ? options.progress : localContext.progress,
           progressEventWriter: undefined,
           suppressRunnerOutput: suppressNestedOutput,
@@ -83,6 +86,9 @@ export async function runPrdAutoComplete(context) {
           publicationMode: localContext.publicationMode,
           localRunRecordDirectory: options.localRunRecordDirectory,
           ...(options.parentRun === undefined ? {} : { parentRun: options.parentRun }),
+          ...(options.parentEventSinkEnvironment === undefined
+            ? {}
+            : { parentEventSinkEnvironment: options.parentEventSinkEnvironment }),
           progress: suppressNestedOutput ? options.progress : localContext.progress,
           progressEventWriter: undefined,
           suppressRunnerOutput: suppressNestedOutput,

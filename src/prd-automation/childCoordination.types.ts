@@ -1,5 +1,6 @@
 import type { GitHubIssue, GitHubIssueReference } from '../github/types.js';
 import type { LocalRunRunLink } from '../local-run-state/types.js';
+import type { PullOpsParentEventSinkChildEnvironment } from '../parent-event-sink/types.js';
 
 export type PrdAutomationMode = 'auto-advance' | 'auto-complete';
 
@@ -70,6 +71,7 @@ export interface ChildIssueRunOptions {
   progress?: (message: string) => void;
   localRunRecordDirectory?: string;
   parentRun?: LocalRunRunLink;
+  parentEventSinkEnvironment?: PullOpsParentEventSinkChildEnvironment;
 }
 
 export type ChildIssueRunner = (
