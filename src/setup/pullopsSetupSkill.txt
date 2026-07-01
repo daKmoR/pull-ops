@@ -20,25 +20,53 @@ If `npm_config_cache` is already set to a sandbox-writable cache path, keep the 
 
 1. Work from the repository root. If a setup command says this is not the root, rerun from the reported root.
 2. Record local changes before reconciliation so setup does not overwrite user work. Keep git staging and commits untouched throughout.
-3. Run `setup doctor --profile full --json` first and read `status`, `changesNeeded`, `blockers`, `warnings`, and `suggestions`. Completion criterion: every blocker and warning is classified as local action, remote approval, external credential handoff, or external wait.
-4. If doctor reports missing GitHub authentication, use the GitHub Authentication branch before reconciling remote setup areas.
+3. Make sure GitHub Authentication is ready before moving forward, before running the doctor command. If GitHub authentication is missing, follow the GitHub Authentication instructions below.
+4. Run `setup doctor --profile full --json` first and read `status`, `changesNeeded`, `blockers`, `warnings`, and `suggestions`.
+
+Completion criterion: every blocker and warning is classified as one of:
+
+* local action
+* remote approval
+* external credential handoff
+* external wait
 
 ## GitHub Authentication
 
-GitHub API authentication is contextual readiness. PullOps can use `PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`, but only when that credential is visible to the current process.
+GitHub API authentication is contextual readiness. PullOps can use `GITHUB_TOKEN` or `GH_TOKEN`, but only when a credential is visible to the current process.
 
 If a sandboxed Codex agent reports missing GitHub authentication:
 
-1. Check for a visible token without printing it, for example `test -n "${GITHUB_TOKEN:-}"`.
-2. If the host has `gh`, prefer a host-side `GITHUB_TOKEN` sourced from `gh auth token`; if `gh auth token` fails, ask the user to run `gh auth login`; if `gh` is missing, ask the user to install GitHub CLI or provide a token through the environment.
-3. For Codex sandboxes, tell the user to add `GITHUB_TOKEN=...` to `~/.codex/.env` and allow it through `~/.codex/config.toml`:
-
-```toml
-[shell_environment_policy]
-include_only = ["GITHUB_TOKEN"]
+1. Check for a visible token without printing it:
+```sh
+test -n "${GITHUB_TOKEN:-}${GH_TOKEN:-}"
 ```
 
-If `include_only` already exists, add `GITHUB_TOKEN` to the existing list rather than replacing unrelated entries. Do not print tokens with `echo`, paste them into chat, commit them, or include them in logs.
+2. If no token is visible, assume `gh auth token` may not work inside the sandbox. Ask the user to run this command outside the sandbox and confirm when done:
+```sh
+mkdir -p "$HOME/.codex"
+
+TOKEN="$(gh auth token)"
+touch "$HOME/.codex/.env"
+chmod 600 "$HOME/.codex/.env"
+
+grep -Ev '^(GITHUB_TOKEN|GH_TOKEN)=' "$HOME/.codex/.env" > "$HOME/.codex/.env.tmp"
+printf 'GITHUB_TOKEN=%s\nGH_TOKEN=%s\n' "$TOKEN" "$TOKEN" >> "$HOME/.codex/.env.tmp"
+mv "$HOME/.codex/.env.tmp" "$HOME/.codex/.env"
+chmod 600 "$HOME/.codex/.env"
+```
+
+3. If the user approves filesystem access outside the repository, the agent may create or modify `~/.codex/.env` itself using the same command above. Do not do this without explicit approval.
+4. If the command fails because `gh` is not installed, report that GitHub CLI is missing and ask the user to install GitHub CLI or provide a token through the environment.
+5. If the command fails because the user is not authenticated, ask the user to run:
+```sh
+gh auth login
+```
+Then ask the user to rerun the token persistence command from step 2.
+
+6. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
+
+Do not print tokens with `echo`, paste them into chat, commit them, or include them in logs. Do not store token values in repo-local `.codex/config.toml` or any other repository file.
+
 
 ## Reconcile
 
