@@ -799,7 +799,7 @@ describe('runIssueImplement', () => {
     const env = call.env;
     assert(env);
     assert.equal(env.PULLOPS_RUN_STATE_PATH, join(runRecord, 'state.json'));
-    assert.equal(env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
+    assert.equal(env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec -- pullops heartbeat');
     assert.equal(env.PULLOPS_HEARTBEAT_TOKEN, state.heartbeatToken);
     assert.equal(env.PULLOPS_HEARTBEAT_INTERVAL_MS, String(state.heartbeatIntervalMs));
     assert.equal(env.npm_config_cache, join(runRecord, 'npm-cache'));

@@ -43,12 +43,13 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(skillText, /disable-model-invocation: true/);
   assert.match(skillText, /# PullOps Setup Skill/);
   assert.match(skillText, /PullOps setup is a readiness loop/);
-  assert.match(skillText, /Use this command form for every PullOps CLI command:/);
+  assert.match(skillText, /docs\/agents\/pullops-cli\.md/);
+  assert.match(skillText, /bootstrap command form until the central doc is available/);
   assert.match(skillText, /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops <args>/);
   assert.match(skillText, /setup doctor --profile full --json/);
   assert.match(
     skillText,
-    /Completion criterion: every blocker and warning is classified as local action, remote approval, external credential handoff, or external wait\./,
+    /Completion criterion: every blocker and warning is classified as one of:[\s\S]*local action[\s\S]*remote approval[\s\S]*external credential handoff[\s\S]*external wait/,
   );
   assert.match(skillText, /run the check command/);
   assert.match(skillText, /setup skills --check --json/);
@@ -71,7 +72,7 @@ test('init creates the setup entry point and records manifest hashes', async () 
   );
   assert.match(skillText, /## GitHub Authentication/);
   assert.match(skillText, /If a sandboxed Codex agent reports missing GitHub authentication/);
-  assert.match(skillText, /include_only = \["GITHUB_TOKEN"\]/);
+  assert.match(skillText, /HOME\/\.codex\/\.env/);
   assert.match(skillText, /Do not print tokens with `echo`/);
   assert.match(
     skillText,

@@ -23,10 +23,13 @@ still matches the reviewed tree.
 This planner must not run shell commands except the heartbeat command below, so
 keep liveness with manual heartbeats instead of `pullops step`.
 
+Before running any PullOps CLI command, read and follow
+[`docs/agents/pullops-cli.md`](../../../docs/agents/pullops-cli.md).
+
 Your first tool call after reading this skill must be:
 
 ```bash
-npm exec pullops -- heartbeat --summary "<brief current focus>"
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops heartbeat --summary "<brief current focus>"
 ```
 
 After that, repeat the same heartbeat tool call about every 4 minutes while work

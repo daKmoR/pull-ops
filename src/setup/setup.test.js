@@ -68,6 +68,7 @@ describe('setup doctor', () => {
     assert.equal(result.status, 'blocked');
     assert.equal(result.area, 'doctor');
     assert.match(result.summary, /authoring profile/);
+    assert.ok(neededFiles(result).includes('docs/agents/pullops-cli.md'));
     assert.ok(neededFiles(result).includes('docs/agents/issue-tracker.md'));
     assert.ok(neededFiles(result).includes('docs/agents/triage-labels.md'));
     assert.ok(neededFiles(result).includes('docs/agents/domain.md'));
@@ -335,6 +336,7 @@ describe('setup agent docs', () => {
     const dryRun = await runPullOpsSetupAgentDocs({ cwd, check: true });
     assert.equal(dryRun.status, 'blocked');
     assert.equal(dryRun.area, 'agent-docs');
+    assert.ok(neededFiles(dryRun).includes('docs/agents/pullops-cli.md'));
     assert.ok(neededFiles(dryRun).includes('docs/agents/issue-tracker.md'));
     assert.ok(neededFiles(dryRun).includes('docs/agents/triage-labels.md'));
     assert.ok(!neededFiles(dryRun).includes('docs/agents/domain.md'));
@@ -343,11 +345,13 @@ describe('setup agent docs', () => {
     const applied = await runPullOpsSetupAgentDocs({ cwd });
     assert.equal(applied.status, 'changed');
     assert.equal(applied.area, 'agent-docs');
+    assert.ok(changedFiles(applied).includes('docs/agents/pullops-cli.md'));
     assert.ok(changedFiles(applied).includes('docs/agents/issue-tracker.md'));
     assert.ok(changedFiles(applied).includes('docs/agents/triage-labels.md'));
     assert.ok(!changedFiles(applied).includes('docs/agents/domain.md'));
     assert.ok(!changedFiles(applied).includes(MANIFEST_PATH));
 
+    const pullOpsCliText = await readFile(join(cwd, 'docs', 'agents', 'pullops-cli.md'), 'utf8');
     const issueTrackerText = await readFile(
       join(cwd, 'docs', 'agents', 'issue-tracker.md'),
       'utf8',
@@ -359,6 +363,10 @@ describe('setup agent docs', () => {
     const domainText = await readFile(join(cwd, 'docs', 'agents', 'domain.md'), 'utf8');
     const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
 
+    assert.match(
+      pullOpsCliText,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops <args>/,
+    );
     assert.match(issueTrackerText, /Blocked by: #<issue>/);
     assert.match(issueTrackerText, /GitHub native sub-issues/);
     assert.match(issueTrackerText, /ready-for-agent/);
@@ -366,6 +374,7 @@ describe('setup agent docs', () => {
     assert.equal(domainText, '# Existing target-owned domain doc\n');
     /** @type {import('./init.types.js').PullOpsInstallManifest} */
     const manifest = JSON.parse(manifestText);
+    assert.ok(!manifest.files.some(entry => entry.path === 'docs/agents/pullops-cli.md'));
     assert.ok(!manifest.files.some(entry => entry.path === 'docs/agents/issue-tracker.md'));
     assert.ok(!manifest.files.some(entry => entry.path === 'docs/agents/triage-labels.md'));
     assert.ok(!manifest.files.some(entry => entry.path === 'docs/agents/domain.md'));
@@ -866,6 +875,7 @@ describe('package files', () => {
     assert.equal(packResult.length, 1);
     const packedPaths = packResult[0].files.map(file => file.path);
 
+    assert.ok(packedPaths.includes('src/setup/agent-docs/pullops-cli.md'));
     assert.ok(packedPaths.includes('src/setup/agent-docs/issue-tracker.md'));
     assert.ok(packedPaths.includes('src/setup/agent-docs/triage-labels.md'));
     assert.ok(packedPaths.includes('src/setup/agent-docs/domain.md'));

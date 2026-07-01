@@ -143,7 +143,7 @@ describe('createCodexRunner', () => {
       model: 'gpt-5.5',
       prompt: 'Implement issue #1',
       env: {
-        PULLOPS_HEARTBEAT_COMMAND: 'npm exec pullops -- heartbeat',
+        PULLOPS_HEARTBEAT_COMMAND: 'npm exec -- pullops heartbeat',
         PULLOPS_RUN_STATE_PATH: '/repo/.pullops/runs/example/state.json',
         PULLOPS_HEARTBEAT_TOKEN: 'token-123',
         PULLOPS_HEARTBEAT_INTERVAL_MS: '300000',
@@ -159,7 +159,7 @@ describe('createCodexRunner', () => {
     assert.equal(prompt, 'Implement issue #1');
     assert.doesNotMatch(prompt, /Heartbeat instructions:/);
     assert.equal(call.options.env.PULLOPS_RUN_STATE_PATH, '/repo/.pullops/runs/example/state.json');
-    assert.equal(call.options.env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec pullops -- heartbeat');
+    assert.equal(call.options.env.PULLOPS_HEARTBEAT_COMMAND, 'npm exec -- pullops heartbeat');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_TOKEN, 'token-123');
     assert.equal(call.options.env.PULLOPS_HEARTBEAT_INTERVAL_MS, '300000');
     assert.equal(call.options.env.npm_config_cache, '/repo/.pullops/runs/example/npm-cache');

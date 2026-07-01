@@ -217,7 +217,10 @@ describe('PullOps skill contracts', () => {
         assert.match(skillText, /## Liveness/);
         assert.match(skillText, /must not run shell commands/);
         assert.match(skillText, /manual\s+heartbeats instead of `pullops step`/);
-        assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
+        assert.match(
+          skillText,
+          /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops heartbeat --summary/,
+        );
         assert.match(skillText, /first tool call after reading this skill must be/);
         assert.match(skillText, /every 4 minutes/);
         assert.match(skillText, /before every fourth non-heartbeat tool call/);
@@ -225,22 +228,30 @@ describe('PullOps skill contracts', () => {
         assert.match(skillText, /Heartbeats must originate from this .* agent process/);
         assert.doesNotMatch(
           skillText,
-          /npm exec pullops -- step "<brief current focus>" -- <command>/,
+          /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops step "<brief current focus>" -- <command>/,
         );
       } else {
         assert.match(skillText, /## Liveness and command execution/);
         assert.match(skillText, /Use PullOps as the command gate/);
-        assert.match(skillText, /npm exec pullops -- step "<brief current focus>" -- <command>/);
         assert.match(
           skillText,
-          /npm exec pullops -- step --long "<brief current focus>" -- <command>/,
+          /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops step "<brief current focus>" -- <command>/,
+        );
+        assert.match(
+          skillText,
+          /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops step --long "<brief current focus>" -- <command>/,
         );
         assert.match(skillText, /Do not manually count time or tool calls for shell commands/);
-        assert.match(skillText, /npm exec pullops -- heartbeat --summary/);
+        assert.match(
+          skillText,
+          /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops heartbeat --summary/,
+        );
         assert.match(skillText, /non-shell tool calls/);
         assert.match(skillText, /Heartbeats must originate from this .* agent process/);
         assert.doesNotMatch(skillText, /before every fourth non-heartbeat tool call/);
       }
+      assert.match(skillText, /docs\/agents\/pullops-cli\.md/);
+      assert.doesNotMatch(skillText, /npm exec pullops -- (heartbeat|step)/);
       assert.match(skillText, /not from\s+the\s+parent\s+PullOps\s+CLI/);
       assert.doesNotMatch(skillText, /PULLOPS_RUN_STATE_PATH/);
       assert.doesNotMatch(skillText, /PULLOPS_HEARTBEAT_TOKEN/);
@@ -265,10 +276,20 @@ describe('PullOps skill contracts', () => {
     assert.match(issueTrackerText, /structured JSON/i);
     assert.match(issueTrackerText, /auditability/i);
     assert.match(issueTrackerText, /context recovery/i);
+    assert.match(issueTrackerText, /pullops-cli\.md/);
     assert.match(issueTrackerText, /stdin is supported/i);
-    assert.match(issueTrackerText, /pullops issues publish-prd --file <path>/);
-    assert.match(issueTrackerText, /pullops issues publish-children --file <path>/);
-    assert.match(issueTrackerText, /pullops issues publish-issue --file <path>/);
+    assert.match(
+      issueTrackerText,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-prd --file <path>/,
+    );
+    assert.match(
+      issueTrackerText,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-children --file <path>/,
+    );
+    assert.match(
+      issueTrackerText,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-issue --file <path>/,
+    );
   });
 
   it('keeps PullOps Go supervision guidance aligned with run state liveness', async () => {
@@ -285,6 +306,10 @@ describe('PullOps skill contracts', () => {
     assert.match(contractText, /advanced heartbeat/);
     assert.match(contractText, /changed\s+child run set/);
     assert.match(contractText, /PullOps Stall Classification/);
+    assert.match(
+      contractText,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops run prd:auto-complete/,
+    );
     assert.match(contractText, /Avoid artifact, process, git, CI, or GitHub probing/i);
     assert.match(contractText, /Do not use logs, git diff, CI, or GitHub state/);
     assert.match(contractText, /Do not kill unrelated processes/);

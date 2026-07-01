@@ -57,6 +57,7 @@ const LOCAL_PULL_OPS_BUNDLED_SKILLS_PATH = join('.agents', 'skills');
 const LOCAL_PULL_OPS_SETUP_SKILL_TEMPLATE_PATH = join('src', 'setup', 'pullopsSetupSkill.txt');
 const LOCAL_PULL_OPS_AGENT_DOC_TEMPLATE_ROOT = join('src', 'setup', 'agent-docs');
 const AGENT_DOC_TARGETS = [
+  'docs/agents/pullops-cli.md',
   'docs/agents/issue-tracker.md',
   'docs/agents/triage-labels.md',
   'docs/agents/domain.md',

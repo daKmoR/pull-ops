@@ -54,16 +54,19 @@ shape.
 
 Use PullOps as the command gate.
 
+Before running any PullOps CLI command, read and follow
+[`docs/agents/pullops-cli.md`](../../../docs/agents/pullops-cli.md).
+
 Do not run shell commands directly. For every shell command, use:
 
 ```bash
-npm exec pullops -- step "<brief current focus>" -- <command>
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops step "<brief current focus>" -- <command>
 ```
 
 For commands that may run longer than 4 minutes, use:
 
 ```bash
-npm exec pullops -- step --long "<brief current focus>" -- <command>
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops step --long "<brief current focus>" -- <command>
 ```
 
 `pullops step` automatically emits heartbeats when needed. Do not manually count time or tool calls for shell commands.
@@ -71,7 +74,7 @@ npm exec pullops -- step --long "<brief current focus>" -- <command>
 If you are about to make several non-shell tool calls, send a manual heartbeat first:
 
 ```bash
-npm exec pullops -- heartbeat --summary "<brief current focus>"
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops heartbeat --summary "<brief current focus>"
 ```
 
 Heartbeats must originate from this conflict-resolution agent process, not from the parent PullOps CLI.

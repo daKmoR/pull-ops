@@ -38,7 +38,7 @@ describe('localRunState', () => {
 
     assert.equal(record.statePath, join(runRecordDirectory, 'state.json'));
     assert.deepEqual(record.heartbeatEnvironment, {
-      PULLOPS_HEARTBEAT_COMMAND: 'npm exec pullops -- heartbeat',
+      PULLOPS_HEARTBEAT_COMMAND: 'npm exec -- pullops heartbeat',
       PULLOPS_RUN_STATE_PATH: join(runRecordDirectory, 'state.json'),
       PULLOPS_HEARTBEAT_TOKEN: record.state.heartbeatToken,
       PULLOPS_HEARTBEAT_INTERVAL_MS: '120000',

@@ -10,7 +10,10 @@ PullOps setup is a readiness loop: inspect with `--check`, reconcile only needed
 
 ## Command Form
 
-Use this command form for every PullOps CLI command:
+Before running any PullOps CLI command, read and follow
+[`docs/agents/pullops-cli.md`](../../../docs/agents/pullops-cli.md) if it exists.
+This setup skill also runs before agent docs may be installed, so use this
+bootstrap command form until the central doc is available:
 
 `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops <args>`
 

@@ -100,10 +100,13 @@ Known PullOps failure shapes and preferred recovery:
 
 ## Command Discipline
 
+Before running any PullOps CLI command from this reference, read and follow
+[`docs/agents/pullops-cli.md`](../../../../docs/agents/pullops-cli.md).
+
 When rerunning a PRD, include the same publication intent:
 
 ```bash
-npm exec pullops run prd:auto-complete <issue> --events jsonl --publish pr
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --events jsonl --publish pr
 ```
 
 When an event `suggestedActions[].argv` omits `--events jsonl`, add it back for

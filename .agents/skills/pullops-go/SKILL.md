@@ -10,12 +10,15 @@ PullOps go is an operator loop: choose the target, run the repo-local PullOps
 command, repair PullOps when automation breaks, and stop only at a real finish
 line or an external decision.
 
+Before running any PullOps CLI command, read and follow
+[`docs/agents/pullops-cli.md`](../../../docs/agents/pullops-cli.md).
+
 ## Choose
 
 1. If the user named a PRD, issue, PR, or command, classify it before asking
    anything:
-   - Parent PRD: run `npm exec pullops run prd:auto-complete <issue> --events jsonl --publish pr`.
-   - Concrete issue or manually selected child issue: run `npm exec pullops run issue:implement <issue> --publish pr`.
+   - Parent PRD: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --events jsonl --publish pr`.
+   - Concrete issue or manually selected child issue: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run issue:implement <issue> --publish pr`.
    - Explicit PullOps PR operation: run the matching `pr:*` command the user named.
    Completion criterion: exactly one target and one command are selected, or
    there is no target.

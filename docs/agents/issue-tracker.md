@@ -16,9 +16,11 @@ Infer the repo from `git remote -v` - `gh` does this automatically when run insi
 
 Write the normalized request as structured JSON, save it to a file for auditability and context recovery, and publish it with the matching PullOps command:
 
-- **PRD publication**: `pullops issues publish-prd --file <path>`
-- **Child Issue batch publication**: `pullops issues publish-children --file <path>`
-- **Concrete Issue publication**: `pullops issues publish-issue --file <path>`
+Before publishing with PullOps, read and follow [PullOps CLI command form](pullops-cli.md).
+
+- **PRD publication**: `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops issues publish-prd --file <path>`
+- **Child Issue batch publication**: `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops issues publish-children --file <path>`
+- **Concrete Issue publication**: `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops issues publish-issue --file <path>`
 
 stdin is supported, but `--file <path>` is the documented path and should be the default handoff from upstream authoring skills.
 
