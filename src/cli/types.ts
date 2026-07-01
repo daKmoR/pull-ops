@@ -2,6 +2,10 @@ import type { ModelTier, PullOpsConfig } from '../config/types.js';
 import type { GitClient } from '../git/types.js';
 import type { GitHubClient } from '../github/types.js';
 import type { LocalRunRunLink } from '../local-run-state/types.js';
+import type {
+  PullOpsParentEventSink,
+  PullOpsParentEventSinkChildEnvironment,
+} from '../parent-event-sink/types.js';
 import type { CodexRunner, RunnerAdapter } from '../runner/types.js';
 
 export interface WritableLike {
@@ -19,6 +23,7 @@ export type OperationProgressEventName =
   | 'phase.completed'
   | 'child.started'
   | 'child.progress'
+  | 'child.heartbeat'
   | 'child.completed'
   | 'child.blocked'
   | 'waiting'
@@ -66,6 +71,8 @@ export interface OperationRunnerContext {
   progressEventWriter?: OperationProgressEventWriter;
   virtualCompletedIssueNumbers?: number[];
   parentRun?: LocalRunRunLink;
+  parentEventSink?: PullOpsParentEventSink;
+  parentEventSinkEnvironment?: PullOpsParentEventSinkChildEnvironment;
 }
 
 export interface OperationContextUsage {
