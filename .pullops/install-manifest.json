@@ -5,39 +5,39 @@
   "files": [
     {
       "path": ".agents/skills/pullops-setup/SKILL.md",
-      "hash": "1ffcaf955dc4e3a14f6c987a615c65537504bc2c73d780d0be56868e5d907bcc"
+      "hash": "bdec48c0945c74c3ea42486b397fa77b9ed65c24a852a063966d28208629e10a"
     },
     {
       "path": ".agents/skills/pullops-go/references/event-supervision.md",
-      "hash": "bb8ba9af017253de52cf6ad933922814521ea473b63951648d1bdc328f31e2b9"
+      "hash": "d946d27506ad05cc83237e6361a66f3d896d2940a800a87de5cc0381474d3cc5"
     },
     {
       "path": ".agents/skills/pullops-go/SKILL.md",
-      "hash": "6b3ce236f4e80c5de4ed3725629384de3077afbc668e43059ec0be7bba8e310b"
+      "hash": "9fbdd0db1cde9e251235fd89d9bc3b25f3544fccce2d82a191b29e48901a7dc7"
     },
     {
       "path": ".agents/skills/pullops-issue-implement/SKILL.md",
-      "hash": "d1087947b9349ee52c5f8ce39c5cbb50f0f1b6ea3dfc4f4d7f1136272734dad3"
+      "hash": "053e5466a26307065f7c73fc1a929df6a575faaf3e0dd83e3cd1c14d7fdb210d"
     },
     {
       "path": ".agents/skills/pullops-pr-address-review/SKILL.md",
-      "hash": "cd3d628b422674c0881b90a93c5be6b89a58f482ec5a9304ab5052b4d5ae9848"
+      "hash": "7bd5283560e7e5abd1bb2cefe8dea8f9eadf546b806f72114655a62993ebf473"
     },
     {
       "path": ".agents/skills/pullops-pr-finalize/SKILL.md",
-      "hash": "9a2c84a446068dc3db5ab6911e58c8fb082d98919c08c8a7f018a09284b085cb"
+      "hash": "2c684997a02f44bfb69cf8de3fe897165e2d9e03604341f2691e80dfd4195d8e"
     },
     {
       "path": ".agents/skills/pullops-pr-fix-ci/SKILL.md",
-      "hash": "31244d76b43489a8a1f39babffd156e6b643d452cb05f526c6a7847d16b29e47"
+      "hash": "129567337bc74b788ffd4592f3c3b81dc3f6d741e2972646a10fdecc02cbc25f"
     },
     {
       "path": ".agents/skills/pullops-pr-review/SKILL.md",
-      "hash": "7e860e253814e9e858620924dc7dcb7f1d39a967f253707aabe45b93e9d0aaaf"
+      "hash": "22d693a00d72db900c6b47213267facb1008134b17120c26a8dd054c59a288df"
     },
     {
       "path": ".agents/skills/pullops-resolve-conflicts/SKILL.md",
-      "hash": "a12de55a62a7c89fbf27348586cef6b97bb9462a0602b47d8877f45035388e8c"
+      "hash": "40c0d89252423d87f597a8c8fa4c8f44fc055d8bd121cca0816acea852be09da"
     },
     {
       "path": ".github/workflows/pullops-dispatch.yml",

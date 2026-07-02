@@ -1,5 +1,8 @@
 default_permissions = "pullops_github"
 
+[shell_environment_policy]
+include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
+
 [permissions.pullops_github]
 description = "Workspace write with GitHub-only network access."
 extends = ":workspace"
