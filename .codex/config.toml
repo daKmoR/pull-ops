@@ -7,6 +7,9 @@ include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
 description = "Workspace write with GitHub-only network access."
 extends = ":workspace"
 
+[permissions.pullops_github.filesystem.":workspace_roots"]
+".git" = "write"
+
 [permissions.pullops_github.network]
 enabled = true
 
