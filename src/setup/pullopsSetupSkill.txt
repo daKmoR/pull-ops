@@ -28,10 +28,10 @@ If `npm_config_cache` is already set to a sandbox-writable cache path, keep the 
 
 Completion criterion: every blocker and warning is classified as one of:
 
-- local action
-- remote approval
-- external credential handoff
-- external wait
+* local action
+* remote approval
+* external credential handoff
+* external wait
 
 ## GitHub Authentication
 
@@ -40,13 +40,11 @@ GitHub API authentication is contextual readiness. PullOps can use `GITHUB_TOKEN
 If a sandboxed Codex agent reports missing GitHub authentication:
 
 1. Check for a visible token without printing it:
-
 ```sh
 test -n "${GITHUB_TOKEN:-}${GH_TOKEN:-}"
 ```
 
 2. If no token is visible, assume `gh auth token` may not work inside the sandbox. Ask the user to run this command outside the sandbox and confirm when done:
-
 ```sh
 mkdir -p "$HOME/.codex"
 
@@ -63,16 +61,26 @@ chmod 600 "$HOME/.codex/.env"
 3. If the user approves filesystem access outside the repository, the agent may create or modify `~/.codex/.env` itself using the same command above. Do not do this without explicit approval.
 4. If the command fails because `gh` is not installed, report that GitHub CLI is missing and ask the user to install GitHub CLI or provide a token through the environment.
 5. If the command fails because the user is not authenticated, ask the user to run:
-
 ```sh
 gh auth login
 ```
-
 Then ask the user to rerun the token persistence command from step 2.
 
-6. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
+6. Ensure the repository-local Codex config forwards the variables to spawned commands:
+
+```toml
+# .codex/config.toml
+
+[shell_environment_policy]
+include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
+```
+
+If an include_only list already exists, add GITHUB_TOKEN and GH_TOKEN to the existing list rather than replacing unrelated entries.
+
+7. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
 
 Do not print tokens with `echo`, paste them into chat, commit them, or include them in logs. Do not store token values in repo-local `.codex/config.toml` or any other repository file.
+
 
 ## Reconcile
 

@@ -66,7 +66,18 @@ gh auth login
 ```
 Then ask the user to rerun the token persistence command from step 2.
 
-6. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
+6. Ensure the repository-local Codex config forwards the variables to spawned commands:
+
+```toml
+# .codex/config.toml
+
+[shell_environment_policy]
+include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
+```
+
+If an include_only list already exists, add GITHUB_TOKEN and GH_TOKEN to the existing list rather than replacing unrelated entries.
+
+7. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
 
 Do not print tokens with `echo`, paste them into chat, commit them, or include them in logs. Do not store token values in repo-local `.codex/config.toml` or any other repository file.
 
