@@ -292,19 +292,28 @@ describe('PullOps skill contracts', () => {
     );
   });
 
-  it('keeps PullOps Go supervision guidance aligned with run state liveness', async () => {
+  it('keeps PullOps Go supervision guidance aligned with child heartbeat liveness', async () => {
     const skillText = await readRepoFile('.agents/skills/pullops-go/SKILL.md');
     const eventSupervisionText = await readRepoFile(
       '.agents/skills/pullops-go/references/event-supervision.md',
     );
     const contractText = `${skillText}\n${eventSupervisionText}`;
 
-    assert.match(contractText, /JSONL PullOps Progress Events plus PullOps Run State/);
+    assert.match(contractText, /parent\s+`child\.heartbeat` events/);
+    assert.match(contractText, /default nested-run PullOps Liveness Signal/);
+    assert.match(contractText, /Child Heartbeat Events/);
+    assert.match(contractText, /child\.progress[\s\S]*semantic/);
+    assert.match(contractText, /must not report liveness as implementation progress/i);
+    assert.match(contractText, /throttle or coalesce/);
+    assert.match(contractText, /without dropping machine-readable `child\.heartbeat` JSONL events/);
+    assert.match(contractText, /stream\s+interruption, sink loss, lease expiry/);
+    assert.match(contractText, /postmortem inspection/);
+    assert.doesNotMatch(contractText, /advanced heartbeat/);
+    assert.doesNotMatch(contractText, /changed\s+child run set/);
+    assert.doesNotMatch(contractText, /JSONL PullOps Progress Events plus PullOps Run State/);
     assert.match(contractText, /Progress Events[\s\S]*semantic/);
     assert.match(contractText, /5-10 minutes/);
     assert.match(contractText, /PullOps Lease/);
-    assert.match(contractText, /advanced heartbeat/);
-    assert.match(contractText, /changed\s+child run set/);
     assert.match(contractText, /PullOps Stall Classification/);
     assert.match(
       contractText,
