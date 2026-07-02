@@ -4,14 +4,21 @@ Use this reference while supervising `prd:auto-complete --events jsonl`.
 
 ## Reading Events
 
-Parse stdout as JSONL. Also read the matching run record when available:
-`.pullops/runs/<run-id>/events.jsonl`, `state.json`, and `result.json`.
+Parse stdout as JSONL. During healthy nested PRD work, parent
+`child.heartbeat` events are the default nested-run PullOps Liveness Signal.
+Also use the matching `.pullops/runs/<run-id>/events.jsonl` and `result.json`
+when available.
 
-Use JSONL PullOps Progress Events plus PullOps Run State during healthy
-execution. Progress Events are semantic progress, milestone, and terminal
-summary records; do not expect or display every PullOps Heartbeat as a progress
-event. Run State is the machine-only supervision surface for status, phase,
-heartbeat, lease, last event, and child run facts.
+Semantic PullOps Progress Events are milestones, phase changes, child
+completions, blockers, and terminal summary records. Child Heartbeat Events are
+live liveness records emitted as parent `child.heartbeat` JSONL events from the
+Parent Event Sink. They are distinct from `child.progress` semantic milestones;
+supervisors must not report liveness as implementation progress.
+
+Human-facing heartbeat display may throttle or coalesce Child Heartbeat Events
+without dropping machine-readable `child.heartbeat` JSONL events. Durable child
+Local Run Records and child `state.json` reads are reserved for stream
+interruption, sink loss, lease expiry reconciliation, or postmortem inspection.
 
 Important event fields:
 
@@ -22,9 +29,14 @@ Important event fields:
 - `localNextSteps` or `nextSteps`: human-readable next actions.
 - `children`, `parentPullRequest`, `pullRequest`: PR/issue state to inspect.
 - `localRunRecord`: run artifact path for post-failure diagnosis.
+- `heartbeatAt`, `leaseExpiresAt`, `heartbeatCount`, `heartbeatSummary`:
+  liveness fields on `child.heartbeat` events.
+- `completedNonHeartbeatStepsSinceHeartbeat`: worker activity since the
+  heartbeat, not semantic implementation progress.
 
 If the process exits before a `run.summary`, use stderr, partial events, git
-state, and the newest `.pullops/runs/*` record to classify the stop.
+state, and the newest `.pullops/runs/*` record to classify the stop. A truncated
+stream is a recovery path where reading durable `state.json` is appropriate.
 
 ## Healthy Supervision
 
@@ -33,27 +45,32 @@ Use an observe, reconcile, start next eligible operation, wait loop:
 - Report semantic milestones immediately, including child starts, completions,
   blockers, review phases, finalization, and terminal summaries.
 - Give compact healthy-run updates every 5-10 minutes while work is still
-  healthy. Base the update on the latest semantic event plus Run State; do not
-  display every heartbeat.
-- While the PullOps Lease is active, wait. Avoid artifact, process, git, CI, or GitHub probing
-  while a run remains healthy; do not probe artifacts, processes, git state, CI, or GitHub
-  merely because the event stream is quiet.
-- After lease expiry, reconcile v1 PullOps Liveness Signals before
-  intervening. Reliable v1 liveness is an advanced heartbeat or a changed child run set.
-- If liveness advanced, continue waiting from the refreshed state.
+  healthy. Base the update on the latest semantic event plus coalesced Child
+  Heartbeat Event facts; do not display every heartbeat.
+- While the PullOps Lease is active and `child.heartbeat` liveness is flowing,
+  wait. Avoid artifact, process, git, CI, or GitHub probing while a run remains
+  healthy; do not probe artifacts, processes, git state, CI, GitHub, child
+  `state.json`, or child Local Run Records merely because semantic events are
+  quiet.
+- After stream interruption, suspected sink loss, or lease expiry, reconcile
+  PullOps Liveness Signals from durable child run state before intervening.
+- If a Child Heartbeat Event or durable reconciliation shows liveness advanced,
+  continue waiting from the refreshed lease state.
 - If liveness did not advance, record a PullOps Stall Classification before
   stopping, retrying, or replacing work.
 
-Do not use logs, git diff, CI, or GitHub state as required v1 liveness signals.
+Do not use logs, git diff, CI, or GitHub state as required liveness signals.
 They may help diagnose a failure after reconciliation, but they must not be used
-to declare a healthy leased run stuck.
+to declare a healthy leased run stuck. Do not perform routine child `state.json`
+inspection during healthy work; durable child run-state reads are fallback and
+recovery tools.
 
 ## Stall Classification
 
 Before intervention, record the stall facts in the run record when PullOps
 provides a mechanism for doing so, or report the missing mechanism as a PullOps
-bug. Include phase, reason, last heartbeat, lease expiry, child runs, owned
-worker identity, and recommended action.
+bug. Include phase, reason, last Child Heartbeat Event or durable heartbeat,
+lease expiry, child runs, owned worker identity, and recommended action.
 
 Only stop the worker process owned by the current PullOps run. Do not kill unrelated processes,
 reset or discard local changes, or start parallel same-branch work before lease reconciliation.

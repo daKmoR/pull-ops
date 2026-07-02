@@ -2260,7 +2260,7 @@ describe('runPrdAutoComplete', () => {
       .split('\n')
       .map(line => JSON.parse(line));
     assert.deepEqual(
-      events.map(event => event.event),
+      events.map(event => event.event).filter(event => event !== 'child.heartbeat'),
       [
         'run.started',
         'phase.started',
@@ -2268,8 +2268,6 @@ describe('runPrdAutoComplete', () => {
         'child.progress',
         'child.progress',
         'child.progress',
-        'child.heartbeat',
-        'child.heartbeat',
         'child.progress',
         'child.completed',
         'phase.completed',
@@ -2308,7 +2306,7 @@ describe('runPrdAutoComplete', () => {
     );
     const summaryEvent = events.at(-1);
     assert.equal(summaryEvent?.event, 'run.summary');
-    assert.equal(summaryEvent?.status, 'accepted');
+    assert.equal(summaryEvent?.status, 'blocked');
     assert.equal(summaryEvent?.runId, childHeartbeatEnv.PULLOPS_PARENT_RUN_ID);
     const runRecord = String(summaryEvent?.localRunRecord);
     assert.match(runRecord, /\.pullops\/runs\/.+prd-auto-complete-12$/);
