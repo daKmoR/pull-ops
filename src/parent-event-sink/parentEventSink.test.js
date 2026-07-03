@@ -2,10 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 
-import {
-  handleParentEventSinkRequest,
-  readAcceptedHeartbeatPayload,
-} from './parentEventSink.js';
+import { handleParentEventSinkRequest, readAcceptedHeartbeatPayload } from './parentEventSink.js';
 
 describe('readAcceptedHeartbeatPayload', () => {
   it('01: does not consume a heartbeat count when the request is refused after count validation', async () => {
@@ -166,10 +163,7 @@ describe('handleParentEventSinkRequest', () => {
       }),
       202,
     );
-    assert.deepEqual(
-      readEventNamesAndCounts(progressEventWriter),
-      [['child.heartbeat', 1]],
-    );
+    assert.deepEqual(readEventNamesAndCounts(progressEventWriter), [['child.heartbeat', 1]]);
 
     assert.equal(
       await sendSinkRequest({
@@ -204,10 +198,7 @@ describe('handleParentEventSinkRequest', () => {
       }),
       409,
     );
-    assert.deepEqual(
-      readEventNamesAndCounts(progressEventWriter),
-      [['child.heartbeat', 1]],
-    );
+    assert.deepEqual(readEventNamesAndCounts(progressEventWriter), [['child.heartbeat', 1]]);
 
     assert.equal(
       await sendSinkRequest({
@@ -232,13 +223,10 @@ describe('handleParentEventSinkRequest', () => {
       }),
       403,
     );
-    assert.deepEqual(
-      readEventNamesAndCounts(progressEventWriter),
-      [
-        ['child.heartbeat', 1],
-        ['child.heartbeat', 2],
-      ],
-    );
+    assert.deepEqual(readEventNamesAndCounts(progressEventWriter), [
+      ['child.heartbeat', 1],
+      ['child.heartbeat', 2],
+    ]);
   });
 });
 
@@ -360,9 +348,7 @@ async function sendSinkRequest({
   const response = createResponseSpy();
   await handleParentEventSinkRequest({
     request: /** @type {import('node:http').IncomingMessage} */ (request),
-    response: /** @type {import('node:http').ServerResponse} */ (
-      /** @type {unknown} */ (response)
-    ),
+    response: /** @type {import('node:http').ServerResponse} */ (/** @type {unknown} */ (response)),
     token: expectedToken,
     parentRun,
     routes,

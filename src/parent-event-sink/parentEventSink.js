@@ -190,8 +190,7 @@ export async function handleParentEventSinkRequest({
       ...(heartbeat.heartbeatSummary === undefined
         ? {}
         : { heartbeatSummary: heartbeat.heartbeatSummary }),
-      completedNonHeartbeatStepsSinceHeartbeat:
-        heartbeat.completedNonHeartbeatStepsSinceHeartbeat,
+      completedNonHeartbeatStepsSinceHeartbeat: heartbeat.completedNonHeartbeatStepsSinceHeartbeat,
     });
     writeSinkResponse(response, 202, { status: 'accepted' });
   } catch (error) {
