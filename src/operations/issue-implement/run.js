@@ -371,7 +371,7 @@ export async function runIssueImplementCodexActionPrepare(context) {
   }
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external implement run for issue #${preparation.issue.number}.`,
     issue: {
       number: preparation.issue.number,

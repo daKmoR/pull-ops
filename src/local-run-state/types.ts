@@ -1,3 +1,5 @@
+import type { ExternalRunnerJob } from '../runner/types.js';
+
 export type LocalRunActiveStatus = 'running' | 'waiting';
 
 export type LocalRunTerminalStatus = 'accepted' | 'blocked' | 'refused' | 'failed';
@@ -54,6 +56,7 @@ export interface LocalRunState {
   completedNonHeartbeatStepsSinceHeartbeat?: number;
   leaseExpiresAt: string;
   lastEvent: Record<string, unknown>;
+  runnerJob?: ExternalRunnerJob;
   parentRun?: LocalRunRunLink;
   childRuns: LocalRunChildRun[];
 }
@@ -109,6 +112,14 @@ export interface RecordLocalRunTerminalStatusOptions {
   status: LocalRunTerminalStatus;
   summary: string;
   phase?: string;
+  at?: Date;
+}
+
+export interface RecordLocalRunWaitingForRunnerOptions {
+  statePath: string;
+  summary: string;
+  phase?: string;
+  runnerJob: ExternalRunnerJob;
   at?: Date;
 }
 

@@ -9,6 +9,8 @@ export const CODEX_ACTION_OUTPUT_FILE = 'runner_output.json';
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../runner/runnerResult.types.js').RunnerResultStatus} RunnerResultStatus
+ * @typedef {import('../runner/types.js').ExternalRunnerCommand} ExternalRunnerCommand
+ * @typedef {import('../runner/types.js').ExternalRunnerJob} ExternalRunnerJob
  */
 
 /**
@@ -90,9 +92,10 @@ export function getCodexActionFiles(context) {
  *   workerPrompt: string,
  * }} files
  * @param {{ model: string, branch: string }} options
- * @returns {Record<string, unknown>}
+ * @returns {ExternalRunnerJob}
  */
 export function createExternalRunnerJob(context, files, { model, branch }) {
+  const outputDirectory = requireOutputDirectory(context);
   return {
     cwd: resolve(context.cwd),
     promptFile: files.promptFile,
@@ -101,27 +104,57 @@ export function createExternalRunnerJob(context, files, { model, branch }) {
     workerPrompt: files.workerPrompt,
     model,
     branch,
-    completionCommands: Object.fromEntries(
-      /** @type {RunnerResultStatus[]} */ (['success', 'failed', 'cancelled', 'skipped']).map(
-        status => [
-          status,
-          {
-            argv: [
-              'npm',
-              'exec',
-              'pullops',
-              '--',
-              'runner-result',
-              '--status',
-              status,
-              '--file',
-              files.resultFile,
-            ],
-            env: {},
-          },
-        ],
-      ),
+    completionCommands: /** @type {Record<RunnerResultStatus, ExternalRunnerCommand>} */ (
+      Object.fromEntries(
+        /** @type {RunnerResultStatus[]} */ (['success', 'failed', 'cancelled', 'skipped']).map(
+          status => [
+            status,
+            {
+              argv: [
+                'npm',
+                'exec',
+                'pullops',
+                '--',
+                'runner-result',
+                '--status',
+                status,
+                '--file',
+                files.resultFile,
+              ],
+              env: {},
+            },
+          ],
+        ),
+      )
     ),
+    completeCommand: createExternalRunnerCompleteCommand(context, outputDirectory),
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {string} outputDirectory
+ * @returns {ExternalRunnerCommand}
+ */
+function createExternalRunnerCompleteCommand(context, outputDirectory) {
+  return {
+    argv: [
+      'npm',
+      'exec',
+      'pullops',
+      '--',
+      'run',
+      context.operation,
+      '--runner',
+      'external',
+      '--phase',
+      'complete',
+      context.target.type === 'issue' ? '--issue' : '--pr',
+      String(context.target.number),
+    ],
+    env: {
+      OUTPUT_DIR: outputDirectory,
+    },
   };
 }
 

@@ -482,6 +482,82 @@ test('run issue:implement accepts explicit dry-run publication and finalized run
   });
 });
 
+test('run issue:implement with the external runner records a waiting runner handoff', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-external-issue-'));
+  await writeExternalRunnerConfig(cwd);
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const runnerJob = {
+    cwd,
+    promptFile: join(cwd, '.pullops', 'runs', 'runner_prompt.md'),
+    outputFile: join(cwd, '.pullops', 'runs', 'runner_output.json'),
+    resultFile: join(cwd, '.pullops', 'runs', 'runner_result.json'),
+    workerPrompt: 'Use the pullops-issue-implement skill.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-123',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: [
+        'npm',
+        'exec',
+        'pullops',
+        '--',
+        'run',
+        'issue-implement',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--issue',
+        '123',
+      ],
+      env: {},
+    },
+  };
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    gitClient: createFakeGitClient(),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'waiting',
+        summary: 'Prepared external implement run for issue #123.',
+        runnerJob,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].phase, 'prepare');
+  assert.equal(runnerCalls[0].runnerAdapter, 'external');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.match(runnerCalls[0].outputDirectory ?? '', /\.pullops\/runs\//);
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'waiting');
+  assert.equal(output.localRunRecord, runnerCalls[0].outputDirectory);
+  assert.equal(output.runStatePath, join(runnerCalls[0].outputDirectory ?? '', 'state.json'));
+  assert.deepEqual(output.runnerJob, runnerJob);
+
+  const state = JSON.parse(await readFile(output.runStatePath, 'utf8'));
+  assert.equal(state.status, 'waiting');
+  assert.equal(state.phase, 'prepare');
+  assert.deepEqual(state.runnerJob, runnerJob);
+  assert.deepEqual(state.lastEvent.runnerJob, runnerJob);
+});
+
 test('heartbeat accepts the worker environment and advances lease timing', async () => {
   const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-cli-'));
   const stateRecord = await initializeLocalRunState({
@@ -3621,6 +3697,17 @@ async function writeGitHubIssueStoreConfig(cwd) {
   await writeFile(
     join(cwd, 'pullops.config.js'),
     "export default { issueStore: { provider: 'github' } };\n",
+  );
+}
+
+/**
+ * @param {string} cwd
+ * @returns {Promise<void>}
+ */
+async function writeExternalRunnerConfig(cwd) {
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    "export default { runner: { adapter: 'external' } };\n",
   );
 }
 

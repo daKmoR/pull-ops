@@ -325,6 +325,27 @@ describe('PullOps skill contracts', () => {
     assert.match(contractText, /reset or discard local changes/);
     assert.match(contractText, /start\s+parallel same-branch work/);
   });
+
+  it('keeps PullOps Go guidance aligned with external runner waiting handoffs', async () => {
+    const skillText = await readRepoFile('.agents/skills/pullops-go/SKILL.md');
+    const eventSupervisionText = await readRepoFile(
+      '.agents/skills/pullops-go/references/event-supervision.md',
+    );
+    const contractText = `${skillText}\n${eventSupervisionText}`;
+
+    assert.match(contractText, /status[\s\S]*waiting[\s\S]*runnerJob/);
+    assert.match(contractText, /Local Run State[\s\S]*runnerJob/);
+    assert.match(contractText, /hidden worker/i);
+    assert.match(contractText, /one hidden worker at a time/i);
+    assert.match(contractText, /workerPrompt/);
+    assert.match(contractText, /runner_output\.json/);
+    assert.match(contractText, /non-empty/);
+    assert.match(contractText, /runner_result\.json/);
+    assert.match(contractText, /completeCommand/);
+    assert.match(contractText, /must not fake worker heartbeats/i);
+    assert.match(contractText, /executable handoff/i);
+    assert.doesNotMatch(contractText, /product blocker/i);
+  });
 });
 
 /**

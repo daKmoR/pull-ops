@@ -14,6 +14,7 @@ import {
   recordLocalRunCompletedNonHeartbeatStep,
   recordLocalRunHeartbeat,
   recordLocalRunTerminalStatus,
+  recordLocalRunWaitingForRunner,
   updateLocalRunState,
 } from './localRunState.js';
 
@@ -237,7 +238,74 @@ describe('localRunState', () => {
     assert.equal(stored.heartbeatAt, initial.state.heartbeatAt);
   });
 
-  it('03b: records child run snapshots and parent links', async () => {
+  it('03b: records a resumable external runner wait with the runner job contract', async () => {
+    const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-run-waiting-'));
+    const initial = await initializeLocalRunState({
+      runRecordDirectory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: 42,
+      },
+      publicationMode: 'publish',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+    const runnerJob = {
+      cwd: '/workspace',
+      promptFile: join(runRecordDirectory, 'runner_prompt.md'),
+      outputFile: join(runRecordDirectory, 'runner_output.json'),
+      resultFile: join(runRecordDirectory, 'runner_result.json'),
+      workerPrompt: 'Use the pullops-issue-implement skill.',
+      model: 'gpt-5.5',
+      branch: 'pullops/issue-42',
+      completionCommands: {
+        success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+        failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+        cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+        skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      },
+      completeCommand: {
+        argv: [
+          'npm',
+          'exec',
+          'pullops',
+          '--',
+          'run',
+          'issue-implement',
+          '--runner',
+          'external',
+          '--phase',
+          'complete',
+          '--issue',
+          '42',
+        ],
+        env: {
+          OUTPUT_DIR: runRecordDirectory,
+        },
+      },
+    };
+
+    const waiting = await recordLocalRunWaitingForRunner({
+      statePath: initial.statePath,
+      summary: 'Prepared external implement run for issue #42.',
+      phase: 'prepare',
+      runnerJob,
+      at: new Date('2024-01-01T00:03:00.000Z'),
+    });
+
+    assert.equal(waiting.status, 'waiting');
+    assert.equal(waiting.phase, 'prepare');
+    assert.deepEqual(waiting.runnerJob, runnerJob);
+    assert.equal(waiting.lastEvent.event, 'run.summary');
+    assert.equal(waiting.lastEvent.status, 'waiting');
+    assert.deepEqual(waiting.lastEvent.runnerJob, runnerJob);
+
+    const stored = await readLocalRunState(initial.statePath);
+    assert.equal(stored.status, 'waiting');
+    assert.deepEqual(stored.runnerJob, runnerJob);
+  });
+
+  it('03c: records child run snapshots and parent links', async () => {
     const parentRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-parent-run-'));
     const childRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-child-run-'));
 
@@ -314,7 +382,7 @@ describe('localRunState', () => {
     ]);
   });
 
-  it('03c: serializes concurrent state updates so disjoint fields are not dropped', async () => {
+  it('03d: serializes concurrent state updates so disjoint fields are not dropped', async () => {
     const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-run-concurrent-'));
     const initial = await initializeLocalRunState({
       runRecordDirectory,

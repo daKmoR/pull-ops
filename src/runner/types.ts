@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
+import type { RunnerResultStatus } from './runnerResult.types.js';
 
 export interface RunnerExecFileOptions {
   cwd: string;
@@ -11,6 +12,23 @@ export interface RunnerExecFileResult {
 }
 
 export type RunnerAdapter = 'codex-cli' | 'external';
+
+export interface ExternalRunnerCommand {
+  argv: string[];
+  env: Record<string, string>;
+}
+
+export interface ExternalRunnerJob {
+  cwd: string;
+  promptFile: string;
+  outputFile: string;
+  resultFile: string;
+  workerPrompt: string;
+  model: string;
+  branch: string;
+  completionCommands: Record<RunnerResultStatus, ExternalRunnerCommand>;
+  completeCommand: ExternalRunnerCommand;
+}
 
 export type RunnerExecFile = (
   file: string,

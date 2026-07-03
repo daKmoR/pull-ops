@@ -17,6 +17,7 @@ import { setTimeout as delay } from 'node:timers/promises';
  * @typedef {import('./types.js').RecordLocalRunHeartbeatOptions} RecordLocalRunHeartbeatOptions
  * @typedef {import('./types.js').RecordLocalRunChildRunOptions} RecordLocalRunChildRunOptions
  * @typedef {import('./types.js').RecordLocalRunTerminalStatusOptions} RecordLocalRunTerminalStatusOptions
+ * @typedef {import('./types.js').RecordLocalRunWaitingForRunnerOptions} RecordLocalRunWaitingForRunnerOptions
  */
 
 export const LOCAL_RUN_HEARTBEAT_COMMAND = 'npm exec -- pullops heartbeat';
@@ -123,6 +124,42 @@ export async function recordLocalRunTerminalStatus({
         phase: nextPhase,
         status: terminalStatus,
         summary,
+        at: isoAt,
+      },
+    };
+  });
+}
+
+/**
+ * @param {RecordLocalRunWaitingForRunnerOptions} options
+ * @returns {Promise<LocalRunState>}
+ */
+export async function recordLocalRunWaitingForRunner({
+  statePath,
+  summary,
+  phase,
+  runnerJob,
+  at = new Date(),
+}) {
+  return await updateLocalRunState(statePath, currentState => {
+    const nextPhase = phase ?? currentState.phase;
+    const isoAt = at.toISOString();
+
+    return {
+      ...currentState,
+      status: 'waiting',
+      phase: nextPhase,
+      runnerJob,
+      lastEvent: {
+        schemaVersion: LOCAL_RUN_STATE_SCHEMA_VERSION,
+        event: 'run.summary',
+        operationReference: currentState.operationReference,
+        normalizedOperationReference: currentState.normalizedOperationReference,
+        target: currentState.target,
+        phase: nextPhase,
+        status: 'waiting',
+        summary,
+        runnerJob,
         at: isoAt,
       },
     };
@@ -400,6 +437,9 @@ function parseLocalRunState(value, statePath) {
   }
   if (!isRecord(state.lastEvent)) {
     throw new Error(`Local run state at ${statePath} is missing lastEvent.`);
+  }
+  if (state.runnerJob !== undefined && !isRecord(state.runnerJob)) {
+    throw new Error(`Local run state at ${statePath} has an invalid runnerJob.`);
   }
   if (state.parentRun !== undefined && !isRunLinkRecord(state.parentRun)) {
     throw new Error(`Local run state at ${statePath} has an invalid parentRun.`);

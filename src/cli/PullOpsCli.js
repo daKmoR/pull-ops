@@ -24,10 +24,14 @@ import {
 import { hasSetupChanges } from '../setup/setupResult.js';
 import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+  initializeLocalRunState,
   LocalRunHeartbeatError,
+  mapLocalRunResultStatusToTerminalStatus,
   readLocalRunState,
   recordLocalRunCompletedNonHeartbeatStep,
   recordLocalRunHeartbeat,
+  recordLocalRunTerminalStatus,
+  recordLocalRunWaitingForRunner,
 } from '../local-run-state/localRunState.js';
 import {
   getOperationLabelReference,
@@ -926,6 +930,16 @@ export class PullOpsCli {
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
     const runnerAdapter = config.runner.adapter;
+    if (runnerAdapter === 'external') {
+      return await this.runLocalExternalIssueImplementReference({
+        operation,
+        parsedArgs,
+        config,
+        operationConfig,
+        model,
+      });
+    }
+
     validateRunnerLifecycle({
       operationName: operation.name,
       phase: 'run',
@@ -957,6 +971,128 @@ export class PullOpsCli {
 
     this.writeValidatedJson(output);
     return 0;
+  }
+
+  /**
+   * @param {object} options
+   * @param {import('../operations/types.js').WorkflowOperation} options.operation
+   * @param {{ targetNumber: number, publicationMode: 'dry-run' | 'publish', runGoal: import('./types.js').OperationRunGoal }} options.parsedArgs
+   * @param {import('../config/types.js').PullOpsConfig} options.config
+   * @param {import('../config/types.js').OperationConfig} options.operationConfig
+   * @param {string} options.model
+   * @returns {Promise<number>}
+   */
+  async runLocalExternalIssueImplementReference({
+    operation,
+    parsedArgs,
+    config,
+    operationConfig,
+    model,
+  }) {
+    const createdAt = this.now();
+    const runRecordLocation = createLocalPrdRunRecordLocation({
+      cwd: this.cwd,
+      operationReference: 'issue:implement',
+      targetNumber: parsedArgs.targetNumber,
+      createdAt,
+    });
+    await mkdir(runRecordLocation.directory, { recursive: true });
+    const stateRecord = await initializeLocalRunState({
+      runRecordDirectory: runRecordLocation.directory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: parsedArgs.targetNumber,
+      },
+      publicationMode: parsedArgs.publicationMode,
+      runGoal: parsedArgs.runGoal,
+      createdAt,
+    });
+
+    try {
+      if (await this.gitClient.hasChanges()) {
+        const reason = [
+          'Local external issue implementation requires a clean worktree before preparing a hidden worker.',
+          'Commit, stash, or discard existing changes and run PullOps again.',
+        ].join(' ');
+        const output = {
+          status: 'failed',
+          summary: `Local external issue implementation for issue #${parsedArgs.targetNumber} failed before prepare.`,
+          failureReason: reason,
+          localRunRecord: runRecordLocation.directory,
+          runStatePath: stateRecord.statePath,
+        };
+        await recordLocalRunTerminalStatus({
+          statePath: stateRecord.statePath,
+          status: 'failed',
+          summary: reason,
+          phase: 'prepare',
+        });
+        this.writeValidatedJson(output);
+        return 1;
+      }
+
+      const output = await this.operationRunner({
+        operation: operation.name,
+        phase: 'prepare',
+        runnerAdapter: 'external',
+        executionBackend: 'local',
+        publicationMode: parsedArgs.publicationMode,
+        runGoal: parsedArgs.runGoal,
+        target: {
+          type: 'issue',
+          number: parsedArgs.targetNumber,
+        },
+        cwd: this.cwd,
+        config,
+        modelTier: operationConfig.modelTier,
+        model,
+        githubClient: this.operationGitHubClient,
+        gitClient: this.gitClient,
+        codexRunner: this.codexRunner,
+        triggerActor: this.env.GITHUB_ACTOR,
+        outputDirectory: runRecordLocation.directory,
+        localRunRecordDirectory: runRecordLocation.directory,
+        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+        contextUsage: readContextUsage(this.env),
+        progress: this.progress,
+      });
+      const outputWithRunRecord = addLocalRunRecordToOutput(output, {
+        localRunRecord: runRecordLocation.directory,
+        runStatePath: stateRecord.statePath,
+      });
+
+      if (isExternalRunnerWaitingOutput(outputWithRunRecord)) {
+        await recordLocalRunWaitingForRunner({
+          statePath: stateRecord.statePath,
+          summary: outputWithRunRecord.summary,
+          phase: 'prepare',
+          runnerJob: outputWithRunRecord.runnerJob,
+        });
+      } else {
+        await recordLocalRunTerminalStatus({
+          statePath: stateRecord.statePath,
+          status: mapLocalRunResultStatusToTerminalStatus(
+            /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (
+              outputWithRunRecord.status
+            ),
+          ),
+          summary: outputWithRunRecord.summary,
+          phase: 'prepare',
+        });
+      }
+
+      this.writeValidatedJson(outputWithRunRecord);
+      return readOperationExitCode(outputWithRunRecord);
+    } catch (error) {
+      await recordLocalRunTerminalStatus({
+        statePath: stateRecord.statePath,
+        status: 'failed',
+        summary: getErrorMessage(error),
+        phase: 'prepare',
+      });
+      throw error;
+    }
   }
 
   /**
@@ -2405,6 +2541,42 @@ function readOperationExitCode(output) {
   }
 
   return isRecord(output) && (output.status === 'refused' || output.status === 'failed') ? 1 : 0;
+}
+
+/**
+ * @param {Record<string, unknown>} output
+ * @param {{ localRunRecord: string, runStatePath: string }} runRecord
+ * @returns {Record<string, unknown> & { status: string, summary: string }}
+ */
+function addLocalRunRecordToOutput(output, runRecord) {
+  const result = validateOperationOutput(output, COMMAND_OUTPUT_CONTRACT);
+  if (!result.valid) {
+    throw new Error(`Invalid Operation Output: ${result.reason}`);
+  }
+  const value = /** @type {Record<string, unknown> & { status: string, summary: string }} */ (
+    result.value
+  );
+
+  return {
+    ...value,
+    ...runRecord,
+  };
+}
+
+/**
+ * @param {Record<string, unknown> & { status: string, summary: string }} output
+ * @returns {output is Record<string, unknown> & { status: 'waiting', summary: string, runnerJob: import('../runner/types.js').ExternalRunnerJob }}
+ */
+function isExternalRunnerWaitingOutput(output) {
+  if (output.status !== 'waiting') {
+    return false;
+  }
+
+  if (!isRecord(output.runnerJob)) {
+    throw new Error('External runner waiting output must include runnerJob.');
+  }
+
+  return true;
 }
 
 /**

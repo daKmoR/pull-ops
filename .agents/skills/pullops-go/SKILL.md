@@ -42,12 +42,33 @@ Before running any PullOps CLI command, read and follow
 2. Run the selected command locally. Add `--events jsonl` for
    `prd:auto-complete`; it is currently supported only for that operation. For
    other operations, supervise stdout and run records.
-3. When supervising `prd:auto-complete --events jsonl`, read
+3. If a local command exits zero with `status: "waiting"` and a `runnerJob`,
+   treat it as an executable handoff. If live stdout was interrupted, recover
+   the same handoff from the newest matching Local Run State whose status is
+   `waiting` and whose `runnerJob` is present. This boundary is expected work,
+   not a failure, refusal, or external decision.
+4. Execute one external runner handoff at a time:
+   - Spawn one hidden worker at a time through the Codex host using
+     `runnerJob.workerPrompt` in `runnerJob.cwd`. Do not invoke a nested
+     `codex exec` from the PullOps CLI.
+   - The worker writes only `runner_output.json` through the path named by
+     `runnerJob.outputFile`. The manager owns `runner_result.json`.
+   - Record success only when the hidden worker completed and
+     `runnerJob.outputFile` exists with non-empty contents. Otherwise record
+     `failed`, `cancelled`, or `skipped` according to the worker outcome.
+   - Write `runner_result.json` by running the matching
+     `runnerJob.completionCommands[status]` command with its explicit `argv`
+     and `env`.
+   - After `runner_result.json` is written, run `runnerJob.completeCommand`
+     with its explicit `argv` and `env`, then continue the operator loop from
+     that complete output.
+   PullOps Heartbeats remain worker-owned liveness; the manager must not fake worker heartbeats.
+5. When supervising `prd:auto-complete --events jsonl`, read
    [`references/event-supervision.md`](references/event-supervision.md) before
    acting on events. Apply its event, liveness, and recovery rules. Completion
    criterion: every `run.summary` status, blocker, suggested action, and local
    next step has been completed, rerun, or reported as an external wait.
-4. Keep the operator loop moving until it reaches one finish line:
+6. Keep the operator loop moving until it reaches one finish line:
 
 - PRD accepted with a finalized or waiting umbrella/child PR state and clear
   local next steps.

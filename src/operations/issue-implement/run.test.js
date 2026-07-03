@@ -149,7 +149,7 @@ describe('runIssueImplement', () => {
       }),
     );
 
-    assert.equal(result.status, 'accepted');
+    assert.equal(result.status, 'waiting');
     assert.equal(codex.calls.length, 0);
     assert.deepEqual(git.branches, [
       {
@@ -183,6 +183,25 @@ describe('runIssueImplement', () => {
         join(outputDirectory, 'runner_result.json'),
       ],
       env: {},
+    });
+    assert.deepEqual(runnerJob.completeCommand, {
+      argv: [
+        'npm',
+        'exec',
+        'pullops',
+        '--',
+        'run',
+        'issue-implement',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--issue',
+        '42',
+      ],
+      env: {
+        OUTPUT_DIR: outputDirectory,
+      },
     });
   });
 
