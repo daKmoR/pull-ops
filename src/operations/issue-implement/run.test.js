@@ -310,11 +310,11 @@ describe('runIssueImplement', () => {
 
     const result = await runIssueImplementCodexActionFinalize(
       createContext({
+        executionBackend: 'local',
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
         outputDirectory,
-        suppressFollowUpOperationLabels: true,
       }),
     );
 

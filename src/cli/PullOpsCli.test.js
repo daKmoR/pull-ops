@@ -79,7 +79,6 @@ test('run operation accepts explicit external runner lifecycle arguments', async
     stdout,
     env: {
       OUTPUT_DIR: '/tmp/pullops-output',
-      PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS: '1',
     },
     operationRunner: async context => {
       calls.push(context);
@@ -105,12 +104,49 @@ test('run operation accepts explicit external runner lifecycle arguments', async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].phase, 'complete');
   assert.equal(calls[0].runnerAdapter, 'external');
+  assert.equal(calls[0].executionBackend, 'local');
   assert.equal(calls[0].outputDirectory, '/tmp/pullops-output');
   assert.equal(calls[0].suppressFollowUpOperationLabels, true);
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'operation accepted',
   });
+});
+
+test('run operation marks GitHub Actions external lifecycle commands as workflow-backed', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const calls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    env: {
+      GITHUB_ACTIONS: 'true',
+      OUTPUT_DIR: '/tmp/pullops-output',
+    },
+    operationRunner: async context => {
+      calls.push(context);
+      return {
+        status: 'accepted',
+        summary: 'operation accepted',
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'issue-implement',
+    '--phase',
+    'complete',
+    '--runner',
+    'external',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executionBackend, 'github-actions');
+  assert.equal(calls[0].suppressFollowUpOperationLabels, undefined);
 });
 
 test('run review loop operations accept catalog-backed external lifecycles', async () => {

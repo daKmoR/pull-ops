@@ -54,6 +54,14 @@ const LOCAL_FINALIZED_REVIEW_CYCLE_GUARD = 12;
 
 /**
  * @param {OperationRunnerContext} context
+ * @returns {boolean}
+ */
+function shouldSuppressFollowUpOperationLabels(context) {
+  return context.executionBackend === 'local' || context.suppressFollowUpOperationLabels === true;
+}
+
+/**
+ * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplement(context) {
@@ -827,7 +835,7 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
       headBranch: branchName,
     });
 
-    if (context.suppressFollowUpOperationLabels !== true) {
+    if (!shouldSuppressFollowUpOperationLabels(context)) {
       await context.githubClient.addLabelsToPullRequest({
         number: pullRequest.number,
         labels: [requireOperationCatalogOperationLabelName('pr-review')],

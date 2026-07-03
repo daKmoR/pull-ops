@@ -737,11 +737,13 @@ export class PullOpsCli {
     const parsedArgs = parseRunOperationArgs(operationArgs, operation, config.runner.adapter);
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
+    const executionBackend = inferWorkflowCommandExecutionBackend(this.env);
 
     const output = await this.operationRunner({
       operation: operation.name,
       phase: parsedArgs.phase,
       runnerAdapter: parsedArgs.runnerAdapter,
+      executionBackend,
       target: {
         type: operation.target,
         number: parsedArgs.targetNumber,
@@ -756,7 +758,8 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reviewId: parsedArgs.reviewId,
       outputDirectory: this.env.OUTPUT_DIR,
-      ...(readEnvFlag(this.env[SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV])
+      ...(executionBackend === 'local' ||
+        readEnvFlag(this.env[SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV])
         ? { suppressFollowUpOperationLabels: true }
         : {}),
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
@@ -897,6 +900,7 @@ export class PullOpsCli {
       phase: 'run',
       runnerAdapter,
       executionBackend: 'local',
+      suppressFollowUpOperationLabels: true,
       publicationMode: 'dry-run',
       target: {
         type: 'pr',
@@ -954,6 +958,7 @@ export class PullOpsCli {
       phase: 'run',
       runnerAdapter,
       executionBackend: 'local',
+      suppressFollowUpOperationLabels: true,
       publicationMode: parsedArgs.publicationMode,
       runGoal: parsedArgs.runGoal,
       target: {
@@ -1041,6 +1046,7 @@ export class PullOpsCli {
         phase: 'prepare',
         runnerAdapter: 'external',
         executionBackend: 'local',
+        suppressFollowUpOperationLabels: true,
         publicationMode: parsedArgs.publicationMode,
         runGoal: parsedArgs.runGoal,
         target: {
@@ -1124,6 +1130,7 @@ export class PullOpsCli {
       phase: 'run',
       runnerAdapter,
       executionBackend: 'local',
+      suppressFollowUpOperationLabels: true,
       publicationMode: parsedArgs.publicationMode,
       runGoal: parsedArgs.runGoal,
       target: {
@@ -1197,6 +1204,7 @@ export class PullOpsCli {
         phase: 'run',
         runnerAdapter,
         executionBackend: 'local',
+        suppressFollowUpOperationLabels: true,
         publicationMode: parsedArgs.publicationMode,
         runGoal: parsedArgs.runGoal,
         target: {
@@ -2601,6 +2609,14 @@ function readOptionalEnv(value) {
   }
 
   return value;
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {import('./types.js').ExecutionBackend}
+ */
+function inferWorkflowCommandExecutionBackend(env) {
+  return readEnvFlag(env.GITHUB_ACTIONS) ? 'github-actions' : 'local';
 }
 
 /**
