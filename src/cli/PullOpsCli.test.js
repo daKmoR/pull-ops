@@ -71,7 +71,7 @@ test('run operation accepts explicit workflow command shapes', async () => {
   });
 });
 
-test('run operation accepts explicit Codex Action lifecycle arguments', async () => {
+test('run operation accepts explicit external runner lifecycle arguments', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const calls = [];
@@ -79,7 +79,6 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
     stdout,
     env: {
       OUTPUT_DIR: '/tmp/pullops-output',
-      PULLOPS_CODEX_ACTION_OUTCOME: 'success',
     },
     operationRunner: async context => {
       calls.push(context);
@@ -94,29 +93,25 @@ test('run operation accepts explicit Codex Action lifecycle arguments', async ()
     'run',
     'issue-implement',
     '--phase',
-    'finalize',
+    'complete',
     '--runner',
-    'codex-action',
-    '--runner-ran',
-    'true',
+    'external',
     '--issue',
     '42',
   ]);
 
   assert.equal(exitCode, 0);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].phase, 'finalize');
-  assert.equal(calls[0].runnerAdapter, 'codex-action');
-  assert.equal(calls[0].runnerRan, true);
+  assert.equal(calls[0].phase, 'complete');
+  assert.equal(calls[0].runnerAdapter, 'external');
   assert.equal(calls[0].outputDirectory, '/tmp/pullops-output');
-  assert.equal(calls[0].codexActionOutcome, 'success');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'operation accepted',
   });
 });
 
-test('run review loop operations accept catalog-backed Codex Action lifecycles', async () => {
+test('run review loop operations accept catalog-backed external lifecycles', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const calls = [];
@@ -130,49 +125,32 @@ test('run review loop operations accept catalog-backed Codex Action lifecycles',
         operation: context.operation,
         phase: context.phase,
         runnerAdapter: context.runnerAdapter,
-        runnerRan: context.runnerRan,
       };
     },
   });
 
-  /** @type {Array<[string, 'prepare' | 'finalize', string, string | undefined]>} */
+  /** @type {Array<[string, 'prepare' | 'complete', string]>} */
   const cases = [
-    ['pr-review', 'prepare', '456', undefined],
-    ['pr-address-review', 'finalize', '789', 'true'],
+    ['pr-review', 'prepare', '456'],
+    ['pr-address-review', 'complete', '789'],
   ];
 
-  for (const [operation, phase, targetNumber, runnerRan] of cases) {
+  for (const [operation, phase, targetNumber] of cases) {
     /** @type {string[]} */
-    const args = [
-      'run',
-      operation,
-      '--phase',
-      phase,
-      '--runner',
-      'codex-action',
-      '--pr',
-      targetNumber,
-    ];
-    if (runnerRan !== undefined) {
-      args.push('--runner-ran', runnerRan);
-    }
+    const args = ['run', operation, '--phase', phase, '--runner', 'external', '--pr', targetNumber];
 
     const exitCode = await cli.run(args);
 
     assert.equal(exitCode, 0);
     assert.equal(calls.at(-1)?.operation, operation);
     assert.equal(calls.at(-1)?.phase, phase);
-    assert.equal(calls.at(-1)?.runnerAdapter, 'codex-action');
-    assert.equal(
-      calls.at(-1)?.runnerRan,
-      runnerRan === undefined ? undefined : runnerRan === 'true',
-    );
+    assert.equal(calls.at(-1)?.runnerAdapter, 'external');
   }
 
   assert.match(stdout.text, /"status": "accepted"/);
 });
 
-test('run operation rejects unsupported Codex Action lifecycle arguments for prd-prepare', async () => {
+test('run operation rejects unsupported external lifecycle arguments for prd-prepare', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({ stderr });
 
@@ -182,7 +160,7 @@ test('run operation rejects unsupported Codex Action lifecycle arguments for prd
     '--phase',
     'prepare',
     '--runner',
-    'codex-action',
+    'external',
     '--issue',
     '42',
   ]);
@@ -548,6 +526,75 @@ test('heartbeat accepts the worker environment and advances lease timing', async
   assert.notEqual(after.leaseExpiresAt, before.leaseExpiresAt);
   assert.equal(after.heartbeatIntervalMs, before.heartbeatIntervalMs);
   assert.equal(after.leaseDurationMs, before.leaseDurationMs);
+});
+
+test('runner-result writes and validates the external runner result artifact', async () => {
+  const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-runner-result-'));
+  const explicitResultFile = join(outputDirectory, 'explicit-result.json');
+
+  {
+    const stdout = createWritableBuffer();
+    const cli = new PullOpsCli({
+      stdout,
+      env: {
+        OUTPUT_DIR: outputDirectory,
+      },
+    });
+
+    const exitCode = await cli.run(['runner-result', '--status', 'success']);
+
+    assert.equal(exitCode, 0);
+    const resultFile = join(outputDirectory, 'runner_result.json');
+    assert.deepEqual(JSON.parse(await readFile(resultFile, 'utf8')), {
+      schemaVersion: 1,
+      status: 'success',
+    });
+    assert.deepEqual(JSON.parse(stdout.text), {
+      status: 'accepted',
+      summary: `Wrote external runner result to ${resultFile}.`,
+      runnerResult: {
+        status: 'success',
+        resultFile,
+      },
+    });
+  }
+
+  {
+    const stdout = createWritableBuffer();
+    const cli = new PullOpsCli({ stdout });
+
+    const exitCode = await cli.run([
+      'runner-result',
+      '--status',
+      'cancelled',
+      '--file',
+      explicitResultFile,
+    ]);
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(JSON.parse(await readFile(explicitResultFile, 'utf8')), {
+      schemaVersion: 1,
+      status: 'cancelled',
+    });
+  }
+
+  {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({
+      stderr,
+      env: {
+        OUTPUT_DIR: outputDirectory,
+      },
+    });
+
+    const exitCode = await cli.run(['runner-result', '--status', 'failure']);
+
+    assert.equal(exitCode, 1);
+    assert.match(
+      stderr.text,
+      /runner-result --status must be one of: success, failed, cancelled, skipped/,
+    );
+  }
 });
 
 test('heartbeat accepts durable recording when parent event sink delivery fails', async () => {
@@ -3490,7 +3537,24 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     assert.match(stderr.text, /Unknown phase "prepare-codex"/);
   });
 
-  await t.test('codex-action requires an explicit lifecycle phase', async () => {
+  await t.test('external requires an explicit lifecycle phase', async () => {
+    const stderr = createWritableBuffer();
+    const cli = new PullOpsCli({ stderr });
+
+    const exitCode = await cli.run([
+      'run',
+      'issue-implement',
+      '--runner',
+      'external',
+      '--issue',
+      '1',
+    ]);
+
+    assert.equal(exitCode, 1);
+    assert.match(stderr.text, /requires "--phase prepare" or "--phase complete"/);
+  });
+
+  await t.test('codex-action is not a public runner adapter', async () => {
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
@@ -3504,10 +3568,13 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     ]);
 
     assert.equal(exitCode, 1);
-    assert.match(stderr.text, /requires "--phase prepare" or "--phase finalize"/);
+    assert.match(
+      stderr.text,
+      /Unknown runner "codex-action". Expected one of: codex-cli, external/,
+    );
   });
 
-  await t.test('codex-action finalize requires runner-ran state', async () => {
+  await t.test('finalize is not a public runner phase', async () => {
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
@@ -3515,7 +3582,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
       'run',
       'issue-implement',
       '--runner',
-      'codex-action',
+      'external',
       '--phase',
       'finalize',
       '--issue',
@@ -3523,7 +3590,7 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     ]);
 
     assert.equal(exitCode, 1);
-    assert.match(stderr.text, /requires "--runner-ran <true\|false>"/);
+    assert.match(stderr.text, /Unknown phase "finalize". Expected one of: run, prepare, complete/);
   });
 
   await t.test('local runner rejects workflow-only phases', async () => {

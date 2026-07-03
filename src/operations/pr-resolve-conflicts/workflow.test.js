@@ -22,7 +22,9 @@ describe('pullops-pr-resolve-conflicts workflow', () => {
     assert.match(workflow, /pullRequest\.head\.repo\?\.full_name !== `\$\{owner\}\/\$\{repo\}`/);
     assert.match(workflow, /npm exec pullops -- run pr-resolve-conflicts/);
     assert.match(workflow, /--phase prepare/);
-    assert.match(workflow, /--phase finalize/);
+    assert.match(workflow, /--phase complete/);
+    assert.match(workflow, /--runner external/);
+    assert.match(workflow, /npm exec pullops -- runner-result --status "\$runner_status"/);
     assert.match(workflow, /openai\/codex-action@v1/);
     assert.match(workflow, /Run Codex conflict pass 1/);
     assert.match(workflow, /Run Codex conflict pass 2/);

@@ -9,8 +9,10 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
   getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -119,12 +121,13 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
     return await completeResolvedRebase(context, preparation, step, { conflictPasses: 0 });
   }
 
-  await writeCodexActionConflictPrompt(context, preparation, step.conflictContext, { pass: 1 });
+  const handoff = await writeCodexActionConflictPrompt(context, preparation, step.conflictContext, {
+    pass: 1,
+  });
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action conflict resolution for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external conflict resolution for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
@@ -136,12 +139,10 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
       maxConflictResolutionPasses: preparation.maxConflictResolutionPasses,
       conflictedFiles: step.conflictContext.conflictedFiles.map(file => file.path),
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: context.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -150,10 +151,6 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrResolveConflictsCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
   const preparation = await preparePrResolveConflicts(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -170,6 +167,10 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
       operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
     });
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
     await removeCodexActionPrompt(context);
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
       updateBody: preparation.managed,
@@ -201,14 +202,18 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
     return await blockConflictResolutionBudget(context, preparation, resolved.step.conflictContext);
   }
 
-  await writeCodexActionConflictPrompt(context, preparation, resolved.step.conflictContext, {
-    pass: nextPass,
-  });
+  const handoff = await writeCodexActionConflictPrompt(
+    context,
+    preparation,
+    resolved.step.conflictContext,
+    {
+      pass: nextPass,
+    },
+  );
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action conflict resolution pass ${nextPass} for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external conflict resolution pass ${nextPass} for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
@@ -220,12 +225,10 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
       maxConflictResolutionPasses: preparation.maxConflictResolutionPasses,
       conflictedFiles: resolved.step.conflictContext.conflictedFiles.map(file => file.path),
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: context.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -679,14 +682,14 @@ async function transitionNonManagedPullRequestToReview(context, pullRequest) {
  * @param {PrResolveConflictsReadyPreparation} preparation
  * @param {GitConflictContext} conflictContext
  * @param {{ pass: number }} options
- * @returns {Promise<void>}
+ * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
  */
 async function writeCodexActionConflictPrompt(context, preparation, conflictContext, { pass }) {
   const files = getCodexActionFiles(context);
   await mkdir(requireOutputDirectory(context), { recursive: true });
   await rm(files.outputFile, { force: true });
   await writeConflictPassState(context, { pass });
-  await writeCodexActionPrompt(
+  return await writeCodexActionPrompt(
     context,
     buildPrResolveConflictsPrompt({
       pullRequest: preparation.pullRequest,
@@ -770,7 +773,7 @@ async function removeCodexActionPrompt(context) {
  */
 function requireOutputDirectory(context) {
   if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
-    throw new Error('Codex Action phases require OUTPUT_DIR.');
+    throw new Error('External runner phases require OUTPUT_DIR.');
   }
 
   return context.outputDirectory;

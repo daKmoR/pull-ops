@@ -49,6 +49,11 @@ import { publishHeartbeatToParentEventSink } from '../parent-event-sink/parentEv
 import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
+import {
+  isRunnerResultStatus,
+  RUNNER_RESULT_STATUSES,
+  writeRunnerResult,
+} from '../runner/runnerResult.js';
 
 /**
  * @typedef {import('./types.js').WritableLike} WritableLike
@@ -253,6 +258,10 @@ export class PullOpsCli {
 
     if (command === 'heartbeat') {
       return await this.runHeartbeat(args);
+    }
+
+    if (command === 'runner-result') {
+      return await this.runRunnerResult(args);
     }
 
     if (command === 'init') {
@@ -494,6 +503,30 @@ export class PullOpsCli {
   }
 
   /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runRunnerResult(args) {
+    const parsedArgs = parseRunnerResultArgs(args);
+    const result = await writeRunnerResult({
+      cwd: this.cwd,
+      status: parsedArgs.status,
+      outputDirectory: this.env.OUTPUT_DIR,
+      ...(parsedArgs.filePath === undefined ? {} : { resultFile: parsedArgs.filePath }),
+    });
+
+    this.writeValidatedJson({
+      status: 'accepted',
+      summary: `Wrote external runner result to ${result.resultFile}.`,
+      runnerResult: {
+        status: result.result.status,
+        resultFile: result.resultFile,
+      },
+    });
+    return 0;
+  }
+
+  /**
    * @param {import('../local-run-state/types.js').RecordLocalRunHeartbeatOptions} options
    * @returns {Promise<{
    *   runState: import('../local-run-state/types.js').LocalRunState,
@@ -718,8 +751,6 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reviewId: parsedArgs.reviewId,
       outputDirectory: this.env.OUTPUT_DIR,
-      codexActionOutcome: this.env.PULLOPS_CODEX_ACTION_OUTCOME,
-      runnerRan: parsedArgs.runnerRan,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
     });
@@ -852,7 +883,6 @@ export class PullOpsCli {
       operationName: workflowOperation.name,
       phase: 'run',
       runnerAdapter,
-      runnerRan: undefined,
     });
     const output = await this.operationRunner({
       operation: workflowOperation.name,
@@ -900,7 +930,6 @@ export class PullOpsCli {
       operationName: operation.name,
       phase: 'run',
       runnerAdapter,
-      runnerRan: undefined,
     });
     const output = await this.operationRunner({
       operation: operation.name,
@@ -949,7 +978,6 @@ export class PullOpsCli {
       operationName: operation.name,
       phase: 'run',
       runnerAdapter,
-      runnerRan: undefined,
     });
     const output = await this.operationRunner({
       operation: operation.name,
@@ -1022,7 +1050,6 @@ export class PullOpsCli {
       operationName: operation.name,
       phase: 'run',
       runnerAdapter,
-      runnerRan: undefined,
     });
     try {
       const output = await this.operationRunner({
@@ -1346,7 +1373,6 @@ export class PullOpsCli {
  *   targetNumber: number,
  *   phase: OperationPhase,
  *   runnerAdapter: RunnerAdapter,
- *   runnerRan?: boolean,
  *   reviewId?: string,
  * }}
  */
@@ -1355,13 +1381,12 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
   const targetNumber = parseRequiredNumberOption(args, operation.option, operation.name, consumed);
   const phase = parseOperationPhase(args, consumed);
   const runnerAdapter = parseRunnerAdapter(args, defaultRunnerAdapter, consumed);
-  const runnerRan = parseRunnerRan(args, consumed);
   const reviewId =
     operation.name === 'pr-address-review'
       ? parseOptionalStringOption(args, '--review-id', consumed)
       : undefined;
 
-  validateRunnerLifecycle({ operationName: operation.name, phase, runnerAdapter, runnerRan });
+  validateRunnerLifecycle({ operationName: operation.name, phase, runnerAdapter });
 
   const unknown = args.filter((unused, argIndex) => {
     void unused;
@@ -1375,7 +1400,6 @@ function parseRunOperationArgs(args, operation, defaultRunnerAdapter) {
     targetNumber,
     phase,
     runnerAdapter,
-    ...(runnerRan === undefined ? {} : { runnerRan }),
     ...(reviewId === undefined ? {} : { reviewId }),
   };
 }
@@ -1666,6 +1690,41 @@ function parseStepArgs(args) {
     long,
     summary: summaryArgs[0],
     command,
+  };
+}
+
+/**
+ * @param {string[]} args
+ * @returns {{ status: import('../runner/runnerResult.types.js').RunnerResultStatus, filePath?: string }}
+ */
+function parseRunnerResultArgs(args) {
+  const consumed = new Set();
+  const rawStatus = parseOptionalStringOption(args, '--status', consumed);
+  const filePath = parseOptionalStringOption(args, '--file', consumed);
+
+  if (rawStatus === undefined) {
+    throw new CliUsageError(
+      `Missing value for "--status". Expected one of: ${RUNNER_RESULT_STATUSES.join(', ')}.`,
+    );
+  }
+
+  if (!isRunnerResultStatus(rawStatus)) {
+    throw new CliUsageError(
+      `runner-result --status must be one of: ${RUNNER_RESULT_STATUSES.join(', ')}.`,
+    );
+  }
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for runner-result: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    status: rawStatus,
+    ...(filePath === undefined ? {} : { filePath }),
   };
 }
 
@@ -2251,11 +2310,11 @@ function parseOperationPhase(args, consumed) {
     return 'run';
   }
 
-  if (rawPhase === 'run' || rawPhase === 'prepare' || rawPhase === 'finalize') {
+  if (rawPhase === 'run' || rawPhase === 'prepare' || rawPhase === 'complete') {
     return rawPhase;
   }
 
-  throw new CliUsageError(`Unknown phase "${rawPhase}". Expected one of: run, prepare, finalize.`);
+  throw new CliUsageError(`Unknown phase "${rawPhase}". Expected one of: run, prepare, complete.`);
 }
 
 /**
@@ -2277,28 +2336,6 @@ function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
   }
 
   return rawRunner;
-}
-
-/**
- * @param {string[]} args
- * @param {Set<number>} consumed
- * @returns {boolean | undefined}
- */
-function parseRunnerRan(args, consumed) {
-  const rawRunnerRan = parseOptionalStringOption(args, '--runner-ran', consumed);
-  if (rawRunnerRan === undefined) {
-    return undefined;
-  }
-
-  if (rawRunnerRan === 'true') {
-    return true;
-  }
-
-  if (rawRunnerRan === 'false') {
-    return false;
-  }
-
-  throw new CliUsageError('"--runner-ran" must be either "true" or "false".');
 }
 
 /**
@@ -2412,9 +2449,8 @@ function readPositiveIntegerEnv(value) {
  * @param {string} options.operationName
  * @param {OperationPhase} options.phase
  * @param {RunnerAdapter} options.runnerAdapter
- * @param {boolean | undefined} options.runnerRan
  */
-function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRan }) {
+function validateRunnerLifecycle({ operationName, phase, runnerAdapter }) {
   const supportedRunnerLifecycles = getOperationCatalogSupportedRunnerLifecycles(operationName);
   if (supportedRunnerLifecycles !== undefined) {
     const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
@@ -2434,10 +2470,10 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
     );
 
     if (!supportsLifecycle) {
-      if (runnerAdapter === 'codex-action') {
+      if (runnerAdapter === 'external') {
         if (supportedPhasesForRunnerAdapter.length > 0) {
           throw new CliUsageError(
-            `${operationName} with --runner codex-action requires ${formatPhaseRequirement(
+            `${operationName} with --runner external requires ${formatPhaseRequirement(
               supportedPhasesForRunnerAdapter,
             )}.`,
           );
@@ -2455,17 +2491,7 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
       );
     }
 
-    if (runnerAdapter === 'codex-action') {
-      if (phase === 'prepare' && runnerRan !== undefined) {
-        throw new CliUsageError('"--runner-ran" can only be used with "--phase finalize".');
-      }
-
-      if (phase === 'finalize' && runnerRan === undefined) {
-        throw new CliUsageError(
-          `${operationName} with --runner codex-action --phase finalize requires "--runner-ran <true|false>".`,
-        );
-      }
-
+    if (runnerAdapter === 'external') {
       return;
     }
 
@@ -2475,27 +2501,13 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
       );
     }
 
-    if (runnerRan !== undefined) {
-      throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
-    }
-
     return;
   }
 
-  if (runnerAdapter === 'codex-action') {
+  if (runnerAdapter === 'external') {
     if (phase === 'run') {
       throw new CliUsageError(
-        `${operationName} with --runner codex-action requires "--phase prepare" or "--phase finalize".`,
-      );
-    }
-
-    if (phase === 'prepare' && runnerRan !== undefined) {
-      throw new CliUsageError('"--runner-ran" can only be used with "--phase finalize".');
-    }
-
-    if (phase === 'finalize' && runnerRan === undefined) {
-      throw new CliUsageError(
-        `${operationName} with --runner codex-action --phase finalize requires "--runner-ran <true|false>".`,
+        `${operationName} with --runner external requires "--phase prepare" or "--phase complete".`,
       );
     }
 
@@ -2506,10 +2518,6 @@ function validateRunnerLifecycle({ operationName, phase, runnerAdapter, runnerRa
     throw new CliUsageError(
       `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
     );
-  }
-
-  if (runnerRan !== undefined) {
-    throw new CliUsageError('"--runner-ran" can only be used with "--runner codex-action".');
   }
 }
 
@@ -2576,14 +2584,15 @@ function usage() {
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
     '  pullops run <operation> [--runner codex-cli] --pr <number>',
-    '  pullops run <operation> --runner codex-action --phase prepare --issue <number>',
-    '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --issue <number>',
-    '  pullops run <operation> --runner codex-action --phase prepare --pr <number>',
-    '  pullops run <operation> --runner codex-action --phase finalize --runner-ran <true|false> --pr <number>',
+    '  pullops run <operation> --runner external --phase prepare --issue <number>',
+    '  pullops run <operation> --runner external --phase complete --issue <number>',
+    '  pullops run <operation> --runner external --phase prepare --pr <number>',
+    '  pullops run <operation> --runner external --phase complete --pr <number>',
     '  pullops issues publish-prd [--file <path>]',
     '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
+    '  pullops runner-result --status success|failed|cancelled|skipped [--file <path>]',
     '  pullops step [--long] "<summary>" -- <command...>',
   ].join('\n');
 }

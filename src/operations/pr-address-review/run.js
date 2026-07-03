@@ -5,8 +5,9 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -104,8 +105,9 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
 
   const executionContext = withSelectedModel(context, preparation);
 
+  let handoff;
   try {
-    await writeCodexActionPrompt(
+    handoff = await writeCodexActionPrompt(
       executionContext,
       buildAddressPrReviewompt({
         pullRequest: preparation.pullRequest,
@@ -124,10 +126,9 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
     throw error;
   }
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action pr-address-review run for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external pr-address-review run for PR #${preparation.pullRequest.number}.`,
     reviewMode: preparation.reviewMode,
     modelTier: preparation.modelTier,
     model: preparation.model,
@@ -138,12 +139,10 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
     feedback: {
       items: preparation.feedbackItems.length,
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: executionContext.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -152,10 +151,6 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReviewCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
   const preparation = await preparePrAddressReview(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -168,6 +163,10 @@ export async function runPrAddressReviewCodexActionFinalize(context) {
   try {
     rawOutput = await readCodexActionOutput(context);
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
       updateBody: true,
       reviewCycle: preparation.reviewCycle,

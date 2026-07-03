@@ -205,8 +205,8 @@ describe('runPrReview', () => {
     assert.equal(review.directChangesCommitted, true);
   });
 
-  it('03: prepares a Codex Action prompt without invoking the runner', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+  it('03: prepares an external runner prompt without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -228,21 +228,43 @@ describe('runPrReview', () => {
     assert.equal(result.model, 'gpt-5.5');
     assert.equal(codex.calls.length, 0);
 
-    const prompt = await readFile(join(outputDirectory, 'codex_prompt.md'), 'utf8');
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
     assert.match(prompt, /Use the pullops-pr-review skill/);
     assert.match(prompt, /Review PullOps-managed PR #100/);
-    assert.deepEqual(result.codexAction, {
-      promptFile: join(outputDirectory, 'codex_prompt.md'),
-      outputFile: join(outputDirectory, 'codex_output.json'),
-      model: 'gpt-5.5',
-      branch: 'pullops/issue-42',
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));
+    assert.equal(runnerJob.resultFile, join(outputDirectory, 'runner_result.json'));
+    assert.equal(runnerJob.model, 'gpt-5.5');
+    assert.equal(runnerJob.branch, 'pullops/issue-42');
+    assert.equal(runnerJob.workerPrompt, prompt);
+    assert.deepEqual(runnerJob.completionCommands.failed, {
+      argv: [
+        'npm',
+        'exec',
+        'pullops',
+        '--',
+        'runner-result',
+        '--status',
+        'failed',
+        '--file',
+        join(outputDirectory, 'runner_result.json'),
+      ],
+      env: {},
     });
   });
 
-  it('04: finalizes a Codex Action output without invoking the runner', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+  it('04: completes an external runner output without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     await writeFile(
-      join(outputDirectory, 'codex_output.json'),
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'success',
+      }),
+    );
+    await writeFile(
+      join(outputDirectory, 'runner_output.json'),
       JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the issue and coding standards.',
@@ -265,8 +287,6 @@ describe('runPrReview', () => {
         gitClient: git.client,
         codexRunner: codex.runner,
         outputDirectory,
-        codexActionOutcome: 'success',
-        runnerRan: true,
       }),
     );
 
@@ -386,7 +406,15 @@ describe('runPrReview', () => {
     ]);
   });
 
-  it('08: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
+  it('08: treats a skipped external runner as a no-op complete acknowledgement', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-review-external-skipped-'));
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'skipped',
+      }),
+    );
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -400,15 +428,15 @@ describe('runPrReview', () => {
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
-        runnerRan: false,
+        outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.match(String(result.summary), /prepare did not request a runner step/);
     assert.deepEqual(result.runner, {
-      adapter: 'codex-action',
-      ran: false,
+      adapter: 'external',
+      status: 'skipped',
     });
     assert.equal(codex.calls.length, 0);
     assert.equal(git.commits.length, 0);
@@ -417,8 +445,15 @@ describe('runPrReview', () => {
     assert.equal(github.updatedBodies.length, 0);
   });
 
-  it('09: records a failed Codex Action runner before failing finalize', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-review-codex-failure-'));
+  it('09: records a failed external runner before failing complete', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-review-external-failure-'));
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'failed',
+      }),
+    );
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
       reviewContext: createReviewContext(),
@@ -434,31 +469,36 @@ describe('runPrReview', () => {
           gitClient: git.client,
           codexRunner: codex.runner,
           outputDirectory,
-          codexActionOutcome: 'failure',
-          runnerRan: true,
         }),
       ),
-      /Codex Action completed with outcome "failure"/,
+      /External runner completed with status "failed"/,
     );
 
     assert.equal(codex.calls.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.match(github.comments[0].body, /Codex Action completed with outcome "failure"/);
+    assert.match(github.comments[0].body, /External runner completed with status "failed"/);
     assert.deepEqual(github.pullRequestLabelsAdded.at(-1), {
       number: 100,
       labels: ['pullops:human-required'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
-      'Codex Action completed with outcome "failure".\n',
+      'External runner completed with status "failed".\n',
     );
   });
 
-  it('10: publishes Codex Action approval as a non-blocking review comment when GitHub rejects formal automation reviews', async () => {
+  it('10: publishes external runner approval as a non-blocking review comment when GitHub rejects formal automation reviews', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-review-formal-review-'));
     await writeFile(
-      join(outputDirectory, 'codex_output.json'),
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'success',
+      }),
+    );
+    await writeFile(
+      join(outputDirectory, 'runner_output.json'),
       JSON.stringify({
         status: 'approved',
         summary: 'The README change matches issue #15.',
@@ -478,8 +518,6 @@ describe('runPrReview', () => {
       createContext({
         githubClient: github.client,
         outputDirectory,
-        codexActionOutcome: 'success',
-        runnerRan: true,
       }),
     );
 

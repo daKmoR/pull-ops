@@ -133,8 +133,8 @@ describe('runIssueImplement', () => {
     assert.deepEqual(github.issueLabelsAdded, []);
   });
 
-  it('02: prepares a Codex Action prompt without invoking the runner', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+  it('02: prepares an external runner handoff without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
@@ -158,21 +158,45 @@ describe('runIssueImplement', () => {
       },
     ]);
 
-    const prompt = await readFile(join(outputDirectory, 'codex_prompt.md'), 'utf8');
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /Write the final Operation Output JSON to .*runner_output\.json/);
     assert.match(prompt, /Use the pullops-issue-implement skill/);
     assert.match(prompt, /Implement GitHub Issue #42: Add the first operation/);
-    assert.deepEqual(result.codexAction, {
-      promptFile: join(outputDirectory, 'codex_prompt.md'),
-      outputFile: join(outputDirectory, 'codex_output.json'),
-      model: 'gpt-5.5',
-      branch: 'pullops/issue-42',
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.equal(runnerJob.cwd, '/workspace');
+    assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));
+    assert.equal(runnerJob.resultFile, join(outputDirectory, 'runner_result.json'));
+    assert.equal(runnerJob.model, 'gpt-5.5');
+    assert.equal(runnerJob.branch, 'pullops/issue-42');
+    assert.equal(runnerJob.workerPrompt, prompt);
+    assert.deepEqual(runnerJob.completionCommands.success, {
+      argv: [
+        'npm',
+        'exec',
+        'pullops',
+        '--',
+        'runner-result',
+        '--status',
+        'success',
+        '--file',
+        join(outputDirectory, 'runner_result.json'),
+      ],
+      env: {},
     });
   });
 
-  it('03: finalizes a Codex Action output without invoking the runner', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-'));
+  it('03: completes an external runner output without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     await writeFile(
-      join(outputDirectory, 'codex_output.json'),
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'success',
+      }),
+    );
+    await writeFile(
+      join(outputDirectory, 'runner_output.json'),
       JSON.stringify({
         status: 'implemented',
         summary: 'Implemented the first operation.',
@@ -192,8 +216,6 @@ describe('runIssueImplement', () => {
         gitClient: git.client,
         codexRunner: codex.runner,
         outputDirectory,
-        codexActionOutcome: 'success',
-        runnerRan: true,
       }),
     );
 
@@ -619,7 +641,15 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('15: treats a skipped Codex Action runner as a no-op finalize acknowledgement', async () => {
+  it('15: treats a skipped external runner as a no-op complete acknowledgement', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-skipped-'));
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'skipped',
+      }),
+    );
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
     const codex = createFakeCodexRunner({ output: '{}' });
@@ -629,15 +659,15 @@ describe('runIssueImplement', () => {
         githubClient: github.client,
         gitClient: git.client,
         codexRunner: codex.runner,
-        runnerRan: false,
+        outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.match(String(result.summary), /prepare did not request a runner step/);
     assert.deepEqual(result.runner, {
-      adapter: 'codex-action',
-      ran: false,
+      adapter: 'external',
+      status: 'skipped',
     });
     assert.equal(codex.calls.length, 0);
     assert.equal(git.commits.length, 0);
@@ -646,8 +676,15 @@ describe('runIssueImplement', () => {
     assert.equal(github.issueLabelsAdded.length, 0);
   });
 
-  it('16: records a failed Codex Action runner before failing finalize', async () => {
-    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-codex-action-failure-'));
+  it('16: records a failed external runner before failing complete', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-failure-'));
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'failed',
+      }),
+    );
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
     const codex = createFakeCodexRunner({ output: '{}' });
@@ -659,25 +696,68 @@ describe('runIssueImplement', () => {
           gitClient: git.client,
           codexRunner: codex.runner,
           outputDirectory,
-          codexActionOutcome: 'failure',
-          runnerRan: true,
         }),
       ),
-      /Codex Action completed with outcome "failure"/,
+      /External runner completed with status "failed"/,
     );
 
     assert.equal(codex.calls.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
-    assert.match(github.comments[0].body, /Codex Action completed with outcome "failure"/);
+    assert.match(github.comments[0].body, /External runner completed with status "failed"/);
     assert.deepEqual(github.issueLabelsAdded.at(-1), {
       number: 42,
       labels: ['pullops:human-required'],
     });
     assert.equal(
       await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
-      'Codex Action completed with outcome "failure".\n',
+      'External runner completed with status "failed".\n',
     );
+  });
+
+  it('16b: treats missing or malformed external runner results as contract errors', async () => {
+    for (const { resultText, expected } of [
+      {
+        resultText: undefined,
+        expected: /missing runner_result\.json/,
+      },
+      {
+        resultText: '{not json',
+        expected: /invalid runner_result\.json/,
+      },
+    ]) {
+      const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-contract-'));
+      if (resultText !== undefined) {
+        await writeFile(join(outputDirectory, 'runner_result.json'), resultText);
+      }
+      await writeFile(
+        join(outputDirectory, 'runner_output.json'),
+        JSON.stringify({
+          status: 'implemented',
+          summary: 'This output must not be trusted before runner_result.json is valid.',
+          changes: ['Should not matter.'],
+          testPlan: ['Should not matter.'],
+        }),
+      );
+
+      const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
+      const git = createFakeGit();
+
+      await assert.rejects(
+        runIssueImplementCodexActionFinalize(
+          createContext({
+            githubClient: github.client,
+            gitClient: git.client,
+            outputDirectory,
+          }),
+        ),
+        expected,
+      );
+
+      assert.equal(git.commits.length, 0);
+      assert.equal(git.pushes.length, 0);
+      assert.match(github.comments[0].body, expected);
+    }
   });
 
   it('17: local dry-run refuses a dirty worktree before reading GitHub issue state', async () => {

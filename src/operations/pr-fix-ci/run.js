@@ -7,8 +7,9 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -82,8 +83,9 @@ export async function runPrFixCiCodexActionPrepare(context) {
     return preparation.output;
   }
 
+  let handoff;
   try {
-    await writeCodexActionPrompt(
+    handoff = await writeCodexActionPrompt(
       context,
       buildPrFixCiPrompt({
         pullRequest: preparation.pullRequest,
@@ -102,10 +104,9 @@ export async function runPrFixCiCodexActionPrepare(context) {
     throw error;
   }
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action pr-fix-ci run for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external pr-fix-ci run for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
@@ -114,12 +115,10 @@ export async function runPrFixCiCodexActionPrepare(context) {
       failed: preparation.checkFailures.length,
       classifications: summarizeClassifications(preparation.checkFailures),
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: context.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -128,10 +127,6 @@ export async function runPrFixCiCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCiCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
   const preparation = await preparePrFixCi(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -142,6 +137,10 @@ export async function runPrFixCiCodexActionFinalize(context) {
   try {
     rawOutput = await readCodexActionOutput(context);
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
       updateBody: preparation.managed,
       ciFixCycle: preparation.ciFixCycle,

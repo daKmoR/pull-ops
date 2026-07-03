@@ -81,10 +81,10 @@ jobs:
           mkdir -p "$OUTPUT_DIR"
           npm exec pullops -- run pr-resolve-conflicts \
             --phase prepare \
-            --runner codex-action \
+            --runner external \
             --pr "${{ inputs.pr }}"
 
-          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
             echo "run_runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_runner=false" >> "$GITHUB_OUTPUT"
@@ -112,8 +112,8 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
           model: gpt-5.5
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
@@ -126,18 +126,29 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Finalize PullOps resolve conflicts pass 1
+      - name: Complete PullOps resolve conflicts pass 1
         if: always()
-        id: finalize_1
+        id: complete_1
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
+          if [ -z "$runner_outcome" ]; then
+            runner_outcome=skipped
+          fi
+          case "$runner_outcome" in
+            success) runner_status=success ;;
+            failure) runner_status=failed ;;
+            cancelled) runner_status=cancelled ;;
+            skipped) runner_status=skipped ;;
+            *) runner_status=failed ;;
+          esac
+          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
-            --phase finalize \
-            --runner codex-action \
-            --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
+            --phase complete \
+            --runner external \
             --pr "${{ inputs.pr }}"
 
-          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
             echo "run_runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_runner=false" >> "$GITHUB_OUTPUT"
@@ -147,41 +158,52 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_1.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_1.outcome }}
 
       - name: Run Codex conflict pass 2
-        if: steps.finalize_1.outputs.run_runner == 'true'
+        if: steps.complete_1.outputs.run_runner == 'true'
         id: codex_2
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
           model: gpt-5.5
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
 
       - name: Restore Node after conflict pass 2
-        if: always() && steps.finalize_1.outputs.run_runner == 'true'
+        if: always() && steps.complete_1.outputs.run_runner == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      - name: Finalize PullOps resolve conflicts pass 2
-        if: always() && steps.finalize_1.outputs.run_runner == 'true'
-        id: finalize_2
+      - name: Complete PullOps resolve conflicts pass 2
+        if: always() && steps.complete_1.outputs.run_runner == 'true'
+        id: complete_2
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
+          if [ -z "$runner_outcome" ]; then
+            runner_outcome=skipped
+          fi
+          case "$runner_outcome" in
+            success) runner_status=success ;;
+            failure) runner_status=failed ;;
+            cancelled) runner_status=cancelled ;;
+            skipped) runner_status=skipped ;;
+            *) runner_status=failed ;;
+          esac
+          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
-            --phase finalize \
-            --runner codex-action \
-            --runner-ran "true" \
+            --phase complete \
+            --runner external \
             --pr "${{ inputs.pr }}"
 
-          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
             echo "run_runner=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_runner=false" >> "$GITHUB_OUTPUT"
@@ -191,41 +213,52 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_2.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_2.outcome }}
 
       - name: Run Codex conflict pass 3
-        if: steps.finalize_2.outputs.run_runner == 'true'
+        if: steps.complete_2.outputs.run_runner == 'true'
         id: codex_3
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
           model: gpt-5.5
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
 
       - name: Restore Node after conflict pass 3
-        if: always() && steps.finalize_2.outputs.run_runner == 'true'
+        if: always() && steps.complete_2.outputs.run_runner == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      - name: Finalize PullOps resolve conflicts pass 3
-        if: always() && steps.finalize_2.outputs.run_runner == 'true'
+      - name: Complete PullOps resolve conflicts pass 3
+        if: always() && steps.complete_2.outputs.run_runner == 'true'
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
+          if [ -z "$runner_outcome" ]; then
+            runner_outcome=skipped
+          fi
+          case "$runner_outcome" in
+            success) runner_status=success ;;
+            failure) runner_status=failed ;;
+            cancelled) runner_status=cancelled ;;
+            skipped) runner_status=skipped ;;
+            *) runner_status=failed ;;
+          esac
+          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
-            --phase finalize \
-            --runner codex-action \
-            --runner-ran "true" \
+            --phase complete \
+            --runner external \
             --pr "${{ inputs.pr }}"
         env:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex_3.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_3.outcome }}

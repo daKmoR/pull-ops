@@ -62,8 +62,6 @@ export interface OperationRunnerContext {
   reviewId?: string;
   outputDirectory?: string;
   localRunRecordDirectory?: string;
-  codexActionOutcome?: string;
-  runnerRan?: boolean;
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
   suppressRunnerOutput?: boolean;
@@ -80,7 +78,7 @@ export interface OperationContextUsage {
   limit?: number;
 }
 
-export type OperationPhase = 'run' | 'prepare' | 'finalize';
+export type OperationPhase = 'run' | 'prepare' | 'complete';
 export type ExecutionBackend = 'local' | 'github-actions';
 export type PublicationMode = 'dry-run' | 'publish';
 export type OperationRunGoal = 'operation' | 'finalized';

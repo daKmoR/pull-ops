@@ -119,7 +119,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
           provider: 'github',
         },
         runner: {
-          adapter: 'codex-action',
+          adapter: 'external',
           command: 'codex exec --sandbox workspace-write',
           models: {
             high: 'model-high',
@@ -150,7 +150,7 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.baseBranch, 'trunk');
   assert.equal(config.branchPrefix, 'automation/pullops');
   assert.equal(config.issueStore.provider, 'github');
-  assert.equal(config.runner.adapter, 'codex-action');
+  assert.equal(config.runner.adapter, 'external');
   assert.equal(config.runner.command, 'codex exec --sandbox workspace-write');
   assert.deepEqual(config.runner.models, {
     high: 'model-high',
@@ -197,7 +197,7 @@ test('loadPullOpsConfig rejects unknown runner adapters', async () => {
 
   await assert.rejects(
     loadPullOpsConfig({ cwd }),
-    /runner\.adapter must be one of: codex-cli, codex-action/,
+    /runner\.adapter must be one of: codex-cli, external/,
   );
 });
 

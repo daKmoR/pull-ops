@@ -1,25 +1,32 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
-export const CODEX_ACTION_PROMPT_FILE = 'codex_prompt.md';
-export const CODEX_ACTION_OUTPUT_FILE = 'codex_output.json';
+import { readRunnerResult, RUNNER_RESULT_FILE } from '../runner/runnerResult.js';
+
+export const CODEX_ACTION_PROMPT_FILE = 'runner_prompt.md';
+export const CODEX_ACTION_OUTPUT_FILE = 'runner_output.json';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
+ * @typedef {import('../runner/runnerResult.types.js').RunnerResultStatus} RunnerResultStatus
  */
 
 /**
  * @param {OperationRunnerContext} context
  * @param {string} prompt
- * @returns {Promise<string>}
+ * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
  */
 export async function writeCodexActionPrompt(context, prompt) {
   const outputDirectory = requireOutputDirectory(context);
   await mkdir(outputDirectory, { recursive: true });
 
-  const promptFile = join(outputDirectory, CODEX_ACTION_PROMPT_FILE);
-  await writeFile(promptFile, prompt);
-  return promptFile;
+  const files = getCodexActionFiles(context);
+  const workerPrompt = buildExternalRunnerWorkerPrompt({ prompt, files });
+  await writeFile(files.promptFile, workerPrompt);
+  return {
+    ...files,
+    workerPrompt,
+  };
 }
 
 /**
@@ -27,16 +34,17 @@ export async function writeCodexActionPrompt(context, prompt) {
  * @returns {Promise<string>}
  */
 export async function readCodexActionOutput(context) {
-  if (context.runnerRan !== true) {
-    throw new Error('Codex Action output can only be read after the runner has run.');
+  const result = await readRunnerResult({
+    cwd: context.cwd,
+    outputDirectory: context.outputDirectory,
+  });
+
+  if (result.result.status === 'skipped') {
+    throw new ExternalRunnerSkippedError();
   }
 
-  if (
-    context.codexActionOutcome !== undefined &&
-    context.codexActionOutcome !== '' &&
-    context.codexActionOutcome !== 'success'
-  ) {
-    throw new Error(`Codex Action completed with outcome "${context.codexActionOutcome}".`);
+  if (result.result.status !== 'success') {
+    throw new ExternalRunnerFailedError(result.result.status);
   }
 
   return await readFile(join(requireOutputDirectory(context), CODEX_ACTION_OUTPUT_FILE), 'utf8');
@@ -54,22 +62,91 @@ export function createSkippedCodexActionOutput(context) {
       'because prepare did not request a runner step.',
     ].join(' '),
     runner: {
-      adapter: 'codex-action',
-      ran: false,
+      adapter: 'external',
+      status: 'skipped',
     },
   };
 }
 
 /**
  * @param {OperationRunnerContext} context
- * @returns {{ promptFile: string, outputFile: string }}
+ * @returns {{ promptFile: string, outputFile: string, resultFile: string }}
  */
 export function getCodexActionFiles(context) {
   const outputDirectory = requireOutputDirectory(context);
   return {
     promptFile: join(outputDirectory, CODEX_ACTION_PROMPT_FILE),
     outputFile: join(outputDirectory, CODEX_ACTION_OUTPUT_FILE),
+    resultFile: join(outputDirectory, RUNNER_RESULT_FILE),
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   promptFile: string,
+ *   outputFile: string,
+ *   resultFile: string,
+ *   workerPrompt: string,
+ * }} files
+ * @param {{ model: string, branch: string }} options
+ * @returns {Record<string, unknown>}
+ */
+export function createExternalRunnerJob(context, files, { model, branch }) {
+  return {
+    cwd: resolve(context.cwd),
+    promptFile: files.promptFile,
+    outputFile: files.outputFile,
+    resultFile: files.resultFile,
+    workerPrompt: files.workerPrompt,
+    model,
+    branch,
+    completionCommands: Object.fromEntries(
+      /** @type {RunnerResultStatus[]} */ (['success', 'failed', 'cancelled', 'skipped']).map(
+        status => [
+          status,
+          {
+            argv: [
+              'npm',
+              'exec',
+              'pullops',
+              '--',
+              'runner-result',
+              '--status',
+              status,
+              '--file',
+              files.resultFile,
+            ],
+            env: {},
+          },
+        ],
+      ),
+    ),
+  };
+}
+
+/**
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isSkippedExternalRunnerResult(error) {
+  return error instanceof ExternalRunnerSkippedError;
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.prompt
+ * @param {{ outputFile: string, resultFile: string }} options.files
+ * @returns {string}
+ */
+function buildExternalRunnerWorkerPrompt({ prompt, files }) {
+  return [
+    'External runner artifact contract:',
+    `- Write the final Operation Output JSON to ${files.outputFile}.`,
+    `- Do not write ${files.resultFile}; the manager-owned completion command writes it.`,
+    '',
+    prompt,
+  ].join('\n');
 }
 
 /**
@@ -78,8 +155,28 @@ export function getCodexActionFiles(context) {
  */
 function requireOutputDirectory(context) {
   if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
-    throw new Error('Codex Action phases require OUTPUT_DIR.');
+    throw new Error('External runner phases require OUTPUT_DIR.');
   }
 
-  return context.outputDirectory;
+  return isAbsolute(context.outputDirectory)
+    ? context.outputDirectory
+    : resolve(context.cwd, context.outputDirectory);
+}
+
+class ExternalRunnerSkippedError extends Error {
+  constructor() {
+    super('External runner result is skipped.');
+    this.name = 'ExternalRunnerSkippedError';
+  }
+}
+
+class ExternalRunnerFailedError extends Error {
+  /**
+   * @param {Exclude<RunnerResultStatus, 'success' | 'skipped'>} status
+   */
+  constructor(status) {
+    super(`External runner completed with status "${status}".`);
+    this.name = 'ExternalRunnerFailedError';
+    this.status = status;
+  }
 }

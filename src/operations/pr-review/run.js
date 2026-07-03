@@ -6,8 +6,9 @@ import {
   updateManagedPrState,
 } from '../../managed-pr/ManagedPrState.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -93,8 +94,9 @@ export async function runPrReviewCodexActionPrepare(context) {
 
   const executionContext = withSelectedModel(context, preparation);
 
+  let handoff;
   try {
-    await writeCodexActionPrompt(
+    handoff = await writeCodexActionPrompt(
       executionContext,
       buildPrReviewPrompt({
         pullRequest: preparation.pullRequest,
@@ -112,10 +114,9 @@ export async function runPrReviewCodexActionPrepare(context) {
     throw error;
   }
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action review run for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external review run for PR #${preparation.pullRequest.number}.`,
     reviewMode: preparation.reviewMode,
     modelTier: preparation.modelTier,
     model: preparation.model,
@@ -123,12 +124,10 @@ export async function runPrReviewCodexActionPrepare(context) {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: executionContext.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -137,10 +136,6 @@ export async function runPrReviewCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrReviewCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
   const preparation = await preparePrReview(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -153,6 +148,10 @@ export async function runPrReviewCodexActionFinalize(context) {
   try {
     rawOutput = await readCodexActionOutput(context);
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
       updateBody: true,
       reviewCycle: preparation.nextReviewCycle,

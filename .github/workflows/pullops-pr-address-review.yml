@@ -159,12 +159,12 @@ jobs:
           fi
           npm exec pullops -- run pr-address-review \
             --phase prepare \
-            --runner codex-action \
+            --runner external \
             --pr "$PR" \
             "${review_id_args[@]}" \
             > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/codex_prompt.md" ]; then
+          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
             node --input-type=module -e '
               import fs from "node:fs";
               const { model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
@@ -200,32 +200,43 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/codex_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/codex_output.json
+          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
+          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
           model: ${{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
 
-      - name: Restore Node for PullOps finalize
+      - name: Restore Node for PullOps complete
         if: always() && steps.gate.outputs.run_operation == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      - name: Finalize PullOps address review
+      - name: Complete PullOps address review
         if: always() && steps.gate.outputs.run_operation == 'true'
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
+          if [ -z "$runner_outcome" ]; then
+            runner_outcome=skipped
+          fi
+          case "$runner_outcome" in
+            success) runner_status=success ;;
+            failure) runner_status=failed ;;
+            cancelled) runner_status=cancelled ;;
+            skipped) runner_status=skipped ;;
+            *) runner_status=failed ;;
+          esac
+          npm exec pullops -- runner-result --status "$runner_status"
           review_id_args=()
           if [ -n "$REVIEW_ID" ]; then
             review_id_args=(--review-id "$REVIEW_ID")
           fi
           npm exec pullops -- run pr-address-review \
-            --phase finalize \
-            --runner codex-action \
-            --runner-ran "${{ steps.prepare.outputs.run_runner == 'true' && 'true' || 'false' }}" \
+            --phase complete \
+            --runner external \
             --pr "$PR" \
             "${review_id_args[@]}"
         env:
@@ -235,4 +246,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ env.TRIGGER_ACTOR }}
-          PULLOPS_CODEX_ACTION_OUTCOME: ${{ steps.codex.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex.outcome }}

@@ -16,8 +16,9 @@ import {
   parseParentBranchName,
 } from '../branchNames.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -86,7 +87,7 @@ export async function runPrFinalize(context) {
 
 /**
  * `pr-finalize` is deterministic unless ambiguous Parent Issue history needs
- * the narrowed fallback planner. In a Codex Action workflow, prepare completes
+ * the narrowed fallback planner. In an external runner workflow, prepare completes
  * deterministic paths and writes a prompt only for that fallback.
  *
  * @param {OperationRunnerContext} context
@@ -102,27 +103,25 @@ export async function runPrFinalizeCodexActionPrepare(context) {
     return await completePrFinalize(context, preparation);
   }
 
+  let handoff;
   try {
-    await writeCodexActionPrompt(context, preparation.prompt);
+    handoff = await writeCodexActionPrompt(context, preparation.prompt);
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
     throw error;
   }
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
+    summary: `Prepared external PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
       url: preparation.pullRequest.url,
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: context.model,
       branch: preparation.pullRequest.headRefName,
-    },
+    }),
   };
 }
 
@@ -131,10 +130,6 @@ export async function runPrFinalizeCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
   const preparation = await preparePrFinalize(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -149,6 +144,10 @@ export async function runPrFinalizeCodexActionFinalize(context) {
   try {
     rawOutput = await readCodexActionOutput(context);
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
     throw error;
   }

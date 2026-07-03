@@ -16,8 +16,8 @@ const OPERATION_LABEL_COLOR = '5319E7';
 const CODEX_CLI_RUN_LIFECYCLES = freezeRunnerLifecycles([['codex-cli', 'run']]);
 const CODEX_BACKED_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
   ['codex-cli', 'run'],
-  ['codex-action', 'prepare'],
-  ['codex-action', 'finalize'],
+  ['external', 'prepare'],
+  ['external', 'complete'],
 ]);
 
 const OPERATION_CATALOG_ENTRIES = Object.freeze([
@@ -101,7 +101,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
         './issue-implement/run.js',
         'runIssueImplementCodexActionPrepare',
       ),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './issue-implement/run.js',
         'runIssueImplementCodexActionFinalize',
       ),
@@ -130,7 +130,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
         './pr-review/run.js',
         'runPrReviewCodexActionPrepare',
       ),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './pr-review/run.js',
         'runPrReviewCodexActionFinalize',
       ),
@@ -159,7 +159,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
         './pr-address-review/run.js',
         'runPrAddressReviewCodexActionPrepare',
       ),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './pr-address-review/run.js',
         'runPrAddressReviewCodexActionFinalize',
       ),
@@ -183,7 +183,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     handlers: {
       run: createImportedOperationHandler('./pr-fix-ci/run.js', 'runPrFixCi'),
       prepare: createImportedOperationHandler('./pr-fix-ci/run.js', 'runPrFixCiCodexActionPrepare'),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './pr-fix-ci/run.js',
         'runPrFixCiCodexActionFinalize',
       ),
@@ -230,7 +230,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
         './pr-resolve-conflicts/run.js',
         'runPrResolveConflictsCodexActionPrepare',
       ),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './pr-resolve-conflicts/run.js',
         'runPrResolveConflictsCodexActionFinalize',
       ),
@@ -258,7 +258,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
         './pr-finalize/run.js',
         'runPrFinalizeCodexActionPrepare',
       ),
-      finalize: createImportedOperationHandler(
+      complete: createImportedOperationHandler(
         './pr-finalize/run.js',
         'runPrFinalizeCodexActionFinalize',
       ),
@@ -519,7 +519,7 @@ export function supportsOperationCatalogRunnerLifecycle(operationName, { phase, 
  * @param {{
  *   run: (context: import('../cli/types.js').OperationRunnerContext) => Promise<Record<string, unknown>>,
  *   prepare?: (context: import('../cli/types.js').OperationRunnerContext) => Promise<Record<string, unknown>>,
- *   finalize?: (context: import('../cli/types.js').OperationRunnerContext) => Promise<Record<string, unknown>>,
+ *   complete?: (context: import('../cli/types.js').OperationRunnerContext) => Promise<Record<string, unknown>>,
  * }} options.handlers
  */
 function createOperationCatalogEntry({

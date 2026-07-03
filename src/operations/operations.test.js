@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -138,22 +138,31 @@ describe('runWorkflowOperation', () => {
       },
     };
 
-    /** @type {Array<[string, 'prepare' | 'finalize', string | undefined, string | undefined]>} */
+    /** @type {Array<[string, 'prepare' | 'complete', string | undefined, string | undefined]>} */
     const cases = [
       ['pr-review', 'prepare', 'high', 'gpt-5.5'],
       ['pr-address-review', 'prepare', 'mid', 'gpt-5.4'],
-      ['pr-review', 'finalize', undefined, undefined],
-      ['pr-address-review', 'finalize', undefined, undefined],
+      ['pr-review', 'complete', undefined, undefined],
+      ['pr-address-review', 'complete', undefined, undefined],
     ];
 
     for (const [operation, phase, expectedModelTier, expectedModel] of cases) {
+      if (phase === 'complete') {
+        await writeFile(
+          join(outputDirectory, 'runner_result.json'),
+          JSON.stringify({
+            schemaVersion: 1,
+            status: 'skipped',
+          }),
+        );
+      }
+
       const result = await runWorkflowOperation(
         createContext({
           executionBackend: 'github-actions',
           operation,
           phase,
-          runnerAdapter: 'codex-action',
-          runnerRan: phase === 'finalize' ? false : undefined,
+          runnerAdapter: 'external',
           target: {
             type: 'pr',
             number: 456,
@@ -171,11 +180,12 @@ describe('runWorkflowOperation', () => {
         assert.equal(codexCalls.length, 0);
         assert.equal(reviewResult.modelTier, expectedModelTier);
         assert.equal(reviewResult.model, expectedModel);
-        assert.match(reviewResult.summary, /Prepared Codex Action/);
-        assert.match(reviewResult.codexAction.promptFile, /codex_prompt\.md$/);
-        assert.equal(reviewResult.codexAction.model, expectedModel);
+        assert.match(reviewResult.summary, /Prepared external/);
+        assert.match(reviewResult.runnerJob.promptFile, /runner_prompt\.md$/);
+        assert.match(reviewResult.runnerJob.resultFile, /runner_result\.json$/);
+        assert.equal(reviewResult.runnerJob.model, expectedModel);
       } else {
-        assert.deepEqual(reviewResult.runner, { adapter: 'codex-action', ran: false });
+        assert.deepEqual(reviewResult.runner, { adapter: 'external', status: 'skipped' });
         assert.match(reviewResult.summary, /Skipped pr-/);
       }
     }
@@ -187,10 +197,10 @@ describe('runWorkflowOperation', () => {
         createContext({
           executionBackend: 'local',
           operation: 'prd-auto-advance',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
         }),
       ),
-      /prd-auto-advance with --runner codex-action and --phase run is not supported by the operation catalog\./,
+      /prd-auto-advance with --runner external and --phase run is not supported by the operation catalog\./,
     );
   });
 
@@ -200,10 +210,10 @@ describe('runWorkflowOperation', () => {
         createContext({
           executionBackend: 'local',
           operation: 'prd-auto-complete',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
         }),
       ),
-      /prd-auto-complete with --runner codex-action and --phase run is not supported by the operation catalog\./,
+      /prd-auto-complete with --runner external and --phase run is not supported by the operation catalog\./,
     );
   });
 
@@ -252,7 +262,7 @@ describe('runWorkflowOperation', () => {
       createContext({
         operation: 'pr-fix-ci',
         phase: 'prepare',
-        runnerAdapter: 'codex-action',
+        runnerAdapter: 'external',
         target: {
           type: 'pr',
           number: 456,
@@ -268,29 +278,30 @@ describe('runWorkflowOperation', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(codexCalls.length, 0);
-    assert.match(String(result.summary), /Prepared Codex Action pr-fix-ci run/);
-    const codexAction = result.codexAction;
-    if (typeof codexAction !== 'object' || codexAction === null) {
-      assert.fail('Expected the prepared pr-fix-ci result to include a codexAction payload.');
+    assert.match(String(result.summary), /Prepared external pr-fix-ci run/);
+    const runnerJob = result.runnerJob;
+    if (typeof runnerJob !== 'object' || runnerJob === null) {
+      assert.fail('Expected the prepared pr-fix-ci result to include a runnerJob payload.');
     }
-    assert.match(String(Reflect.get(codexAction, 'promptFile')), /codex_prompt\.md$/);
-    assert.equal(Reflect.get(codexAction, 'model'), DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
+    assert.match(String(Reflect.get(runnerJob, 'promptFile')), /runner_prompt\.md$/);
+    assert.match(String(Reflect.get(runnerJob, 'resultFile')), /runner_result\.json$/);
+    assert.equal(Reflect.get(runnerJob, 'model'), DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
   });
 
-  it('11: rejects unsupported codex-action lifecycle combinations for pr-update-branch before dispatch', async () => {
+  it('11: rejects unsupported external lifecycle combinations for pr-update-branch before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
           operation: 'pr-update-branch',
           phase: 'prepare',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
           target: {
             type: 'pr',
             number: 456,
           },
         }),
       ),
-      /pr-update-branch with --runner codex-action and --phase prepare is not supported by the operation catalog\./,
+      /pr-update-branch with --runner external and --phase prepare is not supported by the operation catalog\./,
     );
   });
 
@@ -311,9 +322,9 @@ describe('runWorkflowOperation', () => {
       {
         operation: 'pr-update-branch',
         phase: 'prepare',
-        runnerAdapter: 'codex-action',
+        runnerAdapter: 'external',
         message:
-          /pr-update-branch with --runner codex-action and --phase prepare is not supported by the operation catalog\./,
+          /pr-update-branch with --runner external and --phase prepare is not supported by the operation catalog\./,
       },
     ]);
 

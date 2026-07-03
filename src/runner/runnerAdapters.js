@@ -1,7 +1,7 @@
 export const DEFAULT_RUNNER_ADAPTER = 'codex-cli';
 
 /** @type {import('./types.js').RunnerAdapter[]} */
-export const RUNNER_ADAPTERS = ['codex-cli', 'codex-action'];
+export const RUNNER_ADAPTERS = ['codex-cli', 'external'];
 
 /**
  * @param {unknown} value

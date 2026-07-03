@@ -27,7 +27,9 @@ describe('pullops-pr-fix-ci workflow', () => {
     assert.match(workflow, /github\.event_name == 'check_suite'/);
     assert.match(workflow, /npm exec pullops -- run pr-fix-ci/);
     assert.match(workflow, /--phase prepare/);
-    assert.match(workflow, /--phase finalize/);
+    assert.match(workflow, /--phase complete/);
+    assert.match(workflow, /--runner external/);
+    assert.match(workflow, /npm exec pullops -- runner-result --status "\$runner_status"/);
     assert.match(workflow, /openai\/codex-action@v1/);
     assert.match(workflow, /Verify OpenAI API key/);
     assert.match(workflow, /Run Codex/);

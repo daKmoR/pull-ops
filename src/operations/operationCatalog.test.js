@@ -80,7 +80,7 @@ describe('operationCatalog', () => {
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('prd-prepare', {
         phase: 'prepare',
-        runnerAdapter: 'codex-action',
+        runnerAdapter: 'external',
       }),
       false,
     );
@@ -120,17 +120,17 @@ describe('operationCatalog', () => {
     );
     assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('issue-implement'), [
       ['codex-cli', 'run'],
-      ['codex-action', 'prepare'],
-      ['codex-action', 'finalize'],
+      ['external', 'prepare'],
+      ['external', 'complete'],
     ]);
     assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('issue-implement'), [
       'codex-cli',
-      'codex-action',
+      'external',
     ]);
     assert.deepEqual(getOperationCatalogSupportedRunnerPhases('issue-implement'), [
       'run',
       'prepare',
-      'finalize',
+      'complete',
     ]);
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('issue-implement', {
@@ -142,21 +142,21 @@ describe('operationCatalog', () => {
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('issue-implement', {
         phase: 'prepare',
-        runnerAdapter: 'codex-action',
+        runnerAdapter: 'external',
       }),
       true,
     );
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('issue-implement', {
-        phase: 'finalize',
-        runnerAdapter: 'codex-action',
+        phase: 'complete',
+        runnerAdapter: 'external',
       }),
       true,
     );
     assert.equal(
       supportsOperationCatalogRunnerLifecycle('issue-implement', {
         phase: 'run',
-        runnerAdapter: 'codex-action',
+        runnerAdapter: 'external',
       }),
       false,
     );
@@ -169,7 +169,7 @@ describe('operationCatalog', () => {
     );
     assert.equal(typeof getOperationCatalogHandler('issue-implement'), 'function');
     assert.equal(typeof getOperationCatalogHandler('issue-implement', 'prepare'), 'function');
-    assert.equal(typeof getOperationCatalogHandler('issue-implement', 'finalize'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('issue-implement', 'complete'), 'function');
   });
 
   it('03: returns the pr-review and pr-address-review operation facts from purpose-specific lookups', () => {
@@ -221,17 +221,17 @@ describe('operationCatalog', () => {
       assert.equal(getOperationCatalogPackageScriptName(operationName), `pullops:${operationName}`);
       assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles(operationName), [
         ['codex-cli', 'run'],
-        ['codex-action', 'prepare'],
-        ['codex-action', 'finalize'],
+        ['external', 'prepare'],
+        ['external', 'complete'],
       ]);
       assert.deepEqual(getOperationCatalogSupportedRunnerAdapters(operationName), [
         'codex-cli',
-        'codex-action',
+        'external',
       ]);
       assert.deepEqual(getOperationCatalogSupportedRunnerPhases(operationName), [
         'run',
         'prepare',
-        'finalize',
+        'complete',
       ]);
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
@@ -243,21 +243,21 @@ describe('operationCatalog', () => {
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
           phase: 'prepare',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
         }),
         true,
       );
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
-          phase: 'finalize',
-          runnerAdapter: 'codex-action',
+          phase: 'complete',
+          runnerAdapter: 'external',
         }),
         true,
       );
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
           phase: 'run',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
         }),
         false,
       );
@@ -270,7 +270,7 @@ describe('operationCatalog', () => {
       );
       assert.equal(typeof getOperationCatalogHandler(operationName), 'function');
       assert.equal(typeof getOperationCatalogHandler(operationName, 'prepare'), 'function');
-      assert.equal(typeof getOperationCatalogHandler(operationName, 'finalize'), 'function');
+      assert.equal(typeof getOperationCatalogHandler(operationName, 'complete'), 'function');
     }
   });
 
@@ -338,13 +338,13 @@ describe('operationCatalog', () => {
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
           phase: 'prepare',
-          runnerAdapter: 'codex-action',
+          runnerAdapter: 'external',
         }),
         false,
       );
       assert.equal(typeof getOperationCatalogHandler(operationName), 'function');
       assert.equal(getOperationCatalogHandler(operationName, 'prepare'), undefined);
-      assert.equal(getOperationCatalogHandler(operationName, 'finalize'), undefined);
+      assert.equal(getOperationCatalogHandler(operationName, 'complete'), undefined);
     }
   });
 
@@ -371,16 +371,16 @@ describe('operationCatalog', () => {
         },
         supportedRunnerLifecycles: [
           ['codex-cli', 'run'],
-          ['codex-action', 'prepare'],
-          ['codex-action', 'finalize'],
+          ['external', 'prepare'],
+          ['external', 'complete'],
         ],
-        supportedRunnerAdapters: ['codex-cli', 'codex-action'],
-        supportedRunnerPhases: ['run', 'prepare', 'finalize'],
+        supportedRunnerAdapters: ['codex-cli', 'external'],
+        supportedRunnerPhases: ['run', 'prepare', 'complete'],
         supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
           ['run', 'codex-cli', true],
-          ['prepare', 'codex-action', true],
-          ['finalize', 'codex-action', true],
-          ['run', 'codex-action', false],
+          ['prepare', 'external', true],
+          ['complete', 'external', true],
+          ['run', 'external', false],
           ['prepare', 'codex-cli', false],
         ]),
         unsupportedHandlerPhases: [],
@@ -398,11 +398,11 @@ describe('operationCatalog', () => {
         supportedRunnerPhases: ['run'],
         supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
           ['run', 'codex-cli', true],
-          ['run', 'codex-action', false],
-          ['prepare', 'codex-action', false],
-          ['finalize', 'codex-action', false],
+          ['run', 'external', false],
+          ['prepare', 'external', false],
+          ['complete', 'external', false],
         ]),
-        unsupportedHandlerPhases: ['prepare', 'finalize'],
+        unsupportedHandlerPhases: ['prepare', 'complete'],
       },
       {
         operationName: 'pr-resolve-conflicts',
@@ -415,16 +415,16 @@ describe('operationCatalog', () => {
         },
         supportedRunnerLifecycles: [
           ['codex-cli', 'run'],
-          ['codex-action', 'prepare'],
-          ['codex-action', 'finalize'],
+          ['external', 'prepare'],
+          ['external', 'complete'],
         ],
-        supportedRunnerAdapters: ['codex-cli', 'codex-action'],
-        supportedRunnerPhases: ['run', 'prepare', 'finalize'],
+        supportedRunnerAdapters: ['codex-cli', 'external'],
+        supportedRunnerPhases: ['run', 'prepare', 'complete'],
         supportedLifecycleChecks: /** @type {SupportedLifecycleCheck[]} */ ([
           ['run', 'codex-cli', true],
-          ['prepare', 'codex-action', true],
-          ['finalize', 'codex-action', true],
-          ['run', 'codex-action', false],
+          ['prepare', 'external', true],
+          ['complete', 'external', true],
+          ['run', 'external', false],
           ['prepare', 'codex-cli', false],
         ]),
         unsupportedHandlerPhases: [],
@@ -506,7 +506,7 @@ describe('operationCatalog', () => {
       }
       if (operationName !== 'pr-update-branch') {
         assert.equal(typeof getOperationCatalogHandler(operationName, 'prepare'), 'function');
-        assert.equal(typeof getOperationCatalogHandler(operationName, 'finalize'), 'function');
+        assert.equal(typeof getOperationCatalogHandler(operationName, 'complete'), 'function');
       }
     }
   });
@@ -571,21 +571,21 @@ describe('operationCatalog', () => {
     assert.equal(getOperationCatalogPackageScriptName('pr-finalize'), 'pullops:pr-finalize');
     assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('pr-finalize'), [
       ['codex-cli', 'run'],
-      ['codex-action', 'prepare'],
-      ['codex-action', 'finalize'],
+      ['external', 'prepare'],
+      ['external', 'complete'],
     ]);
     assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('pr-finalize'), [
       'codex-cli',
-      'codex-action',
+      'external',
     ]);
     assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-finalize'), [
       'run',
       'prepare',
-      'finalize',
+      'complete',
     ]);
     assert.equal(typeof getOperationCatalogHandler('pr-finalize'), 'function');
     assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'prepare'), 'function');
-    assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'finalize'), 'function');
+    assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'complete'), 'function');
 
     assert.deepEqual(getOperationCatalogWorkflowOperation('pr-close-child-issue'), {
       name: 'pr-close-child-issue',
@@ -619,7 +619,7 @@ describe('operationCatalog', () => {
     assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-close-child-issue'), ['run']);
     assert.equal(typeof getOperationCatalogHandler('pr-close-child-issue'), 'function');
     assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'prepare'), undefined);
-    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'finalize'), undefined);
+    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'complete'), undefined);
 
     assert.ok(
       getOperationCatalogWorkflowOperations().some(operation => operation.name === 'pr-finalize'),

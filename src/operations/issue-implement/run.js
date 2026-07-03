@@ -8,8 +8,9 @@ import {
 } from '../../prd-automation/childCoordination.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import {
+  createExternalRunnerJob,
   createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  isSkippedExternalRunnerResult,
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
@@ -355,8 +356,9 @@ export async function runIssueImplementCodexActionPrepare(context) {
     return preparation.output;
   }
 
+  let handoff;
   try {
-    await writeCodexActionPrompt(
+    handoff = await writeCodexActionPrompt(
       context,
       buildIssueImplementPrompt({
         issue: preparation.issue,
@@ -368,20 +370,17 @@ export async function runIssueImplementCodexActionPrepare(context) {
     throw error;
   }
 
-  const files = getCodexActionFiles(context);
   return {
     status: 'accepted',
-    summary: `Prepared Codex Action implement run for issue #${preparation.issue.number}.`,
+    summary: `Prepared external implement run for issue #${preparation.issue.number}.`,
     issue: {
       number: preparation.issue.number,
       url: preparation.issue.url,
     },
-    codexAction: {
-      promptFile: files.promptFile,
-      outputFile: files.outputFile,
+    runnerJob: createExternalRunnerJob(context, handoff, {
       model: context.model,
       branch: preparation.branchName,
-    },
+    }),
   };
 }
 
@@ -390,20 +389,21 @@ export async function runIssueImplementCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplementCodexActionFinalize(context) {
-  if (context.runnerRan === false) {
-    return createSkippedCodexActionOutput(context);
-  }
-
-  const preparation = await readPreparedIssueImplement(context);
   let rawOutput;
 
   try {
     rawOutput = await readCodexActionOutput(context);
   } catch (error) {
+    if (isSkippedExternalRunnerResult(error)) {
+      return createSkippedCodexActionOutput(context);
+    }
+
+    const preparation = await readPreparedIssueImplement(context);
     await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
     throw error;
   }
 
+  const preparation = await readPreparedIssueImplement(context);
   return await finalizePreparedIssueImplement(context, preparation, rawOutput);
 }
 
