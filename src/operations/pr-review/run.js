@@ -116,7 +116,7 @@ export async function runPrReviewCodexActionPrepare(context) {
   }
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external review run for PR #${preparation.pullRequest.number}.`,
     reviewMode: preparation.reviewMode,
     modelTier: preparation.modelTier,

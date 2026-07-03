@@ -114,7 +114,7 @@ export async function runPrFinalizeCodexActionPrepare(context) {
   }
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,

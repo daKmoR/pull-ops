@@ -175,8 +175,8 @@ describe('runWorkflowOperation', () => {
       );
 
       const reviewResult = /** @type {any} */ (result);
-      assert.equal(reviewResult.status, 'accepted');
       if (phase === 'prepare') {
+        assert.equal(reviewResult.status, 'waiting');
         assert.equal(codexCalls.length, 0);
         assert.equal(reviewResult.modelTier, expectedModelTier);
         assert.equal(reviewResult.model, expectedModel);
@@ -185,10 +185,50 @@ describe('runWorkflowOperation', () => {
         assert.match(reviewResult.runnerJob.resultFile, /runner_result\.json$/);
         assert.equal(reviewResult.runnerJob.model, expectedModel);
       } else {
+        assert.equal(reviewResult.status, 'accepted');
         assert.deepEqual(reviewResult.runner, { adapter: 'external', status: 'skipped' });
         assert.match(reviewResult.summary, /Skipped pr-/);
       }
     }
+  });
+
+  it('05b: dispatches local external pr-review prepare through the catalog handler', async () => {
+    const githubClient = createCatalogReviewGitHubClient();
+    const git = createFakeGit();
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-catalog-review-'));
+    /** @type {CodexRunOptions[]} */
+    const codexCalls = [];
+
+    /** @type {import('../runner/types.js').CodexRunner} */
+    const codexRunner = {
+      async run(options) {
+        codexCalls.push(options);
+        throw new Error('codexRunner.run was not expected in this test.');
+      },
+    };
+
+    const result = await runWorkflowOperation(
+      createContext({
+        executionBackend: 'local',
+        operation: 'pr-review',
+        phase: 'prepare',
+        runnerAdapter: 'external',
+        target: {
+          type: 'pr',
+          number: 456,
+        },
+        githubClient,
+        gitClient: git.client,
+        codexRunner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.equal(codexCalls.length, 0);
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.match(runnerJob.promptFile, /runner_prompt\.md$/);
+    assert.match(runnerJob.resultFile, /runner_result\.json$/);
   });
 
   it('06: rejects unsupported catalog lifecycles for prd-auto-advance before dispatch', async () => {

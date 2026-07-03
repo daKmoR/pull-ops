@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -10,7 +10,11 @@ import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createGitClient } from '../../git/GitClient.js';
 import { PULL_OPS_STATUS_LABEL_NAMES } from '../../labels/pullOpsLabels.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
-import { createPrFinalizeCommitMessage, runPrFinalize } from './run.js';
+import {
+  createPrFinalizeCommitMessage,
+  runPrFinalize,
+  runPrFinalizeCodexActionPrepare,
+} from './run.js';
 
 const execFile = promisify(nodeExecFile);
 
@@ -766,6 +770,47 @@ describe('runPrFinalize', () => {
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
     assert.equal(await readTreeHash(repository.workDir), reviewedTree);
     assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
+  });
+
+  it('14b: prepares a waiting external runner handoff for ambiguous Umbrella PRD history', async () => {
+    const repository = await createTemporaryAmbiguousParentRepository();
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-finalize-external-'));
+    const reviewedTree = await readTreeHash(repository.workDir);
+    const reviewedHead = await readHeadSha(repository.workDir);
+    const codex = createFakeCodexRunner();
+    const github = createFakeGitHub({
+      issue: createParentIssueWithClosedChildren(),
+      pullRequest: createPullRequest({
+        title: 'Prepare #7: PRD: Parent workflow',
+        headRefName: 'pullops/prd-7',
+        headSha: reviewedHead,
+        baseRefName: 'main',
+        body: createParentPullRequestBody({ reviewedTree }),
+      }),
+      checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
+    });
+
+    const result = await runPrFinalizeCodexActionPrepare(
+      createContext({
+        cwd: repository.workDir,
+        githubClient: github.client,
+        gitClient: createGitClientFor(repository.workDir),
+        codexRunner: codex.runner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.equal(codex.calls.length, 0);
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /Plan ambiguous PR Finalize history grouping/);
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));
+    assert.equal(runnerJob.resultFile, join(outputDirectory, 'runner_result.json'));
+    assert.equal(runnerJob.model, 'gpt-5.5');
+    assert.equal(runnerJob.branch, 'pullops/prd-7');
+    assert.equal(runnerJob.workerPrompt, prompt);
   });
 
   it('15: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {

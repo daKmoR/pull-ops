@@ -222,7 +222,7 @@ describe('runPrReview', () => {
       }),
     );
 
-    assert.equal(result.status, 'accepted');
+    assert.equal(result.status, 'waiting');
     assert.equal(result.reviewMode, 'normal');
     assert.equal(result.modelTier, 'high');
     assert.equal(result.model, 'gpt-5.5');

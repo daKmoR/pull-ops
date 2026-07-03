@@ -20,8 +20,16 @@ describe('pullops-pr-finalize workflow', () => {
     assert.notEqual(setOriginIndex, -1);
     assert.notEqual(runPrepareIndex, -1);
     assert.equal(setOriginIndex < runPrepareIndex, true);
+    assert.match(prepareStep, /> "\$PREPARE_JSON"/);
+    assert.match(prepareStep, /const \{ runnerJob \} = JSON\.parse/);
+    assert.match(prepareStep, /prompt_file=\$\{runnerJob\.promptFile\}/);
+    assert.match(prepareStep, /output_file=\$\{runnerJob\.outputFile\}/);
+    assert.match(prepareStep, /result_file=\$\{runnerJob\.resultFile\}/);
     assert.match(prepareStep, /GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);
     assert.match(prepareStep, /PULLOPS_GITHUB_TOKEN: \$\{\{ secrets\.PULLOPS_GITHUB_TOKEN \}\}/);
+    assert.match(workflow, /prompt-file: \$\{\{ steps\.prepare\.outputs\.prompt_file \}\}/);
+    assert.match(workflow, /output-file: \$\{\{ steps\.prepare\.outputs\.output_file \}\}/);
+    assert.match(workflow, /model: \$\{\{ steps\.prepare\.outputs\.model \}\}/);
   });
 });
 

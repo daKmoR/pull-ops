@@ -71,7 +71,12 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     );
   }
 
-  if (context.executionBackend === 'local' && context.target.type === 'pr') {
+  if (
+    context.executionBackend === 'local' &&
+    context.target.type === 'pr' &&
+    context.phase === 'run' &&
+    context.runnerAdapter === 'codex-cli'
+  ) {
     return await runLocalPullRequestOperation(context);
   }
 

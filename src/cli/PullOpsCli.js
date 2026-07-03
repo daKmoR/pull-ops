@@ -132,7 +132,7 @@ function readLocalOperationLabelReferenceNames() {
  * @param {NodeJS.ProcessEnv} env
  * @returns {RunnerAdapter}
  */
-function readLocalIssueImplementRunnerAdapter(configuredRunnerAdapter, env) {
+function readCodexHostedLocalRunnerAdapter(configuredRunnerAdapter, env) {
   if (isCodexHostedPullOpsGo(env)) {
     return 'external';
   }
@@ -927,7 +927,23 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[workflowOperation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = config.runner.adapter;
+    const runnerAdapter = readCodexHostedLocalRunnerAdapter(config.runner.adapter, this.env);
+    if (runnerAdapter === 'external') {
+      validateRunnerLifecycle({
+        operationName: workflowOperation.name,
+        phase: 'prepare',
+        runnerAdapter,
+      });
+      return await this.runLocalExternalPullRequestOperationReference({
+        operation: workflowOperation,
+        reference,
+        parsedArgs,
+        config,
+        operationConfig,
+        model,
+      });
+    }
+
     validateRunnerLifecycle({
       operationName: workflowOperation.name,
       phase: 'run',
@@ -962,6 +978,131 @@ export class PullOpsCli {
   }
 
   /**
+   * @param {object} options
+   * @param {import('../operations/types.js').WorkflowOperation} options.operation
+   * @param {string} options.reference
+   * @param {{ targetNumber: number }} options.parsedArgs
+   * @param {import('../config/types.js').PullOpsConfig} options.config
+   * @param {import('../config/types.js').OperationConfig} options.operationConfig
+   * @param {string} options.model
+   * @returns {Promise<number>}
+   */
+  async runLocalExternalPullRequestOperationReference({
+    operation,
+    reference,
+    parsedArgs,
+    config,
+    operationConfig,
+    model,
+  }) {
+    const createdAt = this.now();
+    const runRecordLocation = createLocalPrdRunRecordLocation({
+      cwd: this.cwd,
+      operationReference: reference,
+      targetNumber: parsedArgs.targetNumber,
+      createdAt,
+    });
+    await mkdir(runRecordLocation.directory, { recursive: true });
+    const stateRecord = await initializeLocalRunState({
+      runRecordDirectory: runRecordLocation.directory,
+      operationReference: reference,
+      target: {
+        type: 'pr',
+        number: parsedArgs.targetNumber,
+      },
+      publicationMode: 'publish',
+      runGoal: 'operation',
+      createdAt,
+    });
+
+    try {
+      if (await this.gitClient.hasChanges()) {
+        const reason = [
+          `Local external ${reference} requires a clean worktree before preparing a hidden worker.`,
+          'Commit, stash, or discard existing changes and run PullOps again.',
+        ].join(' ');
+        const output = {
+          status: 'failed',
+          summary: `Local external ${reference} for PR #${parsedArgs.targetNumber} failed before prepare.`,
+          failureReason: reason,
+          localRunRecord: runRecordLocation.directory,
+          runStatePath: stateRecord.statePath,
+        };
+        await recordLocalRunTerminalStatus({
+          statePath: stateRecord.statePath,
+          status: 'failed',
+          summary: reason,
+          phase: 'prepare',
+        });
+        this.writeValidatedJson(output);
+        return 1;
+      }
+
+      const output = await this.operationRunner({
+        operation: operation.name,
+        phase: 'prepare',
+        runnerAdapter: 'external',
+        executionBackend: 'local',
+        suppressFollowUpOperationLabels: true,
+        publicationMode: 'publish',
+        runGoal: 'operation',
+        target: {
+          type: 'pr',
+          number: parsedArgs.targetNumber,
+        },
+        cwd: this.cwd,
+        config,
+        modelTier: operationConfig.modelTier,
+        model,
+        githubClient: this.operationGitHubClient,
+        gitClient: this.gitClient,
+        codexRunner: this.codexRunner,
+        triggerActor: this.env.GITHUB_ACTOR,
+        outputDirectory: runRecordLocation.directory,
+        localRunRecordDirectory: runRecordLocation.directory,
+        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+        contextUsage: readContextUsage(this.env),
+        progress: this.progress,
+      });
+      const outputWithRunRecord = addLocalRunRecordToOutput(output, {
+        localRunRecord: runRecordLocation.directory,
+        runStatePath: stateRecord.statePath,
+      });
+
+      if (isExternalRunnerWaitingOutput(outputWithRunRecord)) {
+        await recordLocalRunWaitingForRunner({
+          statePath: stateRecord.statePath,
+          summary: outputWithRunRecord.summary,
+          phase: 'prepare',
+          runnerJob: outputWithRunRecord.runnerJob,
+        });
+      } else {
+        await recordLocalRunTerminalStatus({
+          statePath: stateRecord.statePath,
+          status: mapLocalRunResultStatusToTerminalStatus(
+            /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (
+              outputWithRunRecord.status
+            ),
+          ),
+          summary: outputWithRunRecord.summary,
+          phase: 'prepare',
+        });
+      }
+
+      this.writeValidatedJson(outputWithRunRecord);
+      return readOperationExitCode(outputWithRunRecord);
+    } catch (error) {
+      await recordLocalRunTerminalStatus({
+        statePath: stateRecord.statePath,
+        status: 'failed',
+        summary: getErrorMessage(error),
+        phase: 'prepare',
+      });
+      throw error;
+    }
+  }
+
+  /**
    * @param {string[]} args
    * @returns {Promise<number>}
    */
@@ -975,7 +1116,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = readLocalIssueImplementRunnerAdapter(config.runner.adapter, this.env);
+    const runnerAdapter = readCodexHostedLocalRunnerAdapter(config.runner.adapter, this.env);
     if (runnerAdapter === 'external') {
       return await this.runLocalExternalIssueImplementReference({
         operation,

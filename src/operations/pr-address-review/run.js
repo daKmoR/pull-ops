@@ -128,7 +128,7 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
   }
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external pr-address-review run for PR #${preparation.pullRequest.number}.`,
     reviewMode: preparation.reviewMode,
     modelTier: preparation.modelTier,

@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR, runPrAddressReview } from './run.js';
+import {
+  GITHUB_ACTIONS_BOT_AUTHOR,
+  runPrAddressReview,
+  runPrAddressReviewCodexActionPrepare,
+} from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -817,6 +821,41 @@ describe('runPrAddressReview', () => {
     assert.equal(github.updatedBodies.length, 1);
     assert.match(github.updatedBodies[0].body, /Pending human feedback review id: PRR_pending/);
     assert.doesNotMatch(github.updatedBodies[0].body, /Pending human feedback review id: PRR_new/);
+  });
+
+  it('13: prepares a waiting external runner handoff without invoking the runner', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-address-review-external-'));
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runPrAddressReviewCodexActionPrepare(
+      createContext({
+        githubClient: github.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.equal(result.reviewMode, 'normal');
+    assert.equal(result.modelTier, 'mid');
+    assert.equal(result.model, DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
+    assert.equal(codex.calls.length, 0);
+
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /ensure the checkout .* is on branch `pullops\/issue-42`/);
+    assert.match(prompt, /Use the pullops-pr-address-review skill/);
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));
+    assert.equal(runnerJob.resultFile, join(outputDirectory, 'runner_result.json'));
+    assert.equal(runnerJob.model, DEFAULT_PULL_OPS_CONFIG.runner.models.mid);
+    assert.equal(runnerJob.branch, 'pullops/issue-42');
+    assert.equal(runnerJob.workerPrompt, prompt);
   });
 });
 

@@ -629,16 +629,24 @@ jobs:
             --pr "@@{{ inputs.pr }}" \\
             > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            node --input-type=module -e '
-              import fs from "node:fs";
-              const { model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
-              process.stdout.write("model=" + model + "\\nmodel_tier=" + modelTier + "\\n");
-            ' >> "$GITHUB_OUTPUT"
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob, model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model ?? model}\`,
+                  \`model_tier=\${modelTier ?? ""}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -665,8 +673,8 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
+          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
+          output-file: @@{{ steps.prepare.outputs.output_file }}
           model: @@{{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
@@ -694,7 +702,7 @@ jobs:
             skipped) runner_status=skipped ;;
             *) runner_status=failed ;;
           esac
-          npm exec pullops -- runner-result --status "$runner_status"
+          npm exec pullops -- runner-result --status "$runner_status" --file "@@{{ steps.prepare.outputs.result_file }}"
           npm exec pullops -- run pr-review \\
             --phase complete \\
             --runner external \\
@@ -880,16 +888,24 @@ jobs:
             "@@{review_id_args[@]}" \\
             > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            node --input-type=module -e '
-              import fs from "node:fs";
-              const { model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
-              process.stdout.write("model=" + model + "\\nmodel_tier=" + modelTier + "\\n");
-            ' >> "$GITHUB_OUTPUT"
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob, model, modelTier } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model ?? model}\`,
+                  \`model_tier=\${modelTier ?? ""}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -916,8 +932,8 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
+          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
+          output-file: @@{{ steps.prepare.outputs.output_file }}
           model: @@{{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
@@ -945,7 +961,7 @@ jobs:
             skipped) runner_status=skipped ;;
             *) runner_status=failed ;;
           esac
-          npm exec pullops -- runner-result --status "$runner_status"
+          npm exec pullops -- runner-result --status "$runner_status" --file "@@{{ steps.prepare.outputs.result_file }}"
           review_id_args=()
           if [ -n "$REVIEW_ID" ]; then
             review_id_args=(--review-id "$REVIEW_ID")
@@ -1589,17 +1605,31 @@ jobs:
           npm exec pullops -- run pr-finalize \\
             --phase prepare \\
             --runner external \\
-            --pr "@@{{ inputs.pr }}"
+            --pr "@@{{ inputs.pr }}" \\
+            > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
+          PREPARE_JSON: @@{{ runner.temp }}/pullops-output/prepare.json
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
@@ -1621,9 +1651,9 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
+          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
+          output-file: @@{{ steps.prepare.outputs.output_file }}
+          model: @@{{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
           allow-bots: true
@@ -1650,7 +1680,7 @@ jobs:
             skipped) runner_status=skipped ;;
             *) runner_status=failed ;;
           esac
-          npm exec pullops -- runner-result --status "$runner_status"
+          npm exec pullops -- runner-result --status "$runner_status" --file "@@{{ steps.prepare.outputs.result_file }}"
           npm exec pullops -- run pr-finalize \\
             --phase complete \\
             --runner external \\

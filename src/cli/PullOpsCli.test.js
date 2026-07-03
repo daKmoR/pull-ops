@@ -753,6 +753,86 @@ test('run issue:implement with the external runner records a waiting runner hand
   assert.deepEqual(state.lastEvent.runnerJob, runnerJob);
 });
 
+test('run pr:review defaults to an external runner handoff inside Codex host', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-codex-hosted-pr-review-'));
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const runnerJob = {
+    cwd,
+    promptFile: join(cwd, '.pullops', 'runs', 'runner_prompt.md'),
+    outputFile: join(cwd, '.pullops', 'runs', 'runner_output.json'),
+    resultFile: join(cwd, '.pullops', 'runs', 'runner_result.json'),
+    workerPrompt: 'Use the pullops-pr-review skill.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-42',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: [
+        'npm',
+        'exec',
+        '--',
+        'pullops',
+        'run',
+        'pr-review',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--pr',
+        '456',
+      ],
+      env: {},
+    },
+  };
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    env: {
+      CODEX_THREAD_ID: 'thread-123',
+    },
+    gitClient: createFakeGitClient(),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'waiting',
+        summary: 'Prepared external review run for PR #456.',
+        runnerJob,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'pr:review', '456']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'pr-review');
+  assert.equal(runnerCalls[0].phase, 'prepare');
+  assert.equal(runnerCalls[0].runnerAdapter, 'external');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'operation');
+  assert.deepEqual(runnerCalls[0].target, { type: 'pr', number: 456 });
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'waiting');
+  assert.equal(output.localRunRecord, runnerCalls[0].outputDirectory);
+  assert.equal(output.runStatePath, join(runnerCalls[0].outputDirectory ?? '', 'state.json'));
+  assert.deepEqual(output.runnerJob, runnerJob);
+
+  const state = JSON.parse(await readFile(output.runStatePath, 'utf8'));
+  assert.equal(state.status, 'waiting');
+  assert.equal(state.phase, 'prepare');
+  assert.equal(state.publicationMode, 'publish');
+  assert.deepEqual(state.runnerJob, runnerJob);
+  assert.deepEqual(state.lastEvent.runnerJob, runnerJob);
+});
+
 test('heartbeat accepts the worker environment and advances lease timing', async () => {
   const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-heartbeat-cli-'));
   const stateRecord = await initializeLocalRunState({
@@ -2362,6 +2442,7 @@ test('run local pull request operation references through the matching workflow 
     const runnerCalls = [];
     const cli = new PullOpsCli({
       stdout,
+      env: {},
       operationRunner: async context => {
         runnerCalls.push(context);
         return {
