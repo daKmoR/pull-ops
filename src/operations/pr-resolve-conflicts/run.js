@@ -698,6 +698,7 @@ async function writeCodexActionConflictPrompt(context, preparation, conflictCont
       pass,
       maxPasses: preparation.maxConflictResolutionPasses,
     }),
+    { branch: preparation.pullRequest.headRefName },
   );
 }
 

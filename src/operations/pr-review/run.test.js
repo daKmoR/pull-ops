@@ -229,6 +229,7 @@ describe('runPrReview', () => {
     assert.equal(codex.calls.length, 0);
 
     const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /ensure the checkout .* is on branch `pullops\/issue-42`/);
     assert.match(prompt, /Use the pullops-pr-review skill/);
     assert.match(prompt, /Review PullOps-managed PR #100/);
     const runnerJob = /** @type {any} */ (result.runnerJob);
@@ -242,15 +243,17 @@ describe('runPrReview', () => {
       argv: [
         'npm',
         'exec',
-        'pullops',
         '--',
+        'pullops',
         'runner-result',
         '--status',
         'failed',
         '--file',
         join(outputDirectory, 'runner_result.json'),
       ],
-      env: {},
+      env: {
+        npm_config_cache: '/tmp/pullops-npm-cache',
+      },
     });
   });
 

@@ -94,6 +94,7 @@ export async function runPrFixCiCodexActionPrepare(context) {
         diff: preparation.diff,
         checkFailures: preparation.checkFailures,
       }),
+      { branch: preparation.pullRequest.headRefName },
     );
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

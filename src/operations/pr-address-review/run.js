@@ -116,6 +116,7 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
         diff: preparation.diff,
         feedbackItems: preparation.feedbackItems,
       }),
+      { branch: preparation.pullRequest.headRefName },
     );
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

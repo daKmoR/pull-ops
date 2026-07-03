@@ -105,7 +105,9 @@ export async function runPrFinalizeCodexActionPrepare(context) {
 
   let handoff;
   try {
-    handoff = await writeCodexActionPrompt(context, preparation.prompt);
+    handoff = await writeCodexActionPrompt(context, preparation.prompt, {
+      branch: preparation.pullRequest.headRefName,
+    });
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
     throw error;

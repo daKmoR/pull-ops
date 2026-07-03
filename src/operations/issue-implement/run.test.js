@@ -160,6 +160,7 @@ describe('runIssueImplement', () => {
 
     const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
     assert.match(prompt, /Write the final Operation Output JSON to .*runner_output\.json/);
+    assert.match(prompt, /ensure the checkout .* is on branch `pullops\/issue-42`/);
     assert.match(prompt, /Use the pullops-issue-implement skill/);
     assert.match(prompt, /Implement GitHub Issue #42: Add the first operation/);
     const runnerJob = /** @type {any} */ (result.runnerJob);
@@ -174,22 +175,24 @@ describe('runIssueImplement', () => {
       argv: [
         'npm',
         'exec',
-        'pullops',
         '--',
+        'pullops',
         'runner-result',
         '--status',
         'success',
         '--file',
         join(outputDirectory, 'runner_result.json'),
       ],
-      env: {},
+      env: {
+        npm_config_cache: '/tmp/pullops-npm-cache',
+      },
     });
     assert.deepEqual(runnerJob.completeCommand, {
       argv: [
         'npm',
         'exec',
-        'pullops',
         '--',
+        'pullops',
         'run',
         'issue-implement',
         '--runner',
@@ -200,6 +203,7 @@ describe('runIssueImplement', () => {
         '42',
       ],
       env: {
+        npm_config_cache: '/tmp/pullops-npm-cache',
         OUTPUT_DIR: outputDirectory,
       },
     });
@@ -226,6 +230,7 @@ describe('runIssueImplement', () => {
 
     const runnerJob = /** @type {any} */ (result.runnerJob);
     assert.deepEqual(runnerJob.completeCommand.env, {
+      npm_config_cache: '/tmp/pullops-npm-cache',
       OUTPUT_DIR: outputDirectory,
       PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS: '1',
     });

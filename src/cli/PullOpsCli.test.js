@@ -15,7 +15,10 @@ import { getOperationCatalogWorkflowOperations } from '../operations/operationCa
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
-import { initializeLocalRunState } from '../local-run-state/localRunState.js';
+import {
+  initializeLocalRunState,
+  recordLocalRunWaitingForRunner,
+} from '../local-run-state/localRunState.js';
 import { runPullOpsInit } from '../setup/init.js';
 
 const execFileAsync = promisify(execFile);
@@ -111,6 +114,85 @@ test('run operation accepts explicit external runner lifecycle arguments', async
     status: 'accepted',
     summary: 'operation accepted',
   });
+});
+
+test('run operation records local external complete status in the run state', async () => {
+  const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-complete-state-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: outputDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: 42,
+    },
+    publicationMode: 'publish',
+    runGoal: 'finalized',
+    phase: 'prepare',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const runnerJob = {
+    cwd: outputDirectory,
+    promptFile: join(outputDirectory, 'runner_prompt.md'),
+    outputFile: join(outputDirectory, 'runner_output.json'),
+    resultFile: join(outputDirectory, 'runner_result.json'),
+    workerPrompt: 'Use the pullops-issue-implement skill.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-42',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: ['npm', 'exec', '--', 'pullops', 'run', 'issue-implement'],
+      env: { OUTPUT_DIR: outputDirectory },
+    },
+  };
+  await recordLocalRunWaitingForRunner({
+    statePath: stateRecord.statePath,
+    summary: 'Prepared external implement run for issue #42.',
+    phase: 'prepare',
+    runnerJob,
+    at: new Date('2024-01-01T00:01:00.000Z'),
+  });
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stdout,
+    env: {
+      OUTPUT_DIR: outputDirectory,
+    },
+    operationRunner: async () => {
+      return {
+        status: 'accepted',
+        summary: 'Opened draft PullOps-managed PR #100 for issue #42.',
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'issue-implement',
+    '--phase',
+    'complete',
+    '--runner',
+    'external',
+    '--issue',
+    '42',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'accepted',
+    summary: 'Opened draft PullOps-managed PR #100 for issue #42.',
+  });
+  const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(state.status, 'accepted');
+  assert.equal(state.phase, 'complete');
+  assert.equal(state.lastEvent.status, 'accepted');
+  assert.equal(state.lastEvent.phase, 'complete');
+  assert.equal(state.lastEvent.summary, 'Opened draft PullOps-managed PR #100 for issue #42.');
+  assert.deepEqual(state.runnerJob, runnerJob);
 });
 
 test('run operation marks GitHub Actions external lifecycle commands as workflow-backed', async () => {
@@ -418,17 +500,17 @@ test('run issue:implement defaults to an external runner handoff inside Codex ho
     model: 'gpt-5.5',
     branch: 'pullops/issue-123',
     completionCommands: {
-      success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
     },
     completeCommand: {
       argv: [
         'npm',
         'exec',
-        'pullops',
         '--',
+        'pullops',
         'run',
         'issue-implement',
         '--runner',
@@ -610,17 +692,17 @@ test('run issue:implement with the external runner records a waiting runner hand
     model: 'gpt-5.5',
     branch: 'pullops/issue-123',
     completionCommands: {
-      success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-      skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
     },
     completeCommand: {
       argv: [
         'npm',
         'exec',
-        'pullops',
         '--',
+        'pullops',
         'run',
         'issue-implement',
         '--runner',

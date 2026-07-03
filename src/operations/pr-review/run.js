@@ -104,6 +104,7 @@ export async function runPrReviewCodexActionPrepare(context) {
         reviewContext: preparation.reviewContext,
         diff: preparation.diff,
       }),
+      { branch: preparation.pullRequest.headRefName },
     );
   } catch (error) {
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {

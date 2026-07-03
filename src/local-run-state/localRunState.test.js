@@ -259,17 +259,17 @@ describe('localRunState', () => {
       model: 'gpt-5.5',
       branch: 'pullops/issue-42',
       completionCommands: {
-        success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-        failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-        cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
-        skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+        success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+        failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+        cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+        skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
       },
       completeCommand: {
         argv: [
           'npm',
           'exec',
-          'pullops',
           '--',
+          'pullops',
           'run',
           'issue-implement',
           '--runner',

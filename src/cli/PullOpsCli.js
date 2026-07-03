@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readFile } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
@@ -759,33 +759,50 @@ export class PullOpsCli {
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
     const executionBackend = inferWorkflowCommandExecutionBackend(this.env);
+    const suppressFollowUpOperationLabels =
+      executionBackend === 'local' ||
+      readEnvFlag(this.env[SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV]);
 
-    const output = await this.operationRunner({
-      operation: operation.name,
-      phase: parsedArgs.phase,
-      runnerAdapter: parsedArgs.runnerAdapter,
-      executionBackend,
-      target: {
-        type: operation.target,
-        number: parsedArgs.targetNumber,
-      },
-      cwd: this.cwd,
-      config,
-      modelTier: operationConfig.modelTier,
-      model,
-      githubClient: this.operationGitHubClient,
-      gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
-      triggerActor: this.env.GITHUB_ACTOR,
-      reviewId: parsedArgs.reviewId,
-      outputDirectory: this.env.OUTPUT_DIR,
-      ...(executionBackend === 'local' ||
-        readEnvFlag(this.env[SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV])
-        ? { suppressFollowUpOperationLabels: true }
-        : {}),
-      reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
-      contextUsage: readContextUsage(this.env),
-    });
+    let output;
+    try {
+      output = await this.operationRunner({
+        operation: operation.name,
+        phase: parsedArgs.phase,
+        runnerAdapter: parsedArgs.runnerAdapter,
+        executionBackend,
+        target: {
+          type: operation.target,
+          number: parsedArgs.targetNumber,
+        },
+        cwd: this.cwd,
+        config,
+        modelTier: operationConfig.modelTier,
+        model,
+        githubClient: this.operationGitHubClient,
+        gitClient: this.gitClient,
+        codexRunner: this.codexRunner,
+        triggerActor: this.env.GITHUB_ACTOR,
+        reviewId: parsedArgs.reviewId,
+        outputDirectory: this.env.OUTPUT_DIR,
+        ...(suppressFollowUpOperationLabels ? { suppressFollowUpOperationLabels: true } : {}),
+        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
+        contextUsage: readContextUsage(this.env),
+      });
+      await recordLocalExternalRunnerCompleteState({
+        parsedArgs,
+        executionBackend,
+        outputDirectory: this.env.OUTPUT_DIR,
+        output,
+      });
+    } catch (error) {
+      await recordLocalExternalRunnerCompleteFailure({
+        parsedArgs,
+        executionBackend,
+        outputDirectory: this.env.OUTPUT_DIR,
+        summary: getErrorMessage(error),
+      });
+      throw error;
+    }
 
     this.writeValidatedJson(output);
     return readOperationExitCode(output);
@@ -2577,6 +2594,115 @@ function readOperationExitCode(output) {
 }
 
 /**
+ * @param {object} options
+ * @param {{ phase: OperationPhase, runnerAdapter: RunnerAdapter }} options.parsedArgs
+ * @param {import('./types.js').ExecutionBackend} options.executionBackend
+ * @param {string | undefined} options.outputDirectory
+ * @param {unknown} options.output
+ * @returns {Promise<void>}
+ */
+async function recordLocalExternalRunnerCompleteState({
+  parsedArgs,
+  executionBackend,
+  outputDirectory,
+  output,
+}) {
+  if (
+    !shouldRecordLocalExternalRunnerCompleteState({ parsedArgs, executionBackend, outputDirectory })
+  ) {
+    return;
+  }
+
+  const result = validateOperationOutput(output, COMMAND_OUTPUT_CONTRACT);
+  if (!result.valid) {
+    throw new Error(`Invalid Operation Output: ${result.reason}`);
+  }
+
+  await recordLocalRunTerminalStatusIfStateExists({
+    statePath: join(/** @type {string} */ (outputDirectory), 'state.json'),
+    status: mapLocalRunResultStatusToTerminalStatus(
+      /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (
+        result.value.status
+      ),
+    ),
+    summary: /** @type {string} */ (result.value.summary),
+    phase: 'complete',
+  });
+}
+
+/**
+ * @param {object} options
+ * @param {{ phase: OperationPhase, runnerAdapter: RunnerAdapter }} options.parsedArgs
+ * @param {import('./types.js').ExecutionBackend} options.executionBackend
+ * @param {string | undefined} options.outputDirectory
+ * @param {string} options.summary
+ * @returns {Promise<void>}
+ */
+async function recordLocalExternalRunnerCompleteFailure({
+  parsedArgs,
+  executionBackend,
+  outputDirectory,
+  summary,
+}) {
+  if (
+    !shouldRecordLocalExternalRunnerCompleteState({ parsedArgs, executionBackend, outputDirectory })
+  ) {
+    return;
+  }
+
+  await recordLocalRunTerminalStatusIfStateExists({
+    statePath: join(/** @type {string} */ (outputDirectory), 'state.json'),
+    status: 'failed',
+    summary,
+    phase: 'complete',
+  });
+}
+
+/**
+ * @param {object} options
+ * @param {{ phase: OperationPhase, runnerAdapter: RunnerAdapter }} options.parsedArgs
+ * @param {import('./types.js').ExecutionBackend} options.executionBackend
+ * @param {string | undefined} options.outputDirectory
+ * @returns {boolean}
+ */
+function shouldRecordLocalExternalRunnerCompleteState({
+  parsedArgs,
+  executionBackend,
+  outputDirectory,
+}) {
+  return (
+    executionBackend === 'local' &&
+    parsedArgs.runnerAdapter === 'external' &&
+    parsedArgs.phase === 'complete' &&
+    outputDirectory !== undefined &&
+    outputDirectory.trim() !== ''
+  );
+}
+
+/**
+ * @param {object} options
+ * @param {string} options.statePath
+ * @param {import('../local-run-state/types.js').LocalRunTerminalStatus} options.status
+ * @param {string} options.summary
+ * @param {string} options.phase
+ * @returns {Promise<void>}
+ */
+async function recordLocalRunTerminalStatusIfStateExists({ statePath, status, summary, phase }) {
+  try {
+    await recordLocalRunTerminalStatus({
+      statePath,
+      status,
+      summary,
+      phase,
+    });
+  } catch (error) {
+    if (!isErrorWithCode(error, 'ENOENT')) {
+      throw error;
+    }
+  }
+}
+
+/**
  * @param {Record<string, unknown>} output
  * @param {{ localRunRecord: string, runStatePath: string }} runRecord
  * @returns {Record<string, unknown> & { status: string, summary: string }}
@@ -2663,6 +2789,15 @@ function readPositiveIntegerEnv(value) {
   }
 
   return number;
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} code
+ * @returns {boolean}
+ */
+function isErrorWithCode(error, code) {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
 /**

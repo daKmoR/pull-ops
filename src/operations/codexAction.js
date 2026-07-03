@@ -18,14 +18,20 @@ export const SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV =
 /**
  * @param {OperationRunnerContext} context
  * @param {string} prompt
+ * @param {{ branch?: string }} [options]
  * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
  */
-export async function writeCodexActionPrompt(context, prompt) {
+export async function writeCodexActionPrompt(context, prompt, options = {}) {
   const outputDirectory = requireOutputDirectory(context);
   await mkdir(outputDirectory, { recursive: true });
 
   const files = getCodexActionFiles(context);
-  const workerPrompt = buildExternalRunnerWorkerPrompt({ prompt, files });
+  const workerPrompt = buildExternalRunnerWorkerPrompt({
+    prompt,
+    files,
+    cwd: resolve(context.cwd),
+    branch: options.branch,
+  });
   await writeFile(files.promptFile, workerPrompt);
   return {
     ...files,
@@ -115,15 +121,15 @@ export function createExternalRunnerJob(context, files, { model, branch }) {
               argv: [
                 'npm',
                 'exec',
-                'pullops',
                 '--',
+                'pullops',
                 'runner-result',
                 '--status',
                 status,
                 '--file',
                 files.resultFile,
               ],
-              env: {},
+              env: createExternalRunnerCommandEnvironment(),
             },
           ],
         ),
@@ -143,8 +149,8 @@ function createExternalRunnerCompleteCommand(context, outputDirectory) {
     argv: [
       'npm',
       'exec',
-      'pullops',
       '--',
+      'pullops',
       'run',
       context.operation,
       '--runner',
@@ -155,6 +161,7 @@ function createExternalRunnerCompleteCommand(context, outputDirectory) {
       String(context.target.number),
     ],
     env: {
+      ...createExternalRunnerCommandEnvironment(),
       OUTPUT_DIR: outputDirectory,
       ...(context.executionBackend === 'local' || context.suppressFollowUpOperationLabels === true
         ? { [SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV]: '1' }
@@ -175,16 +182,32 @@ export function isSkippedExternalRunnerResult(error) {
  * @param {object} options
  * @param {string} options.prompt
  * @param {{ outputFile: string, resultFile: string }} options.files
+ * @param {string} options.cwd
+ * @param {string} [options.branch]
  * @returns {string}
  */
-function buildExternalRunnerWorkerPrompt({ prompt, files }) {
+function buildExternalRunnerWorkerPrompt({ prompt, files, cwd, branch }) {
   return [
     'External runner artifact contract:',
     `- Write the final Operation Output JSON to ${files.outputFile}.`,
     `- Do not write ${files.resultFile}; the manager-owned completion command writes it.`,
+    ...(branch === undefined
+      ? []
+      : [
+          `- Before editing files, ensure the checkout in ${cwd} is on branch \`${branch}\`; if needed, run \`git checkout ${branch}\`.`,
+        ]),
     '',
     prompt,
   ].join('\n');
+}
+
+/**
+ * @returns {Record<string, string>}
+ */
+function createExternalRunnerCommandEnvironment() {
+  return {
+    npm_config_cache: '/tmp/pullops-npm-cache',
+  };
 }
 
 /**

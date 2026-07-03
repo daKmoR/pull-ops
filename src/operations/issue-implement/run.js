@@ -372,6 +372,7 @@ export async function runIssueImplementCodexActionPrepare(context) {
         issue: preparation.issue,
         parentIssueNumber: preparation.parentIssueNumber,
       }),
+      { branch: preparation.branchName },
     );
   } catch (error) {
     await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
