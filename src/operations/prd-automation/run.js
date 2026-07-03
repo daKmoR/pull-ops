@@ -14,14 +14,19 @@ import {
   LOCAL_RUN_HEARTBEAT_COMMAND,
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
+  recordLocalRunWaitingForRunner,
   recordLocalRunTerminalStatus,
 } from '../../local-run-state/localRunState.js';
-import { runIssueImplement } from '../issue-implement/run.js';
+import { runIssueImplement, runIssueImplementCodexActionPrepare } from '../issue-implement/run.js';
+import {
+  executeExternalRunnerHandoff,
+  isExternalRunnerWaitingOutput,
+} from '../../runner/externalRunnerHandoff.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../../local-run-state/types.js').LocalRunRunLink} LocalRunRunLink
- * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
+ * @typedef {'pr-review' | 'pr-address-review' | 'pr-fix-ci' | 'pr-resolve-conflicts' | 'pr-finalize'} PullRequestOperationName
  */
 
 /**
@@ -35,6 +40,13 @@ export async function runPrdAutoAdvance(context) {
     return await coordinateLocalPrdAutoAdvance(localContext, {
       parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber, options = {}) {
+        if (shouldRunNestedExternalHandoffs(localContext)) {
+          return await runLocalPublishedExternalIssueOperation(localContext, {
+            childIssueNumber,
+            options,
+          });
+        }
+
         const suppressNestedOutput = shouldSuppressNestedOperationOutput(localContext);
         return await runIssueImplement({
           ...localContext,
@@ -75,6 +87,13 @@ export async function runPrdAutoComplete(context) {
     return await coordinateLocalPrdAutoComplete(localContext, {
       parentIssueNumber: localContext.target.number,
       async runChildIssue(childIssueNumber, options = {}) {
+        if (shouldRunNestedExternalHandoffs(localContext)) {
+          return await runLocalPublishedExternalIssueOperation(localContext, {
+            childIssueNumber,
+            options,
+          });
+        }
+
         const suppressNestedOutput = shouldSuppressNestedOperationOutput(localContext);
         return await runIssueImplement({
           ...localContext,
@@ -117,6 +136,89 @@ export async function runPrdAutoComplete(context) {
     parentIssueNumber: context.target.number,
     mode: 'auto-complete',
   });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {boolean}
+ */
+function shouldRunNestedExternalHandoffs(context) {
+  return context.publicationMode === 'publish' && context.externalRunnerJobRunner !== undefined;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   childIssueNumber: number,
+ *   options: import('../../prd-automation/childCoordination.types.js').ChildIssueRunOptions,
+ * }} request
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPublishedExternalIssueOperation(context, { childIssueNumber, options }) {
+  const localRunRecordDirectory = requireLocalRunRecordDirectory(options.localRunRecordDirectory);
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: localRunRecordDirectory,
+    operationReference: 'issue:implement',
+    target: {
+      type: 'issue',
+      number: childIssueNumber,
+    },
+    publicationMode: context.publicationMode ?? 'publish',
+    runGoal: 'operation',
+    ...(options.parentRun === undefined ? {} : { parentRun: options.parentRun }),
+  });
+  const operationContext = /** @type {OperationRunnerContext} */ ({
+    ...context,
+    operation: 'issue-implement',
+    phase: 'prepare',
+    runnerAdapter: 'external',
+    executionBackend: 'local',
+    suppressFollowUpOperationLabels: true,
+    publicationMode: context.publicationMode,
+    runGoal: 'operation',
+    target: {
+      type: 'issue',
+      number: childIssueNumber,
+    },
+    outputDirectory: localRunRecordDirectory,
+    localRunRecordDirectory,
+    ...(options.parentRun === undefined ? {} : { parentRun: options.parentRun }),
+    ...(options.parentEventSinkEnvironment === undefined
+      ? {}
+      : { parentEventSinkEnvironment: options.parentEventSinkEnvironment }),
+  });
+  const output = addLocalRunRecordToNestedOutput(
+    await runIssueImplementCodexActionPrepare(operationContext),
+    stateRecord,
+  );
+
+  if (!isExternalRunnerWaitingOutput(output)) {
+    await recordNestedOperationTerminalStatus(stateRecord.statePath, output, 'prepare');
+    return output;
+  }
+
+  await recordLocalRunWaitingForRunner({
+    statePath: stateRecord.statePath,
+    summary: output.summary,
+    phase: 'prepare',
+    runnerJob: output.runnerJob,
+  });
+  const completed = await executeExternalRunnerHandoff({
+    runnerJob: output.runnerJob,
+    runWorker: requireExternalRunnerJobRunner(context),
+    ...(context.externalRunnerCommandRunner === undefined
+      ? {}
+      : { runCommand: context.externalRunnerCommandRunner }),
+    cwd: context.cwd,
+  });
+
+  const completedWithRunRecord = addLocalRunRecordToNestedOutput(completed, stateRecord);
+  await recordNestedOperationTerminalStatus(
+    stateRecord.statePath,
+    completedWithRunRecord,
+    'complete',
+  );
+  return completedWithRunRecord;
 }
 
 /**
@@ -186,12 +288,20 @@ async function runLocalPublishedPullRequestOperation(
 
   try {
     let output;
-    if (operation === 'pr-review') {
+    if (shouldRunNestedExternalHandoffs(context)) {
+      output = await runLocalPublishedExternalPullRequestOperation(operationContext, operation);
+    } else if (operation === 'pr-review') {
       const { runPrReview } = await import('../pr-review/run.js');
       output = await runPrReview(operationContext);
     } else if (operation === 'pr-address-review') {
       const { runPrAddressReview } = await import('../pr-address-review/run.js');
       output = await runPrAddressReview(operationContext);
+    } else if (operation === 'pr-fix-ci') {
+      const { runPrFixCi } = await import('../pr-fix-ci/run.js');
+      output = await runPrFixCi(operationContext);
+    } else if (operation === 'pr-resolve-conflicts') {
+      const { runPrResolveConflicts } = await import('../pr-resolve-conflicts/run.js');
+      output = await runPrResolveConflicts(operationContext);
     } else {
       const { runPrFinalize } = await import('../pr-finalize/run.js');
       output = await runPrFinalize(operationContext);
@@ -229,6 +339,72 @@ async function runLocalPublishedPullRequestOperation(
 }
 
 /**
+ * @param {OperationRunnerContext} operationContext
+ * @param {PullRequestOperationName} operation
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPublishedExternalPullRequestOperation(operationContext, operation) {
+  const prepare = await readPullRequestOperationPrepareHandler(operation);
+  const output = await prepare({
+    ...operationContext,
+    phase: 'prepare',
+    runnerAdapter: 'external',
+  });
+
+  if (!isExternalRunnerWaitingOutput(output)) {
+    return output;
+  }
+
+  await recordLocalRunWaitingForRunner({
+    statePath: join(
+      requireLocalRunRecordDirectory(operationContext.localRunRecordDirectory),
+      'state.json',
+    ),
+    summary: String(output.summary),
+    phase: 'prepare',
+    runnerJob: output.runnerJob,
+  });
+  return await executeExternalRunnerHandoff({
+    runnerJob: output.runnerJob,
+    runWorker: requireExternalRunnerJobRunner(operationContext),
+    ...(operationContext.externalRunnerCommandRunner === undefined
+      ? {}
+      : { runCommand: operationContext.externalRunnerCommandRunner }),
+    cwd: operationContext.cwd,
+  });
+}
+
+/**
+ * @param {PullRequestOperationName} operation
+ * @returns {Promise<(context: OperationRunnerContext) => Promise<Record<string, unknown>>>}
+ */
+async function readPullRequestOperationPrepareHandler(operation) {
+  if (operation === 'pr-review') {
+    const { runPrReviewCodexActionPrepare } = await import('../pr-review/run.js');
+    return runPrReviewCodexActionPrepare;
+  }
+
+  if (operation === 'pr-address-review') {
+    const { runPrAddressReviewCodexActionPrepare } = await import('../pr-address-review/run.js');
+    return runPrAddressReviewCodexActionPrepare;
+  }
+
+  if (operation === 'pr-fix-ci') {
+    const { runPrFixCiCodexActionPrepare } = await import('../pr-fix-ci/run.js');
+    return runPrFixCiCodexActionPrepare;
+  }
+
+  if (operation === 'pr-resolve-conflicts') {
+    const { runPrResolveConflictsCodexActionPrepare } =
+      await import('../pr-resolve-conflicts/run.js');
+    return runPrResolveConflictsCodexActionPrepare;
+  }
+
+  const { runPrFinalizeCodexActionPrepare } = await import('../pr-finalize/run.js');
+  return runPrFinalizeCodexActionPrepare;
+}
+
+/**
  * @param {OperationRunnerContext} context
  * @param {{
  *   pullRequestNumber: number,
@@ -262,6 +438,7 @@ function createPullRequestOperationContext(
     modelTier,
     model: context.config.runner.models[modelTier],
     localRunRecordDirectory,
+    outputDirectory: localRunRecordDirectory,
     ...(parentRun === undefined ? {} : { parentRun }),
     progress: suppressNestedOutput ? undefined : context.progress,
     progressEventWriter: undefined,
@@ -272,6 +449,62 @@ function createPullRequestOperationContext(
       ? {}
       : { resumeParentPrdAutomationAfterPrFinalize }),
   };
+}
+
+/**
+ * @param {string | undefined} localRunRecordDirectory
+ * @returns {string}
+ */
+function requireLocalRunRecordDirectory(localRunRecordDirectory) {
+  if (localRunRecordDirectory === undefined || localRunRecordDirectory.trim() === '') {
+    throw new Error('Nested external PullOps operations require a Local Run Record directory.');
+  }
+
+  return localRunRecordDirectory;
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {import('../../runner/types.js').ExternalRunnerJobRunner}
+ */
+function requireExternalRunnerJobRunner(context) {
+  if (context.externalRunnerJobRunner === undefined) {
+    throw new Error('Nested external PullOps operations require an external runner job runner.');
+  }
+
+  return context.externalRunnerJobRunner;
+}
+
+/**
+ * @param {Record<string, unknown>} output
+ * @param {import('../../local-run-state/types.js').LocalRunStateRecord} stateRecord
+ * @returns {Record<string, unknown> & { status: string, summary: string }}
+ */
+function addLocalRunRecordToNestedOutput(output, stateRecord) {
+  return {
+    ...output,
+    localRunRecord: stateRecord.runLink.statePath.replace(/\/state\.json$/, ''),
+    runStatePath: stateRecord.statePath,
+    status: String(output.status),
+    summary: String(output.summary),
+  };
+}
+
+/**
+ * @param {string} statePath
+ * @param {Record<string, unknown> & { status: string, summary: string }} output
+ * @param {string} phase
+ * @returns {Promise<void>}
+ */
+async function recordNestedOperationTerminalStatus(statePath, output, phase) {
+  await recordLocalRunTerminalStatus({
+    statePath,
+    status: mapLocalRunResultStatusToTerminalStatus(
+      /** @type {import('../../local-run-state/types.js').LocalRunResultStatus} */ (output.status),
+    ),
+    summary: output.summary,
+    phase,
+  });
 }
 
 /**
@@ -346,7 +579,7 @@ async function createNestedLocalPullRequestRunRecord(
 
 /**
  * @param {PullRequestOperationName} operation
- * @returns {'pr:review' | 'pr:address-review' | 'pr:finalize'}
+ * @returns {'pr:review' | 'pr:address-review' | 'pr:fix-ci' | 'pr:resolve-conflicts' | 'pr:finalize'}
  */
 function readPullRequestOperationReference(operation) {
   if (operation === 'pr-review') {
@@ -355,6 +588,14 @@ function readPullRequestOperationReference(operation) {
 
   if (operation === 'pr-address-review') {
     return 'pr:address-review';
+  }
+
+  if (operation === 'pr-fix-ci') {
+    return 'pr:fix-ci';
+  }
+
+  if (operation === 'pr-resolve-conflicts') {
+    return 'pr:resolve-conflicts';
   }
 
   return 'pr:finalize';
@@ -370,7 +611,7 @@ function getErrorMessage(error) {
 
 /**
  * @param {PullRequestOperationName} operation
- * @returns {'prReview' | 'prAddressReview' | 'prFinalize'}
+ * @returns {'prReview' | 'prAddressReview' | 'prFixCi' | 'prResolveConflicts' | 'prFinalize'}
  */
 function readPullRequestOperationConfigKey(operation) {
   if (operation === 'pr-review') {
@@ -379,6 +620,14 @@ function readPullRequestOperationConfigKey(operation) {
 
   if (operation === 'pr-address-review') {
     return 'prAddressReview';
+  }
+
+  if (operation === 'pr-fix-ci') {
+    return 'prFixCi';
+  }
+
+  if (operation === 'pr-resolve-conflicts') {
+    return 'prResolveConflicts';
   }
 
   return 'prFinalize';

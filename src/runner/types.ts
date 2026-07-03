@@ -30,6 +30,18 @@ export interface ExternalRunnerJob {
   completeCommand: ExternalRunnerCommand;
 }
 
+export interface ExternalRunnerJobResult {
+  status?: RunnerResultStatus;
+}
+
+export type ExternalRunnerJobRunner = (
+  runnerJob: ExternalRunnerJob,
+) => Promise<ExternalRunnerJobResult | RunnerResultStatus | void>;
+
+export type ExternalRunnerCommandRunner = (
+  command: ExternalRunnerCommand,
+) => Promise<Record<string, unknown>>;
+
 export type RunnerExecFile = (
   file: string,
   args: string[],

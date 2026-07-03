@@ -178,7 +178,7 @@ describe('PRD Child Coordination', () => {
     git.client.hasChanges = async () => false;
     git.client.fetchRemoteRefs = async () => {};
     git.client.checkoutPullOpsBranch = async () => {};
-    /** @type {Array<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+    /** @type {import('./childCoordination.js').PullRequestOperationName[]} */
     const operations = [];
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-parent-review-loop-'));
 
@@ -274,7 +274,7 @@ describe('PRD Child Coordination', () => {
     git.client.hasChanges = async () => false;
     git.client.fetchRemoteRefs = async () => {};
     git.client.checkoutPullOpsBranch = async () => {};
-    /** @type {Array<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+    /** @type {import('./childCoordination.js').PullRequestOperationName[]} */
     const operations = [];
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-parent-finalize-route-'));
 

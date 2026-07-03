@@ -62,7 +62,7 @@ import { startPullOpsParentEventSink } from '../parent-event-sink/parentEventSin
  * @typedef {import('../local-run-state/types.js').LocalRunChildRun} LocalRunChildRun
  * @typedef {import('../local-run-state/types.js').LocalRunRunLink} LocalRunRunLink
  * @typedef {import('../parent-event-sink/types.js').PullOpsParentEventSink} PullOpsParentEventSink
- * @typedef {'pr-review' | 'pr-address-review' | 'pr-finalize'} PullRequestOperationName
+ * @typedef {'pr-review' | 'pr-address-review' | 'pr-fix-ci' | 'pr-resolve-conflicts' | 'pr-finalize'} PullRequestOperationName
  * @typedef {{
  *   pullRequestNumber: number,
  *   operation: PullRequestOperationName,
@@ -2794,6 +2794,11 @@ async function completePublishedLocalUmbrellaPullRequest(
       });
     }
 
+    if (nextOperation === 'pr-fix-ci' || nextOperation === 'pr-resolve-conflicts') {
+      nextOperation = 'pr-review';
+      continue;
+    }
+
     finalize = output;
     const prFinalize = readRecordProperty(finalize, 'prFinalize');
     if (prFinalize?.waiting === true) {
@@ -2867,6 +2872,22 @@ function readRoutedParentPullRequestOperation(routedTo) {
     routedTo === 'pr-finalize'
   ) {
     return 'pr-finalize';
+  }
+
+  if (
+    routedTo === requireOperationCatalogOperationLabelName('pr-fix-ci') ||
+    routedTo === 'pr:fix-ci' ||
+    routedTo === 'pr-fix-ci'
+  ) {
+    return 'pr-fix-ci';
+  }
+
+  if (
+    routedTo === requireOperationCatalogOperationLabelName('pr-resolve-conflicts') ||
+    routedTo === 'pr:resolve-conflicts' ||
+    routedTo === 'pr-resolve-conflicts'
+  ) {
+    return 'pr-resolve-conflicts';
   }
 
   return undefined;
@@ -3029,20 +3050,22 @@ function hasAnyLabel(labels, candidates) {
   return labels.some(label => candidates.has(label));
 }
 
-/** @type {ReadonlySet<'pr-review' | 'pr-address-review' | 'pr-finalize'>} */
+/** @type {ReadonlySet<PullRequestOperationName>} */
 const LOCAL_CHILD_PULL_REQUEST_OPERATIONS = new Set([
   'pr-review',
   'pr-address-review',
+  'pr-fix-ci',
+  'pr-resolve-conflicts',
   'pr-finalize',
 ]);
 
 /**
  * @param {string} operation
- * @returns {operation is 'pr-review' | 'pr-address-review' | 'pr-finalize'}
+ * @returns {operation is PullRequestOperationName}
  */
 function isLocalChildPullRequestOperation(operation) {
   return LOCAL_CHILD_PULL_REQUEST_OPERATIONS.has(
-    /** @type {'pr-review' | 'pr-address-review' | 'pr-finalize'} */ (operation),
+    /** @type {PullRequestOperationName} */ (operation),
   );
 }
 
@@ -3057,10 +3080,17 @@ function selectLocalChildPullRequestOperation(pullRequest) {
       continue;
     }
 
+    const localOperation = readLocalPullRequestOperationFromLabel(label);
+    if (localOperation !== undefined) {
+      return localOperation;
+    }
+
     if (
       label.startsWith('pullops:pr:') &&
       label !== requireOperationCatalogOperationLabelName('pr-review') &&
       label !== requireOperationCatalogOperationLabelName('pr-address-review') &&
+      label !== requireOperationCatalogOperationLabelName('pr-fix-ci') &&
+      label !== requireOperationCatalogOperationLabelName('pr-resolve-conflicts') &&
       label !== requireOperationCatalogOperationLabelName('pr-finalize')
     ) {
       return label;
@@ -3094,9 +3124,16 @@ function selectLocalChildPullRequestOperation(pullRequest) {
 
 /**
  * @param {GitHubPullRequest} pullRequest
- * @returns {'pr-review' | 'pr-address-review' | 'pr-finalize' | undefined}
+ * @returns {PullRequestOperationName | undefined}
  */
 function selectLocalParentPullRequestOperation(pullRequest) {
+  for (const label of pullRequest.labels ?? []) {
+    const localOperation = readLocalPullRequestOperationFromLabel(label);
+    if (localOperation !== undefined) {
+      return localOperation;
+    }
+  }
+
   const state = readManagedPrState(pullRequest.body);
   if (isFinalizedForRebase(state)) {
     return undefined;
@@ -3124,6 +3161,34 @@ function selectLocalParentPullRequestOperation(pullRequest) {
 }
 
 /**
+ * @param {string} label
+ * @returns {PullRequestOperationName | undefined}
+ */
+function readLocalPullRequestOperationFromLabel(label) {
+  if (label === requireOperationCatalogOperationLabelName('pr-review')) {
+    return 'pr-review';
+  }
+
+  if (label === requireOperationCatalogOperationLabelName('pr-address-review')) {
+    return 'pr-address-review';
+  }
+
+  if (label === requireOperationCatalogOperationLabelName('pr-fix-ci')) {
+    return 'pr-fix-ci';
+  }
+
+  if (label === requireOperationCatalogOperationLabelName('pr-resolve-conflicts')) {
+    return 'pr-resolve-conflicts';
+  }
+
+  if (label === requireOperationCatalogOperationLabelName('pr-finalize')) {
+    return 'pr-finalize';
+  }
+
+  return undefined;
+}
+
+/**
  * @param {string} status
  * @returns {boolean}
  */
@@ -3137,7 +3202,7 @@ function isPublishedUmbrellaOperationReady(status) {
 
 /**
  * @param {PullRequestOperationName} operation
- * @returns {'review' | 'address-review' | 'finalization'}
+ * @returns {'review' | 'address-review' | 'checks' | 'conflict-resolution' | 'finalization'}
  */
 function phaseForPullRequestOperation(operation) {
   if (operation === 'pr-review') {
@@ -3148,12 +3213,20 @@ function phaseForPullRequestOperation(operation) {
     return 'address-review';
   }
 
+  if (operation === 'pr-fix-ci') {
+    return 'checks';
+  }
+
+  if (operation === 'pr-resolve-conflicts') {
+    return 'conflict-resolution';
+  }
+
   return 'finalization';
 }
 
 /**
  * @param {PullRequestOperationName} operation
- * @returns {'pr:review' | 'pr:address-review' | 'pr:finalize'}
+ * @returns {'pr:review' | 'pr:address-review' | 'pr:fix-ci' | 'pr:resolve-conflicts' | 'pr:finalize'}
  */
 function operationReferenceForPullRequestOperation(operation) {
   if (operation === 'pr-review') {
@@ -3162,6 +3235,14 @@ function operationReferenceForPullRequestOperation(operation) {
 
   if (operation === 'pr-address-review') {
     return 'pr:address-review';
+  }
+
+  if (operation === 'pr-fix-ci') {
+    return 'pr:fix-ci';
+  }
+
+  if (operation === 'pr-resolve-conflicts') {
+    return 'pr:resolve-conflicts';
   }
 
   return 'pr:finalize';

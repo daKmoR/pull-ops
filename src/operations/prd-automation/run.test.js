@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -2336,7 +2336,122 @@ describe('runPrdAutoComplete', () => {
     });
   });
 
-  it('20: local dry-run auto-complete records child run links in parent run state', async () => {
+  it('20: local publish auto-complete executes child external runner handoffs and continues', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-external-handoff-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/file.js',
+        }),
+      ],
+    });
+    /** @type {import('../../runner/types.js').ExternalRunnerJob[]} */
+    const workerJobs = [];
+    /** @type {import('../../runner/types.js').ExternalRunnerCommand[]} */
+    const runnerCommands = [];
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+        externalRunnerJobRunner: async runnerJob => {
+          workerJobs.push(runnerJob);
+          assert.equal(runnerJob.cwd, cwd);
+          assert.match(runnerJob.promptFile, /runner_prompt\.md$/);
+          assert.match(runnerJob.outputFile, /runner_output\.json$/);
+          assert.match(runnerJob.resultFile, /runner_result\.json$/);
+          assert.equal(typeof runnerJob.workerPrompt, 'string');
+          assert.equal(typeof runnerJob.model, 'string');
+          assert.equal(typeof runnerJob.branch, 'string');
+          assert.deepEqual(Object.keys(runnerJob.completionCommands).sort(), [
+            'cancelled',
+            'failed',
+            'skipped',
+            'success',
+          ]);
+          await writeFile(
+            runnerJob.outputFile,
+            `${JSON.stringify({
+              status: 'accepted',
+              summary: `Worker completed ${workerJobs.length}.`,
+            })}\n`,
+          );
+          return { status: 'success' };
+        },
+        externalRunnerCommandRunner: createFakeExternalRunnerCommandRunner({
+          cwd,
+          github,
+          runnerCommands,
+        }),
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(readParentPullRequest(result)?.status, 'finalized');
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status]),
+      [[34, 'merged']],
+    );
+    assert.deepEqual(
+      workerJobs.map(job => job.completeCommand.argv[job.completeCommand.argv.indexOf('run') + 1]),
+      ['issue-implement', 'pr-review', 'pr-review'],
+    );
+    assert.equal(
+      workerJobs.every(job => job.workerPrompt.includes('External runner artifact contract:')),
+      true,
+    );
+    assert.deepEqual(
+      runnerCommands
+        .filter(command => command.argv.includes('runner-result'))
+        .map(command => command.argv[command.argv.indexOf('--status') + 1]),
+      ['success', 'success', 'success'],
+    );
+    assert.deepEqual(
+      runnerCommands
+        .filter(command => command.argv.includes('run'))
+        .map(command => command.argv[command.argv.indexOf('run') + 1]),
+      ['issue-implement', 'pr-review', 'pr-review'],
+    );
+
+    const parentState = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
+    );
+    assert.equal(parentState.childRuns.length >= 1, true);
+    const childRun = parentState.childRuns.find(
+      /** @param {Record<string, unknown>} run */
+      run => run.operationReference === 'issue:implement',
+    );
+    assert(childRun);
+    assert.equal(childRun.status, 'merged');
+    assert.deepEqual(childRun.target, { type: 'issue', number: 34 });
+    const childState = JSON.parse(await readFile(String(childRun.statePath), 'utf8'));
+    assert.equal(childState.status, 'accepted');
+    assert.equal(childState.parentRun.runId, parentState.runId);
+    assert.equal(childState.runnerJob.cwd, cwd);
+    assert.match(childState.runnerJob.outputFile, /runner_output\.json$/);
+    assert.deepEqual(github.closedIssues, [34]);
+    assert.deepEqual(github.closedPullRequests, [302]);
+    assert.deepEqual(
+      git.cherryPicks.map(pick => pick.commitSha),
+      ['head-current'],
+    );
+  });
+
+  it('21: local dry-run auto-complete records child run links in parent run state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-run-state-'));
     const parent = createIssue({
       number: 12,
@@ -2436,7 +2551,7 @@ describe('runPrdAutoComplete', () => {
     assert.equal(childState.status, 'accepted');
   });
 
-  it('21: local dry-run auto-complete records blocked child classifications in parent run state', async () => {
+  it('22: local dry-run auto-complete records blocked child classifications in parent run state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-run-blocked-'));
     const parent = createIssue({
       number: 12,
@@ -2626,6 +2741,98 @@ function createWritableBuffer() {
 }
 
 /**
+ * @param {object} options
+ * @param {string} options.cwd
+ * @param {ReturnType<typeof createFakeGitHub>} options.github
+ * @param {import('../../runner/types.js').ExternalRunnerCommand[]} options.runnerCommands
+ * @returns {import('../../runner/types.js').ExternalRunnerCommandRunner}
+ */
+function createFakeExternalRunnerCommandRunner({ cwd, github, runnerCommands }) {
+  return async command => {
+    runnerCommands.push(command);
+
+    if (command.argv.includes('runner-result')) {
+      const status = readCommandOption(command, '--status');
+      const file = readCommandOption(command, '--file');
+      await writeFile(
+        file,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          status,
+        })}\n`,
+      );
+      return {
+        status: 'accepted',
+        summary: `Wrote external runner result to ${file}.`,
+      };
+    }
+
+    const operation = command.argv[command.argv.indexOf('run') + 1];
+    if (operation === 'issue-implement') {
+      const issueNumber = Number(readCommandOption(command, '--issue'));
+      const pullRequest = await github.client.createDraftPullRequest({
+        title: `Implement #${issueNumber}: Child issue ${issueNumber}`,
+        body: childPullRequestBody(issueNumber),
+        baseBranch: 'pullops/prd-12',
+        headBranch: `pullops/prd-12-issue-${issueNumber}`,
+      });
+      return {
+        status: 'accepted',
+        summary: `Opened draft PullOps-managed PR #${pullRequest.number} for issue #${issueNumber}.`,
+        issue: {
+          number: issueNumber,
+          url: `https://github.com/acme/widgets/issues/${issueNumber}`,
+        },
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+          branch: pullRequest.headRefName,
+          draft: pullRequest.isDraft,
+        },
+      };
+    }
+
+    if (operation === 'pr-review') {
+      const pullRequestNumber = Number(readCommandOption(command, '--pr'));
+      const pullRequest = await github.client.getPullRequest(pullRequestNumber);
+      const parentIssueNumber = readParentIssueNumberFromPullRequestBody(pullRequest.body);
+      const childIssueNumber = readChildIssueNumberFromPullRequestBody(pullRequest.body);
+      await github.client.updatePullRequestBody({
+        number: pullRequest.number,
+        body:
+          parentIssueNumber === undefined
+            ? reviewedChildPullRequestBody(childIssueNumber ?? 34)
+            : reviewedParentPullRequestBody(parentIssueNumber),
+      });
+      return {
+        status: 'approved',
+        summary: `Approved PR #${pullRequest.number}.`,
+        reviewResult: 'approved',
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+        },
+      };
+    }
+
+    throw new Error(`Unexpected fake external runner command in ${cwd}: ${command.argv.join(' ')}`);
+  };
+}
+
+/**
+ * @param {import('../../runner/types.js').ExternalRunnerCommand} command
+ * @param {string} option
+ * @returns {string}
+ */
+function readCommandOption(command, option) {
+  const index = command.argv.indexOf(option);
+  assert.notEqual(index, -1);
+  const value = command.argv[index + 1];
+  assert(value);
+  return value;
+}
+
+/**
  * @param {object} [options]
  * @param {number} [options.number]
  * @param {string} [options.title]
@@ -2730,6 +2937,29 @@ function childPullRequestBody(issueNumber) {
  * @param {number} issueNumber
  * @returns {string}
  */
+function reviewedChildPullRequestBody(issueNumber) {
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Source: Issue #${issueNumber}`,
+    'Review cycles: 1 / 3',
+    'Reviewed tree: tree-current',
+    'Last operation: pullops:pr:review',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {number} issueNumber
+ * @returns {string}
+ */
 function finalizedChildPullRequestBody(issueNumber) {
   return [
     '## PullOps',
@@ -2793,6 +3023,24 @@ function reviewedParentPullRequestBody(issueNumber) {
     '',
     '</details>',
   ].join('\n');
+}
+
+/**
+ * @param {string} body
+ * @returns {number | undefined}
+ */
+function readChildIssueNumberFromPullRequestBody(body) {
+  const match = body.match(/Source: Issue #(\d+)/);
+  return match === null ? undefined : Number(match[1]);
+}
+
+/**
+ * @param {string} body
+ * @returns {number | undefined}
+ */
+function readParentIssueNumberFromPullRequestBody(body) {
+  const match = body.match(/Source: Parent Issue #(\d+)/);
+  return match === null ? undefined : Number(match[1]);
 }
 
 /**

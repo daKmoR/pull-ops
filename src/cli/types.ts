@@ -6,7 +6,12 @@ import type {
   PullOpsParentEventSink,
   PullOpsParentEventSinkChildEnvironment,
 } from '../parent-event-sink/types.js';
-import type { CodexRunner, RunnerAdapter } from '../runner/types.js';
+import type {
+  CodexRunner,
+  ExternalRunnerCommandRunner,
+  ExternalRunnerJobRunner,
+  RunnerAdapter,
+} from '../runner/types.js';
 
 export interface WritableLike {
   write(chunk: string | Uint8Array): void;
@@ -67,6 +72,8 @@ export interface OperationRunnerContext {
   suppressRunnerOutput?: boolean;
   progress?: (message: string) => void;
   progressEventWriter?: OperationProgressEventWriter;
+  externalRunnerJobRunner?: ExternalRunnerJobRunner;
+  externalRunnerCommandRunner?: ExternalRunnerCommandRunner;
   virtualCompletedIssueNumbers?: number[];
   parentRun?: LocalRunRunLink;
   parentEventSink?: PullOpsParentEventSink;
