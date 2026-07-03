@@ -195,6 +195,95 @@ test('run operation records local external complete status in the run state', as
   assert.deepEqual(state.runnerJob, runnerJob);
 });
 
+test('run operation records local external complete runner handoffs in the run state', async () => {
+  const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-complete-waiting-'));
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory: outputDirectory,
+    operationReference: 'pr:resolve-conflicts',
+    target: {
+      type: 'pr',
+      number: 100,
+    },
+    publicationMode: 'publish',
+    runGoal: 'operation',
+    phase: 'prepare',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+  });
+  const firstRunnerJob = {
+    cwd: outputDirectory,
+    promptFile: join(outputDirectory, 'runner_prompt.md'),
+    outputFile: join(outputDirectory, 'runner_output.json'),
+    resultFile: join(outputDirectory, 'runner_result.json'),
+    workerPrompt: 'Resolve conflict pass 1.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-42',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: ['npm', 'exec', '--', 'pullops', 'run', 'pr-resolve-conflicts'],
+      env: { OUTPUT_DIR: outputDirectory },
+    },
+  };
+  const nextRunnerJob = {
+    ...firstRunnerJob,
+    workerPrompt: 'Resolve conflict pass 2.',
+  };
+  await recordLocalRunWaitingForRunner({
+    statePath: stateRecord.statePath,
+    summary: 'Prepared external conflict resolution pass 1 for PR #100.',
+    phase: 'prepare',
+    runnerJob: firstRunnerJob,
+    at: new Date('2024-01-01T00:01:00.000Z'),
+  });
+  const stdout = createWritableBuffer();
+  const cli = new PullOpsCli({
+    stdout,
+    env: {
+      OUTPUT_DIR: outputDirectory,
+    },
+    operationRunner: async () => {
+      return {
+        status: 'waiting',
+        summary: 'Prepared external conflict resolution pass 2 for PR #100.',
+        runnerJob: nextRunnerJob,
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'pr-resolve-conflicts',
+    '--phase',
+    'complete',
+    '--runner',
+    'external',
+    '--pr',
+    '100',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(JSON.parse(stdout.text), {
+    status: 'waiting',
+    summary: 'Prepared external conflict resolution pass 2 for PR #100.',
+    runnerJob: nextRunnerJob,
+  });
+  const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
+  assert.equal(state.status, 'waiting');
+  assert.equal(state.phase, 'complete');
+  assert.equal(state.lastEvent.status, 'waiting');
+  assert.equal(state.lastEvent.phase, 'complete');
+  assert.equal(
+    state.lastEvent.summary,
+    'Prepared external conflict resolution pass 2 for PR #100.',
+  );
+  assert.deepEqual(state.runnerJob, nextRunnerJob);
+  assert.deepEqual(state.lastEvent.runnerJob, nextRunnerJob);
+});
+
 test('run operation marks GitHub Actions external lifecycle commands as workflow-backed', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */

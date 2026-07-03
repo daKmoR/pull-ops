@@ -1327,8 +1327,10 @@ async function collectAgentDocFileContents({ cwd }) {
  * @returns {Promise<Map<string, string>>}
  */
 async function collectGitHubActionsWorkflowFileContents({ cwd }) {
-  void cwd;
-  return renderPullOpsGitHubActionsWorkflowFiles();
+  const config = await loadPullOpsConfig({ cwd });
+  return renderPullOpsGitHubActionsWorkflowFiles({
+    prResolveConflictsMaxPasses: config.operations.prResolveConflicts.maxConflictResolutionPasses,
+  });
 }
 
 /**

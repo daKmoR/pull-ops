@@ -8,14 +8,19 @@ import {
 
 /**
  * @typedef {import('../operations/types.js').WorkflowOperation} WorkflowOperation
+ * @typedef {{ prResolveConflictsMaxPasses: number }} WorkflowRenderOptions
  */
 
 const WORKFLOW_ROOT = join('.github', 'workflows');
+const DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES = 3;
 
 /**
+ * @param {Partial<WorkflowRenderOptions>} [options]
  * @returns {Map<string, string>}
  */
-export function renderPullOpsGitHubActionsWorkflowFiles() {
+export function renderPullOpsGitHubActionsWorkflowFiles({
+  prResolveConflictsMaxPasses = DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES,
+} = {}) {
   /** @type {Map<string, string>} */
   const workflows = new Map();
   workflows.set(join(WORKFLOW_ROOT, 'pullops-dispatch.yml'), renderDispatchWorkflow());
@@ -23,7 +28,10 @@ export function renderPullOpsGitHubActionsWorkflowFiles() {
   for (const operation of getOperationCatalogWorkflowOperations()) {
     const workflowFileName =
       getOperationCatalogWorkflowFileName(operation.name) ?? `pullops-${operation.name}.yml`;
-    workflows.set(join(WORKFLOW_ROOT, workflowFileName), renderWorkflowOperation(operation.name));
+    workflows.set(
+      join(WORKFLOW_ROOT, workflowFileName),
+      renderWorkflowOperation(operation.name, { prResolveConflictsMaxPasses }),
+    );
   }
 
   return workflows;
@@ -31,15 +39,16 @@ export function renderPullOpsGitHubActionsWorkflowFiles() {
 
 /**
  * @param {WorkflowOperation['name']} operationName
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderWorkflowOperation(operationName) {
+function renderWorkflowOperation(operationName, options) {
   const renderer = WORKFLOW_RENDERERS[operationName];
   if (renderer === undefined) {
     throw new Error(`No PullOps workflow renderer is registered for ${operationName}.`);
   }
 
-  return renderer();
+  return renderer(options);
 }
 
 /**
@@ -1081,23 +1090,39 @@ jobs:
           npm exec pullops -- run pr-fix-ci \\
             --phase prepare \\
             --runner external \\
-            --pr "$PR"
+            --pr "$PR" \\
+            > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
           OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
+          PREPARE_JSON: @@{{ runner.temp }}/pullops-output/prepare.json
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ env.TRIGGER_ACTOR }}
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -1107,15 +1132,15 @@ jobs:
           OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
           openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.4
+          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
+          output-file: @@{{ steps.prepare.outputs.output_file }}
+          model: @@{{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
           allow-bots: true
@@ -1127,22 +1152,26 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Record successful runner result
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'success'
+        run: npm exec pullops -- runner-result --status success --file "@@{{ steps.prepare.outputs.result_file }}"
+
+      - name: Record failed runner result
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome != 'success' && steps.codex.outcome != 'cancelled'
+        run: npm exec pullops -- runner-result --status failed --file "@@{{ steps.prepare.outputs.result_file }}"
+
+      - name: Record cancelled runner result
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'cancelled'
+        run: npm exec pullops -- runner-result --status cancelled --file "@@{{ steps.prepare.outputs.result_file }}"
+
+      - name: Record skipped runner result
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner != 'true'
+        run: npm exec pullops -- runner-result --status skipped --file "@@{{ steps.prepare.outputs.result_file }}"
+
       - name: Complete PullOps fix CI
-        if: always()
+        if: always() && steps.prepare.outcome == 'success'
         run: |
           git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-fix-ci \\
             --phase complete \\
             --runner external \\
@@ -1154,7 +1183,6 @@ jobs:
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ env.TRIGGER_ACTOR }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex.outcome }}
 `);
 }
 
@@ -1251,9 +1279,15 @@ jobs:
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrResolveConflictsWorkflow() {
+function renderPrResolveConflictsWorkflow({ prResolveConflictsMaxPasses }) {
+  assertPositiveInteger(prResolveConflictsMaxPasses, 'prResolveConflictsMaxPasses');
+  const conflictPassSteps = Array.from({ length: prResolveConflictsMaxPasses }, (_, index) =>
+    renderPrResolveConflictsPass(index + 1),
+  ).join('\n\n');
+
   return renderWorkflow(`name: PullOps PR Resolve Conflicts
 
 on:
@@ -1338,21 +1372,37 @@ jobs:
           npm exec pullops -- run pr-resolve-conflicts \\
             --phase prepare \\
             --runner external \\
-            --pr "@@{{ inputs.pr }}"
+            --pr "@@{{ inputs.pr }}" \\
+            > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
+          PREPARE_JSON: @@{{ runner.temp }}/pullops-output/prepare.json
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -1361,164 +1411,123 @@ jobs:
         env:
           OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
 
-      - name: Run Codex conflict pass 1
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: codex_1
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${conflictPassSteps}
 
-      - name: Restore Node after conflict pass 1
-        if: always()
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Complete PullOps resolve conflicts pass 1
-        if: always()
-        id: complete_1
+      - name: Refuse unresolved conflict pass beyond generated limit
+        if: always() && steps.complete_${prResolveConflictsMaxPasses}.outputs.run_runner == 'true'
         run: |
-          git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
-          npm exec pullops -- run pr-resolve-conflicts \\
-            --phase complete \\
-            --runner external \\
-            --pr "@@{{ inputs.pr }}"
-
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
-          GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex_1.outcome }}
-
-      - name: Run Codex conflict pass 2
-        if: steps.complete_1.outputs.run_runner == 'true'
-        id: codex_2
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
-
-      - name: Restore Node after conflict pass 2
-        if: always() && steps.complete_1.outputs.run_runner == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Complete PullOps resolve conflicts pass 2
-        if: always() && steps.complete_1.outputs.run_runner == 'true'
-        id: complete_2
-        run: |
-          git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
-          npm exec pullops -- run pr-resolve-conflicts \\
-            --phase complete \\
-            --runner external \\
-            --pr "@@{{ inputs.pr }}"
-
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
-          GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex_2.outcome }}
-
-      - name: Run Codex conflict pass 3
-        if: steps.complete_2.outputs.run_runner == 'true'
-        id: codex_3
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: @@{{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
-
-      - name: Restore Node after conflict pass 3
-        if: always() && steps.complete_2.outputs.run_runner == 'true'
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Complete PullOps resolve conflicts pass 3
-        if: always() && steps.complete_2.outputs.run_runner == 'true'
-        run: |
-          git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
-          npm exec pullops -- run pr-resolve-conflicts \\
-            --phase complete \\
-            --runner external \\
-            --pr "@@{{ inputs.pr }}"
-        env:
-          OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
-          GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
-          GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex_3.outcome }}
+          echo "PullOps returned another conflict runner job after ${prResolveConflictsMaxPasses} generated conflict passes." >&2
+          echo "Rerun pullops setup github-actions so the workflow matches operations.prResolveConflicts.maxConflictResolutionPasses." >&2
+          exit 1
 `);
+}
+
+/**
+ * @param {number} pass
+ * @returns {string}
+ */
+function renderPrResolveConflictsPass(pass) {
+  const handoffStep = pass === 1 ? 'prepare' : `complete_${pass - 1}`;
+  const codexCondition =
+    pass === 1
+      ? "steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'"
+      : `steps.${handoffStep}.outputs.run_runner == 'true'`;
+  const restoreCondition =
+    pass === 1 ? 'always()' : `always() && steps.${handoffStep}.outputs.run_runner == 'true'`;
+  const recordCondition =
+    pass === 1
+      ? "always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true'"
+      : `always() && steps.${handoffStep}.outputs.run_runner == 'true'`;
+  const completeCondition =
+    pass === 1
+      ? "always() && steps.prepare.outcome == 'success'"
+      : `always() && steps.${handoffStep}.outputs.run_runner == 'true'`;
+  const skippedResultStep =
+    pass === 1
+      ? `
+
+      - name: Record skipped runner result for conflict pass 1
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner != 'true'
+        run: npm exec pullops -- runner-result --status skipped --file "@@{{ steps.prepare.outputs.result_file }}"`
+      : '';
+
+  return `      - name: Run Codex conflict pass ${pass}
+        if: ${codexCondition}
+        id: codex_${pass}
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
+          prompt-file: @@{{ steps.${handoffStep}.outputs.prompt_file }}
+          output-file: @@{{ steps.${handoffStep}.outputs.output_file }}
+          model: @@{{ steps.${handoffStep}.outputs.model }}
+          sandbox: workspace-write
+          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
+          allow-bots: true
+
+      - name: Restore Node after conflict pass ${pass}
+        if: ${restoreCondition}
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Record successful runner result for conflict pass ${pass}
+        if: ${recordCondition} && steps.codex_${pass}.outcome == 'success'
+        run: npm exec pullops -- runner-result --status success --file "@@{{ steps.${handoffStep}.outputs.result_file }}"
+
+      - name: Record failed runner result for conflict pass ${pass}
+        if: ${recordCondition} && steps.codex_${pass}.outcome != 'success' && steps.codex_${pass}.outcome != 'cancelled'
+        run: npm exec pullops -- runner-result --status failed --file "@@{{ steps.${handoffStep}.outputs.result_file }}"
+
+      - name: Record cancelled runner result for conflict pass ${pass}
+        if: ${recordCondition} && steps.codex_${pass}.outcome == 'cancelled'
+        run: npm exec pullops -- runner-result --status cancelled --file "@@{{ steps.${handoffStep}.outputs.result_file }}"${skippedResultStep}
+
+      - name: Complete PullOps resolve conflicts pass ${pass}
+        if: ${completeCondition}
+        id: complete_${pass}
+        run: |
+          git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
+          npm exec pullops -- run pr-resolve-conflicts \\
+            --phase complete \\
+            --runner external \\
+            --pr "@@{{ inputs.pr }}" \\
+            > "$COMPLETE_JSON"
+
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.COMPLETE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(\`result_file=\${process.env.OUTPUT_DIR}/runner_result.json\\nrun_runner=false\\n\`);
+            } else {
+              process.stdout.write(
+                [
+                  \`prompt_file=\${runnerJob.promptFile}\`,
+                  \`output_file=\${runnerJob.outputFile}\`,
+                  \`result_file=\${runnerJob.resultFile}\`,
+                  \`model=\${runnerJob.model}\`,
+                  "run_runner=true",
+                ].join("\\n") + "\\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
+        env:
+          OUTPUT_DIR: @@{{ runner.temp }}/pullops-output
+          COMPLETE_JSON: @@{{ runner.temp }}/pullops-output/complete-${pass}.json
+          GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
+          GITHUB_ACTOR: @@{{ inputs.trigger_actor }}`;
+}
+
+/**
+ * @param {number} value
+ * @param {string} name
+ */
+function assertPositiveInteger(value, name) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
 }
 
 /**
@@ -1793,7 +1802,7 @@ function renderWorkflow(template) {
   return `${template.replaceAll('@@', '$').trim()}\n`;
 }
 
-/** @type {Record<WorkflowOperation['name'], () => string>} */
+/** @type {Record<WorkflowOperation['name'], (options: WorkflowRenderOptions) => string>} */
 const WORKFLOW_RENDERERS = {
   'prd-prepare': renderPrdPrepareWorkflow,
   'issue-implement': renderIssueImplementWorkflow,

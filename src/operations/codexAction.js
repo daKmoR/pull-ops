@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { readRunnerResult, RUNNER_RESULT_FILE } from '../runner/runnerResult.js';
@@ -41,15 +41,23 @@ export async function writeCodexActionPrompt(context, prompt, options = {}) {
 
 /**
  * @param {OperationRunnerContext} context
+ * @param {{ rejectSkippedPreparedRunner?: boolean }} [options]
  * @returns {Promise<string>}
  */
-export async function readCodexActionOutput(context) {
+export async function readCodexActionOutput(context, options = {}) {
   const result = await readRunnerResult({
     cwd: context.cwd,
     outputDirectory: context.outputDirectory,
   });
 
   if (result.result.status === 'skipped') {
+    if (
+      options.rejectSkippedPreparedRunner === true &&
+      (await didCodexActionPrepareRunner(context))
+    ) {
+      throw new ExternalRunnerUnexpectedSkippedError();
+    }
+
     throw new ExternalRunnerSkippedError();
   }
 
@@ -89,6 +97,23 @@ export function getCodexActionFiles(context) {
     outputFile: join(outputDirectory, CODEX_ACTION_OUTPUT_FILE),
     resultFile: join(outputDirectory, RUNNER_RESULT_FILE),
   };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<boolean>}
+ */
+async function didCodexActionPrepareRunner(context) {
+  try {
+    await access(getCodexActionFiles(context).promptFile);
+    return true;
+  } catch (error) {
+    if (isErrorWithCode(error, 'ENOENT')) {
+      return false;
+    }
+
+    throw error;
+  }
 }
 
 /**
@@ -240,4 +265,20 @@ class ExternalRunnerFailedError extends Error {
     this.name = 'ExternalRunnerFailedError';
     this.status = status;
   }
+}
+
+class ExternalRunnerUnexpectedSkippedError extends Error {
+  constructor() {
+    super('External runner result is skipped even though prepare requested a runner step.');
+    this.name = 'ExternalRunnerUnexpectedSkippedError';
+  }
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} code
+ * @returns {boolean}
+ */
+function isErrorWithCode(error, code) {
+  return error instanceof Error && /** @type {NodeJS.ErrnoException} */ (error).code === code;
 }

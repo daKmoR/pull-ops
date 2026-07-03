@@ -29,7 +29,29 @@ describe('pullops-pr-fix-ci workflow', () => {
     assert.match(workflow, /--phase prepare/);
     assert.match(workflow, /--phase complete/);
     assert.match(workflow, /--runner external/);
-    assert.match(workflow, /npm exec pullops -- runner-result --status "\$runner_status"/);
+    assert.match(workflow, /PREPARE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/prepare\.json/);
+    assert.match(workflow, /> "\$PREPARE_JSON"/);
+    assert.match(workflow, /prompt-file: \$\{\{ steps\.prepare\.outputs\.prompt_file \}\}/);
+    assert.match(workflow, /output-file: \$\{\{ steps\.prepare\.outputs\.output_file \}\}/);
+    assert.match(workflow, /model: \$\{\{ steps\.prepare\.outputs\.model \}\}/);
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status success --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status failed --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status cancelled --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status skipped --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.doesNotMatch(workflow, /if \[ -f "\$OUTPUT_DIR\/runner_prompt\.md" \]/);
+    assert.doesNotMatch(workflow, /runner_outcome=/);
     assert.match(workflow, /openai\/codex-action@v1/);
     assert.match(workflow, /Verify OpenAI API key/);
     assert.match(workflow, /Run Codex/);

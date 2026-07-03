@@ -316,7 +316,7 @@ describe('runWorkflowOperation', () => {
       }),
     );
 
-    assert.equal(result.status, 'accepted');
+    assert.equal(result.status, 'waiting');
     assert.equal(codexCalls.length, 0);
     assert.match(String(result.summary), /Prepared external pr-fix-ci run/);
     const runnerJob = result.runnerJob;

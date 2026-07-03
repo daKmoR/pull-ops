@@ -678,6 +678,39 @@ describe('setup github-actions', () => {
     assert.equal(secretReaderCalls[0]?.repository, 'acme/widgets');
     assert.equal(labelReaderCalls[0]?.repository, 'acme/widgets');
   });
+
+  it('09: generates resolve-conflicts workflow passes from PullOps config', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await writeFile(
+      join(cwd, 'pullops.config.js'),
+      [
+        'export default {',
+        '  operations: {',
+        '    prResolveConflicts: {',
+        '      maxConflictResolutionPasses: 4,',
+        '    },',
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await runPullOpsSetupGitHubActions({ cwd });
+
+    assert.equal(result.status, 'changed');
+    const workflow = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-pr-resolve-conflicts.yml'),
+      'utf8',
+    );
+    assert.match(workflow, /Run Codex conflict pass 4/);
+    assert.match(workflow, /prompt-file: \$\{\{ steps\.complete_3\.outputs\.prompt_file \}\}/);
+    assert.match(
+      workflow,
+      /COMPLETE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/complete-4\.json/,
+    );
+    assert.match(workflow, /steps\.complete_4\.outputs\.run_runner == 'true'/);
+  });
 });
 
 describe('setup github-labels', () => {

@@ -126,7 +126,7 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
   });
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external conflict resolution for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
@@ -151,24 +151,18 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrResolveConflictsCodexActionFinalize(context) {
-  const preparation = await preparePrResolveConflicts(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  const passState = await readCodexActionConflictPassState(context);
-  const conflictContext = await readRequiredConflictContext(context, preparation);
   let rawOutput;
 
   try {
-    rawOutput = await readCodexActionOutput(context);
-    await commentOnPullRequestWithOperationAudit(context, {
-      pullRequestNumber: preparation.pullRequest.number,
-      operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
-    });
+    rawOutput = await readCodexActionOutput(context, { rejectSkippedPreparedRunner: true });
   } catch (error) {
     if (isSkippedExternalRunnerResult(error)) {
       return createSkippedCodexActionOutput(context);
+    }
+
+    const preparation = await preparePrResolveConflicts(context);
+    if (!preparation.ready) {
+      throw error;
     }
 
     await removeCodexActionPrompt(context);
@@ -177,6 +171,18 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
     });
     throw error;
   }
+
+  const preparation = await preparePrResolveConflicts(context);
+  if (!preparation.ready) {
+    return preparation.output;
+  }
+
+  const passState = await readCodexActionConflictPassState(context);
+  const conflictContext = await readRequiredConflictContext(context, preparation);
+  await commentOnPullRequestWithOperationAudit(context, {
+    pullRequestNumber: preparation.pullRequest.number,
+    operation: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
+  });
 
   const resolved = await validateOutputAndContinueRebase(
     context,
@@ -212,7 +218,7 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
   );
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external conflict resolution pass ${nextPass} for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,

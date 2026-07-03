@@ -24,11 +24,52 @@ describe('pullops-pr-resolve-conflicts workflow', () => {
     assert.match(workflow, /--phase prepare/);
     assert.match(workflow, /--phase complete/);
     assert.match(workflow, /--runner external/);
-    assert.match(workflow, /npm exec pullops -- runner-result --status "\$runner_status"/);
+    assert.match(workflow, /PREPARE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/prepare\.json/);
+    assert.match(
+      workflow,
+      /COMPLETE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/complete-1\.json/,
+    );
+    assert.match(
+      workflow,
+      /COMPLETE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/complete-3\.json/,
+    );
+    assert.match(workflow, /> "\$PREPARE_JSON"/);
+    assert.match(workflow, /> "\$COMPLETE_JSON"/);
+    assert.match(workflow, /prompt-file: \$\{\{ steps\.prepare\.outputs\.prompt_file \}\}/);
+    assert.match(workflow, /output-file: \$\{\{ steps\.prepare\.outputs\.output_file \}\}/);
+    assert.match(workflow, /model: \$\{\{ steps\.prepare\.outputs\.model \}\}/);
+    assert.match(workflow, /prompt-file: \$\{\{ steps\.complete_1\.outputs\.prompt_file \}\}/);
+    assert.match(workflow, /output-file: \$\{\{ steps\.complete_1\.outputs\.output_file \}\}/);
+    assert.match(workflow, /model: \$\{\{ steps\.complete_1\.outputs\.model \}\}/);
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status success --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status failed --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status cancelled --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status skipped --file "\$\{\{ steps\.prepare\.outputs\.result_file \}\}"/,
+    );
+    assert.match(
+      workflow,
+      /npm exec pullops -- runner-result --status success --file "\$\{\{ steps\.complete_1\.outputs\.result_file \}\}"/,
+    );
+    assert.doesNotMatch(workflow, /if \[ -f "\$OUTPUT_DIR\/runner_prompt\.md" \]/);
+    assert.doesNotMatch(workflow, /runner_outcome=/);
     assert.match(workflow, /openai\/codex-action@v1/);
     assert.match(workflow, /Run Codex conflict pass 1/);
     assert.match(workflow, /Run Codex conflict pass 2/);
     assert.match(workflow, /Run Codex conflict pass 3/);
+    assert.match(workflow, /id: complete_3/);
+    assert.match(workflow, /steps\.complete_3\.outputs\.run_runner == 'true'/);
+    assert.match(workflow, /Rerun pullops setup github-actions/);
     assert.match(
       workflow,
       /git remote set-url origin "https:\/\/x-access-token:\$\{PULLOPS_GITHUB_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git"/,

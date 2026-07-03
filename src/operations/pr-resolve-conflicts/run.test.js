@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile as nodeExecFile } from 'node:child_process';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,7 +8,11 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createGitClient } from '../../git/GitClient.js';
-import { runPrResolveConflicts } from './run.js';
+import {
+  runPrResolveConflicts,
+  runPrResolveConflictsCodexActionFinalize,
+  runPrResolveConflictsCodexActionPrepare,
+} from './run.js';
 
 const execFile = promisify(nodeExecFile);
 
@@ -145,7 +149,302 @@ describe('runPrResolveConflicts', () => {
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
     assert.match(github.comments[0].body, /same-repository PRs/);
   });
+
+  it('04: prepares a waiting external runner handoff for the first conflict pass', async () => {
+    const repository = await createTemporaryConflictRepository();
+    const outputDirectory = await mkdirTemporaryDirectory('pullops-pr-resolve-external-');
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createManagedPullRequestBody(),
+      }),
+      issue: createIssue(),
+    });
+
+    const result = await runPrResolveConflictsCodexActionPrepare(
+      createContext({
+        repository,
+        githubClient: github.client,
+        outputDirectory,
+        phase: 'prepare',
+        runnerAdapter: 'external',
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.match(String(result.summary), /Prepared external conflict resolution/);
+    assert.deepEqual(result.prResolveConflicts, {
+      baseBranch: 'main',
+      branchName: 'pullops/issue-42',
+      conflictPass: 1,
+      maxConflictResolutionPasses: 3,
+      conflictedFiles: ['alpha.txt'],
+    });
+
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /Write the final Operation Output JSON to .*runner_output\.json/);
+    assert.match(prompt, /Use the pullops-resolve-conflicts skill/);
+    assert.match(prompt, /Conflict pass: 1 \/ 3/);
+
+    const runnerJob = assertObject(
+      result.runnerJob,
+      'Expected the prepared pr-resolve-conflicts result to include a runnerJob payload.',
+    );
+    assert.equal(Reflect.get(runnerJob, 'cwd'), repository.workDir);
+    assert.equal(Reflect.get(runnerJob, 'promptFile'), join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(Reflect.get(runnerJob, 'outputFile'), join(outputDirectory, 'runner_output.json'));
+    assert.equal(Reflect.get(runnerJob, 'resultFile'), join(outputDirectory, 'runner_result.json'));
+    assert.equal(Reflect.get(runnerJob, 'model'), DEFAULT_PULL_OPS_CONFIG.runner.models.high);
+    assert.equal(Reflect.get(runnerJob, 'branch'), 'pullops/issue-42');
+    assert.equal(Reflect.get(runnerJob, 'workerPrompt'), prompt);
+    assert.deepEqual(Reflect.get(runnerJob, 'completeCommand'), {
+      argv: [
+        'npm',
+        'exec',
+        '--',
+        'pullops',
+        'run',
+        'pr-resolve-conflicts',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--pr',
+        '100',
+      ],
+      env: {
+        npm_config_cache: '/tmp/pullops-npm-cache',
+        OUTPUT_DIR: outputDirectory,
+      },
+    });
+  });
+
+  it('05: external complete can hand off a later conflict pass as a waiting runner job', async () => {
+    const repository = await createTemporaryConflictRepository();
+    const outputDirectory = await mkdirTemporaryDirectory('pullops-pr-resolve-pass-');
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createManagedPullRequestBody(),
+      }),
+      issue: createIssue(),
+    });
+
+    await runPrResolveConflictsCodexActionPrepare(
+      createContext({
+        repository,
+        githubClient: github.client,
+        outputDirectory,
+        phase: 'prepare',
+        runnerAdapter: 'external',
+      }),
+    );
+    await writeFile(join(repository.workDir, 'alpha.txt'), 'base alpha\nfeature alpha\n');
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'success',
+      }),
+    );
+    await writeFile(
+      join(outputDirectory, 'runner_output.json'),
+      JSON.stringify({
+        status: 'resolved',
+        summary: 'Resolved alpha.txt.',
+        resolvedFiles: ['alpha.txt'],
+        changes: ['Resolved alpha.txt.'],
+        testPlan: ['Not run; temporary test repository has no project checks.'],
+      }),
+    );
+
+    const result = await runPrResolveConflictsCodexActionFinalize(
+      createContext({
+        repository,
+        githubClient: github.client,
+        outputDirectory,
+        phase: 'complete',
+        runnerAdapter: 'external',
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.match(String(result.summary), /pass 2/);
+    assert.deepEqual(result.prResolveConflicts, {
+      baseBranch: 'main',
+      branchName: 'pullops/issue-42',
+      conflictPass: 2,
+      maxConflictResolutionPasses: 3,
+      conflictedFiles: ['beta.txt'],
+    });
+    assert.equal(github.updatedBodies.length, 0);
+    assert.equal(github.pullRequestLabelsAdded.length, 0);
+    assert.equal(github.comments.length, 1);
+    assert.match(github.comments[0].body, /Operation: pullops:pr:resolve-conflicts/);
+
+    const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
+    assert.match(prompt, /Conflict pass: 2 \/ 3/);
+    const runnerJob = assertObject(
+      result.runnerJob,
+      'Expected the later conflict pass result to include a runnerJob payload.',
+    );
+    assert.equal(Reflect.get(runnerJob, 'promptFile'), join(outputDirectory, 'runner_prompt.md'));
+    assert.equal(Reflect.get(runnerJob, 'outputFile'), join(outputDirectory, 'runner_output.json'));
+    assert.equal(Reflect.get(runnerJob, 'resultFile'), join(outputDirectory, 'runner_result.json'));
+    assert.equal(Reflect.get(runnerJob, 'workerPrompt'), prompt);
+  });
+
+  it('06: treats skipped external completion as a no-op after prepare needed no worker', async () => {
+    const repository = await createTemporaryCleanRebaseRepository();
+    const outputDirectory = await mkdirTemporaryDirectory('pullops-pr-resolve-skipped-');
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createManagedPullRequestBody(),
+      }),
+      issue: createIssue(),
+    });
+
+    const prepareResult = await runPrResolveConflictsCodexActionPrepare(
+      createContext({
+        repository,
+        githubClient: github.client,
+        outputDirectory,
+        phase: 'prepare',
+        runnerAdapter: 'external',
+      }),
+    );
+    assert.equal(prepareResult.status, 'accepted');
+    assert.equal(prepareResult.runnerJob, undefined);
+    assert.equal(await fileExists(join(outputDirectory, 'runner_prompt.md')), false);
+
+    const bodyUpdatesAfterPrepare = github.updatedBodies.length;
+    const labelsAddedAfterPrepare = github.pullRequestLabelsAdded.length;
+    const labelsRemovedAfterPrepare = github.pullRequestLabelsRemoved.length;
+    const commentsAfterPrepare = github.comments.length;
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'skipped',
+      }),
+    );
+
+    const result = await runPrResolveConflictsCodexActionFinalize(
+      createContext({
+        repository,
+        githubClient: github.client,
+        outputDirectory,
+        phase: 'complete',
+        runnerAdapter: 'external',
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.match(String(result.summary), /prepare did not request a runner step/);
+    assert.deepEqual(result.runner, {
+      adapter: 'external',
+      status: 'skipped',
+    });
+    assert.equal(github.updatedBodies.length, bodyUpdatesAfterPrepare);
+    assert.equal(github.pullRequestLabelsAdded.length, labelsAddedAfterPrepare);
+    assert.equal(github.pullRequestLabelsRemoved.length, labelsRemovedAfterPrepare);
+    assert.equal(github.comments.length, commentsAfterPrepare);
+  });
+
+  it('07: records a failed external runner before failing complete', async () => {
+    const repository = await createTemporaryConflictRepository();
+    const outputDirectory = await mkdirTemporaryDirectory('pullops-pr-resolve-failed-');
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'failed',
+      }),
+    );
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createManagedPullRequestBody(),
+      }),
+      issue: createIssue(),
+    });
+
+    await assert.rejects(
+      runPrResolveConflictsCodexActionFinalize(
+        createContext({
+          repository,
+          githubClient: github.client,
+          outputDirectory,
+          phase: 'complete',
+          runnerAdapter: 'external',
+        }),
+      ),
+      /External runner completed with status "failed"/,
+    );
+
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
+    assert.deepEqual(github.pullRequestLabelsAdded.at(-1), {
+      number: 100,
+      labels: ['pullops:human-required'],
+    });
+    assert.match(github.comments[0].body, /External runner completed with status "failed"/);
+    assert.equal(
+      await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
+      'External runner completed with status "failed".\n',
+    );
+  });
+
+  it('08: records a cancelled external runner before failing complete', async () => {
+    const repository = await createTemporaryConflictRepository();
+    const outputDirectory = await mkdirTemporaryDirectory('pullops-pr-resolve-cancelled-');
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'cancelled',
+      }),
+    );
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createManagedPullRequestBody(),
+      }),
+      issue: createIssue(),
+    });
+
+    await assert.rejects(
+      runPrResolveConflictsCodexActionFinalize(
+        createContext({
+          repository,
+          githubClient: github.client,
+          outputDirectory,
+          phase: 'complete',
+          runnerAdapter: 'external',
+        }),
+      ),
+      /External runner completed with status "cancelled"/,
+    );
+
+    assert.match(github.updatedBodies[0].body, /Status: Human required/);
+    assert.deepEqual(github.pullRequestLabelsAdded.at(-1), {
+      number: 100,
+      labels: ['pullops:human-required'],
+    });
+    assert.match(github.comments[0].body, /External runner completed with status "cancelled"/);
+    assert.equal(
+      await readFile(join(outputDirectory, 'failure_reason.txt'), 'utf8'),
+      'External runner completed with status "cancelled".\n',
+    );
+  });
 });
+
+/**
+ * @param {unknown} value
+ * @param {string} message
+ * @returns {object}
+ */
+function assertObject(value, message) {
+  if (typeof value !== 'object' || value === null) {
+    assert.fail(message);
+  }
+  return value;
+}
 
 /**
  * @param {object} options
@@ -153,6 +452,9 @@ describe('runPrResolveConflicts', () => {
  * @param {import('../../github/types.js').GitHubClient} options.githubClient
  * @param {import('../../runner/types.js').CodexRunner} [options.codexRunner]
  * @param {import('../../config/types.js').PullOpsConfig} [options.config]
+ * @param {string} [options.outputDirectory]
+ * @param {import('../../cli/types.js').OperationPhase} [options.phase]
+ * @param {import('../../runner/types.js').RunnerAdapter} [options.runnerAdapter]
  * @returns {OperationRunnerContext}
  */
 function createContext({
@@ -160,11 +462,14 @@ function createContext({
   githubClient,
   codexRunner = createUnexpectedCodexRunner(),
   config = DEFAULT_PULL_OPS_CONFIG,
+  outputDirectory,
+  phase = 'run',
+  runnerAdapter = 'codex-cli',
 }) {
   return {
     operation: 'pr-resolve-conflicts',
-    phase: 'run',
-    runnerAdapter: 'codex-cli',
+    phase,
+    runnerAdapter,
     target: {
       type: 'pr',
       number: 100,
@@ -176,6 +481,7 @@ function createContext({
     githubClient,
     gitClient: createGitClientFor(repository.workDir),
     codexRunner,
+    ...(outputDirectory === undefined ? {} : { outputDirectory }),
   };
 }
 
@@ -455,6 +761,46 @@ async function createTemporaryConflictRepository() {
   await writeFile(join(seedDir, 'beta.txt'), 'base beta\n');
   await git(seedDir, ['add', '--all']);
   await git(seedDir, ['commit', '-m', 'chore: update base files']);
+  await git(seedDir, ['push', 'origin', 'main']);
+
+  await git(root, ['clone', originDir, workDir]);
+  await configureUser(workDir);
+  await git(workDir, ['checkout', 'pullops/issue-42']);
+
+  return { root, originDir, seedDir, workDir };
+}
+
+/**
+ * @returns {Promise<{ root: string, originDir: string, seedDir: string, workDir: string }>}
+ */
+async function createTemporaryCleanRebaseRepository() {
+  const root = await mkdirTemporaryDirectory('pullops-pr-resolve-clean-');
+  const originDir = join(root, 'origin.git');
+  const seedDir = join(root, 'seed');
+  const workDir = join(root, 'work');
+
+  await mkdir(originDir, { recursive: true });
+  await mkdir(seedDir, { recursive: true });
+  await git(originDir, ['init', '--bare']);
+  await git(seedDir, ['init', '--initial-branch=main']);
+  await configureUser(seedDir);
+  await writeFile(join(seedDir, 'alpha.txt'), 'initial alpha\n');
+  await writeFile(join(seedDir, 'beta.txt'), 'initial beta\n');
+  await git(seedDir, ['add', '--all']);
+  await git(seedDir, ['commit', '-m', 'chore: initial commit']);
+  await git(seedDir, ['remote', 'add', 'origin', originDir]);
+  await git(seedDir, ['push', '-u', 'origin', 'main']);
+
+  await git(seedDir, ['checkout', '-b', 'pullops/issue-42']);
+  await writeFile(join(seedDir, 'alpha.txt'), 'feature alpha\n');
+  await git(seedDir, ['add', '--all']);
+  await git(seedDir, ['commit', '-m', 'feat: update alpha']);
+  await git(seedDir, ['push', '-u', 'origin', 'pullops/issue-42']);
+
+  await git(seedDir, ['checkout', 'main']);
+  await writeFile(join(seedDir, 'beta.txt'), 'base beta\n');
+  await git(seedDir, ['add', '--all']);
+  await git(seedDir, ['commit', '-m', 'chore: update beta']);
   await git(seedDir, ['push', 'origin', 'main']);
 
   await git(root, ['clone', originDir, workDir]);

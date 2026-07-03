@@ -106,7 +106,7 @@ export async function runPrFixCiCodexActionPrepare(context) {
   }
 
   return {
-    status: 'accepted',
+    status: 'waiting',
     summary: `Prepared external pr-fix-ci run for PR #${preparation.pullRequest.number}.`,
     pullRequest: {
       number: preparation.pullRequest.number,
@@ -128,18 +128,18 @@ export async function runPrFixCiCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCiCodexActionFinalize(context) {
-  const preparation = await preparePrFixCi(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
   let rawOutput;
 
   try {
-    rawOutput = await readCodexActionOutput(context);
+    rawOutput = await readCodexActionOutput(context, { rejectSkippedPreparedRunner: true });
   } catch (error) {
     if (isSkippedExternalRunnerResult(error)) {
       return createSkippedCodexActionOutput(context);
+    }
+
+    const preparation = await preparePrFixCi(context);
+    if (!preparation.ready) {
+      throw error;
     }
 
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
@@ -148,6 +148,11 @@ export async function runPrFixCiCodexActionFinalize(context) {
       maxCiFixCycles: preparation.maxCiFixCycles,
     });
     throw error;
+  }
+
+  const preparation = await preparePrFixCi(context);
+  if (!preparation.ready) {
+    return preparation.output;
   }
 
   return await finalizePreparedPrFixCi(context, preparation, rawOutput);

@@ -2759,14 +2759,25 @@ async function recordLocalExternalRunnerCompleteState({
     throw new Error(`Invalid Operation Output: ${result.reason}`);
   }
 
+  const value = /** @type {Record<string, unknown> & { status: string, summary: string }} */ (
+    result.value
+  );
+  if (isExternalRunnerWaitingOutput(value)) {
+    await recordLocalRunWaitingForRunner({
+      statePath: join(/** @type {string} */ (outputDirectory), 'state.json'),
+      summary: value.summary,
+      phase: 'complete',
+      runnerJob: value.runnerJob,
+    });
+    return;
+  }
+
   await recordLocalRunTerminalStatusIfStateExists({
     statePath: join(/** @type {string} */ (outputDirectory), 'state.json'),
     status: mapLocalRunResultStatusToTerminalStatus(
-      /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (
-        result.value.status
-      ),
+      /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (value.status),
     ),
-    summary: /** @type {string} */ (result.value.summary),
+    summary: value.summary,
     phase: 'complete',
   });
 }

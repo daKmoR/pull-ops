@@ -82,21 +82,37 @@ jobs:
           npm exec pullops -- run pr-resolve-conflicts \
             --phase prepare \
             --runner external \
-            --pr "${{ inputs.pr }}"
+            --pr "${{ inputs.pr }}" \
+            > "$PREPARE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.PREPARE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(`result_file=${process.env.OUTPUT_DIR}/runner_result.json\nrun_runner=false\n`);
+            } else {
+              process.stdout.write(
+                [
+                  `prompt_file=${runnerJob.promptFile}`,
+                  `output_file=${runnerJob.outputFile}`,
+                  `result_file=${runnerJob.resultFile}`,
+                  `model=${runnerJob.model}`,
+                  "run_runner=true",
+                ].join("\n") + "\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          PREPARE_JSON: ${{ runner.temp }}/pullops-output/prepare.json
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -106,15 +122,15 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex conflict pass 1
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex_1
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
+          prompt-file: ${{ steps.prepare.outputs.prompt_file }}
+          output-file: ${{ steps.prepare.outputs.output_file }}
+          model: ${{ steps.prepare.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
@@ -126,39 +142,56 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Record successful runner result for conflict pass 1
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome == 'success'
+        run: npm exec pullops -- runner-result --status success --file "${{ steps.prepare.outputs.result_file }}"
+
+      - name: Record failed runner result for conflict pass 1
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome != 'success' && steps.codex_1.outcome != 'cancelled'
+        run: npm exec pullops -- runner-result --status failed --file "${{ steps.prepare.outputs.result_file }}"
+
+      - name: Record cancelled runner result for conflict pass 1
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome == 'cancelled'
+        run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.prepare.outputs.result_file }}"
+
+      - name: Record skipped runner result for conflict pass 1
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner != 'true'
+        run: npm exec pullops -- runner-result --status skipped --file "${{ steps.prepare.outputs.result_file }}"
+
       - name: Complete PullOps resolve conflicts pass 1
-        if: always()
+        if: always() && steps.prepare.outcome == 'success'
         id: complete_1
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
             --phase complete \
             --runner external \
-            --pr "${{ inputs.pr }}"
+            --pr "${{ inputs.pr }}" \
+            > "$COMPLETE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.COMPLETE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(`result_file=${process.env.OUTPUT_DIR}/runner_result.json\nrun_runner=false\n`);
+            } else {
+              process.stdout.write(
+                [
+                  `prompt_file=${runnerJob.promptFile}`,
+                  `output_file=${runnerJob.outputFile}`,
+                  `result_file=${runnerJob.resultFile}`,
+                  `model=${runnerJob.model}`,
+                  "run_runner=true",
+                ].join("\n") + "\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          COMPLETE_JSON: ${{ runner.temp }}/pullops-output/complete-1.json
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_1.outcome }}
 
       - name: Run Codex conflict pass 2
         if: steps.complete_1.outputs.run_runner == 'true'
@@ -167,9 +200,9 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
+          prompt-file: ${{ steps.complete_1.outputs.prompt_file }}
+          output-file: ${{ steps.complete_1.outputs.output_file }}
+          model: ${{ steps.complete_1.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
@@ -181,39 +214,52 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Record successful runner result for conflict pass 2
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome == 'success'
+        run: npm exec pullops -- runner-result --status success --file "${{ steps.complete_1.outputs.result_file }}"
+
+      - name: Record failed runner result for conflict pass 2
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome != 'success' && steps.codex_2.outcome != 'cancelled'
+        run: npm exec pullops -- runner-result --status failed --file "${{ steps.complete_1.outputs.result_file }}"
+
+      - name: Record cancelled runner result for conflict pass 2
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome == 'cancelled'
+        run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.complete_1.outputs.result_file }}"
+
       - name: Complete PullOps resolve conflicts pass 2
         if: always() && steps.complete_1.outputs.run_runner == 'true'
         id: complete_2
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
             --phase complete \
             --runner external \
-            --pr "${{ inputs.pr }}"
+            --pr "${{ inputs.pr }}" \
+            > "$COMPLETE_JSON"
 
-          if [ -f "$OUTPUT_DIR/runner_prompt.md" ]; then
-            echo "run_runner=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_runner=false" >> "$GITHUB_OUTPUT"
-          fi
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.COMPLETE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(`result_file=${process.env.OUTPUT_DIR}/runner_result.json\nrun_runner=false\n`);
+            } else {
+              process.stdout.write(
+                [
+                  `prompt_file=${runnerJob.promptFile}`,
+                  `output_file=${runnerJob.outputFile}`,
+                  `result_file=${runnerJob.resultFile}`,
+                  `model=${runnerJob.model}`,
+                  "run_runner=true",
+                ].join("\n") + "\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          COMPLETE_JSON: ${{ runner.temp }}/pullops-output/complete-2.json
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_2.outcome }}
 
       - name: Run Codex conflict pass 3
         if: steps.complete_2.outputs.run_runner == 'true'
@@ -222,9 +268,9 @@ jobs:
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          prompt-file: ${{ runner.temp }}/pullops-output/runner_prompt.md
-          output-file: ${{ runner.temp }}/pullops-output/runner_output.json
-          model: gpt-5.5
+          prompt-file: ${{ steps.complete_2.outputs.prompt_file }}
+          output-file: ${{ steps.complete_2.outputs.output_file }}
+          model: ${{ steps.complete_2.outputs.model }}
           sandbox: workspace-write
           codex-args: '["--config","approval_policy=\"never\"","--ephemeral"]'
           allow-bots: true
@@ -236,29 +282,56 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Record successful runner result for conflict pass 3
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome == 'success'
+        run: npm exec pullops -- runner-result --status success --file "${{ steps.complete_2.outputs.result_file }}"
+
+      - name: Record failed runner result for conflict pass 3
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome != 'success' && steps.codex_3.outcome != 'cancelled'
+        run: npm exec pullops -- runner-result --status failed --file "${{ steps.complete_2.outputs.result_file }}"
+
+      - name: Record cancelled runner result for conflict pass 3
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome == 'cancelled'
+        run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.complete_2.outputs.result_file }}"
+
       - name: Complete PullOps resolve conflicts pass 3
         if: always() && steps.complete_2.outputs.run_runner == 'true'
+        id: complete_3
         run: |
           git remote set-url origin "https://x-access-token:${PULLOPS_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          runner_outcome="$PULLOPS_EXTERNAL_RUNNER_OUTCOME"
-          if [ -z "$runner_outcome" ]; then
-            runner_outcome=skipped
-          fi
-          case "$runner_outcome" in
-            success) runner_status=success ;;
-            failure) runner_status=failed ;;
-            cancelled) runner_status=cancelled ;;
-            skipped) runner_status=skipped ;;
-            *) runner_status=failed ;;
-          esac
-          npm exec pullops -- runner-result --status "$runner_status"
           npm exec pullops -- run pr-resolve-conflicts \
             --phase complete \
             --runner external \
-            --pr "${{ inputs.pr }}"
+            --pr "${{ inputs.pr }}" \
+            > "$COMPLETE_JSON"
+
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { runnerJob } = JSON.parse(fs.readFileSync(process.env.COMPLETE_JSON, "utf8"));
+            if (runnerJob === undefined) {
+              process.stdout.write(`result_file=${process.env.OUTPUT_DIR}/runner_result.json\nrun_runner=false\n`);
+            } else {
+              process.stdout.write(
+                [
+                  `prompt_file=${runnerJob.promptFile}`,
+                  `output_file=${runnerJob.outputFile}`,
+                  `result_file=${runnerJob.resultFile}`,
+                  `model=${runnerJob.model}`,
+                  "run_runner=true",
+                ].join("\n") + "\n",
+              );
+            }
+          ' >> "$GITHUB_OUTPUT"
         env:
           OUTPUT_DIR: ${{ runner.temp }}/pullops-output
+          COMPLETE_JSON: ${{ runner.temp }}/pullops-output/complete-3.json
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex_3.outcome }}
+
+      - name: Refuse unresolved conflict pass beyond generated limit
+        if: always() && steps.complete_3.outputs.run_runner == 'true'
+        run: |
+          echo "PullOps returned another conflict runner job after 3 generated conflict passes." >&2
+          echo "Rerun pullops setup github-actions so the workflow matches operations.prResolveConflicts.maxConflictResolutionPasses." >&2
+          exit 1
