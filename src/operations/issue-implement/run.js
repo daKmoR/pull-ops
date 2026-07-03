@@ -827,10 +827,12 @@ async function finalizePreparedIssueImplement(context, preparation, rawOutput) {
       headBranch: branchName,
     });
 
-    await context.githubClient.addLabelsToPullRequest({
-      number: pullRequest.number,
-      labels: [requireOperationCatalogOperationLabelName('pr-review')],
-    });
+    if (context.suppressFollowUpOperationLabels !== true) {
+      await context.githubClient.addLabelsToPullRequest({
+        number: pullRequest.number,
+        labels: [requireOperationCatalogOperationLabelName('pr-review')],
+      });
+    }
     await commentOnPullRequestWithOperationAudit(context, {
       pullRequestNumber: pullRequest.number,
       operation: requireOperationCatalogOperationLabelName('issue-implement'),

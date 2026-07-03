@@ -79,6 +79,7 @@ test('run operation accepts explicit external runner lifecycle arguments', async
     stdout,
     env: {
       OUTPUT_DIR: '/tmp/pullops-output',
+      PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS: '1',
     },
     operationRunner: async context => {
       calls.push(context);
@@ -105,6 +106,7 @@ test('run operation accepts explicit external runner lifecycle arguments', async
   assert.equal(calls[0].phase, 'complete');
   assert.equal(calls[0].runnerAdapter, 'external');
   assert.equal(calls[0].outputDirectory, '/tmp/pullops-output');
+  assert.equal(calls[0].suppressFollowUpOperationLabels, true);
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
     summary: 'operation accepted',

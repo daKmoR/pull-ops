@@ -205,6 +205,32 @@ describe('runIssueImplement', () => {
     });
   });
 
+  it('02b: marks local external runner completion as label-suppressed', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-external-runner-'));
+    const issue = createIssue({ number: 42, title: 'Add the first operation' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplementCodexActionPrepare(
+      createContext({
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+      }),
+    );
+
+    const runnerJob = /** @type {any} */ (result.runnerJob);
+    assert.deepEqual(runnerJob.completeCommand.env, {
+      OUTPUT_DIR: outputDirectory,
+      PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS: '1',
+    });
+  });
+
   it('03: completes an external runner output without invoking the runner', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     await writeFile(
@@ -256,6 +282,45 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
     assert.equal(github.createdPullRequests.length, 1);
     assert.equal(github.createdPullRequests[0].headBranch, 'pullops/issue-42');
+  });
+
+  it('03b: suppresses follow-up PR labels for local external completion', async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-external-runner-'));
+    await writeFile(
+      join(outputDirectory, 'runner_result.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'success',
+      }),
+    );
+    await writeFile(
+      join(outputDirectory, 'runner_output.json'),
+      JSON.stringify({
+        status: 'implemented',
+        summary: 'Implemented the first operation.',
+        changes: ['Added operation orchestration.'],
+        testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
+      }),
+    );
+
+    const issue = createIssue({ number: 42, title: 'Add the first operation' });
+    const github = createFakeGitHub({ issue });
+    const git = createFakeGit();
+    const codex = createFakeCodexRunner({ output: '{}' });
+
+    const result = await runIssueImplementCodexActionFinalize(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        codexRunner: codex.runner,
+        outputDirectory,
+        suppressFollowUpOperationLabels: true,
+      }),
+    );
+
+    assert.equal(result.status, 'accepted');
+    assert.equal(github.createdPullRequests.length, 1);
+    assert.deepEqual(github.pullRequestLabels, []);
   });
 
   it('04: implements a manually selected child issue against the parent branch', async () => {

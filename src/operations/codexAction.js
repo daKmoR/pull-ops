@@ -5,6 +5,8 @@ import { readRunnerResult, RUNNER_RESULT_FILE } from '../runner/runnerResult.js'
 
 export const CODEX_ACTION_PROMPT_FILE = 'runner_prompt.md';
 export const CODEX_ACTION_OUTPUT_FILE = 'runner_output.json';
+export const SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV =
+  'PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -154,6 +156,9 @@ function createExternalRunnerCompleteCommand(context, outputDirectory) {
     ],
     env: {
       OUTPUT_DIR: outputDirectory,
+      ...(context.executionBackend === 'local' || context.suppressFollowUpOperationLabels === true
+        ? { [SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV]: '1' }
+        : {}),
     },
   };
 }

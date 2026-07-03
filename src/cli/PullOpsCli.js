@@ -49,6 +49,7 @@ import {
   createLocalPrdAutoCompleteSummary,
   createOperationProgressEventWriter,
 } from '../operations/prd-automation/eventStream.js';
+import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/codexAction.js';
 import { publishHeartbeatToParentEventSink } from '../parent-event-sink/parentEventSink.js';
 import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
 import { createCodexRunner } from '../runner/CodexRunner.js';
@@ -755,6 +756,9 @@ export class PullOpsCli {
       triggerActor: this.env.GITHUB_ACTOR,
       reviewId: parsedArgs.reviewId,
       outputDirectory: this.env.OUTPUT_DIR,
+      ...(readEnvFlag(this.env[SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV])
+        ? { suppressFollowUpOperationLabels: true }
+        : {}),
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
     });
@@ -2597,6 +2601,14 @@ function readOptionalEnv(value) {
   }
 
   return value;
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {boolean}
+ */
+function readEnvFlag(value) {
+  return value === '1' || value?.toLowerCase() === 'true';
 }
 
 /**
