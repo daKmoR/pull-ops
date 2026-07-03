@@ -127,6 +127,27 @@ function readLocalOperationLabelReferenceNames() {
   ];
 }
 
+/**
+ * @param {RunnerAdapter} configuredRunnerAdapter
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {RunnerAdapter}
+ */
+function readLocalIssueImplementRunnerAdapter(configuredRunnerAdapter, env) {
+  if (isCodexHostedPullOpsGo(env)) {
+    return 'external';
+  }
+
+  return configuredRunnerAdapter;
+}
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {boolean}
+ */
+function isCodexHostedPullOpsGo(env) {
+  return readOptionalEnv(env.CODEX_THREAD_ID) !== undefined;
+}
+
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
 const COMMAND_OUTPUT_CONTRACT = {
   required: {
@@ -937,7 +958,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = config.runner.adapter;
+    const runnerAdapter = readLocalIssueImplementRunnerAdapter(config.runner.adapter, this.env);
     if (runnerAdapter === 'external') {
       return await this.runLocalExternalIssueImplementReference({
         operation,

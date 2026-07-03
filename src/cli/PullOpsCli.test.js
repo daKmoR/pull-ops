@@ -364,6 +364,7 @@ test('run issue:implement defaults to local finalized dry-run execution', async 
   const cli = new PullOpsCli({
     stdout,
     stderr,
+    env: {},
     githubClient: createFakeGitHubClient({
       async addLabelsToIssue(options) {
         issueLabelAdds.push(options);
@@ -403,12 +404,84 @@ test('run issue:implement defaults to local finalized dry-run execution', async 
   });
 });
 
+test('run issue:implement defaults to an external runner handoff inside Codex host', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-codex-hosted-issue-'));
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const runnerJob = {
+    cwd,
+    promptFile: join(cwd, '.pullops', 'runs', 'runner_prompt.md'),
+    outputFile: join(cwd, '.pullops', 'runs', 'runner_output.json'),
+    resultFile: join(cwd, '.pullops', 'runs', 'runner_result.json'),
+    workerPrompt: 'Use the pullops-issue-implement skill.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-123',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', 'pullops', '--', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: [
+        'npm',
+        'exec',
+        'pullops',
+        '--',
+        'run',
+        'issue-implement',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--issue',
+        '123',
+      ],
+      env: {},
+    },
+  };
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    env: {
+      CODEX_THREAD_ID: 'thread-123',
+    },
+    gitClient: createFakeGitClient(),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'waiting',
+        summary: 'Prepared external implement run for issue #123.',
+        runnerJob,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].phase, 'prepare');
+  assert.equal(runnerCalls[0].runnerAdapter, 'external');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'waiting');
+  assert.equal(output.localRunRecord, runnerCalls[0].outputDirectory);
+  assert.equal(output.runStatePath, join(runnerCalls[0].outputDirectory ?? '', 'state.json'));
+  assert.deepEqual(output.runnerJob, runnerJob);
+});
+
 test('run issue:implement accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
   const cli = new PullOpsCli({
     stdout,
+    env: {},
     operationRunner: async context => {
       runnerCalls.push(context);
       return {
@@ -443,6 +516,7 @@ test('run issue:implement allows explicit operation-only local PR publication', 
   const runnerCalls = [];
   const cli = new PullOpsCli({
     stdout,
+    env: {},
     operationRunner: async context => {
       runnerCalls.push(context);
       return {
@@ -485,6 +559,7 @@ test('run issue:implement accepts explicit dry-run publication and finalized run
   const runnerCalls = [];
   const cli = new PullOpsCli({
     stdout,
+    env: {},
     operationRunner: async context => {
       runnerCalls.push(context);
       return {
