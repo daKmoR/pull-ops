@@ -26,6 +26,7 @@ import { validateAddressReviewFeedbackCoverage } from './feedbackCoverage.js';
 import { validatePrAddressReviewOutput } from './output.js';
 import { buildAddressPrReviewompt } from './prompt.js';
 import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -39,11 +40,6 @@ import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/loca
  * @typedef {import('./output.types.js').CompletedPrAddressReviewOutput} CompletedPrAddressReviewOutput
  * @typedef {import('./run.types.js').AddressPrRevieweparation} AddressPrRevieweparation
  */
-
-export const GITHUB_ACTIONS_BOT_AUTHOR = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
 
 const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
   'PullOps handled all actionable feedback associated with this requested-change review.';

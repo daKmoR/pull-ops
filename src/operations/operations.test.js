@@ -251,9 +251,10 @@ describe('runWorkflowOperation', () => {
           executionBackend: 'local',
           operation: 'prd-auto-complete',
           runnerAdapter: 'external',
+          phase: 'prepare',
         }),
       ),
-      /prd-auto-complete with --runner external and --phase run is not supported by the operation catalog\./,
+      /prd-auto-complete with --runner external and --phase prepare is not supported by the operation catalog\./,
     );
   });
 

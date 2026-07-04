@@ -575,18 +575,18 @@ async function inspectSetupFiles({
     managedDesiredFileContents.set(state.path, state.desiredContent);
   }
 
-  const manifestConflictBlockers = await collectManifestConflictBlockers({
+  const manifestConflicts = await collectManifestConflicts({
     cwd: resolvedCwd,
     manifestState,
     desiredPaths: new Set(managedDesiredFileContents.keys()),
     excludedPaths: UNTRACKED_MANIFEST_PATHS,
     force,
   });
-  if (manifestConflictBlockers.length > 0) {
+  if (manifestConflicts.blockers.length > 0) {
     return {
       changesNeeded: [],
-      blockers: manifestConflictBlockers,
-      warnings: [],
+      blockers: manifestConflicts.blockers,
+      warnings: manifestConflicts.warnings,
       suggestions: ['Restore or force the managed files before rerunning PullOps setup.'],
       writes: [],
     };
@@ -650,7 +650,7 @@ async function inspectSetupFiles({
         blockers: [
           'Existing PullOps install manifest has local changes. Re-run with --force to replace it.',
         ],
-        warnings: [],
+        warnings: manifestConflicts.warnings,
         suggestions: ['Restore or force the install manifest before rerunning PullOps setup.'],
         writes: [],
       };
@@ -660,7 +660,7 @@ async function inspectSetupFiles({
       return {
         changesNeeded,
         blockers: [`Existing file ${state.path} is not manifest-owned yet.`],
-        warnings: [],
+        warnings: manifestConflicts.warnings,
         suggestions: ['Restore or adopt the existing file before rerunning PullOps setup.'],
         writes: [],
       };
@@ -678,7 +678,7 @@ async function inspectSetupFiles({
       blockers: [
         `Existing PullOps-owned file ${state.path} has local changes. Re-run with --force to replace it.`,
       ],
-      warnings: [],
+      warnings: manifestConflicts.warnings,
       suggestions: ['Restore or force the managed files before rerunning PullOps setup.'],
       writes: [],
     };
@@ -687,7 +687,7 @@ async function inspectSetupFiles({
   return {
     changesNeeded,
     blockers: [],
-    warnings: [],
+    warnings: manifestConflicts.warnings,
     suggestions:
       changesNeeded.length > 0
         ? ['Review the missing files, then rerun the matching PullOps setup command.']
@@ -922,9 +922,9 @@ async function readSetupFileStates({ cwd, desiredFileContents, manifestEntries }
  *   excludedPaths: Set<string>,
  *   force: boolean,
  * }} options
- * @returns {Promise<string[]>}
+ * @returns {Promise<{ blockers: string[], warnings: string[] }>}
  */
-async function collectManifestConflictBlockers({
+async function collectManifestConflicts({
   cwd,
   manifestState,
   desiredPaths,
@@ -933,6 +933,8 @@ async function collectManifestConflictBlockers({
 }) {
   /** @type {string[]} */
   const blockers = [];
+  /** @type {string[]} */
+  const warnings = [];
 
   for (const fileEntry of manifestState.fileEntries) {
     if (excludedPaths.has(fileEntry.path)) {
@@ -949,13 +951,18 @@ async function collectManifestConflictBlockers({
       continue;
     }
 
-    if (desiredPaths.has(fileEntry.path) && force) {
+    if (desiredPaths.has(fileEntry.path)) {
+      if (!force) {
+        blockers.push(
+          `Existing PullOps-owned file ${fileEntry.path} has local changes. Re-run with --force to replace it.`,
+        );
+      }
       continue;
     }
 
-    if (desiredPaths.has(fileEntry.path)) {
-      blockers.push(
-        `Existing PullOps-owned file ${fileEntry.path} has local changes. Re-run with --force to replace it.`,
+    if (force) {
+      warnings.push(
+        `Existing PullOps-owned file ${fileEntry.path} has local changes outside this setup command. Rerun the matching PullOps setup command with --force to reconcile it.`,
       );
       continue;
     }
@@ -965,7 +972,7 @@ async function collectManifestConflictBlockers({
     );
   }
 
-  return blockers;
+  return { blockers, warnings };
 }
 
 /**

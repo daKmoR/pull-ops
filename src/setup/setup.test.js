@@ -711,6 +711,54 @@ describe('setup github-actions', () => {
     );
     assert.match(workflow, /steps\.complete_4\.outputs\.run_runner == 'true'/);
   });
+
+  it('10: force-reconciles one setup area while another manifest-owned area has also drifted', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await runPullOpsSetupSkills({ cwd });
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    await writeFile(
+      join(cwd, '.agents', 'skills', 'pullops-pr-review', 'SKILL.md'),
+      'drifted skill\n',
+    );
+    await writeFile(
+      join(cwd, '.github', 'workflows', 'pullops-dispatch.yml'),
+      'drifted workflow\n',
+    );
+
+    const blocked = await runPullOpsSetupGitHubActions({ cwd });
+    assert.equal(blocked.status, 'blocked');
+    assert.match(
+      joinMessages(blocked.blockers),
+      /pullops-dispatch\.yml has local changes\. Re-run with --force to replace it\./,
+    );
+    assert.match(
+      joinMessages(blocked.blockers),
+      /pullops-pr-review\/SKILL\.md has local changes outside this setup command\./,
+    );
+
+    const forcedWorkflows = await runPullOpsSetupGitHubActions({ cwd, force: true });
+    assert.equal(forcedWorkflows.status, 'changed');
+    assert.deepEqual(forcedWorkflows.blockers, []);
+    assert.ok(changedFiles(forcedWorkflows).includes('.github/workflows/pullops-dispatch.yml'));
+    assert.match(
+      joinMessages(forcedWorkflows.warnings),
+      /pullops-pr-review\/SKILL\.md has local changes outside this setup command\./,
+    );
+
+    const forcedSkills = await runPullOpsSetupSkills({ cwd, force: true });
+    assert.equal(forcedSkills.status, 'changed');
+    assert.deepEqual(forcedSkills.blockers, []);
+    assert.ok(changedFiles(forcedSkills).includes('.agents/skills/pullops-pr-review/SKILL.md'));
+
+    const workflowsCheck = await runPullOpsSetupGitHubActions({ cwd, check: true });
+    assert.equal(workflowsCheck.status, 'ready');
+    assert.deepEqual(workflowsCheck.warnings, []);
+    const skillsCheck = await runPullOpsSetupSkills({ cwd, check: true });
+    assert.equal(skillsCheck.status, 'ready');
+    assert.deepEqual(skillsCheck.warnings, []);
+  });
 });
 
 describe('setup github-labels', () => {

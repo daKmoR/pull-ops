@@ -20,6 +20,7 @@ import { validatePrReviewOutput } from './output.js';
 import { buildPrReviewPrompt } from './prompt.js';
 import { determinePrReviewMode, resolveReviewModelSelection } from '../reviewSelection.js';
 import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -33,11 +34,6 @@ import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/loca
  * @typedef {import('./output.types.js').ReviewResultStatus} ReviewResultStatus
  * @typedef {import('./run.types.js').PrReviewPreparation} PrReviewPreparation
  */
-
-export const GITHUB_ACTIONS_BOT_AUTHOR = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
 
 /**
  * @param {OperationRunnerContext} context

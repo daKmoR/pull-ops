@@ -24,8 +24,8 @@ Before running any PullOps CLI command, read and follow
    there is no target.
 2. If no target was supplied, discover open PRDs and implementable issues using
    GitHub issue metadata, labels, and PullOps conventions. Start with
-   `gh issue list --repo daKmoR/pull-ops --state open --json number,title,labels,url,updatedAt`
-   and inspect bodies only for plausible candidates. Present a short numbered
+   `gh issue list --state open --json number,title,labels,url,updatedAt` in the
+   Target Repository and inspect bodies only for plausible candidates. Present a short numbered
    list grouped as PRDs first, then issues. Include enough context to choose:
    number, title, current PullOps label/status, blocked/waiting signal, and
    likely command. Completion criterion: the user can pick one item without
@@ -47,7 +47,9 @@ Before running any PullOps CLI command, read and follow
    the same handoff from the newest matching Local Run State whose status is
    `waiting` and whose `runnerJob` is present. This boundary is expected work,
    not a failure, refusal, or external decision.
-4. Execute one external runner handoff at a time:
+4. Execute one external runner handoff at a time (this limit applies to runner
+   handoffs only; read-only helper sub-agents for diagnosis or discovery may run
+   alongside while the supervision loop stays with the operator):
    - Spawn one hidden worker at a time through the Codex host using
      `runnerJob.workerPrompt` in `runnerJob.cwd`. Do not invoke a nested
      `codex exec` from the PullOps CLI.
@@ -85,7 +87,9 @@ Treat failures, refusals, loops, and unreasonable human-required stops as
 PullOps bugs until diagnosis proves an external decision is required.
 
 1. Diagnose from the event summary, run record, git state, PR body, labels,
-   checks, and focused source/tests.
+   checks, and focused source/tests. Parallelizable read-only diagnosis or
+   discovery may be delegated to sub-agents while the operator keeps the
+   supervision loop; repair edits stay with the operator.
 2. If the failure is in PullOps, use `diagnosing-bugs` for reproduction and
    root cause. Use `coding-standards` before editing source, tests, public APIs,
    or types.

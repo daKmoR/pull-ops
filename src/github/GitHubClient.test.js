@@ -308,14 +308,6 @@ describe('createGitHubClient', () => {
     const { calls, octokit } = createFakeOctokit({
       pullRequest: createPullRequest(),
       openPullRequests: [createPullRequest()],
-      searchIssues: [
-        {
-          number: 43,
-          title: 'Implement follow-up child',
-          state: 'open',
-          html_url: 'https://github.com/acme/widgets/issues/43',
-        },
-      ],
       reviewContext: createReviewContext(),
       diff: 'diff --git a/src/example.js b/src/example.js\n',
       checkRuns: [
@@ -350,10 +342,6 @@ describe('createGitHubClient', () => {
     const diff = await client.getPullRequestDiff(100);
     const existingPullRequest = await client.findOpenPullRequestByHead('pullops/issue-42');
     const pullRequestByHead = await client.findPullRequestByHead?.('pullops/issue-42');
-    const bodyReferences = await client.findIssuesByBodyReference?.({
-      fieldName: 'Part of',
-      issueNumber: 1,
-    });
     const createdPullRequest = await client.createDraftPullRequest({
       title: 'Implement #42',
       body: '## PullOps\n\nManaged: yes\nStatus: Draft automation',
@@ -382,15 +370,6 @@ describe('createGitHubClient', () => {
     assert.equal(diff.patch, 'diff --git a/src/example.js b/src/example.js\n');
     assert.equal(existingPullRequest?.number, 100);
     assert.equal(pullRequestByHead?.number, 100);
-    assert.deepEqual(bodyReferences, [
-      {
-        number: 43,
-        title: 'Implement follow-up child',
-        state: 'OPEN',
-        url: 'https://github.com/acme/widgets/issues/43',
-        relationshipSource: 'body',
-      },
-    ]);
     assert.equal(createdPullRequest.headRefName, 'pullops/issue-42');
     assert.deepEqual(checks, [
       {
@@ -420,7 +399,6 @@ describe('createGitHubClient', () => {
         'pulls.get',
         'pulls.list',
         'pulls.list',
-        'search.issuesAndPullRequests',
         'pulls.create',
         'pulls.get',
         'checks.listForRef',
@@ -990,7 +968,6 @@ const TEST_REPOSITORY = {
  * @param {Map<number, string>} [options.issueNodeIds]
  * @param {Record<string, unknown>} [options.pullRequest]
  * @param {Record<string, unknown>[]} [options.openPullRequests]
- * @param {Record<string, unknown>[]} [options.searchIssues]
  * @param {Record<string, unknown>} [options.reviewContext]
  * @param {string} [options.diff]
  * @param {Record<string, unknown>[]} [options.checkRuns]
@@ -1007,7 +984,6 @@ function createFakeOctokit({
   issueNodeIds = new Map(),
   pullRequest = createPullRequest(),
   openPullRequests = [],
-  searchIssues = [],
   reviewContext = createReviewContext(),
   diff = '',
   checkRuns = [],
@@ -1247,12 +1223,6 @@ function createFakeOctokit({
       repos: {
         getCombinedStatusForRef: endpoint('repos.getCombinedStatusForRef', () => ({
           statuses,
-        })),
-      },
-      search: {
-        issuesAndPullRequests: endpoint('search.issuesAndPullRequests', () => ({
-          total_count: searchIssues.length,
-          items: searchIssues,
         })),
       },
     },

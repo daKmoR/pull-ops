@@ -984,9 +984,6 @@ function createFakeGitHub({
       async findOpenPullRequestByHead(headBranch) {
         return pullRequestsByHead.get(headBranch);
       },
-      async findIssuesByBodyReference() {
-        throw new Error('findIssuesByBodyReference should not drive PRD Child Coordination.');
-      },
       async createDraftPullRequest(options) {
         createdPullRequests.push(options);
         const pullRequest = createPullRequest({

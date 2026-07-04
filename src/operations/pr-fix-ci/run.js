@@ -18,6 +18,7 @@ import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { classifyCheckFailures } from './classification.js';
 import { validatePrFixCiOutput } from './output.js';
 import { buildPrFixCiPrompt } from './prompt.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -29,11 +30,6 @@ import { buildPrFixCiPrompt } from './prompt.js';
  * @typedef {import('./output.types.js').CompletedPrFixCiOutput} CompletedPrFixCiOutput
  * @typedef {import('./run.types.js').PrFixCiPreparation} PrFixCiPreparation
  */
-
-export const GITHUB_ACTIONS_BOT_AUTHOR = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
 
 /**
  * @param {OperationRunnerContext} context
@@ -137,15 +133,15 @@ export async function runPrFixCiCodexActionFinalize(context) {
       return createSkippedCodexActionOutput(context);
     }
 
-    const preparation = await preparePrFixCi(context);
-    if (!preparation.ready) {
-      throw error;
-    }
-
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: preparation.managed,
-      ciFixCycle: preparation.ciFixCycle,
-      maxCiFixCycles: preparation.maxCiFixCycles,
+    // Do not rerun preparePrFixCi here: its not-ready branches transition PR
+    // state as if the runner outcome were known, which would mask this failure.
+    assertPullRequestTarget(context);
+    const pullRequest = await context.githubClient.getPullRequest(context.target.number);
+    const state = readManagedPrState(pullRequest.body);
+    await recordPullRequestFailure(context, pullRequest, getErrorMessage(error), {
+      updateBody: state.managed,
+      ciFixCycle: state.ciFixCycles.current + 1,
+      maxCiFixCycles: state.ciFixCycles.max,
     });
     throw error;
   }

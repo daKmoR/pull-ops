@@ -194,7 +194,7 @@ jobs:
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
       - name: Run Codex conflict pass 2
-        if: steps.complete_1.outputs.run_runner == 'true'
+        if: steps.complete_1.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex_2
         uses: openai/codex-action@v1
         continue-on-error: true
@@ -262,7 +262,7 @@ jobs:
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
       - name: Run Codex conflict pass 3
-        if: steps.complete_2.outputs.run_runner == 'true'
+        if: steps.complete_2.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex_3
         uses: openai/codex-action@v1
         continue-on-error: true

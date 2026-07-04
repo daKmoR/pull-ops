@@ -5,7 +5,7 @@
  */
 
 /**
- * @typedef {'normal' | 'escalation' | 'human-feedback-response' | 'blocked'} ReviewMode
+ * @typedef {'normal' | 'escalation' | 'human-feedback-response'} ReviewMode
  */
 
 /**
@@ -56,7 +56,7 @@ export function determinePrAddressReviewMode(state, { reviewId } = {}) {
 /**
  * @param {OperationRunnerContext} context
  * @param {string} operationName
- * @param {ReviewMode} reviewMode
+ * @param {ReviewMode | 'blocked'} reviewMode
  * @returns {{ modelTier: ModelTier, model: string }}
  */
 export function resolveReviewModelSelection(context, operationName, reviewMode) {

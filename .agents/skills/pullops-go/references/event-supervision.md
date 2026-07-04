@@ -24,7 +24,9 @@ interruption, sink loss, lease expiry reconciliation, or postmortem inspection.
 Important event fields:
 
 - `event`: phase and progress marker, especially `run.summary`.
-- `status`: `accepted`, `blocked`, `failed`, or `refused` on `run.summary`.
+- `status`: `accepted`, `blocked`, `failed`, `refused`, or `waiting` on
+  `run.summary`. `waiting` appears only when an external runner handoff is
+  pending and carries a `runnerJob`.
 - `blockers`: retryable or external blockers.
 - `suggestedActions`: commands PullOps believes are safe next steps.
 - `localNextSteps` or `nextSteps`: human-readable next actions.
@@ -78,6 +80,9 @@ reset or discard local changes, or start parallel same-branch work before lease 
 
 ## Status Rules
 
+- `waiting` with a `runnerJob`: this is an executable external runner handoff,
+  not a failure or external decision. Execute the handoff per the PullOps Go
+  Run rules, then continue the operator loop from the complete output.
 - `accepted`: verify whether any `localNextSteps` are executable by the agent.
   If they are only "review/merge manually", report the human merge boundary.
 - `blocked` with retryable suggested command: inspect why it is waiting. Rerun
@@ -131,5 +136,5 @@ When an event `suggestedActions[].argv` omits `--runner external` or
 `--events jsonl`, add them back for PRD auto-complete supervision unless the
 suggested command is intentionally a different operation.
 
-Use `PATH="/Users/thomasallmer/.volta/bin:$PATH"` in this repository when the
-local shell cannot find the expected Node version.
+If the local shell cannot find the expected Node version, prepend your Node
+version manager's bin directory to `PATH` before running PullOps commands.

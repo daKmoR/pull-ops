@@ -44,6 +44,7 @@ import {
   getOperationCatalogSupportedRunnerAdapters,
   getOperationCatalogSupportedRunnerPhases,
   getOperationCatalogWorkflowOperations,
+  supportsOperationCatalogRunnerLifecycle,
 } from '../operations/operationCatalog.js';
 import {
   createLocalPrdAutoCompleteSummary,
@@ -621,8 +622,8 @@ export class PullOpsCli {
     let rawRequest = '';
 
     try {
-      const parsedArgs = parsePublishPrdArgs(args);
-      rawRequest = await readPublishPrdInput({
+      const parsedArgs = parsePublishFileArgs(args, 'publish-prd');
+      rawRequest = await readPublishInput({
         cwd: this.cwd,
         filePath: parsedArgs.filePath,
         stdin: this.stdin,
@@ -659,8 +660,8 @@ export class PullOpsCli {
     let rawRequest = '';
 
     try {
-      const parsedArgs = parsePublishIssueArgs(args);
-      rawRequest = await readPublishIssueInput({
+      const parsedArgs = parsePublishFileArgs(args, 'publish-issue');
+      rawRequest = await readPublishInput({
         cwd: this.cwd,
         filePath: parsedArgs.filePath,
         stdin: this.stdin,
@@ -698,7 +699,7 @@ export class PullOpsCli {
 
     try {
       const parsedArgs = parsePublishChildrenArgs(args);
-      rawRequest = await readPublishChildrenInput({
+      rawRequest = await readPublishInput({
         cwd: this.cwd,
         filePath: parsedArgs.filePath,
         stdin: this.stdin,
@@ -1888,11 +1889,12 @@ function parseSetupDoctorArgs(args) {
 
 /**
  * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @param {string} title
  * @returns {string}
  */
-function renderInitResult(result) {
+function renderSetupLikeResult(result, title) {
   const lines = [
-    `PullOps Init: ${result.status}`,
+    `${title}: ${result.status}`,
     `Area: ${result.area}`,
     `Summary: ${result.summary}`,
   ];
@@ -1910,20 +1912,16 @@ function renderInitResult(result) {
  * @param {import('../setup/init.types.js').PullOpsSetupResult} result
  * @returns {string}
  */
+function renderInitResult(result) {
+  return renderSetupLikeResult(result, 'PullOps Init');
+}
+
+/**
+ * @param {import('../setup/init.types.js').PullOpsSetupResult} result
+ * @returns {string}
+ */
 function renderSetupResult(result) {
-  const lines = [
-    `PullOps Setup: ${result.status}`,
-    `Area: ${result.area}`,
-    `Summary: ${result.summary}`,
-  ];
-
-  appendSetupChangeSection(lines, 'Changes', result.changes);
-  appendSetupChangeSection(lines, 'Changes needed', result.changesNeeded);
-  appendSetupSection(lines, 'Blockers', result.blockers);
-  appendSetupSection(lines, 'Warnings', result.warnings);
-  appendSetupSection(lines, 'Suggestions', result.suggestions);
-
-  return lines.join('\n');
+  return renderSetupLikeResult(result, 'PullOps Setup');
 }
 
 /**
@@ -2432,9 +2430,10 @@ function parseRequiredGitHubActionsBackend(args, reference, consumed) {
 
 /**
  * @param {string[]} args
+ * @param {'publish-issue' | 'publish-prd'} subcommand
  * @returns {{ filePath?: string }}
  */
-function parsePublishIssueArgs(args) {
+function parsePublishFileArgs(args, subcommand) {
   const consumed = new Set();
   const filePath = parseOptionalStringOption(args, '--file', consumed);
 
@@ -2444,7 +2443,7 @@ function parsePublishIssueArgs(args) {
   });
 
   if (remaining.length > 0) {
-    throw new CliUsageError(`Unknown arguments for issues publish-issue: ${remaining.join(' ')}.`);
+    throw new CliUsageError(`Unknown arguments for issues ${subcommand}: ${remaining.join(' ')}.`);
   }
 
   return filePath === undefined ? {} : { filePath };
@@ -2484,26 +2483,6 @@ function parsePublishChildrenArgs(args) {
 }
 
 /**
- * @param {string[]} args
- * @returns {{ filePath?: string }}
- */
-function parsePublishPrdArgs(args) {
-  const consumed = new Set();
-  const filePath = parseOptionalStringOption(args, '--file', consumed);
-
-  const remaining = args.filter((value, argIndex) => {
-    void value;
-    return !consumed.has(argIndex);
-  });
-
-  if (remaining.length > 0) {
-    throw new CliUsageError(`Unknown arguments for issues publish-prd: ${remaining.join(' ')}.`);
-  }
-
-  return filePath === undefined ? {} : { filePath };
-}
-
-/**
  * @param {{
  *   cwd: string,
  *   filePath?: string,
@@ -2511,49 +2490,7 @@ function parsePublishPrdArgs(args) {
  * }} options
  * @returns {Promise<string>}
  */
-async function readPublishIssueInput({ cwd, filePath, stdin }) {
-  if (filePath !== undefined) {
-    return await readFile(resolvePublishInputPath({ cwd, filePath }), 'utf8');
-  }
-
-  let rawRequest = '';
-  for await (const chunk of stdin) {
-    rawRequest += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-  }
-
-  return rawRequest;
-}
-
-/**
- * @param {{
- *   cwd: string,
- *   filePath?: string,
- *   stdin: NodeJS.ReadableStream,
- * }} options
- * @returns {Promise<string>}
- */
-async function readPublishChildrenInput({ cwd, filePath, stdin }) {
-  if (filePath !== undefined) {
-    return await readFile(resolvePublishInputPath({ cwd, filePath }), 'utf8');
-  }
-
-  let rawRequest = '';
-  for await (const chunk of stdin) {
-    rawRequest += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-  }
-
-  return rawRequest;
-}
-
-/**
- * @param {{
- *   cwd: string,
- *   filePath?: string,
- *   stdin: NodeJS.ReadableStream,
- * }} options
- * @returns {Promise<string>}
- */
-async function readPublishPrdInput({ cwd, filePath, stdin }) {
+async function readPublishInput({ cwd, filePath, stdin }) {
   if (filePath !== undefined) {
     return await readFile(resolvePublishInputPath({ cwd, filePath }), 'utf8');
   }
@@ -2658,18 +2595,7 @@ function parseOperationPhase(args, consumed) {
  * @returns {RunnerAdapter}
  */
 function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
-  const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
-  if (rawRunner === undefined) {
-    return defaultRunnerAdapter;
-  }
-
-  if (!isRunnerAdapter(rawRunner)) {
-    throw new CliUsageError(
-      `Unknown runner "${rawRunner}". Expected one of: ${RUNNER_ADAPTERS.join(', ')}.`,
-    );
-  }
-
-  return rawRunner;
+  return parseOptionalRunnerAdapter(args, consumed) ?? defaultRunnerAdapter;
 }
 
 /**
@@ -2963,7 +2889,7 @@ function readPositiveIntegerEnv(value) {
   }
 
   const number = Number(value);
-  if (!Number.isInteger(number) || number < 0) {
+  if (!Number.isInteger(number) || number <= 0) {
     return undefined;
   }
 
@@ -2987,73 +2913,44 @@ function isErrorWithCode(error, code) {
  */
 function validateRunnerLifecycle({ operationName, phase, runnerAdapter }) {
   const supportedRunnerLifecycles = getOperationCatalogSupportedRunnerLifecycles(operationName);
-  if (supportedRunnerLifecycles !== undefined) {
-    const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
-    const supportedRunnerPhases = getOperationCatalogSupportedRunnerPhases(operationName);
-    if (supportedRunnerAdapters === undefined || supportedRunnerPhases === undefined) {
-      throw new Error(
-        `${operationName} runner lifecycle facts are missing from the operation catalog.`,
-      );
-    }
-
-    const supportedPhasesForRunnerAdapter = supportedRunnerLifecycles
-      .filter(([supportedRunnerAdapter]) => supportedRunnerAdapter === runnerAdapter)
-      .map(([, supportedPhase]) => supportedPhase);
-    const supportsLifecycle = supportedRunnerLifecycles.some(
-      ([supportedRunnerAdapter, supportedPhase]) =>
-        supportedRunnerAdapter === runnerAdapter && supportedPhase === phase,
+  const supportedRunnerAdapters = getOperationCatalogSupportedRunnerAdapters(operationName);
+  const supportedRunnerPhases = getOperationCatalogSupportedRunnerPhases(operationName);
+  if (
+    supportedRunnerLifecycles === undefined ||
+    supportedRunnerAdapters === undefined ||
+    supportedRunnerPhases === undefined
+  ) {
+    throw new Error(
+      `${operationName} runner lifecycle facts are missing from the operation catalog.`,
     );
+  }
 
-    if (!supportsLifecycle) {
-      if (runnerAdapter === 'external') {
-        if (supportedPhasesForRunnerAdapter.length > 0) {
-          throw new CliUsageError(
-            `${operationName} with --runner external requires ${formatPhaseRequirement(
-              supportedPhasesForRunnerAdapter,
-            )}.`,
-          );
-        }
-
-        throw new CliUsageError(
-          `${operationName} only supports ${supportedRunnerAdapters.join(
-            ', ',
-          )} with the ${supportedRunnerPhases.join(', ')} phase.`,
-        );
-      }
-
-      throw new CliUsageError(
-        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
-      );
-    }
-
-    if (runnerAdapter === 'external') {
-      return;
-    }
-
-    if (phase !== 'run') {
-      throw new CliUsageError(
-        `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
-      );
-    }
-
+  if (supportsOperationCatalogRunnerLifecycle(operationName, { phase, runnerAdapter })) {
     return;
   }
 
   if (runnerAdapter === 'external') {
-    if (phase === 'run') {
+    const supportedPhasesForRunnerAdapter = supportedRunnerLifecycles
+      .filter(([supportedRunnerAdapter]) => supportedRunnerAdapter === runnerAdapter)
+      .map(([, supportedPhase]) => supportedPhase);
+    if (supportedPhasesForRunnerAdapter.length > 0) {
       throw new CliUsageError(
-        `${operationName} with --runner external requires "--phase prepare" or "--phase complete".`,
+        `${operationName} with --runner external requires ${formatPhaseRequirement(
+          supportedPhasesForRunnerAdapter,
+        )}.`,
       );
     }
 
-    return;
-  }
-
-  if (phase !== 'run') {
     throw new CliUsageError(
-      `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+      `${operationName} only supports ${supportedRunnerAdapters.join(
+        ', ',
+      )} with the ${supportedRunnerPhases.join(', ')} phase.`,
     );
   }
+
+  throw new CliUsageError(
+    `${operationName} with --runner ${runnerAdapter} only supports the default run phase.`,
+  );
 }
 
 /**

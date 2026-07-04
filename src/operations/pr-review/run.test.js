@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import {
-  GITHUB_ACTIONS_BOT_AUTHOR,
   runPrReview,
   runPrReviewCodexActionFinalize,
   runPrReviewCodexActionPrepare,

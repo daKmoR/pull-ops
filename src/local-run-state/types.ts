@@ -119,7 +119,7 @@ export interface RecordLocalRunWaitingForRunnerOptions {
   statePath: string;
   summary: string;
   phase?: string;
-  runnerJob: ExternalRunnerJob;
+  runnerJob?: ExternalRunnerJob;
   at?: Date;
 }
 

@@ -45,7 +45,7 @@ export async function executeExternalRunnerHandoff({ runnerJob, runWorker, runCo
       return completeOutput;
     }
 
-    currentRunnerJob = completeOutput.runnerJob;
+    currentRunnerJob = assertExternalRunnerJob(completeOutput.runnerJob);
   }
 
   throw new Error(
@@ -93,7 +93,10 @@ async function runExternalRunnerWorker(runnerJob, runWorker) {
   let status;
   try {
     status = normalizeWorkerStatus(await runWorker(runnerJob));
-  } catch {
+  } catch (error) {
+    process.stderr.write(
+      `External runner worker failed: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
     status = 'failed';
   }
 
@@ -161,12 +164,43 @@ function parseCommandOutput(stdout) {
     return {};
   }
 
-  const output = JSON.parse(trimmed);
+  /** @type {unknown} */
+  let output;
+  try {
+    output = JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(
+      `External runner command output must be valid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
+  }
+
   if (!isRecord(output)) {
     throw new Error('External runner command output must be a JSON object.');
   }
 
   return output;
+}
+
+/**
+ * @param {ExternalRunnerJob} runnerJob
+ * @returns {ExternalRunnerJob}
+ */
+function assertExternalRunnerJob(runnerJob) {
+  for (const field of /** @type {const} */ ([
+    'completionCommands',
+    'completeCommand',
+    'outputFile',
+    'cwd',
+  ])) {
+    if (runnerJob[field] === undefined) {
+      throw new Error(`External runner waiting output runnerJob is missing "${field}".`);
+    }
+  }
+
+  return runnerJob;
 }
 
 /**

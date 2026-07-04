@@ -5,6 +5,7 @@ import {
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
+import { GITHUB_ACTIONS_BOT_COMMITTER } from '../githubActionsBot.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -12,11 +13,6 @@ import { requireOperationCatalogOperationLabelName } from '../operationCatalog.j
  * @typedef {import('../../git/types.js').GitRebaseResult} GitRebaseResult
  * @typedef {import('../../git/types.js').GitPushWithLeaseResult} GitPushWithLeaseResult
  */
-
-const GITHUB_ACTIONS_BOT_COMMITTER = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
 
 /**
  * @param {OperationRunnerContext} context

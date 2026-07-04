@@ -19,6 +19,7 @@ import {
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { validatePrResolveConflictsOutput } from './output.js';
 import { buildPrResolveConflictsPrompt } from './prompt.js';
+import { GITHUB_ACTIONS_BOT_COMMITTER } from '../githubActionsBot.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -33,11 +34,6 @@ import { buildPrResolveConflictsPrompt } from './prompt.js';
  */
 
 const CONFLICT_PASS_STATE_FILE = 'pr_resolve_conflicts_state.json';
-const GITHUB_ACTIONS_BOT_COMMITTER = {
-  name: 'github-actions[bot]',
-  email: '41898282+github-actions[bot]@users.noreply.github.com',
-};
-
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}

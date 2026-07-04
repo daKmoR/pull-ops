@@ -21,6 +21,7 @@ import {
   LOCAL_RUN_HEARTBEAT_COMMAND,
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
+  normalizeOperationReferenceForPath,
   recordLocalRunTerminalStatus,
 } from '../local-run-state/localRunState.js';
 import { getOperationCatalogOperationLabelReferenceForWorkflowOperation } from './operationCatalog.js';
@@ -753,19 +754,6 @@ function isClosedIssue(issue) {
  */
 async function writeLocalPullRequestRunArtifact(runRecord, fileName, contents) {
   await writeFile(join(runRecord.directory, fileName), contents);
-}
-
-/**
- * @param {string} reference
- * @returns {string}
- */
-function normalizeOperationReferenceForPath(reference) {
-  return reference
-    .trim()
-    .toLowerCase()
-    .replaceAll(':', '-')
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 /**

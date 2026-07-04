@@ -30,6 +30,7 @@ import {
   LOCAL_RUN_HEARTBEAT_COMMAND,
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
+  normalizeOperationReferenceForPath,
   recordLocalRunTerminalStatus,
 } from '../../local-run-state/localRunState.js';
 import { validateIssueImplementOutput } from './output.js';
@@ -47,8 +48,6 @@ import { createIssueImplementPullRequestBody } from './prBody.js';
  * @typedef {import('./run.types.js').BlockIssueDryRunOptions} BlockIssueDryRunOptions
  * @typedef {import('./run.types.js').ReusableFinalizedDryRunRecord} ReusableFinalizedDryRunRecord
  */
-
-export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 const LOCAL_FINALIZED_REVIEW_CYCLE_GUARD = 12;
 
@@ -2259,19 +2258,6 @@ async function createLocalRunRecord(
           },
     runLink: stateRecord.runLink,
   };
-}
-
-/**
- * @param {string} reference
- * @returns {string}
- */
-function normalizeOperationReferenceForPath(reference) {
-  return reference
-    .trim()
-    .toLowerCase()
-    .replaceAll(':', '-')
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
 }
 
 /**

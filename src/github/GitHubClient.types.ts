@@ -66,7 +66,6 @@ export interface GitHubApiClient {
       update: OctokitEndpoint;
     };
     repos: { getCombinedStatusForRef: OctokitEndpoint };
-    search: { issuesAndPullRequests: OctokitEndpoint };
   };
 }
 

@@ -259,6 +259,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
@@ -271,7 +272,9 @@ jobs:
         run: npm ci
 
       - name: Run PullOps prepare PRD
-        run: npm exec pullops -- run prd-prepare --issue @@{{ inputs.issue }}
+        run: |
+          git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
+          npm exec pullops -- run prd-prepare --issue @@{{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -511,9 +514,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: pullops-prd-auto-complete-@@{{ inputs.issue }}
@@ -528,6 +529,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           token: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
@@ -667,6 +669,8 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -676,7 +680,7 @@ jobs:
           OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true
@@ -926,6 +930,8 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -935,7 +941,7 @@ jobs:
           OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'
+        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true
@@ -1431,7 +1437,7 @@ function renderPrResolveConflictsPass(pass) {
   const codexCondition =
     pass === 1
       ? "steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'"
-      : `steps.${handoffStep}.outputs.run_runner == 'true'`;
+      : `steps.${handoffStep}.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'`;
   const restoreCondition =
     pass === 1 ? 'always()' : `always() && steps.${handoffStep}.outputs.run_runner == 'true'`;
   const recordCondition =
@@ -1645,6 +1651,8 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -1654,7 +1662,7 @@ jobs:
           OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true

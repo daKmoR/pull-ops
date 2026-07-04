@@ -108,6 +108,8 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
+        id: openai_key
+        continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
             echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
@@ -117,7 +119,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true'
+        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
         id: codex
         uses: openai/codex-action@v1
         continue-on-error: true

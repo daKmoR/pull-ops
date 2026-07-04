@@ -323,10 +323,20 @@ describe('operationCatalog', () => {
         `pullops-${operationName}.yml`,
       );
       assert.equal(getOperationCatalogPackageScriptName(operationName), `pullops:${operationName}`);
-      assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles(operationName), [
-        ['codex-cli', 'run'],
-      ]);
-      assert.deepEqual(getOperationCatalogSupportedRunnerAdapters(operationName), ['codex-cli']);
+      const supportsExternalRun = operationName === 'prd-auto-complete';
+      assert.deepEqual(
+        getOperationCatalogSupportedRunnerLifecycles(operationName),
+        supportsExternalRun
+          ? [
+              ['codex-cli', 'run'],
+              ['external', 'run'],
+            ]
+          : [['codex-cli', 'run']],
+      );
+      assert.deepEqual(
+        getOperationCatalogSupportedRunnerAdapters(operationName),
+        supportsExternalRun ? ['codex-cli', 'external'] : ['codex-cli'],
+      );
       assert.deepEqual(getOperationCatalogSupportedRunnerPhases(operationName), ['run']);
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {
@@ -334,6 +344,13 @@ describe('operationCatalog', () => {
           runnerAdapter: 'codex-cli',
         }),
         true,
+      );
+      assert.equal(
+        supportsOperationCatalogRunnerLifecycle(operationName, {
+          phase: 'run',
+          runnerAdapter: 'external',
+        }),
+        supportsExternalRun,
       );
       assert.equal(
         supportsOperationCatalogRunnerLifecycle(operationName, {

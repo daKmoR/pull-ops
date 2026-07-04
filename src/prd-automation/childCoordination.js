@@ -256,7 +256,7 @@ async function coordinateLocalPrdAutomation(
           runChildIssue,
           runChildPullRequestOperation,
         });
-        await recordLocalPrdChildResult(context, children, localResult.child);
+        await recordLocalPrdChildResult(runContext, children, localResult.child);
         preserveInspectableBranchState =
           preserveInspectableBranchState || shouldPreserveInspectableBranchState(localResult.child);
 
@@ -1237,9 +1237,20 @@ async function createObservedLocalPrdChildRunLink(
     createdAt: recordedAt,
     parentRun,
   });
+  const terminalStatus = mapObservedLocalPrdChildStatusToTerminalStatus(child.status);
+  if (terminalStatus === undefined) {
+    await recordLocalRunWaitingForRunner({
+      statePath: stateRecord.statePath,
+      summary: child.summary,
+      phase: readObservedLocalPrdChildPhase(child, operationReference),
+      runnerJob: child.runnerJob,
+    });
+    return stateRecord.runLink;
+  }
+
   await recordLocalRunTerminalStatus({
     statePath: stateRecord.statePath,
-    status: mapObservedLocalPrdChildStatusToTerminalStatus(child.status),
+    status: terminalStatus,
     summary: child.summary,
     phase: readObservedLocalPrdChildPhase(child, operationReference),
   });
@@ -1271,9 +1282,19 @@ function readLocalPrdChildRunOperationReference(child) {
   return 'issue:implement';
 }
 
+const OBSERVED_LOCAL_PRD_CHILD_ACCEPTED_STATUSES = new Set([
+  'accepted',
+  'closed',
+  'dry-run-completed',
+  'finalized',
+  'merged',
+  'ready-for-human-merge',
+  'skipped',
+]);
+
 /**
  * @param {string} status
- * @returns {import('../local-run-state/types.js').LocalRunTerminalStatus}
+ * @returns {import('../local-run-state/types.js').LocalRunTerminalStatus | undefined}
  */
 function mapObservedLocalPrdChildStatusToTerminalStatus(status) {
   if (status === 'blocked' || status === 'human-required') {
@@ -1288,7 +1309,11 @@ function mapObservedLocalPrdChildStatusToTerminalStatus(status) {
     return 'refused';
   }
 
-  return 'accepted';
+  if (OBSERVED_LOCAL_PRD_CHILD_ACCEPTED_STATUSES.has(status)) {
+    return 'accepted';
+  }
+
+  return undefined;
 }
 
 /**
@@ -3216,16 +3241,6 @@ function selectLocalParentPullRequestOperation(pullRequest) {
     return 'pr-address-review';
   }
 
-  if (
-    state.status === 'Review feedback addressed' ||
-    state.status === 'Review required' ||
-    state.status === 'Draft parent preparation' ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('prd-prepare') ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
-  ) {
-    return 'pr-review';
-  }
-
   return 'pr-review';
 }
 
@@ -4287,7 +4302,7 @@ async function blockPrdAutomation(context, issue, { reason, mode }) {
   });
   await context.githubClient.commentOnIssue({
     number: issue.number,
-    body: [`PullOps could not complete \`pullops run prd-${mode}\`.`, '', `Reason: ${reason}`].join(
+    body: [`PullOps could not complete \`pullops run prd:${mode}\`.`, '', `Reason: ${reason}`].join(
       '\n',
     ),
   });

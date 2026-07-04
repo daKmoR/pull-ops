@@ -111,7 +111,6 @@ describe('runPrdAutoAdvance', () => {
         createIssue({ number: 34, body: 'Part of: #12' }),
         createIssue({ number: 35, body: 'Part of: #99' }),
       ],
-      bodyReferences: [issueReference(34), issueReference(35)],
       pullRequests: [
         createPullRequest({
           number: 200,
@@ -3216,7 +3215,6 @@ function readParentPullRequest(result) {
 /**
  * @param {object} options
  * @param {GitHubIssue[]} options.issues
- * @param {GitHubIssueReference[]} [options.bodyReferences]
  * @param {GitHubPullRequest[]} [options.pullRequests]
  * @param {Map<string, GitHubCheckRun[]>} [options.checksByRef]
  * @returns {{
@@ -3234,12 +3232,7 @@ function readParentPullRequest(result) {
  *   readyPullRequests: number[];
  * }}
  */
-function createFakeGitHub({
-  issues,
-  bodyReferences = [],
-  pullRequests = [],
-  checksByRef = new Map(),
-}) {
+function createFakeGitHub({ issues, pullRequests = [], checksByRef = new Map() }) {
   const issuesByNumber = new Map(issues.map(issue => [issue.number, issue]));
   const pullRequestsByHead = new Map(
     pullRequests.map(pullRequest => [pullRequest.headRefName, pullRequest]),
@@ -3328,9 +3321,6 @@ function createFakeGitHub({
       async findOpenPullRequestByHead(headBranch) {
         const pullRequest = pullRequestsByHead.get(headBranch);
         return pullRequest?.state === 'CLOSED' ? undefined : pullRequest;
-      },
-      async findIssuesByBodyReference() {
-        return bodyReferences;
       },
       async createDraftPullRequest(options) {
         createdPullRequests.push(options);

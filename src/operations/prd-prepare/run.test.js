@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
-import { GITHUB_ACTIONS_BOT_AUTHOR } from '../issue-implement/run.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { createPrdPrepareCommitMessage, runPrdPrepare } from './run.js';
 
 /**

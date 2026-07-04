@@ -6,8 +6,8 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createIssueImplementBranchName } from './branch.js';
+import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import {
-  GITHUB_ACTIONS_BOT_AUTHOR,
   runIssueImplement,
   runIssueImplementCodexActionFinalize,
   runIssueImplementCodexActionPrepare,

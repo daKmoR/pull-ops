@@ -19,7 +19,6 @@ export { PULL_OPS_LABELS } from '../labels/pullOpsLabels.js';
  * @typedef {import('./types.js').GitHubPullRequestReviewThread} GitHubPullRequestReviewThread
  * @typedef {import('./types.js').GitHubPullRequestFile} GitHubPullRequestFile
  * @typedef {import('./types.js').CreateDraftPullRequestOptions} CreateDraftPullRequestOptions
- * @typedef {import('./types.js').FindIssuesByBodyReferenceOptions} FindIssuesByBodyReferenceOptions
  * @typedef {import('./types.js').MergePullRequestOptions} MergePullRequestOptions
  * @typedef {import('./types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('./types.js').CommentOnIssueOptions} CommentOnIssueOptions
@@ -388,14 +387,6 @@ export function createGitHubClient({
         headBranch,
         state: 'all',
       });
-    },
-
-    /**
-     * @param {FindIssuesByBodyReferenceOptions} options
-     * @returns {Promise<GitHubIssueReference[]>}
-     */
-    async findIssuesByBodyReference({ fieldName, issueNumber }) {
-      return await findIssuesByBodyReference(api, getRepository(), { fieldName, issueNumber });
     },
 
     /**
@@ -909,23 +900,6 @@ async function getPullRequestReviewContext(octokit, repository, number) {
 /**
  * @param {GitHubApiClient} octokit
  * @param {GitHubRepository} repository
- * @param {FindIssuesByBodyReferenceOptions} options
- * @returns {Promise<GitHubIssueReference[]>}
- */
-async function findIssuesByBodyReference(octokit, repository, { fieldName, issueNumber }) {
-  const response = await octokit.rest.search.issuesAndPullRequests({
-    q: `repo:${repository.owner}/${repository.repo} is:issue "${fieldName}: #${issueNumber}"`,
-    per_page: 100,
-  });
-  const data = requirePlainObject(response.data, 'issue search response');
-  const items = requireArray(data.items, 'issue search response.items');
-
-  return items.flatMap((item, index) => parseSearchIssueReference(item, index));
-}
-
-/**
- * @param {GitHubApiClient} octokit
- * @param {GitHubRepository} repository
  * @returns {Promise<GitHubLabel[]>}
  */
 async function listLabels(octokit, repository) {
@@ -1185,14 +1159,23 @@ async function getPullRequestChecksForRef(octokit, repository, ref) {
  * @returns {Promise<GitHubCheckRun[]>}
  */
 async function listCheckRunsForRef(octokit, repository, ref) {
-  const response = await octokit.rest.checks.listForRef({
-    ...repository,
-    ref,
-    per_page: 100,
-  });
-  const data = requirePlainObject(response.data, 'check runs response');
-  const checkRuns = requireArray(data.check_runs, 'check runs response.check_runs');
-  return checkRuns.map((check, index) => parseCheckRun(check, index));
+  /** @type {GitHubCheckRun[]} */
+  const checkRuns = [];
+  for (let page = 1; ; page += 1) {
+    const response = await octokit.rest.checks.listForRef({
+      ...repository,
+      ref,
+      per_page: 100,
+      page,
+    });
+    const data = requirePlainObject(response.data, 'check runs response');
+    const pageCheckRuns = requireArray(data.check_runs, 'check runs response.check_runs');
+    const offset = checkRuns.length;
+    checkRuns.push(...pageCheckRuns.map((check, index) => parseCheckRun(check, offset + index)));
+    if (pageCheckRuns.length < 100) {
+      return checkRuns;
+    }
+  }
 }
 
 /**
@@ -1202,14 +1185,23 @@ async function listCheckRunsForRef(octokit, repository, ref) {
  * @returns {Promise<GitHubCheckRun[]>}
  */
 async function listStatusesForRef(octokit, repository, ref) {
-  const response = await octokit.rest.repos.getCombinedStatusForRef({
-    ...repository,
-    ref,
-    per_page: 100,
-  });
-  const data = requirePlainObject(response.data, 'combined status response');
-  const statuses = requireArray(data.statuses, 'combined status response.statuses');
-  return statuses.map((status, index) => parseStatus(status, index));
+  /** @type {GitHubCheckRun[]} */
+  const statuses = [];
+  for (let page = 1; ; page += 1) {
+    const response = await octokit.rest.repos.getCombinedStatusForRef({
+      ...repository,
+      ref,
+      per_page: 100,
+      page,
+    });
+    const data = requirePlainObject(response.data, 'combined status response');
+    const pageStatuses = requireArray(data.statuses, 'combined status response.statuses');
+    const offset = statuses.length;
+    statuses.push(...pageStatuses.map((status, index) => parseStatus(status, offset + index)));
+    if (pageStatuses.length < 100) {
+      return statuses;
+    }
+  }
 }
 
 /**
@@ -1390,31 +1382,6 @@ function parseIssueReference(value, source) {
     state: typeof value.state === 'string' ? value.state : undefined,
     relationshipSource: source,
   };
-}
-
-/**
- * @param {unknown} value
- * @param {number} index
- * @returns {GitHubIssueReference[]}
- */
-function parseSearchIssueReference(value, index) {
-  if (!isPlainObject(value)) {
-    throw new Error(`Expected issue search result at index ${index} to be an object.`);
-  }
-
-  if (isPlainObject(value.pull_request)) {
-    return [];
-  }
-
-  return [
-    {
-      number: requireNumber(value.number, `issue search result at index ${index}.number`),
-      title: typeof value.title === 'string' ? value.title : undefined,
-      url: readOptionalString(value.html_url, value.url),
-      state: typeof value.state === 'string' ? value.state.toUpperCase() : undefined,
-      relationshipSource: 'body',
-    },
-  ];
 }
 
 /**

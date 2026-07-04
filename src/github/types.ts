@@ -77,11 +77,6 @@ export interface CreateDraftPullRequestOptions {
   headBranch: string;
 }
 
-export interface FindIssuesByBodyReferenceOptions {
-  fieldName: string;
-  issueNumber: number;
-}
-
 export interface MergePullRequestOptions {
   number: number;
   method: 'merge' | 'squash' | 'rebase';
@@ -217,9 +212,6 @@ export interface GitHubClient {
   getPullRequestDiff(number: number): Promise<GitHubPullRequestDiff>;
   findOpenPullRequestByHead(headBranch: string): Promise<GitHubPullRequest | undefined>;
   findPullRequestByHead?(headBranch: string): Promise<GitHubPullRequest | undefined>;
-  findIssuesByBodyReference?(
-    options: FindIssuesByBodyReferenceOptions,
-  ): Promise<GitHubIssueReference[]>;
   createDraftPullRequest(options: CreateDraftPullRequestOptions): Promise<GitHubPullRequest>;
   createIssue?(options: CreateIssueOptions): Promise<GitHubIssue>;
   updateIssue?(options: UpdateIssueOptions): Promise<GitHubIssue>;
