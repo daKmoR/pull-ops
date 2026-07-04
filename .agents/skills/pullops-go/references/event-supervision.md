@@ -1,6 +1,7 @@
 # PullOps Event Supervision
 
-Use this reference while supervising `prd:auto-complete --events jsonl`.
+Use this reference while supervising
+`prd:auto-complete --runner external --events jsonl`.
 
 ## Reading Events
 
@@ -123,12 +124,12 @@ Before running any PullOps CLI command from this reference, read and follow
 When rerunning a PRD, include the same publication intent:
 
 ```bash
-npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --events jsonl --publish pr
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --runner external --events jsonl --publish pr
 ```
 
-When an event `suggestedActions[].argv` omits `--events jsonl`, add it back for
-PRD auto-complete supervision unless the suggested command is intentionally a
-different operation.
+When an event `suggestedActions[].argv` omits `--runner external` or
+`--events jsonl`, add them back for PRD auto-complete supervision unless the
+suggested command is intentionally a different operation.
 
 Use `PATH="/Users/thomasallmer/.volta/bin:$PATH"` in this repository when the
 local shell cannot find the expected Node version.

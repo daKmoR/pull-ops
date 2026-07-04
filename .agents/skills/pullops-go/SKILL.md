@@ -17,7 +17,7 @@ Before running any PullOps CLI command, read and follow
 
 1. If the user named a PRD, issue, PR, or command, classify it before asking
    anything:
-   - Parent PRD: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --events jsonl --publish pr`.
+   - Parent PRD: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --runner external --events jsonl --publish pr`.
    - Concrete issue or manually selected child issue: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run issue:implement <issue> --publish pr`.
    - Explicit PullOps PR operation: run the matching `pr:*` command the user named.
    Completion criterion: exactly one target and one command are selected, or
@@ -39,9 +39,9 @@ Before running any PullOps CLI command, read and follow
 
 1. Before running the CLI, record the current branch and `git status --short`.
    Avoid overwriting unrelated user changes.
-2. Run the selected command locally. Add `--events jsonl` for
-   `prd:auto-complete`; it is currently supported only for that operation. For
-   other operations, supervise stdout and run records.
+2. Run the selected command locally. Add `--runner external --events jsonl` for
+   `prd:auto-complete`; events are currently supported only for that operation.
+   For other operations, supervise stdout and run records.
 3. If a local command exits zero with `status: "waiting"` and a `runnerJob`,
    treat it as an executable handoff. If live stdout was interrupted, recover
    the same handoff from the newest matching Local Run State whose status is
@@ -63,7 +63,7 @@ Before running any PullOps CLI command, read and follow
      with its explicit `argv` and `env`, then continue the operator loop from
      that complete output.
    PullOps Heartbeats remain worker-owned liveness; the manager must not fake worker heartbeats.
-5. When supervising `prd:auto-complete --events jsonl`, read
+5. When supervising `prd:auto-complete --runner external --events jsonl`, read
    [`references/event-supervision.md`](references/event-supervision.md) before
    acting on events. Apply its event, liveness, and recovery rules. Completion
    criterion: every `run.summary` status, blocker, suggested action, and local
