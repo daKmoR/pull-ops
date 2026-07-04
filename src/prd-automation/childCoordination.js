@@ -2811,8 +2811,7 @@ async function completePublishedLocalUmbrellaPullRequest(
         ...inspected,
         status: 'waiting',
         summary: String(
-          output.summary ??
-            `Umbrella PR #${pullRequestNumber} is waiting for ${nextOperation}.`,
+          output.summary ?? `Umbrella PR #${pullRequestNumber} is waiting for ${nextOperation}.`,
         ),
         review,
         addressReviews,
@@ -3178,8 +3177,10 @@ function selectLocalChildPullRequestOperation(pullRequest) {
 
   if (
     state.status === 'Review feedback addressed' ||
+    state.status === 'Review required' ||
     state.status === 'Draft automation' ||
     state.lastOperation === requireOperationCatalogOperationLabelName('issue-implement') ||
+    state.lastOperation === requireOperationCatalogOperationLabelName('pr-finalize') ||
     state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
   ) {
     return 'pr-review';
