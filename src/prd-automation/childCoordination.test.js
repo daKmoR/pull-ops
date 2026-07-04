@@ -414,7 +414,91 @@ describe('PRD Child Coordination', () => {
     );
   });
 
-  it('03d: local auto-complete preserves refused run state for dirty worktree guardrails', async () => {
+  it('03d: local auto-complete runs Child PR operations from the child branch', async () => {
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+      pullRequests: [
+        createPullRequest({
+          number: 200,
+          headRefName: 'pullops/prd-12',
+          baseRefName: 'main',
+          body: parentPullRequestBody(12),
+        }),
+        createPullRequest({
+          number: 101,
+          headRefName: 'pullops/prd-12-issue-34',
+          baseRefName: 'pullops/prd-12',
+          body: reviewedChildPullRequestBody(34),
+        }),
+      ],
+    });
+    const git = createFakeGit();
+    git.client.hasChanges = async () => false;
+    git.client.fetchRemoteRefs = async () => {};
+    let currentBranch = 'main';
+    git.client.checkoutPullOpsBranch = async options => {
+      currentBranch = options.branchName;
+    };
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-child-pr-branch-'));
+    const runnerJob = {
+      cwd,
+      promptFile: join(cwd, 'runner_prompt.md'),
+      outputFile: join(cwd, 'runner_output.json'),
+      resultFile: join(cwd, 'runner_result.json'),
+      workerPrompt: 'Finalize PR #101.',
+      model: 'gpt-5.5',
+      branch: 'pullops/prd-12-issue-34',
+      completionCommands: {},
+      completeCommand: {
+        argv: ['npm', 'exec', '--', 'pullops', 'run', 'pr-finalize', '--pr', '101'],
+        env: {},
+      },
+    };
+
+    const result = await coordinateLocalPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        publicationMode: 'publish',
+        runGoal: 'finalized',
+        githubClient: github.client,
+        gitClient: git.client,
+      }),
+      {
+        parentIssueNumber: 12,
+        async runChildIssue() {
+          throw new Error('runChildIssue was not expected in this test.');
+        },
+        async runChildPullRequestOperation(request) {
+          assert.equal(request.operation, 'pr-finalize');
+          assert.equal(currentBranch, 'pullops/prd-12-issue-34');
+          return {
+            status: 'waiting',
+            summary: 'Prepared external finalize run.',
+            runnerJob,
+          };
+        },
+      },
+    );
+
+    assert.equal(result.status, 'waiting');
+    assert.deepEqual(
+      result.children?.map(child => [
+        child.issue.number,
+        child.status,
+        child.blockedOperation,
+        child.runnerJob,
+      ]),
+      [[34, 'waiting', 'pr:finalize', runnerJob]],
+    );
+  });
+
+  it('03e: local auto-complete preserves refused run state for dirty worktree guardrails', async () => {
     const git = createFakeGit();
     git.client.hasChanges = async () => true;
     const localRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-prd-dirty-worktree-'));
@@ -699,6 +783,29 @@ function reviewRequiredChildPullRequestBody(issueNumber) {
     `Source: Issue #${issueNumber}`,
     'Review cycles: 1 / 3',
     'Last operation: pullops:pr:finalize',
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+/**
+ * @param {number} issueNumber
+ * @returns {string}
+ */
+function reviewedChildPullRequestBody(issueNumber) {
+  return [
+    '## PullOps',
+    '',
+    'Managed: yes',
+    'Status: Review approved',
+    '',
+    '<details>',
+    '<summary>PullOps workflow state</summary>',
+    '',
+    `Source: Issue #${issueNumber}`,
+    'Review cycles: 1 / 3',
+    'Reviewed tree: reviewed-tree',
+    'Last operation: pullops:pr:review',
     '',
     '</details>',
   ].join('\n');

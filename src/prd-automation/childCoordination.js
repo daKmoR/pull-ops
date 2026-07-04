@@ -2124,6 +2124,8 @@ async function continuePublishedLocalChildPullRequest(
       });
     }
 
+    await checkoutLocalPullRequestHead(context, { pullRequest: currentPullRequest });
+
     const output = await runChildPullRequestOperation({
       pullRequestNumber: currentPullRequest.number,
       operation: nextOperation,
@@ -4237,6 +4239,31 @@ async function checkoutLocalPrdBase(context, { parentBranchName }) {
   await context.gitClient.checkoutPullOpsBranch({
     branchName: parentBranchName,
     baseBranch: context.config.baseBranch,
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {{ pullRequest: GitHubPullRequest }} options
+ * @returns {Promise<void>}
+ */
+async function checkoutLocalPullRequestHead(context, { pullRequest }) {
+  if (context.gitClient.fetchRemoteRefs === undefined) {
+    throw new Error('Git client does not support local remote ref fetching.');
+  }
+
+  if (context.gitClient.checkoutPullOpsBranch === undefined) {
+    throw new Error('Git client does not support local PullOps branch checkout.');
+  }
+
+  const baseBranch = pullRequest.baseRefName ?? context.config.baseBranch;
+  await context.gitClient.fetchRemoteRefs({
+    requiredBranchNames: [baseBranch],
+    optionalBranchNames: [pullRequest.headRefName],
+  });
+  await context.gitClient.checkoutPullOpsBranch({
+    branchName: pullRequest.headRefName,
+    baseBranch,
   });
 }
 
