@@ -36,12 +36,14 @@ import {
   mapLocalRunResultStatusToTerminalStatus,
   recordLocalRunChildRun,
   recordLocalRunTerminalStatus,
+  recordLocalRunWaitingForRunner,
 } from '../local-run-state/localRunState.js';
 import {
   createLocalPrdRunRecordLocation,
   normalizeOperationReferenceForPath,
 } from './localRunRecord.js';
 import { startPullOpsParentEventSink } from '../parent-event-sink/parentEventSink.js';
+import { isExternalRunnerWaitingOutput } from '../runner/externalRunnerHandoff.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -307,9 +309,10 @@ async function coordinateLocalPrdAutomation(
 
     await emitLocalPrdAutoCompletePhaseCompleted(runContext, children, parentIssue.number);
     await emitLocalPrdAutoCompleteParentWaiting(runContext, parentPullRequest);
+    const waitingRunnerJob = readWaitingRunnerJob({ children, parentPullRequest });
 
     return await completeLocalPrdRunRecord(runRecord, {
-      status: 'accepted',
+      status: waitingRunnerJob === undefined ? 'accepted' : 'waiting',
       summary: summarizeLocalPrdAutomation({
         mode,
         parentIssue,
@@ -331,6 +334,7 @@ async function coordinateLocalPrdAutomation(
         .filter(child => child.status === 'blocked')
         .map(child => child.issue.number),
       localNextSteps: buildLocalNextSteps({ mode, children, publicationMode, parentPullRequest }),
+      ...(waitingRunnerJob === undefined ? {} : { runnerJob: waitingRunnerJob }),
     });
   } catch (error) {
     await writeLocalPrdRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
@@ -1624,6 +1628,31 @@ async function coordinateLocalChildIssue(
   }
   context.parentEventSink?.closeChildRoute(childRunLink.runId);
   await progressReporter?.flush();
+  if (isExternalRunnerWaitingOutput(output)) {
+    const child = childResult({
+      issue: childIssue,
+      status: 'waiting',
+      summary: String(output.summary),
+      extra: {
+        branch: readOutputBranch(output, childBranchName),
+        localRunRecord: readOutputString(output, 'localRunRecord'),
+        publicationMode,
+        blockedPhase: 'prepare',
+        blockedOperation: 'issue:implement',
+        runnerJob: output.runnerJob,
+        ...dependencyDecisionExtra,
+      },
+    });
+    if (parentRun !== undefined) {
+      await recordLocalPrdChildRunState(parentRun, childRunLink, childRunStartedAt, child);
+    }
+    return localChildAutomation({
+      child,
+      stop: true,
+      restorePrdBase: publicationMode === 'publish',
+    });
+  }
+
   const status =
     output.status === 'blocked' ? 'blocked' : localImplementedChildStatus(publicationMode);
   const child = childResult({
@@ -2101,6 +2130,27 @@ async function continuePublishedLocalChildPullRequest(
       ...(parentRun === undefined ? {} : { parentRun }),
     });
     latestLocalRunRecord = readOutputString(output, 'localRunRecord') ?? latestLocalRunRecord;
+    if (isExternalRunnerWaitingOutput(output)) {
+      return withChildLocalRunRecord(
+        childPullRequestResult({
+          issue: childIssue,
+          pullRequest: currentPullRequest,
+          status: 'waiting',
+          summary: String(
+            output.summary ??
+              `Child PR #${currentPullRequest.number} is waiting for ${nextOperation}.`,
+          ),
+          extra: {
+            nextOperation,
+            blockedPhase: phaseForPullRequestOperation(nextOperation),
+            blockedOperation: operationReferenceForPullRequestOperation(nextOperation),
+            runnerJob: output.runnerJob,
+          },
+        }),
+        latestLocalRunRecord,
+      );
+    }
+
     if (output.status === 'blocked' || output.status === 'refused') {
       const blockedPhase =
         readOutputString(output, 'blockedPhase') ?? phaseForPullRequestOperation(nextOperation);
@@ -2756,6 +2806,22 @@ async function completePublishedLocalUmbrellaPullRequest(
 
   while (true) {
     const output = await runTrackedParentPullRequestOperation(nextOperation);
+    if (isExternalRunnerWaitingOutput(output)) {
+      return {
+        ...inspected,
+        status: 'waiting',
+        summary: String(
+          output.summary ??
+            `Umbrella PR #${pullRequestNumber} is waiting for ${nextOperation}.`,
+        ),
+        review,
+        addressReviews,
+        localRunRecords,
+        nextOperation: operationReferenceForPullRequestOperation(nextOperation),
+        runnerJob: output.runnerJob,
+      };
+    }
+
     if (output.status === 'blocked' || output.status === 'refused') {
       return completeBlockedPublishedUmbrellaPullRequest(inspected, {
         review,
@@ -3270,6 +3336,27 @@ function childResult({ issue, status, summary, extra = {} }) {
 
 /**
  * @param {object} options
+ * @param {ChildAutomationResult[]} options.children
+ * @param {ParentReviewResult | undefined} options.parentPullRequest
+ * @returns {import('../runner/types.js').ExternalRunnerJob | undefined}
+ */
+function readWaitingRunnerJob({ children, parentPullRequest }) {
+  const waitingChild = children.find(
+    child => child.status === 'waiting' && child.runnerJob !== undefined,
+  );
+  if (waitingChild?.runnerJob !== undefined) {
+    return waitingChild.runnerJob;
+  }
+
+  if (parentPullRequest?.status === 'waiting' && parentPullRequest.runnerJob !== undefined) {
+    return parentPullRequest.runnerJob;
+  }
+
+  return undefined;
+}
+
+/**
+ * @param {object} options
  * @param {GitHubIssue} options.issue
  * @param {GitHubPullRequest} options.pullRequest
  * @param {string} options.status
@@ -3589,6 +3676,26 @@ async function completeLocalPrdRunRecord(runRecord, result) {
     ...result,
     localRunRecord: runRecord.directory,
   };
+  if (result.status === 'waiting') {
+    const runnerJob = readResultRunnerJob(result);
+    if (runnerJob === undefined) {
+      throw new Error('Waiting local PRD run result must include runnerJob.');
+    }
+
+    await writeLocalPrdRunArtifact(
+      runRecord,
+      'result.json',
+      `${JSON.stringify(withRunRecord, null, 2)}\n`,
+    );
+    await recordLocalRunWaitingForRunner({
+      statePath: runRecord.statePath,
+      summary: result.summary,
+      phase: 'run',
+      runnerJob,
+    });
+    return withRunRecord;
+  }
+
   const terminalStatus = mapLocalRunResultStatusToTerminalStatus(
     /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (result.status),
   );
@@ -3606,6 +3713,14 @@ async function completeLocalPrdRunRecord(runRecord, result) {
     phase: 'run',
   });
   return withRunRecord;
+}
+
+/**
+ * @param {PrdAutomationResult} result
+ * @returns {import('../runner/types.js').ExternalRunnerJob | undefined}
+ */
+function readResultRunnerJob(result) {
+  return isExternalRunnerWaitingOutput(result) ? result.runnerJob : undefined;
 }
 
 /**
@@ -3890,6 +4005,12 @@ function buildLocalNextSteps({ mode, children, publicationMode, parentPullReques
 
   const waiting = children.find(child => child.status === 'waiting');
   if (waiting !== undefined) {
+    if (waiting.runnerJob !== undefined) {
+      return [
+        `Execute the external runner handoff for child issue #${waiting.issue.number}, then rerun PRD ${mode}.`,
+      ];
+    }
+
     return [
       `Wait for child issue #${waiting.issue.number} to finish review or checks, then rerun PRD ${mode}.`,
     ];
@@ -3954,6 +4075,13 @@ function buildLocalAutoCompleteDryRunNextSteps({ children, parentPullRequest, mo
 
   const waiting = children.find(child => child.status === 'waiting');
   if (waiting !== undefined) {
+    if (waiting.runnerJob !== undefined) {
+      steps.push(
+        `Execute the external runner handoff for child issue #${waiting.issue.number}, then rerun PRD ${mode}.`,
+      );
+      return steps;
+    }
+
     steps.push(
       `Wait for child issue #${waiting.issue.number} to finish review or checks, then rerun PRD ${mode}.`,
     );

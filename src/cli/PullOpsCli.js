@@ -1347,7 +1347,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = config.runner.adapter;
+    const runnerAdapter = parsedArgs.runnerAdapter ?? config.runner.adapter;
     const contextUsage = readContextUsage(this.env);
     const startedAt = new Date();
     const localRunRecordLocation =
@@ -2236,6 +2236,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
  *   runGoal: import('./types.js').OperationRunGoal,
+ *   runnerAdapter?: RunnerAdapter,
  *   eventsFormat?: 'jsonl',
  * }}
  */
@@ -2246,6 +2247,11 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     throw new CliUsageError(
       `Unknown backend "${rawBackend}" for ${reference}. Expected one of: local, github-actions.`,
     );
+  }
+
+  const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
+  if (runnerAdapter !== undefined && reference !== 'prd:auto-complete') {
+    throw new CliUsageError('--runner is only supported for local prd:auto-complete.');
   }
 
   const eventsFormat = parseOptionalStringOption(args, '--events', consumed);
@@ -2294,6 +2300,7 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
     targetNumber,
     publicationMode,
     runGoal,
+    ...(runnerAdapter === undefined ? {} : { runnerAdapter }),
     ...(eventsFormat === undefined ? {} : { eventsFormat }),
   };
 }
@@ -2654,6 +2661,26 @@ function parseRunnerAdapter(args, defaultRunnerAdapter, consumed) {
   const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
   if (rawRunner === undefined) {
     return defaultRunnerAdapter;
+  }
+
+  if (!isRunnerAdapter(rawRunner)) {
+    throw new CliUsageError(
+      `Unknown runner "${rawRunner}". Expected one of: ${RUNNER_ADAPTERS.join(', ')}.`,
+    );
+  }
+
+  return rawRunner;
+}
+
+/**
+ * @param {string[]} args
+ * @param {Set<number>} consumed
+ * @returns {RunnerAdapter | undefined}
+ */
+function parseOptionalRunnerAdapter(args, consumed) {
+  const rawRunner = parseOptionalStringOption(args, '--runner', consumed);
+  if (rawRunner === undefined) {
+    return undefined;
   }
 
   if (!isRunnerAdapter(rawRunner)) {

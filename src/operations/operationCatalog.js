@@ -19,6 +19,10 @@ const CODEX_BACKED_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
   ['external', 'prepare'],
   ['external', 'complete'],
 ]);
+const PRD_AUTO_COMPLETE_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
+  ['codex-cli', 'run'],
+  ['external', 'run'],
+]);
 
 const OPERATION_CATALOG_ENTRIES = Object.freeze([
   createOperationCatalogEntry({
@@ -66,7 +70,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: CODEX_CLI_RUN_LIFECYCLES,
+    supportedRunnerLifecycles: PRD_AUTO_COMPLETE_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-prd-auto-complete.yml',
     packageScriptName: 'pullops:prd-auto-complete',
     label: createOperationCatalogLabel({

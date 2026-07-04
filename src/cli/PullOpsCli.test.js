@@ -1511,6 +1511,60 @@ test('run prd:auto-complete accepts local PR publication', async () => {
   });
 });
 
+test('run prd:auto-complete accepts explicit external runner for local PR publication', async () => {
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const cli = new PullOpsCli({
+    stdout,
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'waiting',
+        summary: 'Prepared external PRD auto-complete handoff.',
+        runnerJob: {
+          cwd: '/repo',
+          promptFile: '/repo/.pullops/runs/runner_prompt.md',
+          outputFile: '/repo/.pullops/runs/runner_output.json',
+          resultFile: '/repo/.pullops/runs/runner_result.json',
+          workerPrompt: 'Use the pullops-go handoff.',
+          model: 'gpt-5.5',
+          branch: 'pullops/prd-123-issue-456',
+          completionCommands: {
+            success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+            failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+            cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+            skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+          },
+          completeCommand: {
+            argv: ['npm', 'exec', '--', 'pullops', 'run', 'issue-implement'],
+            env: {},
+          },
+        },
+      };
+    },
+  });
+
+  const exitCode = await cli.run([
+    'run',
+    'prd:auto-complete',
+    '123',
+    '--runner',
+    'external',
+    '--publish',
+    'pr',
+  ]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].operation, 'prd-auto-complete');
+  assert.equal(runnerCalls[0].runnerAdapter, 'external');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+  assert.equal(JSON.parse(stdout.text).status, 'waiting');
+});
+
 test('run prd:auto-complete emits jsonl event streams for local runs', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();

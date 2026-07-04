@@ -2451,7 +2451,67 @@ describe('runPrdAutoComplete', () => {
     );
   });
 
-  it('21: local dry-run auto-complete records child run links in parent run state', async () => {
+  it('21: local publish auto-complete surfaces manager-owned child external runner handoffs', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-external-waiting-'));
+    const parent = createIssue({
+      number: 12,
+      labels: ['pullops:prd:auto-complete'],
+      subIssues: [issueReference(34)],
+    });
+    const github = createFakeGitHub({
+      issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
+    });
+    const git = createFakeGit({
+      commitsSinceBase: [
+        childCommit({
+          childIssueNumber: 34,
+          parentIssueNumber: 12,
+          file: 'src/file.js',
+        }),
+      ],
+    });
+
+    const result = await runPrdAutoComplete(
+      createContext({
+        cwd,
+        operation: 'prd-auto-complete',
+        runnerAdapter: 'external',
+        executionBackend: 'local',
+        publicationMode: 'publish',
+        githubClient: github.client,
+        gitClient: git.client,
+      }),
+    );
+
+    assert.equal(result.status, 'waiting');
+    const runnerJob = /** @type {import('../../runner/types.js').ExternalRunnerJob} */ (
+      result.runnerJob
+    );
+    assert.equal(runnerJob.cwd, cwd);
+    assert.match(runnerJob.outputFile, /runner_output\.json$/);
+    assert.equal(
+      runnerJob.completeCommand.argv[runnerJob.completeCommand.argv.indexOf('run') + 1],
+      'issue-implement',
+    );
+    assert.deepEqual(
+      readChildResults(result).map(child => [child.issue.number, child.status, child.runnerJob]),
+      [[34, 'waiting', runnerJob]],
+    );
+
+    const parentState = JSON.parse(
+      await readFile(join(String(result.localRunRecord), 'state.json'), 'utf8'),
+    );
+    assert.equal(parentState.status, 'waiting');
+    assert.deepEqual(parentState.runnerJob, runnerJob);
+    assert.equal(parentState.childRuns.length, 1);
+    assert.equal(parentState.childRuns[0].status, 'waiting');
+
+    const childState = JSON.parse(await readFile(parentState.childRuns[0].statePath, 'utf8'));
+    assert.equal(childState.status, 'waiting');
+    assert.deepEqual(childState.runnerJob, runnerJob);
+  });
+
+  it('22: local dry-run auto-complete records child run links in parent run state', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-local-child-run-state-'));
     const parent = createIssue({
       number: 12,

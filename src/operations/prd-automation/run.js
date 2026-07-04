@@ -143,7 +143,10 @@ export async function runPrdAutoComplete(context) {
  * @returns {boolean}
  */
 function shouldRunNestedExternalHandoffs(context) {
-  return context.publicationMode === 'publish' && context.externalRunnerJobRunner !== undefined;
+  return (
+    context.publicationMode === 'publish' &&
+    (context.runnerAdapter === 'external' || context.externalRunnerJobRunner !== undefined)
+  );
 }
 
 /**
@@ -203,6 +206,10 @@ async function runLocalPublishedExternalIssueOperation(context, { childIssueNumb
     phase: 'prepare',
     runnerJob: output.runnerJob,
   });
+  if (context.externalRunnerJobRunner === undefined) {
+    return output;
+  }
+
   const completed = await executeExternalRunnerHandoff({
     runnerJob: output.runnerJob,
     runWorker: requireExternalRunnerJobRunner(context),
@@ -364,6 +371,10 @@ async function runLocalPublishedExternalPullRequestOperation(operationContext, o
     phase: 'prepare',
     runnerJob: output.runnerJob,
   });
+  if (operationContext.externalRunnerJobRunner === undefined) {
+    return output;
+  }
+
   return await executeExternalRunnerHandoff({
     runnerJob: output.runnerJob,
     runWorker: requireExternalRunnerJobRunner(operationContext),

@@ -514,6 +514,10 @@ function collectTerminalBlockers(result, children, options) {
  */
 function readChildTerminalBlocker(child) {
   if (isWaitingChildStatus(child.status)) {
+    if (child.runnerJob !== undefined) {
+      return undefined;
+    }
+
     return createRunBlocker({
       targetKind: child.pullRequest === undefined ? 'issue' : 'pull-request',
       targetNumber: child.pullRequest?.number ?? child.issue.number,
@@ -608,12 +612,17 @@ function isDependencyFrontierChildBlock(child) {
  *   summary?: string,
  *   pullRequest?: { number: number },
  *   nextOperation?: string,
+ *   runnerJob?: import('../../runner/types.js').ExternalRunnerJob,
  * } | undefined} parentPullRequest
  * @param {string} operationLabelReference
  * @returns {Record<string, unknown> | undefined}
  */
 function readParentTerminalBlocker(parentPullRequest, operationLabelReference) {
   if (parentPullRequest === undefined) {
+    return undefined;
+  }
+
+  if (parentPullRequest.runnerJob !== undefined) {
     return undefined;
   }
 
@@ -786,9 +795,13 @@ function createSuggestedCommandAction(action) {
 /**
  * @param {PrdAutomationResult} result
  * @param {Record<string, unknown>[]} blockers
- * @returns {'accepted' | 'blocked'}
+ * @returns {'accepted' | 'blocked' | 'waiting'}
  */
 function readTerminalStatus(result, blockers) {
+  if (result.status === 'waiting') {
+    return 'waiting';
+  }
+
   return result.status === 'blocked' || blockers.length > 0 ? 'blocked' : 'accepted';
 }
 
