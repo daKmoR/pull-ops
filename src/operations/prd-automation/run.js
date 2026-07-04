@@ -322,6 +322,16 @@ async function runLocalPublishedPullRequestOperation(
       join(runRecord.directory, 'result.json'),
       `${JSON.stringify(withRunRecord, null, 2)}\n`,
     );
+    if (isExternalRunnerWaitingOutput(output)) {
+      await recordLocalRunWaitingForRunner({
+        statePath: runRecord.statePath,
+        summary: String(output.summary),
+        phase: 'prepare',
+        runnerJob: output.runnerJob,
+      });
+      return withRunRecord;
+    }
+
     await recordLocalRunTerminalStatus({
       statePath: runRecord.statePath,
       status: mapLocalRunResultStatusToTerminalStatus(
