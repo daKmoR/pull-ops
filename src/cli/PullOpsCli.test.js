@@ -646,6 +646,77 @@ test('run issue:implement defaults to an external runner handoff inside Codex ho
   assert.deepEqual(output.runnerJob, runnerJob);
 });
 
+test('run issue:implement defaults to an external runner handoff inside Claude Code host', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-claude-hosted-issue-'));
+  const stdout = createWritableBuffer();
+  /** @type {OperationRunnerContext[]} */
+  const runnerCalls = [];
+  const runnerJob = {
+    cwd,
+    promptFile: join(cwd, '.pullops', 'runs', 'runner_prompt.md'),
+    outputFile: join(cwd, '.pullops', 'runs', 'runner_output.json'),
+    resultFile: join(cwd, '.pullops', 'runs', 'runner_result.json'),
+    workerPrompt: 'Use the pullops-issue-implement skill.',
+    model: 'gpt-5.5',
+    branch: 'pullops/issue-123',
+    completionCommands: {
+      success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      cancelled: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+      skipped: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
+    },
+    completeCommand: {
+      argv: [
+        'npm',
+        'exec',
+        '--',
+        'pullops',
+        'run',
+        'issue-implement',
+        '--runner',
+        'external',
+        '--phase',
+        'complete',
+        '--issue',
+        '123',
+      ],
+      env: {},
+    },
+  };
+  const cli = new PullOpsCli({
+    cwd,
+    stdout,
+    env: {
+      CLAUDECODE: '1',
+    },
+    gitClient: createFakeGitClient(),
+    operationRunner: async context => {
+      runnerCalls.push(context);
+      return {
+        status: 'waiting',
+        summary: 'Prepared external implement run for issue #123.',
+        runnerJob,
+      };
+    },
+  });
+
+  const exitCode = await cli.run(['run', 'issue:implement', '123', '--publish', 'pr']);
+
+  assert.equal(exitCode, 0);
+  assert.equal(runnerCalls.length, 1);
+  assert.equal(runnerCalls[0].phase, 'prepare');
+  assert.equal(runnerCalls[0].runnerAdapter, 'external');
+  assert.equal(runnerCalls[0].executionBackend, 'local');
+  assert.equal(runnerCalls[0].publicationMode, 'publish');
+  assert.equal(runnerCalls[0].runGoal, 'finalized');
+
+  const output = JSON.parse(stdout.text);
+  assert.equal(output.status, 'waiting');
+  assert.equal(output.localRunRecord, runnerCalls[0].outputDirectory);
+  assert.equal(output.runStatePath, join(runnerCalls[0].outputDirectory ?? '', 'state.json'));
+  assert.deepEqual(output.runnerJob, runnerJob);
+});
+
 test('run issue:implement accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */

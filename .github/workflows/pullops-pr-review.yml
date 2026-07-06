@@ -108,7 +108,7 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
+        id: runner_key
         continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -119,8 +119,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
+        if: steps.prepare.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'
+        id: runner
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
@@ -166,4 +166,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.codex.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: ${{ steps.runner.outcome }}

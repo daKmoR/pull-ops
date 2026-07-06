@@ -37,12 +37,12 @@ describe('pullops-issue-implement workflow', () => {
     assert.match(workflow, /name: Record failed runner result/);
     assert.match(workflow, /name: Record cancelled runner result/);
     assert.match(workflow, /name: Record skipped runner result/);
-    assert.match(workflow, /steps\.codex\.outcome == 'success'/);
+    assert.match(workflow, /steps\.runner\.outcome == 'success'/);
     assert.match(
       workflow,
-      /steps\.codex\.outcome != 'success' && steps\.codex\.outcome != 'cancelled'/,
+      /steps\.runner\.outcome != 'success' && steps\.runner\.outcome != 'cancelled'/,
     );
-    assert.match(workflow, /steps\.codex\.outcome == 'cancelled'/);
+    assert.match(workflow, /steps\.runner\.outcome == 'cancelled'/);
     assert.match(workflow, /steps\.prepare\.outputs\.run_runner != 'true'/);
     assert.match(
       workflow,

@@ -113,7 +113,7 @@ type them directly unless they are debugging a workflow.
 | `pullops run pr-finalize --pr <number>`          | `--pr`        | Shape a PullOps-managed PR into its final human-merge form.                                                     |
 | `pullops run pr-close-child-issue --pr <number>` | `--pr`        | Deterministically close a Child Issue after its same-repository Child Issue PR merges into the Umbrella Branch. |
 
-External runner workflow runs split Codex-backed operations into
+External runner workflow runs split runner-backed operations into
 `--runner external --phase prepare` and `--runner external --phase complete`
 commands. Those phase commands are workflow lifecycle plumbing, not
 maintainer-facing controls.

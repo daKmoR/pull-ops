@@ -187,7 +187,7 @@ async function runIssueImplementLocalPublish(context) {
       parentIssueNumber: preparation.parentIssueNumber,
     });
     await writeLocalRunArtifact(runRecord, 'prompt.md', prompt);
-    context.progress?.('Starting Codex runner.');
+    context.progress?.('Starting the PullOps runner.');
 
     let rawOutput;
     try {
@@ -204,7 +204,7 @@ async function runIssueImplementLocalPublish(context) {
       await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
       throw error;
     }
-    context.progress?.('Codex runner finished.');
+    context.progress?.('PullOps runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
     const output = await finalizePreparedIssueImplementLocalPublish(
@@ -335,7 +335,7 @@ async function runIssueImplementDryRun(context) {
       parentIssueNumber: preparation.parentIssueNumber,
     });
     await writeLocalRunArtifact(runRecord, 'prompt.md', prompt);
-    context.progress?.('Starting Codex runner.');
+    context.progress?.('Starting the PullOps runner.');
 
     let rawOutput;
     try {
@@ -352,7 +352,7 @@ async function runIssueImplementDryRun(context) {
       await writeLocalRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
       throw error;
     }
-    context.progress?.('Codex runner finished.');
+    context.progress?.('PullOps runner finished.');
 
     await writeLocalRunArtifact(runRecord, 'raw-runner-output.txt', formatArtifactValue(rawOutput));
     const output = await finalizePreparedIssueImplementDryRun(

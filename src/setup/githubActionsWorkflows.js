@@ -8,11 +8,15 @@ import {
 
 /**
  * @typedef {import('../operations/types.js').WorkflowOperation} WorkflowOperation
- * @typedef {{ prResolveConflictsMaxPasses: number }} WorkflowRenderOptions
+ * @typedef {import('../runner/types.js').RunnerCommandCli} RunnerCommandCli
+ * @typedef {{ prResolveConflictsMaxPasses: number, runnerCli: RunnerCommandCli }} WorkflowRenderOptions
  */
 
 const WORKFLOW_ROOT = join('.github', 'workflows');
 const DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES = 3;
+
+/** @type {RunnerCommandCli} */
+const DEFAULT_RUNNER_CLI = 'codex';
 
 /**
  * @param {Partial<WorkflowRenderOptions>} [options]
@@ -20,6 +24,7 @@ const DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES = 3;
  */
 export function renderPullOpsGitHubActionsWorkflowFiles({
   prResolveConflictsMaxPasses = DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES,
+  runnerCli = DEFAULT_RUNNER_CLI,
 } = {}) {
   /** @type {Map<string, string>} */
   const workflows = new Map();
@@ -30,7 +35,7 @@ export function renderPullOpsGitHubActionsWorkflowFiles({
       getOperationCatalogWorkflowFileName(operation.name) ?? `pullops-${operation.name}.yml`;
     workflows.set(
       join(WORKFLOW_ROOT, workflowFileName),
-      renderWorkflowOperation(operation.name, { prResolveConflictsMaxPasses }),
+      renderWorkflowOperation(operation.name, { prResolveConflictsMaxPasses, runnerCli }),
     );
   }
 
@@ -110,7 +115,7 @@ ${issueConditions}
       )
     runs-on: ubuntu-latest
     steps:
-      - name: Verify trigger actor can run Codex
+      - name: Verify trigger actor can run PullOps operations
         uses: actions/github-script@v8
         env:
           TRIGGER_ACTOR: @@{{ github.actor }}
@@ -126,7 +131,7 @@ ${issueConditions}
 
             if (!['admin', 'maintain', 'write'].includes(data.permission)) {
               core.setFailed(
-                \`Actor '@@{process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '@@{data.permission}'.\`,
+                \`Actor '@@{process.env.TRIGGER_ACTOR}' must have write access to run PullOps workflows. Detected permission: '@@{data.permission}'.\`,
               );
             }
 
@@ -169,7 +174,7 @@ ${pullRequestConditions}
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Verify trigger actor can run Codex
+      - name: Verify trigger actor can run PullOps operations
         uses: actions/github-script@v8
         env:
           TRIGGER_ACTOR: @@{{ github.actor }}
@@ -185,7 +190,7 @@ ${pullRequestConditions}
 
             if (!['admin', 'maintain', 'write'].includes(data.permission)) {
               core.setFailed(
-                \`Actor '@@{process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '@@{data.permission}'.\`,
+                \`Actor '@@{process.env.TRIGGER_ACTOR}' must have write access to run PullOps workflows. Detected permission: '@@{data.permission}'.\`,
               );
             }
 
@@ -286,9 +291,10 @@ jobs:
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderIssueImplementWorkflow() {
+function renderIssueImplementWorkflow(options) {
   return renderWorkflow(`name: PullOps Issue Implement
 
 on:
@@ -367,31 +373,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
 
-      - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
-
-      - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
-          output-file: @@{{ steps.prepare.outputs.output_file }}
-          model: @@{{ steps.prepare.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner == 'true'" })}
 
       - name: Restore Node for PullOps complete
         if: always()
@@ -401,15 +383,15 @@ jobs:
           cache: npm
 
       - name: Record successful runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'success'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record failed runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome != 'success' && steps.codex.outcome != 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome != 'success' && steps.runner.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record cancelled runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record skipped runner result
@@ -556,9 +538,10 @@ jobs:
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrReviewWorkflow() {
+function renderPrReviewWorkflow(options) {
   return renderWorkflow(`name: PullOps PR Review
 
 on:
@@ -667,31 +650,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
 
-      - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
-
-      - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
-          output-file: @@{{ steps.prepare.outputs.output_file }}
-          model: @@{{ steps.prepare.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner == 'true'" })}
 
       - name: Restore Node for PullOps complete
         if: always()
@@ -727,14 +686,15 @@ jobs:
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.runner.outcome }}
 `);
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrAddressReviewWorkflow() {
+function renderPrAddressReviewWorkflow(options) {
   return renderWorkflow(`name: PullOps PR Address Review
 
 on:
@@ -928,31 +888,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ env.TRIGGER_ACTOR }}
 
-      - name: Verify OpenAI API key
-        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
-
-      - name: Run Codex
-        if: steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
-          output-file: @@{{ steps.prepare.outputs.output_file }}
-          model: @@{{ steps.prepare.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${renderExternalRunnerSteps(options, { gateIf: "steps.gate.outputs.run_operation == 'true' && steps.prepare.outputs.run_runner == 'true'" })}
 
       - name: Restore Node for PullOps complete
         if: always() && steps.gate.outputs.run_operation == 'true'
@@ -993,14 +929,15 @@ jobs:
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ env.TRIGGER_ACTOR }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.runner.outcome }}
 `);
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrFixCiWorkflow() {
+function renderPrFixCiWorkflow(options) {
   return renderWorkflow(`name: PullOps PR Fix CI
 
 on:
@@ -1125,31 +1062,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ env.TRIGGER_ACTOR }}
 
-      - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
-
-      - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
-          output-file: @@{{ steps.prepare.outputs.output_file }}
-          model: @@{{ steps.prepare.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner == 'true'" })}
 
       - name: Restore Node for PullOps complete
         if: always()
@@ -1159,15 +1072,15 @@ jobs:
           cache: npm
 
       - name: Record successful runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'success'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record failed runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome != 'success' && steps.codex.outcome != 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome != 'success' && steps.runner.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record cancelled runner result
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex.outcome == 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "@@{{ steps.prepare.outputs.result_file }}"
 
       - name: Record skipped runner result
@@ -1288,10 +1201,11 @@ jobs:
  * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrResolveConflictsWorkflow({ prResolveConflictsMaxPasses }) {
+function renderPrResolveConflictsWorkflow(options) {
+  const { prResolveConflictsMaxPasses } = options;
   assertPositiveInteger(prResolveConflictsMaxPasses, 'prResolveConflictsMaxPasses');
   const conflictPassSteps = Array.from({ length: prResolveConflictsMaxPasses }, (_, index) =>
-    renderPrResolveConflictsPass(index + 1),
+    renderPrResolveConflictsPass(index + 1, options),
   ).join('\n\n');
 
   return renderWorkflow(`name: PullOps PR Resolve Conflicts
@@ -1405,17 +1319,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
 
-      - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
+${renderRunnerApiKeyStep(options, { runIf: "steps.prepare.outputs.run_runner == 'true'" })}
 
 ${conflictPassSteps}
 
@@ -1430,14 +1334,15 @@ ${conflictPassSteps}
 
 /**
  * @param {number} pass
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrResolveConflictsPass(pass) {
+function renderPrResolveConflictsPass(pass, options) {
   const handoffStep = pass === 1 ? 'prepare' : `complete_${pass - 1}`;
-  const codexCondition =
+  const runnerCondition =
     pass === 1
-      ? "steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'"
-      : `steps.${handoffStep}.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'`;
+      ? "steps.prepare.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'"
+      : `steps.${handoffStep}.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'`;
   const restoreCondition =
     pass === 1 ? 'always()' : `always() && steps.${handoffStep}.outputs.run_runner == 'true'`;
   const recordCondition =
@@ -1457,19 +1362,12 @@ function renderPrResolveConflictsPass(pass) {
         run: npm exec pullops -- runner-result --status skipped --file "@@{{ steps.prepare.outputs.result_file }}"`
       : '';
 
-  return `      - name: Run Codex conflict pass ${pass}
-        if: ${codexCondition}
-        id: codex_${pass}
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.${handoffStep}.outputs.prompt_file }}
-          output-file: @@{{ steps.${handoffStep}.outputs.output_file }}
-          model: @@{{ steps.${handoffStep}.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+  return `${renderRunnerRunStep(options, {
+    runIf: runnerCondition,
+    stepId: `runner_${pass}`,
+    stepNameSuffix: ` conflict pass ${pass}`,
+    handoffStep,
+  })}
 
       - name: Restore Node after conflict pass ${pass}
         if: ${restoreCondition}
@@ -1479,15 +1377,15 @@ function renderPrResolveConflictsPass(pass) {
           cache: npm
 
       - name: Record successful runner result for conflict pass ${pass}
-        if: ${recordCondition} && steps.codex_${pass}.outcome == 'success'
+        if: ${recordCondition} && steps.runner_${pass}.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "@@{{ steps.${handoffStep}.outputs.result_file }}"
 
       - name: Record failed runner result for conflict pass ${pass}
-        if: ${recordCondition} && steps.codex_${pass}.outcome != 'success' && steps.codex_${pass}.outcome != 'cancelled'
+        if: ${recordCondition} && steps.runner_${pass}.outcome != 'success' && steps.runner_${pass}.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "@@{{ steps.${handoffStep}.outputs.result_file }}"
 
       - name: Record cancelled runner result for conflict pass ${pass}
-        if: ${recordCondition} && steps.codex_${pass}.outcome == 'cancelled'
+        if: ${recordCondition} && steps.runner_${pass}.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "@@{{ steps.${handoffStep}.outputs.result_file }}"${skippedResultStep}
 
       - name: Complete PullOps resolve conflicts pass ${pass}
@@ -1527,6 +1425,98 @@ function renderPrResolveConflictsPass(pass) {
 }
 
 /**
+ * Render the API key verification and runner steps for one external runner
+ * handoff. The Runner Command CLI decides whether the workflow runs the
+ * Codex Action or the Claude Code Action.
+ *
+ * @param {WorkflowRenderOptions} options
+ * @param {{ gateIf: string }} step
+ * @returns {string}
+ */
+function renderExternalRunnerSteps(options, { gateIf }) {
+  return [
+    renderRunnerApiKeyStep(options, { runIf: gateIf }),
+    '',
+    renderRunnerRunStep(options, {
+      runIf: `${gateIf} && steps.runner_key.outcome == 'success'`,
+    }),
+  ].join('\n');
+}
+
+/**
+ * @param {WorkflowRenderOptions} options
+ * @param {{ runIf: string }} step
+ * @returns {string}
+ */
+function renderRunnerApiKeyStep({ runnerCli }, { runIf }) {
+  if (runnerCli === 'claude') {
+    return `      - name: Verify Anthropic API key
+        if: ${runIf}
+        id: runner_key
+        continue-on-error: true
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY repository Actions secret is required to run anthropics/claude-code-action." >&2
+            exit 1
+          fi
+        env:
+          ANTHROPIC_API_KEY: @@{{ secrets.ANTHROPIC_API_KEY }}`;
+  }
+
+  return `      - name: Verify OpenAI API key
+        if: ${runIf}
+        id: runner_key
+        continue-on-error: true
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
+            exit 1
+          fi
+        env:
+          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}`;
+}
+
+/**
+ * @param {WorkflowRenderOptions} options
+ * @param {{ runIf: string, stepId?: string, stepNameSuffix?: string, handoffStep?: string }} step
+ * @returns {string}
+ */
+function renderRunnerRunStep(
+  { runnerCli },
+  { runIf, stepId = 'runner', stepNameSuffix = '', handoffStep = 'prepare' },
+) {
+  if (runnerCli === 'claude') {
+    return `      - name: Run Claude Code${stepNameSuffix}
+        if: ${runIf}
+        id: ${stepId}
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          anthropic_api_key: @@{{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Read the file @@{{ steps.${handoffStep}.outputs.prompt_file }} and follow the instructions in it exactly.
+          claude_args: |
+            --model @@{{ steps.${handoffStep}.outputs.model }}
+            --dangerously-skip-permissions
+          allowed_bots: '*'`;
+  }
+
+  return `      - name: Run Codex${stepNameSuffix}
+        if: ${runIf}
+        id: ${stepId}
+        uses: openai/codex-action@v1
+        continue-on-error: true
+        with:
+          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
+          prompt-file: @@{{ steps.${handoffStep}.outputs.prompt_file }}
+          output-file: @@{{ steps.${handoffStep}.outputs.output_file }}
+          model: @@{{ steps.${handoffStep}.outputs.model }}
+          sandbox: workspace-write
+          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
+          allow-bots: true`;
+}
+
+/**
  * @param {number} value
  * @param {string} name
  */
@@ -1537,9 +1527,10 @@ function assertPositiveInteger(value, name) {
 }
 
 /**
+ * @param {WorkflowRenderOptions} options
  * @returns {string}
  */
-function renderPrFinalizeWorkflow() {
+function renderPrFinalizeWorkflow(options) {
   return renderWorkflow(`name: PullOps PR Finalize
 
 on:
@@ -1649,31 +1640,7 @@ jobs:
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
 
-      - name: Verify OpenAI API key
-        if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
-        continue-on-error: true
-        run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "OPENAI_API_KEY repository Actions secret is required to run openai/codex-action." >&2
-            exit 1
-          fi
-        env:
-          OPENAI_API_KEY: @@{{ secrets.OPENAI_API_KEY }}
-
-      - name: Run Codex
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex
-        uses: openai/codex-action@v1
-        continue-on-error: true
-        with:
-          openai-api-key: @@{{ secrets.OPENAI_API_KEY }}
-          prompt-file: @@{{ steps.prepare.outputs.prompt_file }}
-          output-file: @@{{ steps.prepare.outputs.output_file }}
-          model: @@{{ steps.prepare.outputs.model }}
-          sandbox: workspace-write
-          codex-args: '["--config","approval_policy=\\"never\\"","--ephemeral"]'
-          allow-bots: true
+${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner == 'true'" })}
 
       - name: Restore Node for PullOps complete
         if: always()
@@ -1709,7 +1676,7 @@ jobs:
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           GITHUB_ACTOR: @@{{ inputs.trigger_actor }}
-          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.codex.outcome }}
+          PULLOPS_EXTERNAL_RUNNER_OUTCOME: @@{{ steps.runner.outcome }}
 `);
 }
 

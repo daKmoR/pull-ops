@@ -89,11 +89,11 @@ The maintained npm-package logic invoked by generated workflows to execute a Pul
 _Avoid_: Workflow script, action code
 
 **Runner Command**:
-The Target Repository configuration that tells PullOps how to invoke the AI coding agent for a PullOps Operation.
+The Target Repository configuration that tells PullOps how to invoke the AI coding agent for a PullOps Operation. The command's executable names the agent CLI: `claude` commands drive the Claude Code CLI, and every other command keeps Codex CLI conventions.
 _Avoid_: Provider config, model command
 
 **Runner Adapter**:
-The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
+The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `external` splits execution across prepare, hosted runner, and finalize workflow steps.
 _Avoid_: Phase, task script, provider
 
 **Runner Lifecycle**:

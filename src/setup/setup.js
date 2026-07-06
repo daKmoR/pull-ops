@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
+import { readRunnerCommandCli } from '../runner/runnerCommand.js';
 import {
   createGitHubClient,
   MISSING_GITHUB_AUTHENTICATION_BLOCKER,
@@ -62,7 +63,10 @@ const AGENT_DOC_TARGETS = [
   'docs/agents/triage-labels.md',
   'docs/agents/domain.md',
 ];
-const GITHUB_ACTIONS_REQUIRED_SECRETS = ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'];
+const GITHUB_ACTIONS_RUNNER_API_KEY_SECRETS = {
+  codex: 'OPENAI_API_KEY',
+  claude: 'ANTHROPIC_API_KEY',
+};
 const UNTRACKED_MANIFEST_PATHS = new Set([CONFIG_PATH, ...AGENT_DOC_TARGETS]);
 
 const SETUP_SKILLS_AREA = 'skills';
@@ -1082,9 +1086,11 @@ async function inspectGitHubActionsReadiness({
       ...(repository === undefined ? {} : { repository }),
       readGitHubAuthToken,
     });
-    const missingSecrets = GITHUB_ACTIONS_REQUIRED_SECRETS.filter(
-      secret => !secretNames.includes(secret),
-    );
+    const requiredSecrets = [
+      'PULLOPS_GITHUB_TOKEN',
+      GITHUB_ACTIONS_RUNNER_API_KEY_SECRETS[await readConfiguredRunnerCli({ cwd })],
+    ];
+    const missingSecrets = requiredSecrets.filter(secret => !secretNames.includes(secret));
 
     if (missingSecrets.length > 0) {
       warnings.push(`Missing repository Actions secrets: ${missingSecrets.join(', ')}.`);
@@ -1337,7 +1343,21 @@ async function collectGitHubActionsWorkflowFileContents({ cwd }) {
   const config = await loadPullOpsConfig({ cwd });
   return renderPullOpsGitHubActionsWorkflowFiles({
     prResolveConflictsMaxPasses: config.operations.prResolveConflicts.maxConflictResolutionPasses,
+    runnerCli: readRunnerCommandCli(config.runner.command),
   });
+}
+
+/**
+ * @param {{ cwd: string }} options
+ * @returns {Promise<import('../runner/types.js').RunnerCommandCli>}
+ */
+async function readConfiguredRunnerCli({ cwd }) {
+  try {
+    const config = await loadPullOpsConfig({ cwd });
+    return readRunnerCommandCli(config.runner.command);
+  } catch {
+    return 'codex';
+  }
 }
 
 /**

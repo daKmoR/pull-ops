@@ -3,6 +3,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
+import { parseRunnerCommand, readRunnerCommandCli } from './runnerCommand.js';
+
+export { parseRunnerCommand } from './runnerCommand.js';
+
 /**
  * @typedef {import('./types.js').CodexRunner} CodexRunner
  * @typedef {import('./types.js').CodexRunOptions} CodexRunOptions
@@ -11,6 +15,11 @@ import { basename, join, resolve } from 'node:path';
  */
 
 /**
+ * Create the inline CLI runner used by the codex-cli Runner Adapter. The
+ * configured Runner Command decides which agent CLI runs: `claude` commands
+ * use Claude Code CLI conventions, every other command uses Codex CLI
+ * conventions.
+ *
  * @param {{ spawn?: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} [options]
  * @returns {CodexRunner}
  */
@@ -20,119 +29,111 @@ export function createCodexRunner({ spawn = nodeSpawn, output, traceCommand } = 
      * @param {CodexRunOptions} options
      * @returns {Promise<string>}
      */
-    async run({ cwd, command, model, prompt, streamOutput = true, env }) {
-      const runnerCommand = parseRunnerCommand(command);
-      const baseArgs = [...runnerCommand.args, '--model', model, '-C', cwd];
-      const codexLastMessage = await createCodexLastMessageCapture({
-        cwd,
-        file: runnerCommand.file,
-        args: baseArgs,
-      });
-      const args =
-        codexLastMessage === undefined
-          ? [...baseArgs, prompt]
-          : [...baseArgs, '--output-last-message', codexLastMessage.path, prompt];
-      traceCommand?.(formatRunnerCommand(runnerCommand.file, args));
-
-      try {
-        const result = await runStreamingProcess({
-          spawn,
-          file: runnerCommand.file,
-          args,
-          cwd,
-          env,
-          output: streamOutput ? output : undefined,
-        });
-
-        if (codexLastMessage !== undefined) {
-          try {
-            return await readFile(codexLastMessage.path, 'utf8');
-          } catch {
-            return result.stdout;
-          }
-        }
-
-        const configuredLastMessagePath = readConfiguredLastMessagePath({ cwd, args: baseArgs });
-        if (configuredLastMessagePath !== undefined) {
-          try {
-            return await readFile(configuredLastMessagePath, 'utf8');
-          } catch {
-            return result.stdout;
-          }
-        }
-
-        return result.stdout;
-      } finally {
-        if (codexLastMessage !== undefined) {
-          await rm(codexLastMessage.directory, { recursive: true, force: true });
-        }
+    async run(options) {
+      if (readRunnerCommandCli(options.command) === 'claude') {
+        return await runClaudeCommand({ spawn, output, traceCommand }, options);
       }
+
+      return await runCodexCommand({ spawn, output, traceCommand }, options);
     },
   };
 }
 
 /**
- * @param {string} command
- * @returns {{ file: string, args: string[] }}
+ * @param {{ spawn: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} runner
+ * @param {CodexRunOptions} options
+ * @returns {Promise<string>}
  */
-export function parseRunnerCommand(command) {
-  const parts = splitCommand(command);
-  const file = parts[0];
+async function runCodexCommand(
+  { spawn, output, traceCommand },
+  { cwd, command, model, prompt, streamOutput = true, env },
+) {
+  const runnerCommand = parseRunnerCommand(command);
+  const baseArgs = [...runnerCommand.args, '--model', model, '-C', cwd];
+  const codexLastMessage = await createCodexLastMessageCapture({
+    cwd,
+    file: runnerCommand.file,
+    args: baseArgs,
+  });
+  const args =
+    codexLastMessage === undefined
+      ? [...baseArgs, prompt]
+      : [...baseArgs, '--output-last-message', codexLastMessage.path, prompt];
+  traceCommand?.(formatRunnerCommand(runnerCommand.file, args));
 
-  if (file === undefined) {
-    throw new Error('PullOps runner.command must include an executable.');
+  try {
+    const result = await runStreamingProcess({
+      spawn,
+      file: runnerCommand.file,
+      args,
+      cwd,
+      env,
+      output: streamOutput ? output : undefined,
+      cliDisplayName: 'Codex',
+    });
+
+    if (codexLastMessage !== undefined) {
+      try {
+        return await readFile(codexLastMessage.path, 'utf8');
+      } catch {
+        return result.stdout;
+      }
+    }
+
+    const configuredLastMessagePath = readConfiguredLastMessagePath({ cwd, args: baseArgs });
+    if (configuredLastMessagePath !== undefined) {
+      try {
+        return await readFile(configuredLastMessagePath, 'utf8');
+      } catch {
+        return result.stdout;
+      }
+    }
+
+    return result.stdout;
+  } finally {
+    if (codexLastMessage !== undefined) {
+      await rm(codexLastMessage.directory, { recursive: true, force: true });
+    }
   }
-
-  return {
-    file,
-    args: parts.slice(1),
-  };
 }
 
 /**
- * @param {string} command
- * @returns {string[]}
+ * Run the Claude Code CLI headless. Claude prints the final message to stdout
+ * in print mode, works from the spawn working directory, and does not support
+ * Codex flags such as `-C` or `--output-last-message`.
+ *
+ * @param {{ spawn: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} runner
+ * @param {CodexRunOptions} options
+ * @returns {Promise<string>}
  */
-function splitCommand(command) {
-  /** @type {string[]} */
-  const parts = [];
-  let current = '';
-  /** @type {'single' | 'double' | undefined} */
-  let quote;
+async function runClaudeCommand(
+  { spawn, output, traceCommand },
+  { cwd, command, model, prompt, streamOutput = true, env },
+) {
+  const runnerCommand = parseRunnerCommand(command);
+  const printArgs = hasClaudePrintFlag(runnerCommand.args) ? [] : ['--print'];
+  const args = [...runnerCommand.args, ...printArgs, '--model', model, prompt];
+  traceCommand?.(formatRunnerCommand(runnerCommand.file, args));
 
-  for (let index = 0; index < command.length; index += 1) {
-    const char = command[index];
+  const result = await runStreamingProcess({
+    spawn,
+    file: runnerCommand.file,
+    args,
+    cwd,
+    env,
+    output: streamOutput ? output : undefined,
+    cliDisplayName: 'Claude',
+  });
 
-    if (quote === undefined && /\s/.test(char)) {
-      if (current !== '') {
-        parts.push(current);
-        current = '';
-      }
-      continue;
-    }
+  return result.stdout;
+}
 
-    if (char === "'" && quote !== 'double') {
-      quote = quote === 'single' ? undefined : 'single';
-      continue;
-    }
-
-    if (char === '"' && quote !== 'single') {
-      quote = quote === 'double' ? undefined : 'double';
-      continue;
-    }
-
-    current += char;
-  }
-
-  if (quote !== undefined) {
-    throw new Error('PullOps runner.command contains an unterminated quote.');
-  }
-
-  if (current !== '') {
-    parts.push(current);
-  }
-
-  return parts;
+/**
+ * @param {string[]} args
+ * @returns {boolean}
+ */
+function hasClaudePrintFlag(args) {
+  return args.includes('-p') || args.includes('--print');
 }
 
 /**
@@ -143,9 +144,10 @@ function splitCommand(command) {
  * @param {string} options.cwd
  * @param {NodeJS.ProcessEnv | undefined} options.env
  * @param {RunnerOutput | undefined} options.output
+ * @param {string} options.cliDisplayName
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
-function runStreamingProcess({ spawn, file, args, cwd, env, output }) {
+function runStreamingProcess({ spawn, file, args, cwd, env, output, cliDisplayName }) {
   return new Promise((resolvePromise, rejectPromise) => {
     /** @type {import('./types.js').RunnerSpawnOptions} */
     const spawnOptions = {
@@ -192,8 +194,8 @@ function runStreamingProcess({ spawn, file, args, cwd, env, output }) {
 
         const reason =
           code === null
-            ? `Codex runner exited from signal ${signal ?? 'unknown'}`
-            : `Codex runner exited with code ${code}`;
+            ? `${cliDisplayName} runner exited from signal ${signal ?? 'unknown'}`
+            : `${cliDisplayName} runner exited with code ${code}`;
         const detail = stderr.trim() === '' ? stdout.trim() : stderr.trim();
         const message = detail === '' ? reason : `${reason}: ${detail}`;
         const error = new Error(message);

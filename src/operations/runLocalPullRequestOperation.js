@@ -80,7 +80,7 @@ export async function runLocalPullRequestOperation(context, options = {}) {
 }
 
 /**
- * Run one local codex runner step for an Operation Module's local flow:
+ * Run one inline CLI runner step for an Operation Module's local flow:
  * record the prompt artifact, run the runner with the Local Run Record's
  * heartbeat environment, record the raw output artifact, and validate.
  *

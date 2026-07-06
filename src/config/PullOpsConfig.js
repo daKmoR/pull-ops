@@ -12,6 +12,7 @@ import {
   isRunnerAdapter,
   RUNNER_ADAPTERS,
 } from '../runner/runnerAdapters.js';
+import { readRunnerCommandCli } from '../runner/runnerCommand.js';
 
 /**
  * @typedef {import('./types.js').ModelTier} ModelTier
@@ -22,6 +23,13 @@ import {
 
 /** @type {ModelTier[]} */
 export const MODEL_TIERS = ['high', 'mid', 'low'];
+
+/** @type {Record<ModelTier, string>} */
+export const CLAUDE_RUNNER_MODEL_DEFAULTS = {
+  high: 'claude-opus-4-8',
+  mid: 'claude-sonnet-5',
+  low: 'claude-haiku-4-5',
+};
 
 /** @type {PullOpsConfig} */
 export const DEFAULT_PULL_OPS_CONFIG = {
@@ -350,6 +358,8 @@ function mergeConfig(userConfig) {
     }
     if (runner.models !== undefined) {
       config.runner.models = /** @type {Record<ModelTier, string>} */ ({ ...runner.models });
+    } else if (readRunnerCommandCli(config.runner.command) === 'claude') {
+      config.runner.models = { ...CLAUDE_RUNNER_MODEL_DEFAULTS };
     }
   }
 

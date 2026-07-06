@@ -578,6 +578,30 @@ describe('setup github-actions', () => {
     );
   });
 
+  it('04b: requires the Anthropic API key secret for claude Runner Commands', async () => {
+    const cwd = await createSetupRepository({ includeGitHubRemote: true });
+    await runPullOpsInit({ cwd });
+    await writeFile(
+      join(cwd, 'pullops.config.js'),
+      ['export default {', '  runner: {', "    command: 'claude',", '  },', '};', ''].join('\n'),
+    );
+    await runPullOpsSetupGitHubActions({ cwd });
+
+    const result = await runPullOpsSetupDoctor({
+      cwd,
+      profile: 'github-actions',
+      readGitHubAuthToken: readReadyGitHubAuthToken,
+      readRepositoryActionsSecretNames: async () => ['PULLOPS_GITHUB_TOKEN', 'OPENAI_API_KEY'],
+      readRepositoryLabels: async () => PULL_OPS_LABELS.map(label => ({ ...label })),
+    });
+
+    assert.equal(result.status, 'ready');
+    assert.match(
+      joinMessages(result.warnings),
+      /Missing repository Actions secrets: ANTHROPIC_API_KEY\./,
+    );
+  });
+
   it('05: warns when repository Actions secrets cannot be inspected', async () => {
     const cwd = await createSetupRepository({ includeGitHubRemote: true });
     await runPullOpsInit({ cwd });
@@ -710,6 +734,47 @@ describe('setup github-actions', () => {
       /COMPLETE_JSON: \$\{\{ runner\.temp \}\}\/pullops-output\/complete-4\.json/,
     );
     assert.match(workflow, /steps\.complete_4\.outputs\.run_runner == 'true'/);
+  });
+
+  it('09b: generates Claude Code runner steps for claude Runner Commands', async () => {
+    const cwd = await createSetupRepository();
+    await runPullOpsInit({ cwd });
+    await writeFile(
+      join(cwd, 'pullops.config.js'),
+      [
+        'export default {',
+        '  runner: {',
+        "    command: 'claude --permission-mode bypassPermissions',",
+        '  },',
+        '};',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await runPullOpsSetupGitHubActions({ cwd });
+
+    assert.equal(result.status, 'changed');
+    const workflow = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-issue-implement.yml'),
+      'utf8',
+    );
+    assert.match(workflow, /Verify Anthropic API key/);
+    assert.match(workflow, /ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
+    assert.match(workflow, /uses: anthropics\/claude-code-action@v1/);
+    assert.match(workflow, /--model \$\{\{ steps\.prepare\.outputs\.model \}\}/);
+    assert.doesNotMatch(workflow, /openai\/codex-action/);
+    assert.doesNotMatch(workflow, /OPENAI_API_KEY/);
+
+    const conflictsWorkflow = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-pr-resolve-conflicts.yml'),
+      'utf8',
+    );
+    assert.match(conflictsWorkflow, /Run Claude Code conflict pass 3/);
+    assert.match(
+      conflictsWorkflow,
+      /Read the file \$\{\{ steps\.complete_2\.outputs\.prompt_file \}\} and follow the instructions in it exactly\./,
+    );
+    assert.doesNotMatch(conflictsWorkflow, /openai\/codex-action/);
   });
 
   it('10: force-reconciles one setup area while another manifest-owned area has also drifted', async () => {

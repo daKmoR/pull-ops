@@ -2140,8 +2140,8 @@ describe('runPrdAutoComplete', () => {
       [
         `Local Run Record: ${childRunRecord}`,
         'Checking local worktree.',
-        'Starting Codex runner.',
-        'Codex runner finished.',
+        'Starting the PullOps runner.',
+        'PullOps runner finished.',
       ],
     );
     assert.equal(progressWriter.events[9]?.status, 'merged');

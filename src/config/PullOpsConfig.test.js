@@ -182,6 +182,57 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.prdPrepare.modelTier, 'low');
 });
 
+test('loadPullOpsConfig defaults model tiers to Claude models for claude Runner Commands', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-claude-models-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runner: {
+          command: 'claude --permission-mode bypassPermissions',
+        },
+      };
+    `,
+  );
+
+  const config = await loadPullOpsConfig({ cwd });
+
+  assert.equal(config.runner.adapter, 'codex-cli');
+  assert.equal(config.runner.command, 'claude --permission-mode bypassPermissions');
+  assert.deepEqual(config.runner.models, {
+    high: 'claude-opus-4-8',
+    mid: 'claude-sonnet-5',
+    low: 'claude-haiku-4-5',
+  });
+});
+
+test('loadPullOpsConfig keeps configured models for claude Runner Commands', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-claude-model-overrides-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runner: {
+          command: 'claude',
+          models: {
+            high: 'claude-model-high',
+            mid: 'claude-model-mid',
+            low: 'claude-model-low',
+          },
+        },
+      };
+    `,
+  );
+
+  const config = await loadPullOpsConfig({ cwd });
+
+  assert.deepEqual(config.runner.models, {
+    high: 'claude-model-high',
+    mid: 'claude-model-mid',
+    low: 'claude-model-low',
+  });
+});
+
 test('loadPullOpsConfig rejects unknown runner adapters', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-adapter-'));
   await writeFile(
