@@ -8,12 +8,10 @@ import {
 } from '../../prd-automation/childCoordination.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import {
-  createExternalRunnerJob,
-  createSkippedCodexActionOutput,
-  isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from '../codexAction.js';
+  finalizeOperationRunnerStep,
+  prepareOperationRunnerStep,
+  runOperationRunnerStep,
+} from '../runnerLifecycle.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { getParentIssueNumber } from '../issueDependencies.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
@@ -72,30 +70,63 @@ export async function runIssueImplement(context) {
     return await runIssueImplementLocalPublish(context);
   }
 
+  return await runOperationRunnerStep(context, createIssueImplementRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../runnerLifecycle.types.js').RunnerLifecycleOperation>}
+ */
+async function createIssueImplementRunnerOperation(context) {
   const preparation = await prepareIssueImplement(context);
   if (!preparation.ready) {
-    return preparation.output;
+    return { status: 'settled', output: preparation.output };
   }
 
-  let rawOutput;
+  return buildIssueImplementRunnerStep(context, preparation);
+}
 
-  try {
-    rawOutput = await context.codexRunner.run({
-      cwd: context.cwd,
-      command: context.config.runner.command,
-      model: context.model,
-      prompt: buildIssueImplementPrompt({
-        issue: preparation.issue,
-        parentIssueNumber: preparation.parentIssueNumber,
-      }),
-      streamOutput: context.suppressRunnerOutput !== true,
-    });
-  } catch (error) {
-    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
-    throw error;
-  }
+/**
+ * The finalize phase reads the branch prepared earlier instead of preparing
+ * it again, so a finished external runner result is never re-prepared away.
+ *
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../runnerLifecycle.types.js').RunnerLifecycleOperation>}
+ */
+async function createPreparedIssueImplementRunnerOperation(context) {
+  return buildIssueImplementRunnerStep(context, await readPreparedIssueImplement(context));
+}
 
-  return await finalizePreparedIssueImplement(context, preparation, rawOutput);
+/**
+ * @param {OperationRunnerContext} context
+ * @param {IssueImplementPreparation & { ready: true }} preparation
+ * @returns {import('../runnerLifecycle.types.js').RunnerLifecycleOperation}
+ */
+function buildIssueImplementRunnerStep(context, preparation) {
+  return {
+    status: 'runner',
+    prompt: buildIssueImplementPrompt({
+      issue: preparation.issue,
+      parentIssueNumber: preparation.parentIssueNumber,
+    }),
+    model: context.model,
+    branch: preparation.branchName,
+    runOptions: { streamOutput: context.suppressRunnerOutput !== true },
+    waiting: {
+      summary: `Prepared external implement run for issue #${preparation.issue.number}.`,
+      details: {
+        issue: {
+          number: preparation.issue.number,
+          url: preparation.issue.url,
+        },
+      },
+    },
+    finalize: async rawOutput =>
+      await finalizePreparedIssueImplement(context, preparation, rawOutput),
+    onRunnerFailure: async error => {
+      await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
+    },
+  };
 }
 
 /**
@@ -358,38 +389,7 @@ async function runIssueImplementDryRun(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplementCodexActionPrepare(context) {
-  const preparation = await prepareIssueImplement(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  let handoff;
-  try {
-    handoff = await writeCodexActionPrompt(
-      context,
-      buildIssueImplementPrompt({
-        issue: preparation.issue,
-        parentIssueNumber: preparation.parentIssueNumber,
-      }),
-      { branch: preparation.branchName },
-    );
-  } catch (error) {
-    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
-    throw error;
-  }
-
-  return {
-    status: 'waiting',
-    summary: `Prepared external implement run for issue #${preparation.issue.number}.`,
-    issue: {
-      number: preparation.issue.number,
-      url: preparation.issue.url,
-    },
-    runnerJob: createExternalRunnerJob(context, handoff, {
-      model: context.model,
-      branch: preparation.branchName,
-    }),
-  };
+  return await prepareOperationRunnerStep(context, createIssueImplementRunnerOperation);
 }
 
 /**
@@ -397,22 +397,13 @@ export async function runIssueImplementCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplementCodexActionFinalize(context) {
-  let rawOutput;
-
-  try {
-    rawOutput = await readCodexActionOutput(context);
-  } catch (error) {
-    if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
-    }
-
-    const preparation = await readPreparedIssueImplement(context);
-    await recordIssueFailure(context, preparation.issue, getErrorMessage(error));
-    throw error;
-  }
-
-  const preparation = await readPreparedIssueImplement(context);
-  return await finalizePreparedIssueImplement(context, preparation, rawOutput);
+  return await finalizeOperationRunnerStep(context, createPreparedIssueImplementRunnerOperation, {
+    order: 'output-first',
+    onOutputError: async (outputErrorContext, error) => {
+      const preparation = await readPreparedIssueImplement(outputErrorContext);
+      await recordIssueFailure(outputErrorContext, preparation.issue, getErrorMessage(error));
+    },
+  });
 }
 
 /**

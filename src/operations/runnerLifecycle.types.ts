@@ -41,7 +41,7 @@ export interface RunnerStepLifecycleOperation {
 
 export interface RunnerLifecycleRunOptions {
   streamOutput?: boolean;
-  env?: Record<string, string>;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunnerLifecycleWaiting {
