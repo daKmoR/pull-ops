@@ -651,9 +651,9 @@ function createContext(overrides = {}) {
     model: 'gpt-5.4-mini',
     githubClient: createFakeGitHub({ issues: [createIssue({ number: 12 })] }).client,
     gitClient: createFakeGit().client,
-    codexRunner: {
+    runner: {
       async run() {
-        throw new Error('codexRunner.run was not expected in this test.');
+        throw new Error('runner.run was not expected in this test.');
       },
     },
     ...overrides,

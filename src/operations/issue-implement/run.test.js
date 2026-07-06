@@ -9,8 +9,8 @@ import { createIssueImplementBranchName } from './branch.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import {
   runIssueImplement,
-  runIssueImplementCodexActionFinalize,
-  runIssueImplementCodexActionPrepare,
+  runIssueImplementExternalRunnerFinalize,
+  runIssueImplementExternalRunnerPrepare,
 } from './run.js';
 
 /**
@@ -32,7 +32,7 @@ import {
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
  * @typedef {import('../../git/types.js').PushBranchWithLeaseOptions} PushBranchWithLeaseOptions
  * @typedef {import('../../git/types.js').ResetHardToRevisionOptions} ResetHardToRevisionOptions
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  * @typedef {import('../../config/types.js').PullOpsConfig} PullOpsConfig
  */
 
@@ -41,7 +41,7 @@ describe('runIssueImplement', () => {
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented the first operation.',
@@ -54,7 +54,7 @@ describe('runIssueImplement', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         triggerActor: 'octocat',
       }),
     );
@@ -66,10 +66,10 @@ describe('runIssueImplement', () => {
         baseBranch: 'main',
       },
     ]);
-    assert.equal(codex.calls.length, 1);
-    assert.equal(codex.calls[0].command, 'codex exec');
-    assert.equal(codex.calls[0].model, 'gpt-5.5');
-    assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.equal(fakeRunner.calls[0].command, 'codex exec');
+    assert.equal(fakeRunner.calls[0].model, 'gpt-5.5');
+    assert.match(fakeRunner.calls[0].prompt, /Use the pullops-issue-implement skill/);
     assert.deepEqual(git.commits, [
       {
         message: [
@@ -138,19 +138,19 @@ describe('runIssueImplement', () => {
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
-    const result = await runIssueImplementCodexActionPrepare(
+    const result = await runIssueImplementExternalRunnerPrepare(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'waiting');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.branches, [
       {
         branchName: 'pullops/issue-42',
@@ -214,16 +214,16 @@ describe('runIssueImplement', () => {
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
-    const result = await runIssueImplementCodexActionPrepare(
+    const result = await runIssueImplementExternalRunnerPrepare(
       createContext({
         executionBackend: 'local',
         publicationMode: 'publish',
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         outputDirectory,
       }),
     );
@@ -258,19 +258,19 @@ describe('runIssueImplement', () => {
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
-    const result = await runIssueImplementCodexActionFinalize(
+    const result = await runIssueImplementExternalRunnerFinalize(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.branches, []);
     assert.deepEqual(git.commits, [
       {
@@ -311,14 +311,14 @@ describe('runIssueImplement', () => {
     const issue = createIssue({ number: 42, title: 'Add the first operation' });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
-    const result = await runIssueImplementCodexActionFinalize(
+    const result = await runIssueImplementExternalRunnerFinalize(
       createContext({
         executionBackend: 'local',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         outputDirectory,
       }),
     );
@@ -340,7 +340,7 @@ describe('runIssueImplement', () => {
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented the selected child issue.',
@@ -353,14 +353,14 @@ describe('runIssueImplement', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Parent Issue #1: PRD/);
-    assert.match(codex.calls[0].prompt, /Implement only the selected Child Issue/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Parent Issue #1: PRD/);
+    assert.match(fakeRunner.calls[0].prompt, /Implement only the selected Child Issue/);
     assert.deepEqual(git.branches, [
       {
         branchName: 'pullops/prd-1-issue-42',
@@ -413,7 +413,7 @@ describe('runIssueImplement', () => {
       },
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented the selected child issue.',
@@ -426,7 +426,7 @@ describe('runIssueImplement', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -450,7 +450,7 @@ describe('runIssueImplement', () => {
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -460,13 +460,13 @@ describe('runIssueImplement', () => {
         },
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /Use pullops:prd:prepare/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
     assert.match(github.comments[0].body, /Use pullops:prd:prepare/);
   });
@@ -485,7 +485,7 @@ describe('runIssueImplement', () => {
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -495,14 +495,14 @@ describe('runIssueImplement', () => {
         },
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /child issues/);
     assert.match(String(result.summary), /Use pullops:prd:prepare/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
 
@@ -514,19 +514,19 @@ describe('runIssueImplement', () => {
     });
     const github = createFakeGitHub({ issue });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /closed/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
 
@@ -543,19 +543,19 @@ describe('runIssueImplement', () => {
       },
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.match(String(result.summary), /already exists/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
     assert.equal(github.createdPullRequests.length, 0);
     assert.deepEqual(github.issueLabelsRemoved, [
@@ -570,7 +570,7 @@ describe('runIssueImplement', () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-failure-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Done.',
@@ -583,7 +583,7 @@ describe('runIssueImplement', () => {
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: fakeRunner.runner,
           outputDirectory,
         }),
       ),
@@ -615,7 +615,7 @@ describe('runIssueImplement', () => {
     const git = createFakeGit({
       failOn: action => action === 'pushBranch',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented the issue.',
@@ -629,7 +629,7 @@ describe('runIssueImplement', () => {
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: fakeRunner.runner,
         }),
       ),
       /push failed/,
@@ -661,19 +661,19 @@ describe('runIssueImplement', () => {
       ]),
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /#7/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
     assert.deepEqual(github.issueLabelsAdded, []);
   });
@@ -696,19 +696,19 @@ describe('runIssueImplement', () => {
       ]),
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /#7/);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
 
@@ -741,13 +741,13 @@ describe('runIssueImplement', () => {
     );
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
-    const result = await runIssueImplementCodexActionFinalize(
+    const result = await runIssueImplementExternalRunnerFinalize(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         outputDirectory,
       }),
     );
@@ -758,7 +758,7 @@ describe('runIssueImplement', () => {
       adapter: 'external',
       status: 'skipped',
     });
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
     assert.equal(github.comments.length, 0);
@@ -776,21 +776,21 @@ describe('runIssueImplement', () => {
     );
     const github = createFakeGitHub({ issue: createIssue({ number: 42 }) });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
-      runIssueImplementCodexActionFinalize(
+      runIssueImplementExternalRunnerFinalize(
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: fakeRunner.runner,
           outputDirectory,
         }),
       ),
       /External runner completed with status "failed"/,
     );
 
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.commits.length, 0);
     assert.equal(git.pushes.length, 0);
     assert.match(github.comments[0].body, /External runner completed with status "failed"/);
@@ -833,7 +833,7 @@ describe('runIssueImplement', () => {
       const git = createFakeGit();
 
       await assert.rejects(
-        runIssueImplementCodexActionFinalize(
+        runIssueImplementExternalRunnerFinalize(
           createContext({
             githubClient: github.client,
             gitClient: git.client,
@@ -853,7 +853,7 @@ describe('runIssueImplement', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-dirty-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
     const git = createFakeGit({ hasChangesResults: [true] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
       runIssueImplement(
@@ -862,13 +862,13 @@ describe('runIssueImplement', () => {
           publicationMode: 'dry-run',
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: fakeRunner.runner,
         }),
       ),
       /requires a clean worktree/,
     );
 
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, []);
     assert.deepEqual(git.checkouts, []);
     assert.deepEqual(github.issueLookups, []);
@@ -894,7 +894,7 @@ describe('runIssueImplement', () => {
       hasChangesResults: [false, true],
       patch: 'diff --git a/src/file.js b/src/file.js\n',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented locally.',
@@ -923,7 +923,7 @@ describe('runIssueImplement', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -938,9 +938,9 @@ describe('runIssueImplement', () => {
     ]);
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.deepEqual(git.pushes, []);
-    assert.equal(codex.calls[0].cwd, cwd);
-    assert.equal(codex.calls[0].command, 'custom-runner exec');
-    assert.equal(codex.calls[0].model, 'gpt-local-high');
+    assert.equal(fakeRunner.calls[0].cwd, cwd);
+    assert.equal(fakeRunner.calls[0].command, 'custom-runner exec');
+    assert.equal(fakeRunner.calls[0].model, 'gpt-local-high');
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.issueLabelsRemoved, []);
@@ -963,7 +963,7 @@ describe('runIssueImplement', () => {
     const runRecord = String(result.localRunRecord);
     assert.match(runRecord, /\.pullops\/runs\/.+issue-implement-42$/);
     const state = JSON.parse(await readFile(join(runRecord, 'state.json'), 'utf8'));
-    const call = codex.calls[0];
+    const call = fakeRunner.calls[0];
     assert(call);
     const env = call.env;
     assert(env);
@@ -1005,7 +1005,7 @@ describe('runIssueImplement', () => {
       hasChangesResults: [false, true],
       patch: 'diff --git a/src/file.js b/src/file.js\n',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented a PRD child locally.',
@@ -1020,7 +1020,7 @@ describe('runIssueImplement', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1043,7 +1043,7 @@ describe('runIssueImplement', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-blocked-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'blocked',
         summary: 'Need maintainer input.',
@@ -1057,7 +1057,7 @@ describe('runIssueImplement', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1080,7 +1080,7 @@ describe('runIssueImplement', () => {
       issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
     });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1088,14 +1088,14 @@ describe('runIssueImplement', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.branch, 'pullops/issue-42');
     assert.equal(result.baseBranch, 'main');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1123,7 +1123,7 @@ describe('runIssueImplement', () => {
       }),
     });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1135,14 +1135,14 @@ describe('runIssueImplement', () => {
         },
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.branch, 'pullops/issue-1');
     assert.equal(result.baseBranch, 'main');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1168,7 +1168,7 @@ describe('runIssueImplement', () => {
       }),
     });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1180,14 +1180,14 @@ describe('runIssueImplement', () => {
         },
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.branch, 'pullops/issue-1');
     assert.equal(result.baseBranch, 'main');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1217,7 +1217,7 @@ describe('runIssueImplement', () => {
       ]),
     });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1225,14 +1225,14 @@ describe('runIssueImplement', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.equal(result.branch, 'pullops/issue-42');
     assert.equal(result.baseBranch, 'main');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1251,7 +1251,7 @@ describe('runIssueImplement', () => {
       hasChangesResults: [false, true, false],
       patch: 'diff --git a/src/file.js b/src/file.js\n',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
         summary: 'Implemented local PR publication.',
@@ -1267,14 +1267,14 @@ describe('runIssueImplement', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         triggerActor: 'local-user',
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'publish');
-    assert.equal(codex.calls.length, 1);
+    assert.equal(fakeRunner.calls.length, 1);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1342,7 +1342,7 @@ describe('runIssueImplement', () => {
         },
       ],
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1351,13 +1351,13 @@ describe('runIssueImplement', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.preparedBranch, true);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.deepEqual(git.pushes, [{ branchName: 'pullops/issue-42' }]);
     assert.equal(github.createdPullRequests.length, 1);
@@ -1374,7 +1374,7 @@ describe('runIssueImplement', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-publish-dirty-'));
     const github = createFakeGitHub({ issue: createIssue({ number: 42, labels: [] }) });
     const git = createFakeGit({ hasChangesResults: [true] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
       runIssueImplement(
@@ -1384,13 +1384,13 @@ describe('runIssueImplement', () => {
           publicationMode: 'publish',
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: fakeRunner.runner,
         }),
       ),
       /requires a clean worktree/,
     );
 
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.pushes, []);
     assert.deepEqual(git.fetches, []);
     assert.deepEqual(github.issueLookups, []);
@@ -1426,7 +1426,7 @@ describe('runIssueImplement', () => {
         },
       ],
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1435,14 +1435,14 @@ describe('runIssueImplement', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     const output = /** @type {{ status: string, pullRequest: { number: number } }} */ (result);
     assert.equal(output.status, 'accepted');
     assert.equal(output.pullRequest.number, 7);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(github.createdPullRequests.length, 0);
     assert.equal(github.updatedPullRequestBodies.length, 1);
     assert.equal(github.updatedPullRequestBodies[0].number, 7);
@@ -1462,7 +1462,7 @@ describe('runIssueImplement', () => {
       issue: createIssue({ number: 42, state: 'CLOSED', labels: [] }),
     });
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runIssueImplement(
       createContext({
@@ -1471,7 +1471,7 @@ describe('runIssueImplement', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1479,7 +1479,7 @@ describe('runIssueImplement', () => {
     assert.equal(result.publicationMode, 'publish');
     assert.equal(result.branch, 'pullops/issue-42');
     assert.equal(result.baseBranch, 'main');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
@@ -1550,7 +1550,7 @@ describe('runIssueImplement', () => {
         },
       },
     };
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -1614,7 +1614,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         model: 'model-high',
       }),
     );
@@ -1622,7 +1622,7 @@ describe('runIssueImplement', () => {
     assert.equal(result.status, 'accepted');
     assert.equal(result.runGoal, 'finalized');
     assert.deepEqual(
-      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      fakeRunner.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
       [
         'pullops-issue-implement',
         'pullops-pr-review',
@@ -1632,7 +1632,7 @@ describe('runIssueImplement', () => {
       ],
     );
     assert.deepEqual(
-      codex.calls.map(call => call.model),
+      fakeRunner.calls.map(call => call.model),
       ['model-high', 'model-low', 'model-mid', 'model-low', 'model-low'],
     );
     assert.deepEqual(git.pushes, []);
@@ -1642,14 +1642,14 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
     assert.equal(github.pullRequestComments.length, 0);
     assert.deepEqual(github.readyPullRequests, []);
-    assert.match(codex.calls[2].prompt, /Local Run Record:/);
-    assert.match(codex.calls[2].prompt, /Issue #42: Finalize locally/);
-    assert.match(codex.calls[2].prompt, /Pull request body:/);
-    assert.match(codex.calls[2].prompt, /Actionable PR Feedback:/);
-    assert.match(codex.calls[2].prompt, /Tighten this\./);
-    assert.match(codex.calls[2].prompt, /01-pr-review-evidence\.json/);
-    assert.match(codex.calls[4].prompt, /Changed files since base:/);
-    assert.match(codex.calls[4].prompt, /Prior local follow-up evidence:/);
+    assert.match(fakeRunner.calls[2].prompt, /Local Run Record:/);
+    assert.match(fakeRunner.calls[2].prompt, /Issue #42: Finalize locally/);
+    assert.match(fakeRunner.calls[2].prompt, /Pull request body:/);
+    assert.match(fakeRunner.calls[2].prompt, /Actionable PR Feedback:/);
+    assert.match(fakeRunner.calls[2].prompt, /Tighten this\./);
+    assert.match(fakeRunner.calls[2].prompt, /01-pr-review-evidence\.json/);
+    assert.match(fakeRunner.calls[4].prompt, /Changed files since base:/);
+    assert.match(fakeRunner.calls[4].prompt, /Prior local follow-up evidence:/);
 
     const localRunRecord = String(result.localRunRecord);
     const reviewComments = JSON.parse(
@@ -1694,7 +1694,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'approved',
@@ -1730,7 +1730,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1738,7 +1738,7 @@ describe('runIssueImplement', () => {
     assert.equal(result.preparedBranch, true);
     assert.equal(result.runGoal, 'finalized');
     assert.deepEqual(
-      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      fakeRunner.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
       ['pullops-pr-review', 'pullops-pr-finalize'],
     );
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
@@ -1789,7 +1789,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -1831,7 +1831,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1847,7 +1847,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/prd-1-issue-42' }]);
     assert.equal(git.rewrites.length, 1);
     assert.equal(git.rewrites[0].push, false);
-    assert.equal(codex.calls.length, 3);
+    assert.equal(fakeRunner.calls.length, 3);
   });
 
   it('32b: local finalized PR publication recreates missing run state before terminal recording', async () => {
@@ -1894,7 +1894,7 @@ describe('runIssueImplement', () => {
         treeHash: 'tree-finalized',
       };
     };
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -1936,7 +1936,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2088,7 +2088,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({ output: [] });
+    const fakeRunner = createFakeRunner({ output: [] });
 
     const result = await runIssueImplement(
       createContext({
@@ -2098,14 +2098,14 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.preparedBranch, true);
     assert.equal(result.reusedLocalRunRecord, previousRunRecord);
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
     assert.deepEqual(git.rewrites, []);
     assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/issue-42' }]);
@@ -2183,7 +2183,7 @@ describe('runIssueImplement', () => {
         testPlan: [],
         followUps: [],
       });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2231,13 +2231,13 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.deepEqual(
-      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      fakeRunner.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
       [
         'pullops-issue-implement',
         'pullops-pr-review',
@@ -2292,7 +2292,7 @@ describe('runIssueImplement', () => {
         );
       }
     }
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2312,7 +2312,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2322,7 +2322,7 @@ describe('runIssueImplement', () => {
     assert.equal(result.baseBranch, 'main');
     assert.deepEqual(git.pushes, []);
     assert.equal(github.createdPullRequests.length, 0);
-    assert.equal(codex.calls.length, 24);
+    assert.equal(fakeRunner.calls.length, 24);
     assert.match(
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
       /Review Cycles are exhausted \(12 \/ 12\)/,
@@ -2340,7 +2340,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2382,7 +2382,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2421,7 +2421,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2458,7 +2458,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2467,7 +2467,7 @@ describe('runIssueImplement', () => {
       String(result.summary),
       /Invalid Address Review Output: Feedback item "local-review-summary:1" must be classified/,
     );
-    assert.equal(codex.calls.length, 3);
+    assert.equal(fakeRunner.calls.length, 3);
     assert.match(
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
       /local-review-summary:1/,
@@ -2499,7 +2499,7 @@ describe('runIssueImplement', () => {
       rewrittenTreeHash: 'tree-rewritten',
       rewrittenHeadSha: 'head-rewritten',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2541,7 +2541,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2567,7 +2567,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-reviewed',
       currentHeadSha: 'head-reviewed',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2609,7 +2609,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2644,7 +2644,7 @@ describe('runIssueImplement', () => {
       currentTreeHash: 'tree-finalized',
       currentHeadSha: 'head-finalized',
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2687,7 +2687,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2751,7 +2751,7 @@ describe('runIssueImplement', () => {
       currentHeadSha: 'head-finalized',
       pushBranchWithLeaseResults: [{ status: 'stale-lease' }],
     });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: [
         JSON.stringify({
           status: 'implemented',
@@ -2793,7 +2793,7 @@ describe('runIssueImplement', () => {
         runGoal: 'finalized',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -2833,7 +2833,7 @@ function createContext(overrides = {}) {
     model: 'gpt-5.5',
     githubClient: createFakeGitHub({ issue: createIssue({ number: 42 }) }).client,
     gitClient: createFakeGit().client,
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    runner: createFakeRunner({ output: '{}' }).runner,
     ...overrides,
   };
 }
@@ -3216,10 +3216,10 @@ function createFakeGit({
 
 /**
  * @param {{ output: unknown | unknown[] }} options
- * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ calls: RunnerRunOptions[], runner: import('../../runner/types.js').Runner }}
  */
-function createFakeCodexRunner({ output }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {

@@ -80,7 +80,7 @@ export async function runLocalPullRequestOperation(context, options = {}) {
 }
 
 /**
- * Run one local codex runner step for an Operation Module's local flow:
+ * Run one local runner step for an Operation Module's local flow:
  * record the prompt artifact, run the runner with the Local Run Record's
  * heartbeat environment, record the raw output artifact, and validate.
  *
@@ -94,7 +94,7 @@ export async function runLocalPullRequestOperation(context, options = {}) {
  * }} options
  * @returns {Promise<{ valid: true, value: T } | { valid: false, reason: string }>}
  */
-export async function runLocalCodexOperation(
+export async function runLocalRunnerStep(
   context,
   runRecord,
   { operationReference, prompt, validate },
@@ -104,7 +104,7 @@ export async function runLocalCodexOperation(
     `${normalizeOperationReferenceForPath(operationReference)}-prompt.md`,
     prompt,
   );
-  const rawOutput = await context.codexRunner.run({
+  const rawOutput = await context.runner.run({
     cwd: context.cwd,
     command: context.config.runner.command,
     model: context.model,

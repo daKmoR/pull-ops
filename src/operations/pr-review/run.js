@@ -15,7 +15,7 @@ import {
   commitLocalChangesIfPresent,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
-  runLocalCodexOperation,
+  runLocalRunnerStep,
   runLocalPullRequestOperation,
 } from '../runLocalPullRequestOperation.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
@@ -61,7 +61,7 @@ export async function runPrReview(context) {
  */
 async function runLocalPrReview(context, runRecord, preparation) {
   const prompt = buildPrReviewPrompt(preparation);
-  const validation = await runLocalCodexOperation(context, runRecord, {
+  const validation = await runLocalRunnerStep(context, runRecord, {
     operationReference: 'pr:review',
     prompt,
     validate: validatePrReviewOutput,
@@ -112,7 +112,7 @@ async function runLocalPrReview(context, runRecord, preparation) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrReviewCodexActionPrepare(context) {
+export async function runPrReviewExternalRunnerPrepare(context) {
   return await prepareOperationRunnerStep(context, createPrReviewRunnerOperation);
 }
 
@@ -120,7 +120,7 @@ export async function runPrReviewCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrReviewCodexActionFinalize(context) {
+export async function runPrReviewExternalRunnerFinalize(context) {
   return await finalizeOperationRunnerStep(context, createPrReviewRunnerOperation, {
     order: 'prepare-first',
   });

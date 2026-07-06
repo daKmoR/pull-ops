@@ -13,8 +13,8 @@
 
 const OPERATION_LABEL_COLOR = '5319E7';
 
-const CODEX_CLI_RUN_LIFECYCLES = freezeRunnerLifecycles([['codex-cli', 'run']]);
-const CODEX_BACKED_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
+const INLINE_RUN_RUNNER_LIFECYCLES = freezeRunnerLifecycles([['codex-cli', 'run']]);
+const INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
   ['codex-cli', 'run'],
   ['external', 'prepare'],
   ['external', 'complete'],
@@ -32,7 +32,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: CODEX_CLI_RUN_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-prd-prepare.yml',
     packageScriptName: 'pullops:prd-prepare',
     label: createOperationCatalogLabel({
@@ -51,7 +51,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: CODEX_CLI_RUN_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-prd-auto-advance.yml',
     packageScriptName: 'pullops:prd-auto-advance',
     label: createOperationCatalogLabel({
@@ -90,7 +90,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'high',
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-issue-implement.yml',
     packageScriptName: 'pullops:issue-implement',
     label: createOperationCatalogLabel({
@@ -103,11 +103,11 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       run: createImportedOperationHandler('./issue-implement/run.js', 'runIssueImplement'),
       prepare: createImportedOperationHandler(
         './issue-implement/run.js',
-        'runIssueImplementCodexActionPrepare',
+        'runIssueImplementExternalRunnerPrepare',
       ),
       complete: createImportedOperationHandler(
         './issue-implement/run.js',
-        'runIssueImplementCodexActionFinalize',
+        'runIssueImplementExternalRunnerFinalize',
       ),
     },
   }),
@@ -120,7 +120,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       escalationModelTier: 'high',
       humanFeedbackResponseModelTier: 'high',
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-review.yml',
     packageScriptName: 'pullops:pr-review',
     label: createOperationCatalogLabel({
@@ -132,11 +132,11 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       run: createImportedOperationHandler('./pr-review/run.js', 'runPrReview'),
       prepare: createImportedOperationHandler(
         './pr-review/run.js',
-        'runPrReviewCodexActionPrepare',
+        'runPrReviewExternalRunnerPrepare',
       ),
       complete: createImportedOperationHandler(
         './pr-review/run.js',
-        'runPrReviewCodexActionFinalize',
+        'runPrReviewExternalRunnerFinalize',
       ),
     },
   }),
@@ -149,7 +149,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       escalationModelTier: 'high',
       humanFeedbackResponseModelTier: 'high',
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-address-review.yml',
     packageScriptName: 'pullops:pr-address-review',
     label: createOperationCatalogLabel({
@@ -161,11 +161,11 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       run: createImportedOperationHandler('./pr-address-review/run.js', 'runPrAddressReview'),
       prepare: createImportedOperationHandler(
         './pr-address-review/run.js',
-        'runPrAddressReviewCodexActionPrepare',
+        'runPrAddressReviewExternalRunnerPrepare',
       ),
       complete: createImportedOperationHandler(
         './pr-address-review/run.js',
-        'runPrAddressReviewCodexActionFinalize',
+        'runPrAddressReviewExternalRunnerFinalize',
       ),
     },
   }),
@@ -176,7 +176,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'mid',
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-fix-ci.yml',
     packageScriptName: 'pullops:pr-fix-ci',
     label: createOperationCatalogLabel({
@@ -186,10 +186,13 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     }),
     handlers: {
       run: createImportedOperationHandler('./pr-fix-ci/run.js', 'runPrFixCi'),
-      prepare: createImportedOperationHandler('./pr-fix-ci/run.js', 'runPrFixCiCodexActionPrepare'),
+      prepare: createImportedOperationHandler(
+        './pr-fix-ci/run.js',
+        'runPrFixCiExternalRunnerPrepare',
+      ),
       complete: createImportedOperationHandler(
         './pr-fix-ci/run.js',
-        'runPrFixCiCodexActionFinalize',
+        'runPrFixCiExternalRunnerFinalize',
       ),
     },
   }),
@@ -200,7 +203,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: CODEX_CLI_RUN_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-update-branch.yml',
     packageScriptName: 'pullops:pr-update-branch',
     label: createOperationCatalogLabel({
@@ -220,7 +223,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       modelTier: 'high',
       maxConflictResolutionPasses: 3,
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-resolve-conflicts.yml',
     packageScriptName: 'pullops:pr-resolve-conflicts',
     label: createOperationCatalogLabel({
@@ -232,11 +235,11 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       run: createImportedOperationHandler('./pr-resolve-conflicts/run.js', 'runPrResolveConflicts'),
       prepare: createImportedOperationHandler(
         './pr-resolve-conflicts/run.js',
-        'runPrResolveConflictsCodexActionPrepare',
+        'runPrResolveConflictsExternalRunnerPrepare',
       ),
       complete: createImportedOperationHandler(
         './pr-resolve-conflicts/run.js',
-        'runPrResolveConflictsCodexActionFinalize',
+        'runPrResolveConflictsExternalRunnerFinalize',
       ),
     },
   }),
@@ -248,7 +251,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       modelTier: 'high',
       aiHistoryCleanup: true,
     }),
-    supportedRunnerLifecycles: CODEX_BACKED_RUNNER_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-finalize.yml',
     packageScriptName: 'pullops:pr-finalize',
     label: createOperationCatalogLabel({
@@ -260,11 +263,11 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       run: createImportedOperationHandler('./pr-finalize/run.js', 'runPrFinalize'),
       prepare: createImportedOperationHandler(
         './pr-finalize/run.js',
-        'runPrFinalizeCodexActionPrepare',
+        'runPrFinalizeExternalRunnerPrepare',
       ),
       complete: createImportedOperationHandler(
         './pr-finalize/run.js',
-        'runPrFinalizeCodexActionFinalize',
+        'runPrFinalizeExternalRunnerFinalize',
       ),
     },
   }),
@@ -275,7 +278,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: CODEX_CLI_RUN_LIFECYCLES,
+    supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
     workflowFileName: 'pullops-pr-close-child-issue.yml',
     packageScriptName: 'pullops:pr-close-child-issue',
     handlers: {

@@ -198,9 +198,9 @@ function createContext({
     model: DEFAULT_PULL_OPS_CONFIG.runner.models.low,
     githubClient,
     gitClient,
-    codexRunner: {
+    runner: {
       async run() {
-        throw new Error('codexRunner.run was not expected in this test.');
+        throw new Error('runner.run was not expected in this test.');
       },
     },
   };

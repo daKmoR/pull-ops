@@ -17,7 +17,10 @@ import {
   recordLocalRunWaitingForRunner,
   recordLocalRunTerminalStatus,
 } from '../../local-run-state/localRunState.js';
-import { runIssueImplement, runIssueImplementCodexActionPrepare } from '../issue-implement/run.js';
+import {
+  runIssueImplement,
+  runIssueImplementExternalRunnerPrepare,
+} from '../issue-implement/run.js';
 import {
   executeExternalRunnerHandoff,
   isExternalRunnerWaitingOutput,
@@ -191,7 +194,7 @@ async function runLocalPublishedExternalIssueOperation(context, { childIssueNumb
       : { parentEventSinkEnvironment: options.parentEventSinkEnvironment }),
   });
   const output = addLocalRunRecordToNestedOutput(
-    await runIssueImplementCodexActionPrepare(operationContext),
+    await runIssueImplementExternalRunnerPrepare(operationContext),
     stateRecord,
   );
 
@@ -401,28 +404,28 @@ async function runLocalPublishedExternalPullRequestOperation(operationContext, o
  */
 async function readPullRequestOperationPrepareHandler(operation) {
   if (operation === 'pr-review') {
-    const { runPrReviewCodexActionPrepare } = await import('../pr-review/run.js');
-    return runPrReviewCodexActionPrepare;
+    const { runPrReviewExternalRunnerPrepare } = await import('../pr-review/run.js');
+    return runPrReviewExternalRunnerPrepare;
   }
 
   if (operation === 'pr-address-review') {
-    const { runPrAddressReviewCodexActionPrepare } = await import('../pr-address-review/run.js');
-    return runPrAddressReviewCodexActionPrepare;
+    const { runPrAddressReviewExternalRunnerPrepare } = await import('../pr-address-review/run.js');
+    return runPrAddressReviewExternalRunnerPrepare;
   }
 
   if (operation === 'pr-fix-ci') {
-    const { runPrFixCiCodexActionPrepare } = await import('../pr-fix-ci/run.js');
-    return runPrFixCiCodexActionPrepare;
+    const { runPrFixCiExternalRunnerPrepare } = await import('../pr-fix-ci/run.js');
+    return runPrFixCiExternalRunnerPrepare;
   }
 
   if (operation === 'pr-resolve-conflicts') {
-    const { runPrResolveConflictsCodexActionPrepare } =
+    const { runPrResolveConflictsExternalRunnerPrepare } =
       await import('../pr-resolve-conflicts/run.js');
-    return runPrResolveConflictsCodexActionPrepare;
+    return runPrResolveConflictsExternalRunnerPrepare;
   }
 
-  const { runPrFinalizeCodexActionPrepare } = await import('../pr-finalize/run.js');
-  return runPrFinalizeCodexActionPrepare;
+  const { runPrFinalizeExternalRunnerPrepare } = await import('../pr-finalize/run.js');
+  return runPrFinalizeExternalRunnerPrepare;
 }
 
 /**

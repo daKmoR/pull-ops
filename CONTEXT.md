@@ -93,7 +93,7 @@ The Target Repository configuration that tells PullOps how to invoke the AI codi
 _Avoid_: Provider config, model command
 
 **Runner Adapter**:
-The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
+The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `external` splits execution across prepare, external runner, and finalize workflow steps.
 _Avoid_: Phase, task script, provider
 
 **Runner Lifecycle**:

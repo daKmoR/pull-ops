@@ -13,7 +13,7 @@ import { requireOperationCatalogOperationLabelName } from '../operationCatalog.j
 import {
   createPrFinalizeCommitMessage,
   runPrFinalize,
-  runPrFinalizeCodexActionPrepare,
+  runPrFinalizeExternalRunnerPrepare,
 } from './run.js';
 
 const execFile = promisify(nodeExecFile);
@@ -28,7 +28,7 @@ const execFile = promisify(nodeExecFile);
  * @typedef {import('../../github/types.js').UpdatePullRequestBodyOptions} UpdatePullRequestBodyOptions
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 describe('runPrFinalize', () => {
@@ -36,7 +36,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       pullRequest: createPullRequest({
         headSha: reviewedHead,
@@ -58,7 +58,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -202,7 +202,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryChildRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const childIssue = createIssue({
       parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
       body: '## Parent\n\nPart of: #999\n\n## What to build\n\nDo child work.',
@@ -226,7 +226,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -569,7 +569,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryParentRepository({ childOrder: [22, 21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
@@ -602,7 +602,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -655,7 +655,7 @@ describe('runPrFinalize', () => {
     });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -673,7 +673,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -695,7 +695,7 @@ describe('runPrFinalize', () => {
     });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -713,7 +713,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -732,7 +732,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: createPlannerOutput({ justification: '' }),
     });
     const github = createFakeGitHub({
@@ -752,7 +752,7 @@ describe('runPrFinalize', () => {
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -777,7 +777,7 @@ describe('runPrFinalize', () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-finalize-external-'));
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -790,12 +790,12 @@ describe('runPrFinalize', () => {
       checksByRef: new Map([[reviewedHead, [createCheck({ name: 'test' })]]]),
     });
 
-    const result = await runPrFinalizeCodexActionPrepare(
+    const result = await runPrFinalizeExternalRunnerPrepare(
       createContext({
         cwd: repository.workDir,
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -817,7 +817,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner();
+    const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -840,7 +840,7 @@ describe('runPrFinalize', () => {
         }),
         githubClient: github.client,
         gitClient: createGitClientFor(repository.workDir),
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -854,7 +854,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: createPlannerOutput({
         commits: [
           createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
@@ -880,7 +880,7 @@ describe('runPrFinalize', () => {
           cwd: repository.workDir,
           githubClient: github.client,
           gitClient: createGitClientFor(repository.workDir),
-          codexRunner: codex.runner,
+          runner: codex.runner,
         }),
       ),
       /assigns "src\/child-21\.js" more than once/,
@@ -896,7 +896,7 @@ describe('runPrFinalize', () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
-    const codex = createFakeCodexRunner({ output: createPlannerOutput() });
+    const codex = createFakeRunner({ output: createPlannerOutput() });
     const github = createFakeGitHub({
       issue: createParentIssueWithClosedChildren(),
       pullRequest: createPullRequest({
@@ -932,7 +932,7 @@ describe('runPrFinalize', () => {
               };
             },
           },
-          codexRunner: codex.runner,
+          runner: codex.runner,
         }),
       ),
       /Finalized tree .* did not match reviewed tree/,
@@ -1061,7 +1061,7 @@ function createContext(overrides = {}) {
       pullRequest: createPullRequest(),
     }).client,
     gitClient: createGitClientFor('/workspace'),
-    codexRunner: createFakeCodexRunner().runner,
+    runner: createFakeRunner().runner,
     ...overrides,
   };
 }
@@ -1506,10 +1506,10 @@ function createFakeGitHub({
 
 /**
  * @param {{ output?: unknown }} [options]
- * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ calls: RunnerRunOptions[], runner: import('../../runner/types.js').Runner }}
  */
-function createFakeCodexRunner({ output } = {}) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output } = {}) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {
@@ -1521,7 +1521,7 @@ function createFakeCodexRunner({ output } = {}) {
           return output;
         }
 
-        throw new Error('codexRunner.run was not expected in this test.');
+        throw new Error('runner.run was not expected in this test.');
       },
     },
   };

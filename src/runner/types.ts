@@ -64,7 +64,7 @@ export interface RunnerOutput {
   write(chunk: string): void;
 }
 
-export interface CodexRunOptions {
+export interface RunnerRunOptions {
   cwd: string;
   command: string;
   model: string;
@@ -73,6 +73,6 @@ export interface CodexRunOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export interface CodexRunner {
-  run(options: CodexRunOptions): Promise<unknown>;
+export interface Runner {
+  run(options: RunnerRunOptions): Promise<unknown>;
 }

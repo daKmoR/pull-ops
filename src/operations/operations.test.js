@@ -13,7 +13,7 @@ import { runWorkflowOperation } from './operations.js';
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('../git/types.js').CheckoutBranchOptions} CheckoutBranchOptions
  * @typedef {import('../git/types.js').CreateBranchOptions} CreateBranchOptions
- * @typedef {import('../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 describe('runWorkflowOperation', () => {
@@ -82,13 +82,13 @@ describe('runWorkflowOperation', () => {
     const githubClient = createFakeGitHubClient();
     githubClient.addLabelsToPullRequest = async () => {};
     githubClient.commentOnPullRequest = async () => {};
-    /** @type {CodexRunOptions[]} */
-    const codexCalls = [];
+    /** @type {RunnerRunOptions[]} */
+    const runnerCalls = [];
 
-    /** @type {import('../runner/types.js').CodexRunner} */
-    const codexRunner = {
+    /** @type {import('../runner/types.js').Runner} */
+    const runner = {
       async run(options) {
-        codexCalls.push(options);
+        runnerCalls.push(options);
         return JSON.stringify({
           status: 'implemented',
           summary: 'Implemented the issue through catalog dispatch.',
@@ -105,15 +105,15 @@ describe('runWorkflowOperation', () => {
         operation: 'issue-implement',
         githubClient,
         gitClient: git.client,
-        codexRunner,
+        runner,
         runnerAdapter: 'codex-cli',
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codexCalls.length, 1);
-    assert.match(codexCalls[0].prompt, /Use the pullops-issue-implement skill\./);
-    assert.match(codexCalls[0].prompt, /Issue #12/);
+    assert.equal(runnerCalls.length, 1);
+    assert.match(runnerCalls[0].prompt, /Use the pullops-issue-implement skill\./);
+    assert.match(runnerCalls[0].prompt, /Issue #12/);
     assert.deepEqual(git.createdBranches, [
       {
         branchName: 'pullops/issue-12',
@@ -127,14 +127,14 @@ describe('runWorkflowOperation', () => {
     const githubClient = createCatalogReviewGitHubClient();
     const git = createFakeGit();
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-catalog-review-'));
-    /** @type {CodexRunOptions[]} */
-    const codexCalls = [];
+    /** @type {RunnerRunOptions[]} */
+    const runnerCalls = [];
 
-    /** @type {import('../runner/types.js').CodexRunner} */
-    const codexRunner = {
+    /** @type {import('../runner/types.js').Runner} */
+    const runner = {
       async run(options) {
-        codexCalls.push(options);
-        throw new Error('codexRunner.run was not expected in this test.');
+        runnerCalls.push(options);
+        throw new Error('runner.run was not expected in this test.');
       },
     };
 
@@ -169,7 +169,7 @@ describe('runWorkflowOperation', () => {
           },
           githubClient,
           gitClient: git.client,
-          codexRunner,
+          runner,
           outputDirectory,
         }),
       );
@@ -177,7 +177,7 @@ describe('runWorkflowOperation', () => {
       const reviewResult = /** @type {any} */ (result);
       if (phase === 'prepare') {
         assert.equal(reviewResult.status, 'waiting');
-        assert.equal(codexCalls.length, 0);
+        assert.equal(runnerCalls.length, 0);
         assert.equal(reviewResult.modelTier, expectedModelTier);
         assert.equal(reviewResult.model, expectedModel);
         assert.match(reviewResult.summary, /Prepared external/);
@@ -196,14 +196,14 @@ describe('runWorkflowOperation', () => {
     const githubClient = createCatalogReviewGitHubClient();
     const git = createFakeGit();
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-catalog-review-'));
-    /** @type {CodexRunOptions[]} */
-    const codexCalls = [];
+    /** @type {RunnerRunOptions[]} */
+    const runnerCalls = [];
 
-    /** @type {import('../runner/types.js').CodexRunner} */
-    const codexRunner = {
+    /** @type {import('../runner/types.js').Runner} */
+    const runner = {
       async run(options) {
-        codexCalls.push(options);
-        throw new Error('codexRunner.run was not expected in this test.');
+        runnerCalls.push(options);
+        throw new Error('runner.run was not expected in this test.');
       },
     };
 
@@ -219,13 +219,13 @@ describe('runWorkflowOperation', () => {
         },
         githubClient,
         gitClient: git.client,
-        codexRunner,
+        runner,
         outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'waiting');
-    assert.equal(codexCalls.length, 0);
+    assert.equal(runnerCalls.length, 0);
     const runnerJob = /** @type {any} */ (result.runnerJob);
     assert.match(runnerJob.promptFile, /runner_prompt\.md$/);
     assert.match(runnerJob.resultFile, /runner_result\.json$/);
@@ -288,14 +288,14 @@ describe('runWorkflowOperation', () => {
     const githubClient = createCatalogFixCiGitHubClient();
     const git = createFakeGit();
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-catalog-pr-fix-ci-'));
-    /** @type {import('../runner/types.js').CodexRunOptions[]} */
-    const codexCalls = [];
+    /** @type {import('../runner/types.js').RunnerRunOptions[]} */
+    const runnerCalls = [];
 
-    /** @type {import('../runner/types.js').CodexRunner} */
-    const codexRunner = {
+    /** @type {import('../runner/types.js').Runner} */
+    const runner = {
       async run(options) {
-        codexCalls.push(options);
-        throw new Error('codexRunner.run was not expected in this test.');
+        runnerCalls.push(options);
+        throw new Error('runner.run was not expected in this test.');
       },
     };
 
@@ -312,13 +312,13 @@ describe('runWorkflowOperation', () => {
         model: DEFAULT_PULL_OPS_CONFIG.runner.models.mid,
         githubClient,
         gitClient: git.client,
-        codexRunner,
+        runner,
         outputDirectory,
       }),
     );
 
     assert.equal(result.status, 'waiting');
-    assert.equal(codexCalls.length, 0);
+    assert.equal(runnerCalls.length, 0);
     assert.match(String(result.summary), /Prepared external pr-fix-ci run/);
     const runnerJob = result.runnerJob;
     if (typeof runnerJob !== 'object' || runnerJob === null) {
@@ -447,9 +447,9 @@ function createContext(overrides = {}) {
     model: 'gpt-5.4-mini',
     githubClient: createFakeGitHubClient(),
     gitClient: createFakeGit().client,
-    codexRunner: {
+    runner: {
       async run() {
-        throw new Error('codexRunner.run was not expected in this test.');
+        throw new Error('runner.run was not expected in this test.');
       },
     },
     ...overrides,

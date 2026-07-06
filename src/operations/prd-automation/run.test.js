@@ -18,7 +18,7 @@ import { resumePrdAutomationForParentIssue, runPrdAutoAdvance, runPrdAutoComplet
  * @typedef {import('../../github/types.js').EditLabelsOptions} EditLabelsOptions
  * @typedef {import('../../github/types.js').MergePullRequestOptions} MergePullRequestOptions
  * @typedef {import('../../config/types.js').PullOpsConfig} PullOpsConfig
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 /** @typedef {import('../../prd-automation/childCoordination.types.js').ChildAutomationResult} ChildAutomationResult */
@@ -159,7 +159,7 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -168,7 +168,7 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -176,13 +176,13 @@ describe('runPrdAutoAdvance', () => {
     assert.equal(result.publicationMode, 'dry-run');
     assert.match(String(result.summary), /2 child issue dry-run\(s\) completed/);
     assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
-    assert.equal(codex.calls.length, 6);
-    assert.match(codex.calls[0].prompt, /Child issue 35/);
-    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
-    assert.match(codex.calls[3].prompt, /Child issue 37/);
-    assert.match(codex.calls[4].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[5].prompt, /Use the pullops-pr-finalize skill/);
+    assert.equal(fakeRunner.calls.length, 6);
+    assert.match(fakeRunner.calls[0].prompt, /Child issue 35/);
+    assert.match(fakeRunner.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.match(fakeRunner.calls[3].prompt, /Child issue 37/);
+    assert.match(fakeRunner.calls[4].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[5].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.updatedPullRequestBodies, []);
@@ -221,7 +221,7 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -230,19 +230,19 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'publish');
-    assert.equal(codex.calls.length, 6);
-    assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
-    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
-    assert.match(codex.calls[3].prompt, /Use the pullops-issue-implement skill/);
-    assert.match(codex.calls[4].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[5].prompt, /Use the pullops-pr-finalize skill/);
+    assert.equal(fakeRunner.calls.length, 6);
+    assert.match(fakeRunner.calls[0].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(fakeRunner.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.match(fakeRunner.calls[3].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(fakeRunner.calls[4].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[5].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(
@@ -336,7 +336,7 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -345,12 +345,12 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(
@@ -387,7 +387,7 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -396,12 +396,12 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.equal(readParentPullRequest(result)?.status, 'ready-for-review');
     assert.deepEqual(github.updatedPullRequestBodies, []);
@@ -421,7 +421,7 @@ describe('runPrdAutoAdvance', () => {
       issues: [parent],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -430,12 +430,12 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.equal(readParentPullRequest(result)?.status, 'waiting-for-child-issues');
     assert.match(String(result.localRunRecord), /\.pullops\/runs\/.+prd-auto-advance-12$/);
@@ -568,7 +568,7 @@ describe('runPrdAutoAdvance', () => {
       ],
     });
     const git = createFakeGit({ dirtyAfterRunner: [false, true] });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoAdvance(
       createContext({
@@ -577,14 +577,14 @@ describe('runPrdAutoAdvance', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 6);
+    assert.equal(fakeRunner.calls.length, 6);
     assert.deepEqual(
-      codex.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
+      fakeRunner.calls.map(call => call.prompt.match(/Use the ([^ ]+) skill/)?.[1]),
       [
         'pullops-issue-implement',
         'pullops-pr-review',
@@ -821,7 +821,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -831,15 +831,15 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.mode, 'auto-complete');
     assert.equal(result.publicationMode, 'publish');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
@@ -935,7 +935,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
     const context = createContext({
       cwd,
       operation: 'prd-auto-complete',
@@ -943,7 +943,7 @@ describe('runPrdAutoComplete', () => {
       publicationMode: 'publish',
       githubClient: github.client,
       gitClient: git.client,
-      codexRunner: codex.runner,
+      runner: fakeRunner.runner,
     });
 
     await runPrdAutoComplete(context);
@@ -956,7 +956,7 @@ describe('runPrdAutoComplete', () => {
         commitSha: 'head-finalized',
       },
     ]);
-    assert.equal(codex.calls.length, 1);
+    assert.equal(fakeRunner.calls.length, 1);
     assert.deepEqual(
       git.rewrites.map(rewrite => rewrite.branchName),
       ['pullops/prd-12'],
@@ -1024,7 +1024,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1034,13 +1034,13 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
     assert.equal(readParentPullRequest(result)?.status, 'waiting');
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(result.localNextSteps, [
@@ -1101,7 +1101,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1111,12 +1111,12 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(readParentPullRequest(result)?.status, 'finalized');
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(github.readyPullRequests, [200]);
@@ -1140,7 +1140,7 @@ describe('runPrdAutoComplete', () => {
       issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1150,17 +1150,17 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.mode, 'auto-complete');
     assert.equal(result.publicationMode, 'dry-run');
-    assert.equal(codex.calls.length, 3);
-    assert.match(codex.calls[0].prompt, /Child issue 34/);
-    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.equal(fakeRunner.calls.length, 3);
+    assert.match(fakeRunner.calls[0].prompt, /Child issue 34/);
+    assert.match(fakeRunner.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[2].prompt, /Use the pullops-pr-finalize skill/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status]),
@@ -1208,7 +1208,7 @@ describe('runPrdAutoComplete', () => {
       ],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1218,7 +1218,7 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1275,7 +1275,7 @@ describe('runPrdAutoComplete', () => {
       ]),
     });
     const git = createFakeGit({ cherryPickConflicts: ['src/conflicted.js'] });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1285,7 +1285,7 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1334,7 +1334,7 @@ describe('runPrdAutoComplete', () => {
       ],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1344,16 +1344,16 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.publicationMode, 'dry-run');
-    assert.equal(codex.calls.length, 9);
-    assert.match(codex.calls[0].prompt, /Child issue 34/);
-    assert.match(codex.calls[3].prompt, /Child issue 35/);
-    assert.match(codex.calls[6].prompt, /Child issue 36/);
+    assert.equal(fakeRunner.calls.length, 9);
+    assert.match(fakeRunner.calls[0].prompt, /Child issue 34/);
+    assert.match(fakeRunner.calls[3].prompt, /Child issue 35/);
+    assert.match(fakeRunner.calls[6].prompt, /Child issue 36/);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
@@ -1451,7 +1451,7 @@ describe('runPrdAutoComplete', () => {
       ],
     });
     const git = createFakeGit();
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1461,12 +1461,12 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.deepEqual(github.issueLabelsAdded, []);
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(github.createdPullRequests, []);
@@ -1545,7 +1545,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js', 'src/child-35.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1555,7 +1555,7 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -1695,7 +1695,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1705,18 +1705,18 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(
-      codex.calls.some(call => call.prompt.includes('Use the pullops-issue-implement skill.')),
+      fakeRunner.calls.some(call => call.prompt.includes('Use the pullops-issue-implement skill.')),
       false,
     );
-    assert.equal(codex.calls.length, 2);
-    assert.match(codex.calls[0].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[1].prompt, /Review PullOps-managed PR #200/);
+    assert.equal(fakeRunner.calls.length, 2);
+    assert.match(fakeRunner.calls[0].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[1].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
@@ -1744,7 +1744,7 @@ describe('runPrdAutoComplete', () => {
     assert.match(parentState.childRuns[0].statePath, /pr-finalize-101\/state\.json$/);
     const childState = JSON.parse(await readFile(parentState.childRuns[0].statePath, 'utf8'));
     assert.deepEqual(childState.parentRun, parentRunLink);
-    for (const call of codex.calls) {
+    for (const call of fakeRunner.calls) {
       assert(call.env);
       const nestedStatePath = call.env.PULLOPS_RUN_STATE_PATH;
       assert(nestedStatePath);
@@ -1775,7 +1775,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1785,16 +1785,16 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 4);
-    assert.match(codex.calls[0].prompt, /Use the pullops-issue-implement skill/);
-    assert.match(codex.calls[1].prompt, /Use the pullops-pr-review skill/);
-    assert.match(codex.calls[2].prompt, /Use the pullops-pr-finalize skill/);
-    assert.match(codex.calls[3].prompt, /Review PullOps-managed PR #301/);
+    assert.equal(fakeRunner.calls.length, 4);
+    assert.match(fakeRunner.calls[0].prompt, /Use the pullops-issue-implement skill/);
+    assert.match(fakeRunner.calls[1].prompt, /Use the pullops-pr-review skill/);
+    assert.match(fakeRunner.calls[2].prompt, /Use the pullops-pr-finalize skill/);
+    assert.match(fakeRunner.calls[3].prompt, /Review PullOps-managed PR #301/);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [302]);
     assert.deepEqual(
@@ -1864,7 +1864,7 @@ describe('runPrdAutoComplete', () => {
       ],
       changedFilesSinceBase: ['src/child-34.js'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1874,13 +1874,13 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'publish',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
     assert.deepEqual(github.mergedPullRequests, []);
@@ -1913,7 +1913,7 @@ describe('runPrdAutoComplete', () => {
       ],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1924,13 +1924,13 @@ describe('runPrdAutoComplete', () => {
         runGoal: 'operation',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Child issue 34/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Child issue 34/);
     assert.deepEqual(
       readChildResults(result).map(child => [
         child.issue.number,
@@ -1957,7 +1957,7 @@ describe('runPrdAutoComplete', () => {
       issues: [parent, createIssue({ number: 34, parent: issueReference(12) })],
     });
     const git = createFakeGit({ dirtyAfterRunner: true });
-    const codex = createFakeCodexRunnerWithBlockedReview({ git });
+    const fakeRunner = createFakeRunnerWithBlockedReview({ git });
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -1967,12 +1967,12 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 2);
+    assert.equal(fakeRunner.calls.length, 2);
     assert.deepEqual(
       readChildResults(result).map(child => [
         child.issue.number,
@@ -2003,7 +2003,7 @@ describe('runPrdAutoComplete', () => {
       dirtyAfterRunner: true,
       branchesWithoutUnappliedCommits: ['pullops/prd-12-issue-34'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
 
     const result = await runPrdAutoComplete(
       createContext({
@@ -2013,13 +2013,13 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 3);
-    assert.match(codex.calls[0].prompt, /Child issue 35/);
+    assert.equal(fakeRunner.calls.length, 3);
+    assert.match(fakeRunner.calls[0].prompt, /Child issue 35/);
     assert.deepEqual(
       readChildResults(result).map(child => [
         child.issue.number,
@@ -2074,7 +2074,7 @@ describe('runPrdAutoComplete', () => {
       dirtyAfterRunner: true,
       branchesWithoutUnappliedCommits: ['pullops/prd-12-issue-34'],
     });
-    const codex = createFakeCodexRunner(git);
+    const fakeRunner = createFakeRunner(git);
     const progressWriter = createProgressEventWriterSpy();
     /** @type {string[]} */
     const progressMessages = [];
@@ -2087,7 +2087,7 @@ describe('runPrdAutoComplete', () => {
         publicationMode: 'dry-run',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         localRunRecordDirectory: join(
           cwd,
           '.pullops',
@@ -2156,7 +2156,7 @@ describe('runPrdAutoComplete', () => {
     );
     assert.deepEqual(progressMessages, []);
     assert.equal(
-      codex.calls.every(call => call.streamOutput === false),
+      fakeRunner.calls.every(call => call.streamOutput === false),
       true,
     );
   });
@@ -2174,15 +2174,15 @@ describe('runPrdAutoComplete', () => {
     const git = createFakeGit({ dirtyAfterRunner: true });
     const stdout = createWritableBuffer();
     const stderr = createWritableBuffer();
-    /** @type {CodexRunOptions[]} */
+    /** @type {RunnerRunOptions[]} */
     const codexCalls = [];
     /** @type {NodeJS.ProcessEnv | undefined} */
     let childHeartbeatEnvironment;
-    const codex = {
+    const fakeRunner = {
       calls: codexCalls,
       runner: {
         /**
-         * @param {CodexRunOptions} options
+         * @param {RunnerRunOptions} options
          */
         async run(options) {
           codexCalls.push(options);
@@ -2229,7 +2229,7 @@ describe('runPrdAutoComplete', () => {
       stderr,
       githubClient: github.client,
       gitClient: git.client,
-      codexRunner: codex.runner,
+      runner: fakeRunner.runner,
       env: {
         GITHUB_REPOSITORY: 'owner/repo',
       },
@@ -2248,7 +2248,7 @@ describe('runPrdAutoComplete', () => {
 
     assert.equal(exitCode, 0);
     assert.equal(stderr.text, '');
-    assert.equal(codex.calls.length, 1);
+    assert.equal(fakeRunner.calls.length, 1);
     assert(childHeartbeatEnvironment);
     const childHeartbeatEnv =
       /** @type {import('../../parent-event-sink/types.js').PullOpsParentEventSinkChildEnvironment} */ (
@@ -2595,7 +2595,7 @@ describe('runPrdAutoComplete', () => {
     let inspectedDuringRun = false;
     /** @type {unknown[]} */
     const codexCalls = [];
-    const codex = {
+    const fakeRunner = {
       calls: codexCalls,
       runner: {
         async run(/** @type {unknown} */ options) {
@@ -2656,12 +2656,12 @@ describe('runPrdAutoComplete', () => {
         runGoal: 'operation',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(codex.calls.length, 1);
+    assert.equal(fakeRunner.calls.length, 1);
     const parentStatePath = join(String(result.localRunRecord), 'state.json');
     const parentState = JSON.parse(await readFile(parentStatePath, 'utf8'));
     const expectedParentRunLink = {
@@ -2751,9 +2751,9 @@ function createContext(overrides = {}) {
     model: 'gpt-5.4-mini',
     githubClient: createFakeGitHub({ issues: [createIssue({ number: 12 })] }).client,
     gitClient: createFakeGit().client,
-    codexRunner: {
+    runner: {
       async run() {
-        throw new Error('codexRunner.run was not expected in this test.');
+        throw new Error('runner.run was not expected in this test.');
       },
     },
     ...overrides,
@@ -3608,12 +3608,12 @@ function isFakeParentBranch(branchName) {
 /**
  * @param {{ markRunnerChangedWorktree(): void }} [git]
  * @returns {{
- *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: CodexRunOptions[];
+ *   runner: import('../../runner/types.js').Runner;
+ *   calls: RunnerRunOptions[];
  * }}
  */
-function createFakeCodexRunner(git) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner(git) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {
@@ -3667,12 +3667,12 @@ function createFakeCodexRunner(git) {
  * @param {object} options
  * @param {{ markRunnerChangedWorktree(): void }} options.git
  * @returns {{
- *   runner: import('../../runner/types.js').CodexRunner;
- *   calls: CodexRunOptions[];
+ *   runner: import('../../runner/types.js').Runner;
+ *   calls: RunnerRunOptions[];
  * }}
  */
-function createFakeCodexRunnerWithBlockedReview({ git }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunnerWithBlockedReview({ git }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {

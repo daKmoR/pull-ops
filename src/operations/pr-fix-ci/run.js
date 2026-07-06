@@ -46,7 +46,7 @@ export async function runPrFixCi(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrFixCiCodexActionPrepare(context) {
+export async function runPrFixCiExternalRunnerPrepare(context) {
   return await prepareOperationRunnerStep(context, createPrFixCiRunnerOperation);
 }
 
@@ -54,7 +54,7 @@ export async function runPrFixCiCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrFixCiCodexActionFinalize(context) {
+export async function runPrFixCiExternalRunnerFinalize(context) {
   return await finalizeOperationRunnerStep(context, createPrFixCiRunnerOperation, {
     // Do not rerun preparePrFixCi before reading the runner output: its
     // not-ready branches transition PR state as if the runner outcome were

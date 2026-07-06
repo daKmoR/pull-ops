@@ -29,9 +29,9 @@ export interface RunnerStepLifecycleOperation {
   model: string;
   /** Branch the external runner checkout must be on before editing files. */
   branch: string;
-  /** Extra codex runner options used only by the inline codex-cli run. */
+  /** Extra runner options used only by the inline codex-cli run. */
   runOptions?: RunnerLifecycleRunOptions;
-  /** Waiting output facts for the codex-action prepare phase. */
+  /** Waiting output facts for the external prepare phase. */
   waiting: RunnerLifecycleWaiting;
   /** Consume the raw runner output and produce the Operation Output. */
   finalize: (rawOutput: unknown) => Promise<Record<string, unknown>>;

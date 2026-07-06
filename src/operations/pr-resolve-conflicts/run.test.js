@@ -10,8 +10,8 @@ import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { createGitClient } from '../../git/GitClient.js';
 import {
   runPrResolveConflicts,
-  runPrResolveConflictsCodexActionFinalize,
-  runPrResolveConflictsCodexActionPrepare,
+  runPrResolveConflictsExternalRunnerFinalize,
+  runPrResolveConflictsExternalRunnerPrepare,
 } from './run.js';
 
 const execFile = promisify(nodeExecFile);
@@ -34,21 +34,21 @@ describe('runPrResolveConflicts', () => {
       }),
       issue: createIssue(),
     });
-    const codex = createConflictResolvingCodexRunner(repository.workDir);
+    const fakeRunner = createConflictResolvingRunner(repository.workDir);
 
     const result = await runPrResolveConflicts(
       createContext({
         repository,
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.match(String(result.summary), /Resolved rebase conflicts/);
-    assert.equal(codex.prompts.length, 2);
-    assert.match(codex.prompts[0], /Conflict pass: 1 \/ 3/);
-    assert.match(codex.prompts[1], /Conflict pass: 2 \/ 3/);
+    assert.equal(fakeRunner.prompts.length, 2);
+    assert.match(fakeRunner.prompts[0], /Conflict pass: 1 \/ 3/);
+    assert.match(fakeRunner.prompts[1], /Conflict pass: 2 \/ 3/);
     assert.equal(
       await isAncestor(repository.workDir, 'origin/main', 'origin/pullops/issue-42'),
       true,
@@ -91,20 +91,20 @@ describe('runPrResolveConflicts', () => {
       }),
       issue: createIssue(),
     });
-    const codex = createConflictResolvingCodexRunner(repository.workDir);
+    const fakeRunner = createConflictResolvingRunner(repository.workDir);
 
     const result = await runPrResolveConflicts(
       createContext({
         repository,
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         config: createConfig({ maxConflictResolutionPasses: 1 }),
       }),
     );
 
     assert.equal(result.status, 'blocked');
     assert.match(String(result.summary), /Conflict resolution budget exhausted/);
-    assert.equal(codex.prompts.length, 1);
+    assert.equal(fakeRunner.prompts.length, 1);
     assert.equal(await fileExists(join(repository.workDir, '.git', 'rebase-merge')), true);
     assert.equal(
       await isAncestor(repository.workDir, 'origin/main', 'origin/pullops/issue-42'),
@@ -160,7 +160,7 @@ describe('runPrResolveConflicts', () => {
       issue: createIssue(),
     });
 
-    const result = await runPrResolveConflictsCodexActionPrepare(
+    const result = await runPrResolveConflictsExternalRunnerPrepare(
       createContext({
         repository,
         githubClient: github.client,
@@ -228,7 +228,7 @@ describe('runPrResolveConflicts', () => {
       issue: createIssue(),
     });
 
-    await runPrResolveConflictsCodexActionPrepare(
+    await runPrResolveConflictsExternalRunnerPrepare(
       createContext({
         repository,
         githubClient: github.client,
@@ -256,7 +256,7 @@ describe('runPrResolveConflicts', () => {
       }),
     );
 
-    const result = await runPrResolveConflictsCodexActionFinalize(
+    const result = await runPrResolveConflictsExternalRunnerFinalize(
       createContext({
         repository,
         githubClient: github.client,
@@ -302,7 +302,7 @@ describe('runPrResolveConflicts', () => {
       issue: createIssue(),
     });
 
-    const prepareResult = await runPrResolveConflictsCodexActionPrepare(
+    const prepareResult = await runPrResolveConflictsExternalRunnerPrepare(
       createContext({
         repository,
         githubClient: github.client,
@@ -327,7 +327,7 @@ describe('runPrResolveConflicts', () => {
       }),
     );
 
-    const result = await runPrResolveConflictsCodexActionFinalize(
+    const result = await runPrResolveConflictsExternalRunnerFinalize(
       createContext({
         repository,
         githubClient: github.client,
@@ -367,7 +367,7 @@ describe('runPrResolveConflicts', () => {
     });
 
     await assert.rejects(
-      runPrResolveConflictsCodexActionFinalize(
+      runPrResolveConflictsExternalRunnerFinalize(
         createContext({
           repository,
           githubClient: github.client,
@@ -409,7 +409,7 @@ describe('runPrResolveConflicts', () => {
     });
 
     await assert.rejects(
-      runPrResolveConflictsCodexActionFinalize(
+      runPrResolveConflictsExternalRunnerFinalize(
         createContext({
           repository,
           githubClient: github.client,
@@ -450,7 +450,7 @@ function assertObject(value, message) {
  * @param {object} options
  * @param {{ root: string, originDir: string, seedDir: string, workDir: string }} options.repository
  * @param {import('../../github/types.js').GitHubClient} options.githubClient
- * @param {import('../../runner/types.js').CodexRunner} [options.codexRunner]
+ * @param {import('../../runner/types.js').Runner} [options.runner]
  * @param {import('../../config/types.js').PullOpsConfig} [options.config]
  * @param {string} [options.outputDirectory]
  * @param {import('../../cli/types.js').OperationPhase} [options.phase]
@@ -460,7 +460,7 @@ function assertObject(value, message) {
 function createContext({
   repository,
   githubClient,
-  codexRunner = createUnexpectedCodexRunner(),
+  runner = createUnexpectedRunner(),
   config = DEFAULT_PULL_OPS_CONFIG,
   outputDirectory,
   phase = 'run',
@@ -480,7 +480,7 @@ function createContext({
     model: config.runner.models.high,
     githubClient,
     gitClient: createGitClientFor(repository.workDir),
-    codexRunner,
+    runner,
     ...(outputDirectory === undefined ? {} : { outputDirectory }),
   };
 }
@@ -664,9 +664,9 @@ function createGitClientFor(cwd) {
 
 /**
  * @param {string} cwd
- * @returns {{ prompts: string[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ prompts: string[], runner: import('../../runner/types.js').Runner }}
  */
-function createConflictResolvingCodexRunner(cwd) {
+function createConflictResolvingRunner(cwd) {
   /** @type {string[]} */
   const prompts = [];
 
@@ -697,12 +697,12 @@ function createConflictResolvingCodexRunner(cwd) {
 }
 
 /**
- * @returns {import('../../runner/types.js').CodexRunner}
+ * @returns {import('../../runner/types.js').Runner}
  */
-function createUnexpectedCodexRunner() {
+function createUnexpectedRunner() {
   return {
     async run() {
-      throw new Error('codexRunner.run was not expected in this test.');
+      throw new Error('runner.run was not expected in this test.');
     },
   };
 }

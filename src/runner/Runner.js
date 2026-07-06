@@ -4,20 +4,20 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
 /**
- * @typedef {import('./types.js').CodexRunner} CodexRunner
- * @typedef {import('./types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('./types.js').Runner} Runner
+ * @typedef {import('./types.js').RunnerRunOptions} RunnerRunOptions
  * @typedef {import('./types.js').RunnerOutput} RunnerOutput
  * @typedef {import('./types.js').RunnerSpawn} RunnerSpawn
  */
 
 /**
  * @param {{ spawn?: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} [options]
- * @returns {CodexRunner}
+ * @returns {Runner}
  */
-export function createCodexRunner({ spawn = nodeSpawn, output, traceCommand } = {}) {
+export function createRunner({ spawn = nodeSpawn, output, traceCommand } = {}) {
   return {
     /**
-     * @param {CodexRunOptions} options
+     * @param {RunnerRunOptions} options
      * @returns {Promise<string>}
      */
     async run({ cwd, command, model, prompt, streamOutput = true, env }) {

@@ -50,10 +50,10 @@ import {
   createLocalPrdAutoCompleteSummary,
   createOperationProgressEventWriter,
 } from '../operations/prd-automation/eventStream.js';
-import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/codexAction.js';
+import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/externalRunner.js';
 import { publishHeartbeatToParentEventSink } from '../parent-event-sink/parentEventSink.js';
 import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
-import { createCodexRunner } from '../runner/CodexRunner.js';
+import { createRunner } from '../runner/Runner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 import {
   isRunnerResultStatus,
@@ -69,7 +69,7 @@ import {
  * @typedef {import('../runner/types.js').RunnerAdapter} RunnerAdapter
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
- * @typedef {import('../runner/types.js').CodexRunner} CodexRunner
+ * @typedef {import('../runner/types.js').Runner} Runner
  * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
  * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
@@ -168,7 +168,7 @@ export class PullOpsCli {
    * @param {NodeJS.ReadableStream} [options.stdin]
    * @param {GitHubClient} [options.githubClient]
    * @param {GitClient} [options.gitClient]
-   * @param {CodexRunner} [options.codexRunner]
+   * @param {Runner} [options.runner]
    * @param {OperationRunner} [options.operationRunner]
    * @param {NodeJS.ProcessEnv} [options.env]
    * @param {StepCommandSpawner} [options.spawnCommand]
@@ -181,7 +181,7 @@ export class PullOpsCli {
     stdin = process.stdin,
     githubClient,
     gitClient,
-    codexRunner,
+    runner,
     operationRunner = runWorkflowOperation,
     env = process.env,
     spawnCommand = spawn,
@@ -207,9 +207,9 @@ export class PullOpsCli {
           this.progress(`git: ${command}`);
         },
       });
-    this.codexRunner =
-      codexRunner ??
-      createCodexRunner({
+    this.runner =
+      runner ??
+      createRunner({
         output: this.stderr,
         traceCommand: command => {
           this.progress(`runner: ${command}`);
@@ -781,7 +781,7 @@ export class PullOpsCli {
         model,
         githubClient: this.operationGitHubClient,
         gitClient: this.gitClient,
-        codexRunner: this.codexRunner,
+        runner: this.runner,
         triggerActor: this.env.GITHUB_ACTOR,
         reviewId: parsedArgs.reviewId,
         outputDirectory: this.env.OUTPUT_DIR,
@@ -967,7 +967,7 @@ export class PullOpsCli {
       model,
       githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
+      runner: this.runner,
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
@@ -1096,7 +1096,7 @@ export class PullOpsCli {
         model,
         githubClient: this.operationGitHubClient,
         gitClient: this.gitClient,
-        codexRunner: this.codexRunner,
+        runner: this.runner,
         triggerActor: this.env.GITHUB_ACTOR,
         outputDirectory: runRecordLocation.directory,
         localRunRecordDirectory: runRecordLocation.directory,
@@ -1190,7 +1190,7 @@ export class PullOpsCli {
       model,
       githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
+      runner: this.runner,
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
@@ -1271,7 +1271,7 @@ export class PullOpsCli {
       model,
       githubClient: this.operationGitHubClient,
       gitClient: this.gitClient,
-      codexRunner: this.codexRunner,
+      runner: this.runner,
       triggerActor: this.env.GITHUB_ACTOR,
       reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
       contextUsage: readContextUsage(this.env),
@@ -1345,7 +1345,7 @@ export class PullOpsCli {
         model,
         githubClient: this.operationGitHubClient,
         gitClient: this.gitClient,
-        codexRunner: this.codexRunner,
+        runner: this.runner,
         triggerActor: this.env.GITHUB_ACTOR,
         reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
         contextUsage,

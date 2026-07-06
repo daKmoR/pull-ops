@@ -6,7 +6,11 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
-import { runPrFixCi, runPrFixCiCodexActionFinalize, runPrFixCiCodexActionPrepare } from './run.js';
+import {
+  runPrFixCi,
+  runPrFixCiExternalRunnerFinalize,
+  runPrFixCiExternalRunnerPrepare,
+} from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -20,7 +24,7 @@ import { runPrFixCi, runPrFixCiCodexActionFinalize, runPrFixCiCodexActionPrepare
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 describe('runPrFixCi', () => {
@@ -32,7 +36,7 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'fixed',
         summary: 'Fixed the lint failure.',
@@ -58,7 +62,7 @@ describe('runPrFixCi', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -122,7 +126,7 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'fixed',
         summary: 'Formatted the changed file.',
@@ -148,7 +152,7 @@ describe('runPrFixCi', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -177,13 +181,13 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrFixCi(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -206,12 +210,12 @@ describe('runPrFixCi', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrFixCi(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -237,13 +241,13 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrFixCi(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -267,7 +271,7 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'fixed',
         summary: 'Made the tests pass by deleting assertions.',
@@ -293,7 +297,7 @@ describe('runPrFixCi', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -323,7 +327,7 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'fixed',
         summary: 'Fixed the failing test.',
@@ -349,7 +353,7 @@ describe('runPrFixCi', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -373,15 +377,15 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrFixCiCodexActionPrepare(
+    const result = await runPrFixCiExternalRunnerPrepare(
       createContext({
         phase: 'prepare',
         runnerAdapter: 'external',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -486,15 +490,15 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrFixCiCodexActionFinalize(
+    const result = await runPrFixCiExternalRunnerFinalize(
       createContext({
         phase: 'complete',
         runnerAdapter: 'external',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -533,15 +537,15 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrFixCiCodexActionFinalize(
+    const result = await runPrFixCiExternalRunnerFinalize(
       createContext({
         phase: 'complete',
         runnerAdapter: 'external',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -578,16 +582,16 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
-      runPrFixCiCodexActionFinalize(
+      runPrFixCiExternalRunnerFinalize(
         createContext({
           phase: 'complete',
           runnerAdapter: 'external',
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -624,16 +628,16 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
-      runPrFixCiCodexActionFinalize(
+      runPrFixCiExternalRunnerFinalize(
         createContext({
           phase: 'complete',
           runnerAdapter: 'external',
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -670,16 +674,16 @@ describe('runPrFixCi', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
-      runPrFixCiCodexActionFinalize(
+      runPrFixCiExternalRunnerFinalize(
         createContext({
           phase: 'complete',
           runnerAdapter: 'external',
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -737,7 +741,7 @@ function createContext(overrides = {}) {
       diff: createDiff(),
     }).client,
     gitClient: createFakeGit({ hasChanges: false }).client,
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    runner: createFakeRunner({ output: '{}' }).runner,
     ...overrides,
   };
 }
@@ -1030,10 +1034,10 @@ function createFakeGit({ hasChanges }) {
 
 /**
  * @param {{ output: unknown }} options
- * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ calls: RunnerRunOptions[], runner: import('../../runner/types.js').Runner }}
  */
-function createFakeCodexRunner({ output }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {

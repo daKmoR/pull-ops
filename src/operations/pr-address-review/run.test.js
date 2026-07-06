@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
-import { runPrAddressReview, runPrAddressReviewCodexActionPrepare } from './run.js';
+import { runPrAddressReview, runPrAddressReviewExternalRunnerPrepare } from './run.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -21,7 +21,7 @@ import { runPrAddressReview, runPrAddressReviewCodexActionPrepare } from './run.
  * @typedef {import('../../github/types.js').DismissPullRequestReviewOptions} DismissPullRequestReviewOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 describe('runPrAddressReview', () => {
@@ -32,7 +32,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed all review feedback.',
@@ -65,7 +65,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -183,7 +183,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed the requested change.',
@@ -204,7 +204,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -258,7 +258,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Declined the requested change as non-actionable for this PR.',
@@ -280,7 +280,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -318,7 +318,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Declined one request and deferred one stale comment.',
@@ -348,7 +348,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -393,12 +393,12 @@ describe('runPrAddressReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrAddressReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -430,7 +430,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Only classified one feedback item.',
@@ -452,7 +452,7 @@ describe('runPrAddressReview', () => {
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -499,7 +499,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed the feedback with the escalation review model.',
@@ -533,7 +533,7 @@ describe('runPrAddressReview', () => {
         config,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -558,7 +558,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed all review feedback.',
@@ -591,7 +591,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         reviewId: 'PRR_requested',
       }),
     );
@@ -611,7 +611,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed all review feedback.',
@@ -644,7 +644,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         reviewId: 'PRR_requested',
       }),
     );
@@ -675,7 +675,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed all review feedback.',
@@ -708,7 +708,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         reviewId: 'PRR_requested',
       }),
     );
@@ -737,7 +737,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'This output should not be used.',
@@ -753,7 +753,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         reviewId: 'PRR_requested',
       }),
     );
@@ -783,7 +783,7 @@ describe('runPrAddressReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'This output should not be used.',
@@ -799,7 +799,7 @@ describe('runPrAddressReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         reviewId: 'PRR_new',
       }),
     );
@@ -827,12 +827,12 @@ describe('runPrAddressReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrAddressReviewCodexActionPrepare(
+    const result = await runPrAddressReviewExternalRunnerPrepare(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -879,7 +879,7 @@ function createContext(overrides = {}) {
       diff: createDiff(),
     }).client,
     gitClient: createFakeGit({ hasChanges: false }).client,
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    runner: createFakeRunner({ output: '{}' }).runner,
     ...overrides,
   };
 }
@@ -1259,10 +1259,10 @@ function createFakeGit({ hasChanges }) {
 
 /**
  * @param {{ output: unknown }} options
- * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ calls: RunnerRunOptions[], runner: import('../../runner/types.js').Runner }}
  */
-function createFakeCodexRunner({ output }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {

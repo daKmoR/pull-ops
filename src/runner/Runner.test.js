@@ -4,16 +4,16 @@ import { writeFile } from 'node:fs/promises';
 import { PassThrough } from 'node:stream';
 import { describe, it } from 'node:test';
 
-import { createCodexRunner, parseRunnerCommand } from './CodexRunner.js';
+import { createRunner, parseRunnerCommand } from './Runner.js';
 
-describe('createCodexRunner', () => {
+describe('createRunner', () => {
   it('01: streams runner output live and returns the captured last Codex message', async () => {
     const output = createWritableBuffer();
     /** @type {string[]} */
     const traces = [];
     /** @type {Array<{ file: string, args: string[], options: unknown }>} */
     const calls = [];
-    const runner = createCodexRunner({
+    const runner = createRunner({
       output,
       traceCommand(command) {
         traces.push(command);
@@ -62,7 +62,7 @@ describe('createCodexRunner', () => {
   });
 
   it('02: rejects failed runner commands with stderr and captured stdout', async () => {
-    const runner = createCodexRunner({
+    const runner = createRunner({
       output: createWritableBuffer(),
       spawn: () => {
         const child = createFakeChildProcess();
@@ -96,7 +96,7 @@ describe('createCodexRunner', () => {
 
   it('03: can capture runner output without streaming it live', async () => {
     const output = createWritableBuffer();
-    const runner = createCodexRunner({
+    const runner = createRunner({
       output,
       spawn: () => {
         const child = createFakeChildProcess();
@@ -125,7 +125,7 @@ describe('createCodexRunner', () => {
     const output = createWritableBuffer();
     /** @type {Array<{ file: string, args: string[], options: any }>} */
     const calls = [];
-    const runner = createCodexRunner({
+    const runner = createRunner({
       output,
       spawn: (file, args, options) => {
         calls.push({ file, args, options });

@@ -88,7 +88,7 @@ function createContext(overrides = {}) {
     model: 'gpt-5.5',
     githubClient: {},
     gitClient: {},
-    codexRunner: {},
+    runner: {},
     triggerActor: 'octocat',
     reasoningEffort: 'high',
     contextUsage: {

@@ -24,7 +24,7 @@ import {
   blockLocalPullRequestOperation,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
-  runLocalCodexOperation,
+  runLocalRunnerStep,
   runLocalPullRequestOperation,
   writeLocalPullRequestRunArtifact,
 } from '../runLocalPullRequestOperation.js';
@@ -85,7 +85,7 @@ async function runLocalPrFinalize(context, runRecord, preparation) {
     changedFiles,
     commits,
   });
-  const validation = await runLocalCodexOperation(context, runRecord, {
+  const validation = await runLocalRunnerStep(context, runRecord, {
     operationReference: 'pr:finalize',
     prompt,
     validate: validatePrFinalizeOutput,
@@ -280,7 +280,7 @@ function indentLocalPlannerValue(value) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrFinalizeCodexActionPrepare(context) {
+export async function runPrFinalizeExternalRunnerPrepare(context) {
   return await prepareOperationRunnerStep(context, createPrFinalizeRunnerOperation);
 }
 
@@ -288,7 +288,7 @@ export async function runPrFinalizeCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrFinalizeCodexActionFinalize(context) {
+export async function runPrFinalizeExternalRunnerFinalize(context) {
   return await finalizeOperationRunnerStep(context, createPrFinalizeRunnerOperation, {
     order: 'prepare-first',
   });

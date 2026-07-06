@@ -30,7 +30,7 @@ async function createContext({ outputDirectory, run } = {}) {
       operation: 'pr-review',
       target: { type: 'pr', number: 7 },
       config: { runner: { command: 'codex' } },
-      codexRunner: {
+      runner: {
         run: run ?? (async () => '{"status":"accepted"}'),
       },
     })
@@ -231,11 +231,9 @@ describe('finalizeOperationRunnerStep', () => {
     const context = await createContext();
     await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
 
-    const output = await finalizeOperationRunnerStep(
-      context,
-      async () => createRunnerStep(),
-      { order: 'prepare-first' },
-    );
+    const output = await finalizeOperationRunnerStep(context, async () => createRunnerStep(), {
+      order: 'prepare-first',
+    });
 
     assert.deepEqual(output, { status: 'accepted', rawOutput: '{"status":"accepted"}' });
   });
@@ -249,11 +247,9 @@ describe('finalizeOperationRunnerStep', () => {
       JSON.stringify({ schemaVersion: 1, status: 'skipped' }),
     );
 
-    const output = await finalizeOperationRunnerStep(
-      context,
-      async () => createRunnerStep(),
-      { order: 'prepare-first' },
-    );
+    const output = await finalizeOperationRunnerStep(context, async () => createRunnerStep(), {
+      order: 'prepare-first',
+    });
 
     assert.equal(output.status, 'accepted');
     assert.deepEqual(output.runner, { adapter: 'external', status: 'skipped' });
@@ -334,11 +330,9 @@ describe('finalizeOperationRunnerStep', () => {
     const context = await createContext();
     await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
 
-    const output = await finalizeOperationRunnerStep(
-      context,
-      async () => createRunnerStep(),
-      { order: 'output-first' },
-    );
+    const output = await finalizeOperationRunnerStep(context, async () => createRunnerStep(), {
+      order: 'output-first',
+    });
 
     assert.deepEqual(output, { status: 'accepted', rawOutput: '{"status":"accepted"}' });
   });

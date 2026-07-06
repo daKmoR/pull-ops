@@ -7,7 +7,7 @@ import type {
   PullOpsParentEventSinkChildEnvironment,
 } from '../parent-event-sink/types.js';
 import type {
-  CodexRunner,
+  Runner,
   ExternalRunnerCommandRunner,
   ExternalRunnerJobRunner,
   RunnerAdapter,
@@ -62,7 +62,7 @@ export interface OperationRunnerContext {
   model: string;
   githubClient: GitHubClient;
   gitClient: GitClient;
-  codexRunner: CodexRunner;
+  runner: Runner;
   triggerActor?: string;
   reviewId?: string;
   outputDirectory?: string;

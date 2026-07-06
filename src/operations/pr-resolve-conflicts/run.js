@@ -10,12 +10,12 @@ import {
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
   createExternalRunnerJob,
-  createSkippedCodexActionOutput,
-  getCodexActionFiles,
+  createSkippedExternalRunnerOutput,
+  getExternalRunnerFiles,
   isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from '../codexAction.js';
+  readExternalRunnerOutput,
+  writeExternalRunnerPrompt,
+} from '../externalRunner.js';
 import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { validatePrResolveConflictsOutput } from './output.js';
@@ -60,7 +60,7 @@ export async function runPrResolveConflicts(context) {
     let rawOutput;
 
     try {
-      rawOutput = await context.codexRunner.run({
+      rawOutput = await context.runner.run({
         cwd: context.cwd,
         command: context.config.runner.command,
         model: context.model,
@@ -110,7 +110,7 @@ export async function runPrResolveConflicts(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrResolveConflictsCodexActionPrepare(context) {
+export async function runPrResolveConflictsExternalRunnerPrepare(context) {
   const preparation = await preparePrResolveConflicts(context);
   if (!preparation.ready) {
     return preparation.output;
@@ -118,13 +118,18 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
 
   const step = await startOrReadRebaseStep(context, preparation);
   if (step.status === 'complete') {
-    await removeCodexActionConflictState(context);
+    await removeExternalRunnerConflictState(context);
     return await completeResolvedRebase(context, preparation, step, { conflictPasses: 0 });
   }
 
-  const handoff = await writeCodexActionConflictPrompt(context, preparation, step.conflictContext, {
-    pass: 1,
-  });
+  const handoff = await writeExternalRunnerConflictPrompt(
+    context,
+    preparation,
+    step.conflictContext,
+    {
+      pass: 1,
+    },
+  );
 
   return {
     status: 'waiting',
@@ -151,14 +156,14 @@ export async function runPrResolveConflictsCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrResolveConflictsCodexActionFinalize(context) {
+export async function runPrResolveConflictsExternalRunnerFinalize(context) {
   let rawOutput;
 
   try {
-    rawOutput = await readCodexActionOutput(context, { rejectSkippedPreparedRunner: true });
+    rawOutput = await readExternalRunnerOutput(context, { rejectSkippedPreparedRunner: true });
   } catch (error) {
     if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
+      return createSkippedExternalRunnerOutput(context);
     }
 
     const preparation = await preparePrResolveConflicts(context);
@@ -166,7 +171,7 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
       throw error;
     }
 
-    await removeCodexActionPrompt(context);
+    await removeExternalRunnerPrompt(context);
     await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
       updateBody: preparation.managed,
     });
@@ -178,7 +183,7 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
     return preparation.output;
   }
 
-  const passState = await readCodexActionConflictPassState(context);
+  const passState = await readExternalRunnerConflictPassState(context);
   const conflictContext = await readRequiredConflictContext(context, preparation);
   await commentOnPullRequestWithOperationAudit(context, {
     pullRequestNumber: preparation.pullRequest.number,
@@ -192,12 +197,12 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
     rawOutput,
   );
   if (resolved.status === 'blocked') {
-    await removeCodexActionConflictState(context);
+    await removeExternalRunnerConflictState(context);
     return resolved.output;
   }
 
   if (resolved.step.status === 'complete') {
-    await removeCodexActionConflictState(context);
+    await removeExternalRunnerConflictState(context);
     return await completeResolvedRebase(context, preparation, resolved.step, {
       conflictPasses: passState.pass,
     });
@@ -205,11 +210,11 @@ export async function runPrResolveConflictsCodexActionFinalize(context) {
 
   const nextPass = passState.pass + 1;
   if (nextPass > preparation.maxConflictResolutionPasses) {
-    await removeCodexActionConflictState(context);
+    await removeExternalRunnerConflictState(context);
     return await blockConflictResolutionBudget(context, preparation, resolved.step.conflictContext);
   }
 
-  const handoff = await writeCodexActionConflictPrompt(
+  const handoff = await writeExternalRunnerConflictPrompt(
     context,
     preparation,
     resolved.step.conflictContext,
@@ -691,12 +696,12 @@ async function transitionNonManagedPullRequestToReview(context, pullRequest) {
  * @param {{ pass: number }} options
  * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
  */
-async function writeCodexActionConflictPrompt(context, preparation, conflictContext, { pass }) {
-  const files = getCodexActionFiles(context);
+async function writeExternalRunnerConflictPrompt(context, preparation, conflictContext, { pass }) {
+  const files = getExternalRunnerFiles(context);
   await mkdir(requireOutputDirectory(context), { recursive: true });
   await rm(files.outputFile, { force: true });
   await writeConflictPassState(context, { pass });
-  return await writeCodexActionPrompt(
+  return await writeExternalRunnerPrompt(
     context,
     buildPrResolveConflictsPrompt({
       pullRequest: preparation.pullRequest,
@@ -726,7 +731,7 @@ async function writeConflictPassState(context, state) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<ConflictResolutionPassState>}
  */
-async function readCodexActionConflictPassState(context) {
+async function readExternalRunnerConflictPassState(context) {
   try {
     const raw = await readFile(join(requireOutputDirectory(context), CONFLICT_PASS_STATE_FILE), {
       encoding: 'utf8',
@@ -753,8 +758,8 @@ async function readCodexActionConflictPassState(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<void>}
  */
-async function removeCodexActionConflictState(context) {
-  await removeCodexActionPrompt(context);
+async function removeExternalRunnerConflictState(context) {
+  await removeExternalRunnerPrompt(context);
   if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
     return;
   }
@@ -766,12 +771,12 @@ async function removeCodexActionConflictState(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<void>}
  */
-async function removeCodexActionPrompt(context) {
+async function removeExternalRunnerPrompt(context) {
   if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
     return;
   }
 
-  const files = getCodexActionFiles(context);
+  const files = getExternalRunnerFiles(context);
   await rm(files.promptFile, { force: true });
 }
 

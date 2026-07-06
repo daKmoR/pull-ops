@@ -8,8 +8,8 @@ import { DEFAULT_PULL_OPS_CONFIG } from '../../config/PullOpsConfig.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import {
   runPrReview,
-  runPrReviewCodexActionFinalize,
-  runPrReviewCodexActionPrepare,
+  runPrReviewExternalRunnerFinalize,
+  runPrReviewExternalRunnerPrepare,
 } from './run.js';
 import { runPrAddressReview } from '../pr-address-review/run.js';
 
@@ -28,7 +28,7 @@ import { runPrAddressReview } from '../pr-address-review/run.js';
  * @typedef {import('../../github/types.js').CommentOnPullRequestOptions} CommentOnPullRequestOptions
  * @typedef {import('../../git/types.js').CommitAllOptions} CommitAllOptions
  * @typedef {import('../../git/types.js').PushBranchOptions} PushBranchOptions
- * @typedef {import('../../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../../runner/types.js').RunnerRunOptions} RunnerRunOptions
  */
 
 describe('runPrReview', () => {
@@ -39,7 +39,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the issue and coding standards.',
@@ -77,7 +77,7 @@ describe('runPrReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -158,7 +158,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'changes_requested',
         summary: 'The PR needs one implementation fix.',
@@ -171,7 +171,7 @@ describe('runPrReview', () => {
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -212,12 +212,12 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrReviewCodexActionPrepare(
+    const result = await runPrReviewExternalRunnerPrepare(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -282,13 +282,13 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrReviewCodexActionFinalize(
+    const result = await runPrReviewExternalRunnerFinalize(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -307,7 +307,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'blocked',
         summary: 'Review could not complete.',
@@ -318,7 +318,7 @@ describe('runPrReview', () => {
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -346,7 +346,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'changes_requested',
         summary: 'Needs changes.',
@@ -365,7 +365,7 @@ describe('runPrReview', () => {
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -389,12 +389,12 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -424,13 +424,13 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
-    const result = await runPrReviewCodexActionFinalize(
+    const result = await runPrReviewExternalRunnerFinalize(
       createContext({
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
         outputDirectory,
       }),
     );
@@ -463,14 +463,14 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     await assert.rejects(
-      runPrReviewCodexActionFinalize(
+      runPrReviewExternalRunnerFinalize(
         createContext({
           githubClient: github.client,
           gitClient: git.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
           outputDirectory,
         }),
       ),
@@ -517,7 +517,7 @@ describe('runPrReview', () => {
       rejectFormalReviewEvents: true,
     });
 
-    const result = await runPrReviewCodexActionFinalize(
+    const result = await runPrReviewExternalRunnerFinalize(
       createContext({
         githubClient: github.client,
         outputDirectory,
@@ -561,7 +561,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The prepared PR is ready for human review.',
@@ -573,7 +573,7 @@ describe('runPrReview', () => {
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -623,7 +623,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'This should not run.',
@@ -635,7 +635,7 @@ describe('runPrReview', () => {
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -673,7 +673,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the human feedback response.',
@@ -687,7 +687,7 @@ describe('runPrReview', () => {
         config,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -729,7 +729,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -743,7 +743,7 @@ describe('runPrReview', () => {
         config,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -770,12 +770,12 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -822,7 +822,7 @@ describe('runPrReview', () => {
       reviewContext,
       diff,
     });
-    const firstCodex = createFakeCodexRunner({
+    const firstCodex = createFakeRunner({
       output: JSON.stringify({
         status: 'changes_requested',
         summary: 'The PR needs one more change before the escalation follow-up.',
@@ -835,7 +835,7 @@ describe('runPrReview', () => {
       createContext({
         config,
         githubClient: firstGithub.client,
-        codexRunner: firstCodex.runner,
+        runner: firstCodex.runner,
       }),
     );
 
@@ -859,7 +859,7 @@ describe('runPrReview', () => {
       reviewContext,
       diff,
     });
-    const secondCodex = createFakeCodexRunner({
+    const secondCodex = createFakeRunner({
       output: JSON.stringify({
         status: 'addressed',
         summary: 'Addressed the remaining review feedback.',
@@ -885,7 +885,7 @@ describe('runPrReview', () => {
         operation: 'pr-address-review',
         config,
         githubClient: secondGithub.client,
-        codexRunner: secondCodex.runner,
+        runner: secondCodex.runner,
       }),
     );
 
@@ -909,7 +909,7 @@ describe('runPrReview', () => {
       reviewContext,
       diff,
     });
-    const thirdCodex = createFakeCodexRunner({
+    const thirdCodex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -922,7 +922,7 @@ describe('runPrReview', () => {
       createContext({
         config,
         githubClient: thirdGithub.client,
-        codexRunner: thirdCodex.runner,
+        runner: thirdCodex.runner,
       }),
     );
 
@@ -952,12 +952,12 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const codex = createFakeRunner({ output: '{}' });
 
     const result = await runPrReview(
       createContext({
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -996,7 +996,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the next human feedback response.',
@@ -1010,7 +1010,7 @@ describe('runPrReview', () => {
         config,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -1041,7 +1041,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1067,7 +1067,7 @@ describe('runPrReview', () => {
         cwd,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -1172,7 +1172,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1196,7 +1196,7 @@ describe('runPrReview', () => {
       createContext({
         cwd,
         githubClient: github.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -1253,7 +1253,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1274,7 +1274,7 @@ describe('runPrReview', () => {
         createContext({
           cwd,
           githubClient: github.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
         }),
       ),
       /Cannot finalize review follow-up issue publication because recorded issue #502 has no matching reviewFollowUpIssues proposal\./,
@@ -1310,7 +1310,7 @@ describe('runPrReview', () => {
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1329,7 +1329,7 @@ describe('runPrReview', () => {
       runPrReview(
         createContext({
           githubClient: github.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
         }),
       ),
       /Invalid Review Result: Operation Output\.reviewFollowUpIssues\[0\]\.body must be a non-empty string\./,
@@ -1361,7 +1361,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
       failCreateIssue: true,
     });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1382,7 +1382,7 @@ describe('runPrReview', () => {
         createContext({
           cwd,
           githubClient: github.client,
-          codexRunner: codex.runner,
+          runner: codex.runner,
         }),
       ),
       /Failed to create GitHub issue "Capture a later cleanup task\.": GitHub issue creation failed\./,
@@ -1435,7 +1435,7 @@ describe('runPrReview', () => {
         createContext({
           cwd,
           githubClient: firstGithub.client,
-          codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+          runner: createFakeRunner({ output: reviewOutput }).runner,
         }),
       ),
       /Failed to publish review follow-up issue "Capture a later cleanup task\.": Failed to sync triage labels for the created issue\./,
@@ -1471,7 +1471,7 @@ describe('runPrReview', () => {
       createContext({
         cwd,
         githubClient: retryGithub.client,
-        codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+        runner: createFakeRunner({ output: reviewOutput }).runner,
       }),
     );
 
@@ -1545,7 +1545,7 @@ describe('runPrReview', () => {
         createContext({
           cwd,
           githubClient: firstGithub.client,
-          codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+          runner: createFakeRunner({ output: reviewOutput }).runner,
         }),
       ),
       /Failed to publish review follow-up issue "Document a remaining edge case\.": Failed to create GitHub issue "Document a remaining edge case\.": GitHub issue creation failed\./,
@@ -1582,7 +1582,7 @@ describe('runPrReview', () => {
       createContext({
         cwd,
         githubClient: retryGithub.client,
-        codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+        runner: createFakeRunner({ output: reviewOutput }).runner,
       }),
     );
 
@@ -1654,7 +1654,7 @@ describe('runPrReview', () => {
         createContext({
           cwd,
           githubClient: firstGithub.client,
-          codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+          runner: createFakeRunner({ output: reviewOutput }).runner,
         }),
       ),
       /Failed to publish review follow-up issue "Capture a later cleanup task\.": Failed to sync triage labels for the created issue\./,
@@ -1687,7 +1687,7 @@ describe('runPrReview', () => {
       createContext({
         cwd,
         githubClient: retryGithub.client,
-        codexRunner: createFakeCodexRunner({ output: reviewOutput }).runner,
+        runner: createFakeRunner({ output: reviewOutput }).runner,
       }),
     );
 
@@ -1747,7 +1747,7 @@ describe('runPrReview', () => {
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: false });
-    const codex = createFakeCodexRunner({
+    const codex = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'The PR satisfies the escalation review.',
@@ -1761,7 +1761,7 @@ describe('runPrReview', () => {
         config,
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: codex.runner,
       }),
     );
 
@@ -1801,7 +1801,7 @@ function createContext(overrides = {}) {
       diff: createDiff(),
     }).client,
     gitClient: createFakeGit({ hasChanges: false }).client,
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    runner: createFakeRunner({ output: '{}' }).runner,
     ...overrides,
   };
 }
@@ -2318,10 +2318,10 @@ function createFakeGit({
 
 /**
  * @param {{ output: unknown }} options
- * @returns {{ calls: CodexRunOptions[], runner: import('../../runner/types.js').CodexRunner }}
+ * @returns {{ calls: RunnerRunOptions[], runner: import('../../runner/types.js').Runner }}
  */
-function createFakeCodexRunner({ output }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
 
   return {

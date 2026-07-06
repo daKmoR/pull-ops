@@ -13,7 +13,7 @@ import { runPrUpdateBranch } from './pr-update-branch/run.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
- * @typedef {import('../runner/types.js').CodexRunOptions} CodexRunOptions
+ * @typedef {import('../runner/types.js').RunnerRunOptions} RunnerRunOptions
  * @typedef {import('../git/types.js').CommitAllOptions} CommitAllOptions
  */
 
@@ -22,7 +22,7 @@ describe('local pull request operations', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-review-'));
     const github = createFakeGitHub();
     const git = createFakeGit({ hasChangesResults: [false, false] });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'Local review approved.',
@@ -39,18 +39,18 @@ describe('local pull request operations', () => {
         operation: 'pr-review',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
     assert.equal(result.status, 'accepted');
     assert.equal(result.operation, 'pr:review');
     assert.equal(result.publicationMode, 'dry-run');
-    assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Use the pullops-pr-review skill/);
+    assert.equal(fakeRunner.calls.length, 1);
+    assert.match(fakeRunner.calls[0].prompt, /Use the pullops-pr-review skill/);
     const localRunRecord = String(result.localRunRecord);
     const state = JSON.parse(await readFile(join(localRunRecord, 'state.json'), 'utf8'));
-    const call = codex.calls[0];
+    const call = fakeRunner.calls[0];
     assert(call);
     const env = call.env;
     assert(env);
@@ -78,7 +78,7 @@ describe('local pull request operations', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-update-'));
     const github = createFakeGitHub();
     const git = createFakeGit({ hasChangesResults: [false] });
-    const codex = createFakeCodexRunner({ output: '{}' });
+    const fakeRunner = createFakeRunner({ output: '{}' });
 
     const result = await runPrUpdateBranch(
       createContext({
@@ -86,7 +86,7 @@ describe('local pull request operations', () => {
         operation: 'pr-update-branch',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -98,7 +98,7 @@ describe('local pull request operations', () => {
     );
     assert.equal(state.status, 'blocked');
     assert.equal(state.operationReference, 'pr:update-branch');
-    assert.equal(codex.calls.length, 0);
+    assert.equal(fakeRunner.calls.length, 0);
     assert.equal(github.mutations, 0);
   });
 
@@ -106,7 +106,7 @@ describe('local pull request operations', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-finalize-'));
     const github = createFakeGitHub();
     const git = createFakeGit({ hasChangesResults: [false, false] });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'planned',
         summary: 'Planned local finalize run.',
@@ -130,7 +130,7 @@ describe('local pull request operations', () => {
         operation: 'pr-finalize',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
       }),
     );
 
@@ -149,7 +149,7 @@ describe('local pull request operations', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-nested-'));
     const github = createFakeGitHub();
     const git = createFakeGit({ hasChangesResults: [false, false] });
-    const codex = createFakeCodexRunner({
+    const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'approved',
         summary: 'Nested local review approved.',
@@ -182,7 +182,7 @@ describe('local pull request operations', () => {
         operation: 'pr-review',
         githubClient: github.client,
         gitClient: git.client,
-        codexRunner: codex.runner,
+        runner: fakeRunner.runner,
         parentRun,
       }),
     );
@@ -215,7 +215,7 @@ function createContext(overrides = {}) {
     model: 'gpt-5.5',
     githubClient: createFakeGitHub().client,
     gitClient: createFakeGit().client,
-    codexRunner: createFakeCodexRunner({ output: '{}' }).runner,
+    runner: createFakeRunner({ output: '{}' }).runner,
     ...overrides,
   };
 }
@@ -413,14 +413,14 @@ function createFakeGit({ hasChangesResults = [false] } = {}) {
 /**
  * @param {{ output: unknown }} options
  */
-function createFakeCodexRunner({ output }) {
-  /** @type {CodexRunOptions[]} */
+function createFakeRunner({ output }) {
+  /** @type {RunnerRunOptions[]} */
   const calls = [];
   return {
     calls,
     runner: {
       /**
-       * @param {CodexRunOptions} options
+       * @param {RunnerRunOptions} options
        */
       async run(options) {
         calls.push(options);

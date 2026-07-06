@@ -191,7 +191,7 @@ async function runIssueImplementLocalPublish(context) {
 
     let rawOutput;
     try {
-      rawOutput = await context.codexRunner.run({
+      rawOutput = await context.runner.run({
         cwd: context.cwd,
         command: context.config.runner.command,
         model: context.model,
@@ -339,7 +339,7 @@ async function runIssueImplementDryRun(context) {
 
     let rawOutput;
     try {
-      rawOutput = await context.codexRunner.run({
+      rawOutput = await context.runner.run({
         cwd: context.cwd,
         command: context.config.runner.command,
         model: context.model,
@@ -388,7 +388,7 @@ async function runIssueImplementDryRun(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runIssueImplementCodexActionPrepare(context) {
+export async function runIssueImplementExternalRunnerPrepare(context) {
   return await prepareOperationRunnerStep(context, createIssueImplementRunnerOperation);
 }
 
@@ -396,7 +396,7 @@ export async function runIssueImplementCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runIssueImplementCodexActionFinalize(context) {
+export async function runIssueImplementExternalRunnerFinalize(context) {
   return await finalizeOperationRunnerStep(context, createPreparedIssueImplementRunnerOperation, {
     order: 'output-first',
     onOutputError: async (outputErrorContext, error) => {
@@ -1672,7 +1672,7 @@ async function runLocalFollowUpOperation(
   { operationName, operationReference, prompt, validate },
 ) {
   const modelSelection = resolveOperationModelSelection(context, operationName);
-  const rawOutput = await context.codexRunner.run({
+  const rawOutput = await context.runner.run({
     cwd: context.cwd,
     command: context.config.runner.command,
     model: modelSelection.model,

@@ -3,8 +3,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import { readRunnerResult, RUNNER_RESULT_FILE } from '../runner/runnerResult.js';
 
-export const CODEX_ACTION_PROMPT_FILE = 'runner_prompt.md';
-export const CODEX_ACTION_OUTPUT_FILE = 'runner_output.json';
+export const EXTERNAL_RUNNER_PROMPT_FILE = 'runner_prompt.md';
+export const EXTERNAL_RUNNER_OUTPUT_FILE = 'runner_output.json';
 export const SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV =
   'PULLOPS_SUPPRESS_FOLLOW_UP_OPERATION_LABELS';
 
@@ -21,11 +21,11 @@ export const SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV =
  * @param {{ branch?: string }} [options]
  * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
  */
-export async function writeCodexActionPrompt(context, prompt, options = {}) {
+export async function writeExternalRunnerPrompt(context, prompt, options = {}) {
   const outputDirectory = requireOutputDirectory(context);
   await mkdir(outputDirectory, { recursive: true });
 
-  const files = getCodexActionFiles(context);
+  const files = getExternalRunnerFiles(context);
   const workerPrompt = buildExternalRunnerWorkerPrompt({
     prompt,
     files,
@@ -44,7 +44,7 @@ export async function writeCodexActionPrompt(context, prompt, options = {}) {
  * @param {{ rejectSkippedPreparedRunner?: boolean }} [options]
  * @returns {Promise<string>}
  */
-export async function readCodexActionOutput(context, options = {}) {
+export async function readExternalRunnerOutput(context, options = {}) {
   const result = await readRunnerResult({
     cwd: context.cwd,
     outputDirectory: context.outputDirectory,
@@ -53,7 +53,7 @@ export async function readCodexActionOutput(context, options = {}) {
   if (result.result.status === 'skipped') {
     if (
       options.rejectSkippedPreparedRunner === true &&
-      (await didCodexActionPrepareRunner(context))
+      (await didExternalRunnerPrepareRunner(context))
     ) {
       throw new ExternalRunnerUnexpectedSkippedError();
     }
@@ -65,14 +65,14 @@ export async function readCodexActionOutput(context, options = {}) {
     throw new ExternalRunnerFailedError(result.result.status);
   }
 
-  return await readFile(join(requireOutputDirectory(context), CODEX_ACTION_OUTPUT_FILE), 'utf8');
+  return await readFile(join(requireOutputDirectory(context), EXTERNAL_RUNNER_OUTPUT_FILE), 'utf8');
 }
 
 /**
  * @param {OperationRunnerContext} context
  * @returns {Record<string, unknown>}
  */
-export function createSkippedCodexActionOutput(context) {
+export function createSkippedExternalRunnerOutput(context) {
   return {
     status: 'accepted',
     summary: [
@@ -90,11 +90,11 @@ export function createSkippedCodexActionOutput(context) {
  * @param {OperationRunnerContext} context
  * @returns {{ promptFile: string, outputFile: string, resultFile: string }}
  */
-export function getCodexActionFiles(context) {
+export function getExternalRunnerFiles(context) {
   const outputDirectory = requireOutputDirectory(context);
   return {
-    promptFile: join(outputDirectory, CODEX_ACTION_PROMPT_FILE),
-    outputFile: join(outputDirectory, CODEX_ACTION_OUTPUT_FILE),
+    promptFile: join(outputDirectory, EXTERNAL_RUNNER_PROMPT_FILE),
+    outputFile: join(outputDirectory, EXTERNAL_RUNNER_OUTPUT_FILE),
     resultFile: join(outputDirectory, RUNNER_RESULT_FILE),
   };
 }
@@ -103,9 +103,9 @@ export function getCodexActionFiles(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<boolean>}
  */
-async function didCodexActionPrepareRunner(context) {
+async function didExternalRunnerPrepareRunner(context) {
   try {
-    await access(getCodexActionFiles(context).promptFile);
+    await access(getExternalRunnerFiles(context).promptFile);
     return true;
   } catch (error) {
     if (isErrorWithCode(error, 'ENOENT')) {

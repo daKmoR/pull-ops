@@ -14,7 +14,7 @@ import {
   commitLocalChangesIfPresent,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
-  runLocalCodexOperation,
+  runLocalRunnerStep,
   runLocalPullRequestOperation,
 } from '../runLocalPullRequestOperation.js';
 import {
@@ -74,7 +74,7 @@ async function runLocalPrAddressReview(context, runRecord, preparation) {
     ...preparation,
     feedbackItems,
   });
-  const validation = await runLocalCodexOperation(context, runRecord, {
+  const validation = await runLocalRunnerStep(context, runRecord, {
     operationReference: 'pr:address-review',
     prompt,
     validate: validatePrAddressReviewOutput,
@@ -132,7 +132,7 @@ async function runLocalPrAddressReview(context, runRecord, preparation) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrAddressReviewCodexActionPrepare(context) {
+export async function runPrAddressReviewExternalRunnerPrepare(context) {
   return await prepareOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
 }
 
@@ -140,7 +140,7 @@ export async function runPrAddressReviewCodexActionPrepare(context) {
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runPrAddressReviewCodexActionFinalize(context) {
+export async function runPrAddressReviewExternalRunnerFinalize(context) {
   return await finalizeOperationRunnerStep(context, createPrAddressReviewRunnerOperation, {
     order: 'prepare-first',
   });

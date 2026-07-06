@@ -1,10 +1,10 @@
 import {
   createExternalRunnerJob,
-  createSkippedCodexActionOutput,
+  createSkippedExternalRunnerOutput,
   isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from './codexAction.js';
+  readExternalRunnerOutput,
+  writeExternalRunnerPrompt,
+} from './externalRunner.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -29,7 +29,7 @@ export async function runOperationRunnerStep(context, createOperation) {
   let rawOutput;
 
   try {
-    rawOutput = await context.codexRunner.run({
+    rawOutput = await context.runner.run({
       cwd: context.cwd,
       command: context.config.runner.command,
       model: operation.model,
@@ -48,7 +48,7 @@ export async function runOperationRunnerStep(context, createOperation) {
 }
 
 /**
- * Prepare an operation's runner step for the codex-action Runner Adapter:
+ * Prepare an operation's runner step for the external Runner Adapter:
  * write the worker prompt and describe the external runner job.
  *
  * @param {OperationRunnerContext} context
@@ -63,7 +63,7 @@ export async function prepareOperationRunnerStep(context, createOperation) {
 
   let handoff;
   try {
-    handoff = await writeCodexActionPrompt(context, operation.prompt, {
+    handoff = await writeExternalRunnerPrompt(context, operation.prompt, {
       branch: operation.branch,
     });
   } catch (error) {
@@ -83,7 +83,7 @@ export async function prepareOperationRunnerStep(context, createOperation) {
 }
 
 /**
- * Finalize an operation's runner step for the codex-action Runner Adapter:
+ * Finalize an operation's runner step for the external Runner Adapter:
  * read the external runner output and hand it to the operation.
  *
  * @param {OperationRunnerContext} context
@@ -117,7 +117,7 @@ async function finalizePreparedOperationRunnerStep(context, createOperation, opt
     rawOutput = await readOperationRunnerOutput(context, options);
   } catch (error) {
     if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
+      return createSkippedExternalRunnerOutput(context);
     }
 
     await operation.onRunnerFailure?.(error);
@@ -140,7 +140,7 @@ async function finalizeOutputFirstOperationRunnerStep(context, createOperation, 
     rawOutput = await readOperationRunnerOutput(context, options);
   } catch (error) {
     if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
+      return createSkippedExternalRunnerOutput(context);
     }
 
     await options.onOutputError?.(context, error);
@@ -161,7 +161,7 @@ async function finalizeOutputFirstOperationRunnerStep(context, createOperation, 
  * @returns {Promise<unknown>}
  */
 async function readOperationRunnerOutput(context, options) {
-  return await readCodexActionOutput(
+  return await readExternalRunnerOutput(
     context,
     options.rejectSkippedPreparedRunner === true ? { rejectSkippedPreparedRunner: true } : {},
   );
