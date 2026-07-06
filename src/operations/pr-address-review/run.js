@@ -5,12 +5,10 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
-  createExternalRunnerJob,
-  createSkippedCodexActionOutput,
-  isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from '../codexAction.js';
+  finalizeOperationRunnerStep,
+  prepareOperationRunnerStep,
+  runOperationRunnerStep,
+} from '../runnerLifecycle.js';
 import {
   appendOperationAuditFooter,
   commentOnPullRequestWithOperationAudit,
@@ -49,9 +47,35 @@ const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReview(context) {
+  return await runOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPrAddressReviewCodexActionPrepare(context) {
+  return await prepareOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPrAddressReviewCodexActionFinalize(context) {
+  return await finalizeOperationRunnerStep(context, createPrAddressReviewRunnerOperation, {
+    order: 'prepare-first',
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../runnerLifecycle.types.js').RunnerLifecycleOperation>}
+ */
+async function createPrAddressReviewRunnerOperation(context) {
   const preparation = await preparePrAddressReview(context);
   if (!preparation.ready) {
-    return preparation.output;
+    return { status: 'settled', output: preparation.output };
   }
 
   const executionContext = withSelectedModel(context, preparation);
@@ -60,119 +84,46 @@ export async function runPrAddressReview(context) {
       ? undefined
       : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
 
-  let rawOutput;
-
-  try {
-    rawOutput = await context.codexRunner.run({
-      cwd: context.cwd,
-      command: context.config.runner.command,
-      model: executionContext.model,
-      prompt: buildAddressPrReviewompt({
-        pullRequest: preparation.pullRequest,
-        issue: preparation.issue,
-        reviewContext: preparation.reviewContext,
-        diff: preparation.diff,
-        feedbackItems: preparation.feedbackItems,
-      }),
+  return {
+    status: 'runner',
+    prompt: buildAddressPrReviewompt({
+      pullRequest: preparation.pullRequest,
+      issue: preparation.issue,
+      reviewContext: preparation.reviewContext,
+      diff: preparation.diff,
+      feedbackItems: preparation.feedbackItems,
+    }),
+    model: executionContext.model,
+    branch: preparation.pullRequest.headRefName,
+    runOptions: {
       streamOutput: context.suppressRunnerOutput !== true,
       env: localRunStateRecord?.heartbeatEnvironment,
-    });
-  } catch (error) {
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: true,
-      reviewCycle: preparation.reviewCycle,
-      maxReviewCycles: preparation.maxReviewCycles,
-    });
-    throw error;
-  }
-
-  return await finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput);
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function runPrAddressReviewCodexActionPrepare(context) {
-  const preparation = await preparePrAddressReview(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  const executionContext = withSelectedModel(context, preparation);
-
-  let handoff;
-  try {
-    handoff = await writeCodexActionPrompt(
-      executionContext,
-      buildAddressPrReviewompt({
-        pullRequest: preparation.pullRequest,
-        issue: preparation.issue,
-        reviewContext: preparation.reviewContext,
-        diff: preparation.diff,
-        feedbackItems: preparation.feedbackItems,
-      }),
-      { branch: preparation.pullRequest.headRefName },
-    );
-  } catch (error) {
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: true,
-      reviewCycle: preparation.reviewCycle,
-      maxReviewCycles: preparation.maxReviewCycles,
-    });
-    throw error;
-  }
-
-  return {
-    status: 'waiting',
-    summary: `Prepared external pr-address-review run for PR #${preparation.pullRequest.number}.`,
-    reviewMode: preparation.reviewMode,
-    modelTier: preparation.modelTier,
-    model: preparation.model,
-    pullRequest: {
-      number: preparation.pullRequest.number,
-      url: preparation.pullRequest.url,
     },
-    feedback: {
-      items: preparation.feedbackItems.length,
+    waiting: {
+      summary: `Prepared external pr-address-review run for PR #${preparation.pullRequest.number}.`,
+      details: {
+        reviewMode: preparation.reviewMode,
+        modelTier: preparation.modelTier,
+        model: preparation.model,
+        pullRequest: {
+          number: preparation.pullRequest.number,
+          url: preparation.pullRequest.url,
+        },
+        feedback: {
+          items: preparation.feedbackItems.length,
+        },
+      },
     },
-    runnerJob: createExternalRunnerJob(context, handoff, {
-      model: executionContext.model,
-      branch: preparation.pullRequest.headRefName,
-    }),
+    finalize: async rawOutput =>
+      await finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput),
+    onRunnerFailure: async error => {
+      await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+        updateBody: true,
+        reviewCycle: preparation.reviewCycle,
+        maxReviewCycles: preparation.maxReviewCycles,
+      });
+    },
   };
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function runPrAddressReviewCodexActionFinalize(context) {
-  const preparation = await preparePrAddressReview(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  const executionContext = withSelectedModel(context, preparation);
-
-  let rawOutput;
-
-  try {
-    rawOutput = await readCodexActionOutput(context);
-  } catch (error) {
-    if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
-    }
-
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: true,
-      reviewCycle: preparation.reviewCycle,
-      maxReviewCycles: preparation.maxReviewCycles,
-    });
-    throw error;
-  }
-
-  return await finalizePreparedPrAddressReview(executionContext, context, preparation, rawOutput);
 }
 
 /**
