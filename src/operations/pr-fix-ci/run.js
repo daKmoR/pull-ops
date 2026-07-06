@@ -11,6 +11,7 @@ import {
   prepareOperationRunnerStep,
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
+import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { classifyCheckFailures } from './classification.js';
@@ -34,6 +35,10 @@ import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCi(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context);
+  }
+
   return await runOperationRunnerStep(context, createPrFixCiRunnerOperation);
 }
 

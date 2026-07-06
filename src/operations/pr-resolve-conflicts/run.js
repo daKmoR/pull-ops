@@ -16,6 +16,7 @@ import {
   readCodexActionOutput,
   writeCodexActionPrompt,
 } from '../codexAction.js';
+import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { validatePrResolveConflictsOutput } from './output.js';
 import { buildPrResolveConflictsPrompt } from './prompt.js';
@@ -39,6 +40,10 @@ const CONFLICT_PASS_STATE_FILE = 'pr_resolve_conflicts_state.json';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrResolveConflicts(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context);
+  }
+
   const preparation = await preparePrResolveConflicts(context);
   if (!preparation.ready) {
     return preparation.output;

@@ -4,17 +4,6 @@ import { join } from 'node:path';
 import { readManagedPrState } from '../managed-pr/ManagedPrState.js';
 import { hasPullOpsBranchPrefix } from './branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from './githubActionsBot.js';
-import { collectPrAddressReviewFeedback } from './pr-address-review/feedback.js';
-import { validateAddressReviewFeedbackCoverage } from './pr-address-review/feedbackCoverage.js';
-import { validatePrAddressReviewOutput } from './pr-address-review/output.js';
-import { buildAddressPrReviewompt } from './pr-address-review/prompt.js';
-import { createPrAddressReviewCommitMessage } from './pr-address-review/run.js';
-import { validatePlannerCommitPlan } from './pr-finalize/commitPlan.js';
-import { validatePrFinalizeOutput } from './pr-finalize/output.js';
-import { filterCommentsToDiffAnchors } from './pr-review/anchors.js';
-import { validatePrReviewOutput } from './pr-review/output.js';
-import { buildPrReviewPrompt } from './pr-review/prompt.js';
-import { createPrReviewCommitMessage } from './pr-review/run.js';
 import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
@@ -28,19 +17,21 @@ import { getOperationCatalogOperationLabelReferenceForWorkflowOperation } from '
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
- * @typedef {import('../git/types.js').GitCommit} GitCommit
- * @typedef {import('../github/types.js').GitHubIssue} GitHubIssue
  * @typedef {import('../github/types.js').GitHubPullRequest} GitHubPullRequest
- * @typedef {import('../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
- * @typedef {import('../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
  * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
+ * @typedef {import('./runLocalPullRequestOperation.types.js').RunLocalPullRequestOperationOptions} RunLocalPullRequestOperationOptions
  */
 
 /**
+ * Run one PR operation on the local Execution Backend: create the Local Run
+ * Record, guard the worktree, apply the shared PullOps-Managed PR guardrails,
+ * and hand the prepared operation to the Operation Module's local flow.
+ *
  * @param {OperationRunnerContext} context
+ * @param {RunLocalPullRequestOperationOptions} [options]
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runLocalPullRequestOperation(context) {
+export async function runLocalPullRequestOperation(context, options = {}) {
   assertPullRequestTarget(context);
 
   const operationReference = readLocalPullRequestOperationReference(context.operation);
@@ -68,22 +59,14 @@ export async function runLocalPullRequestOperation(context) {
       return preparation.output;
     }
 
-    if (operationReference === 'pr:review') {
-      return await runLocalPrReview(context, runRecord, preparation);
+    if (options.runPrepared === undefined) {
+      return await blockLocalPullRequestOperation(context, runRecord, {
+        pullRequest: preparation.pullRequest,
+        reason: `Local dry-run execution is not implemented yet for ${operationReference}.`,
+      });
     }
 
-    if (operationReference === 'pr:address-review') {
-      return await runLocalPrAddressReview(context, runRecord, preparation);
-    }
-
-    if (operationReference === 'pr:finalize') {
-      return await runLocalPrFinalize(context, runRecord, preparation);
-    }
-
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Local dry-run execution is not implemented yet for ${operationReference}.`,
-    });
+    return await options.runPrepared(context, runRecord, preparation);
   } catch (error) {
     await writeLocalPullRequestRunArtifact(runRecord, 'error.txt', `${getErrorMessage(error)}\n`);
     await recordLocalRunTerminalStatus({
@@ -97,212 +80,10 @@ export async function runLocalPullRequestOperation(context) {
 }
 
 /**
- * @param {OperationRunnerContext} context
- * @param {LocalRunRecord} runRecord
- * @param {{
- *   pullRequest: GitHubPullRequest,
- *   issue: GitHubIssue,
- *   reviewContext: GitHubPullRequestReviewContext,
- *   diff: GitHubPullRequestDiff,
- * }} preparation
- * @returns {Promise<Record<string, unknown>>}
- */
-async function runLocalPrReview(context, runRecord, preparation) {
-  const prompt = buildPrReviewPrompt(preparation);
-  const validation = await runLocalCodexOperation(context, runRecord, {
-    operationReference: 'pr:review',
-    prompt,
-    validate: validatePrReviewOutput,
-  });
-
-  if (!validation.valid) {
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Invalid Review Result: ${validation.reason}`,
-    });
-  }
-
-  if (validation.value.status === 'blocked') {
-    return await completeLocalPullRequestRunRecord(runRecord, {
-      status: 'blocked',
-      summary: validation.value.summary,
-      operation: 'pr:review',
-      pullRequest: formatPullRequest(preparation.pullRequest),
-      failureReason: validation.value.failureReason,
-    });
-  }
-
-  const comments = filterCommentsToDiffAnchors({
-    comments: validation.value.comments,
-    patch: preparation.diff.patch,
-  });
-  const directChangesCommitted = await commitLocalChangesIfPresent(context, {
-    message: createPrReviewCommitMessage(preparation.pullRequest, validation.value),
-  });
-
-  return await completeLocalPullRequestRunRecord(runRecord, {
-    status: 'accepted',
-    summary: `Completed local dry-run pr:review for PR #${preparation.pullRequest.number}.`,
-    operation: 'pr:review',
-    reviewResult: validation.value.status,
-    pullRequest: formatPullRequest(preparation.pullRequest),
-    review: {
-      comments: {
-        publishable: comments.publishable.length,
-        dropped: comments.dropped.length,
-      },
-      directChangesCommitted,
-    },
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {LocalRunRecord} runRecord
- * @param {{
- *   pullRequest: GitHubPullRequest,
- *   issue: GitHubIssue,
- *   reviewContext: GitHubPullRequestReviewContext,
- *   diff: GitHubPullRequestDiff,
- * }} preparation
- * @returns {Promise<Record<string, unknown>>}
- */
-async function runLocalPrAddressReview(context, runRecord, preparation) {
-  const feedbackItems = collectPrAddressReviewFeedback(preparation.reviewContext);
-  const prompt = buildAddressPrReviewompt({
-    ...preparation,
-    feedbackItems,
-  });
-  const validation = await runLocalCodexOperation(context, runRecord, {
-    operationReference: 'pr:address-review',
-    prompt,
-    validate: validatePrAddressReviewOutput,
-  });
-
-  if (!validation.valid) {
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Invalid Address Review Output: ${validation.reason}`,
-    });
-  }
-
-  if (validation.value.status === 'blocked') {
-    return await completeLocalPullRequestRunRecord(runRecord, {
-      status: 'blocked',
-      summary: validation.value.summary,
-      operation: 'pr:address-review',
-      pullRequest: formatPullRequest(preparation.pullRequest),
-      failureReason: validation.value.failureReason,
-    });
-  }
-
-  const coverage = validateAddressReviewFeedbackCoverage(
-    validation.value,
-    feedbackItems.map(item => item.id),
-  );
-  if (!coverage.valid) {
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Invalid Address Review Output: ${coverage.reason}`,
-    });
-  }
-
-  const changesCommitted = await commitLocalChangesIfPresent(context, {
-    message: createPrAddressReviewCommitMessage(preparation.pullRequest, validation.value),
-  });
-
-  return await completeLocalPullRequestRunRecord(runRecord, {
-    status: 'accepted',
-    summary: `Completed local dry-run pr:address-review for PR #${preparation.pullRequest.number}.`,
-    operation: 'pr:address-review',
-    pullRequest: formatPullRequest(preparation.pullRequest),
-    prAddressReview: {
-      feedback: {
-        addressed: validation.value.addressed.length,
-        declined: validation.value.declined.length,
-        deferred: validation.value.deferred.length,
-      },
-      changesCommitted,
-    },
-  });
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {LocalRunRecord} runRecord
- * @param {{
- *   pullRequest: GitHubPullRequest,
- *   issue: GitHubIssue,
- *   reviewContext: GitHubPullRequestReviewContext,
- * }} preparation
- * @returns {Promise<Record<string, unknown>>}
- */
-async function runLocalPrFinalize(context, runRecord, preparation) {
-  const baseBranch = preparation.pullRequest.baseRefName ?? context.config.baseBranch;
-  const changedFiles = await context.gitClient.getChangedFilesSinceBase({ baseBranch });
-  const commits =
-    (await context.gitClient.getCommitsSinceBase?.({ baseBranch })) ??
-    /** @type {GitCommit[]} */ ([]);
-  const prompt = buildLocalPrFinalizePrompt({
-    pullRequest: preparation.pullRequest,
-    issue: preparation.issue,
-    reviewContext: preparation.reviewContext,
-    changedFiles,
-    commits,
-  });
-  const validation = await runLocalCodexOperation(context, runRecord, {
-    operationReference: 'pr:finalize',
-    prompt,
-    validate: validatePrFinalizeOutput,
-  });
-
-  if (!validation.valid) {
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Invalid PR Finalize Output: ${validation.reason}`,
-    });
-  }
-
-  if (validation.value.status === 'blocked') {
-    return await completeLocalPullRequestRunRecord(runRecord, {
-      status: 'blocked',
-      summary: validation.value.summary,
-      operation: 'pr:finalize',
-      pullRequest: formatPullRequest(preparation.pullRequest),
-      failureReason: validation.value.failureReason,
-    });
-  }
-
-  const commitPlan = validatePlannerCommitPlan({
-    plannedCommits: validation.value.commitPlan.commits,
-    changedFiles,
-  });
-  if (!commitPlan.valid) {
-    return await blockLocalPullRequestOperation(context, runRecord, {
-      pullRequest: preparation.pullRequest,
-      reason: `Invalid PR Finalize Planner Output: ${commitPlan.reason}`,
-    });
-  }
-
-  await writeLocalPullRequestRunArtifact(
-    runRecord,
-    'planned-commits.json',
-    `${JSON.stringify(commitPlan.commits, null, 2)}\n`,
-  );
-
-  return await completeLocalPullRequestRunRecord(runRecord, {
-    status: 'planned',
-    summary: `Planned local dry-run pr:finalize for PR #${preparation.pullRequest.number}.`,
-    operation: 'pr:finalize',
-    pullRequest: formatPullRequest(preparation.pullRequest),
-    prFinalize: {
-      plannedCommits: commitPlan.commits.length,
-      followUps: validation.value.followUps,
-    },
-  });
-}
-
-/**
+ * Run one local codex runner step for an Operation Module's local flow:
+ * record the prompt artifact, run the runner with the Local Run Record's
+ * heartbeat environment, record the raw output artifact, and validate.
+ *
  * @template T
  * @param {OperationRunnerContext} context
  * @param {LocalRunRecord} runRecord
@@ -313,7 +94,7 @@ async function runLocalPrFinalize(context, runRecord, preparation) {
  * }} options
  * @returns {Promise<{ valid: true, value: T } | { valid: false, reason: string }>}
  */
-async function runLocalCodexOperation(
+export async function runLocalCodexOperation(
   context,
   runRecord,
   { operationReference, prompt, validate },
@@ -344,13 +125,7 @@ async function runLocalCodexOperation(
  * @param {LocalRunRecord} runRecord
  * @param {{ operationReference: string }} options
  * @returns {Promise<
- *   | {
- *       ready: true,
- *       pullRequest: GitHubPullRequest,
- *       issue: GitHubIssue,
- *       reviewContext: GitHubPullRequestReviewContext,
- *       diff: GitHubPullRequestDiff,
- *     }
+ *   | ({ ready: true } & import('./runLocalPullRequestOperation.types.js').PreparedLocalPullRequestOperation)
  *   | { ready: false, output: Record<string, unknown> }
  * >}
  */
@@ -451,7 +226,7 @@ async function prepareLocalPullRequestOperation(context, runRecord, { operationR
  * @param {{ message: string }} options
  * @returns {Promise<boolean>}
  */
-async function commitLocalChangesIfPresent(context, { message }) {
+export async function commitLocalChangesIfPresent(context, { message }) {
   if (!(await context.gitClient.hasChanges())) {
     return false;
   }
@@ -546,7 +321,7 @@ async function createLocalPullRequestRunRecord(context, { operationReference }) 
  * @param {{ reason: string, pullRequest?: GitHubPullRequest }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-async function blockLocalPullRequestOperation(context, runRecord, { reason, pullRequest }) {
+export async function blockLocalPullRequestOperation(context, runRecord, { reason, pullRequest }) {
   await writeLocalPullRequestRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
   return await completeLocalPullRequestRunRecord(runRecord, {
     status: 'blocked',
@@ -570,7 +345,7 @@ function readLocalPullRequestOperationReference(operationName) {
  * @param {Record<string, unknown>} result
  * @returns {Promise<Record<string, unknown>>}
  */
-async function completeLocalPullRequestRunRecord(runRecord, result) {
+export async function completeLocalPullRequestRunRecord(runRecord, result) {
   const withRunRecord = {
     ...result,
     publicationMode: 'dry-run',
@@ -596,138 +371,14 @@ async function completeLocalPullRequestRunRecord(runRecord, result) {
 }
 
 /**
- * @param {{
- *   pullRequest: GitHubPullRequest,
- *   issue: GitHubIssue,
- *   reviewContext: GitHubPullRequestReviewContext,
- *   changedFiles: string[],
- *   commits: GitCommit[],
- * }} options
- * @returns {string}
- */
-function buildLocalPrFinalizePrompt({ pullRequest, issue, reviewContext, changedFiles, commits }) {
-  return [
-    'Use the pullops-pr-finalize skill.',
-    '',
-    `Plan local dry-run PR Finalize history grouping for PR #${pullRequest.number}: ${pullRequest.title}`,
-    '',
-    'Planner scope:',
-    '- Propose commit grouping and commit messages only.',
-    '- Do not edit files, run commands, create commits, reset, stage, push, edit labels, update PR bodies, change review state, change checks, change draft state, post GitHub comments, or merge the pull request.',
-    '- PullOps will validate the output and keep the result in the Local Run Record.',
-    '',
-    'Linked issue or PRD context:',
-    [`Issue #${issue.number}: ${issue.title}`, issue.body.trim() || '(empty)'].join('\n'),
-    '',
-    'Pull request body:',
-    pullRequest.body.trim() || '(empty)',
-    '',
-    'Changed files that must be assigned exactly once:',
-    formatStringList(changedFiles),
-    '',
-    'Changed file summary:',
-    formatReviewFiles(reviewContext),
-    '',
-    'Current commits since base:',
-    formatCommits(commits),
-    '',
-    'Planner constraints:',
-    '- Each changed file must appear in exactly one commit files array, and no unchanged files may appear.',
-    '- Include commitPlan.justification only when grouping is not obvious, and make it a non-empty explanation when included.',
-    '- Commit headers must be conventional commit headers.',
-    `- Commit footers must include a relevant Refs: #<issue> footer, usually Refs: #${issue.number}.`,
-    '- Return blocked if you cannot propose a safe grouping from the supplied information.',
-    '',
-    'Final response must be only JSON in this shape:',
-    JSON.stringify(
-      {
-        status: 'planned',
-        summary: 'One sentence summary of the history grouping plan.',
-        commitPlan: {
-          commits: [
-            {
-              header: 'feat(issue): implement #42',
-              body: ['Explain the logical change in this commit.'],
-              footers: ['Refs: #42'],
-              files: ['src/example.js'],
-            },
-          ],
-        },
-        followUps: ['Optional follow-up that should not block this PR.'],
-      },
-      null,
-      2,
-    ),
-    '',
-    'If blocked, return only JSON in this shape:',
-    JSON.stringify(
-      {
-        status: 'blocked',
-        summary: 'Short blocked summary.',
-        failureReason: 'Specific reason the history grouping plan could not be produced safely.',
-      },
-      null,
-      2,
-    ),
-  ].join('\n');
-}
-
-/**
  * @param {GitHubPullRequest} pullRequest
  * @returns {{ number: number, url: string }}
  */
-function formatPullRequest(pullRequest) {
+export function formatPullRequest(pullRequest) {
   return {
     number: pullRequest.number,
     url: pullRequest.url,
   };
-}
-
-/**
- * @param {string[]} items
- * @returns {string}
- */
-function formatStringList(items) {
-  if (items.length === 0) {
-    return '(none)';
-  }
-
-  return items.map(item => `- ${item}`).join('\n');
-}
-
-/**
- * @param {GitCommit[]} commits
- * @returns {string}
- */
-function formatCommits(commits) {
-  if (commits.length === 0) {
-    return '(none)';
-  }
-
-  return commits
-    .map(commit =>
-      [
-        `- ${commit.sha} ${commit.subject}`,
-        `  Files: ${commit.files.length === 0 ? '(none)' : commit.files.join(', ')}`,
-        '  Message:',
-        indent(commit.body),
-      ].join('\n'),
-    )
-    .join('\n');
-}
-
-/**
- * @param {GitHubPullRequestReviewContext} reviewContext
- * @returns {string}
- */
-function formatReviewFiles(reviewContext) {
-  if (reviewContext.files.length === 0) {
-    return '(none)';
-  }
-
-  return reviewContext.files
-    .map(file => `- ${file.path} (+${file.additions} / -${file.deletions})`)
-    .join('\n');
 }
 
 /**
@@ -752,7 +403,7 @@ function isClosedIssue(issue) {
  * @param {string} contents
  * @returns {Promise<void>}
  */
-async function writeLocalPullRequestRunArtifact(runRecord, fileName, contents) {
+export async function writeLocalPullRequestRunArtifact(runRecord, fileName, contents) {
   await writeFile(join(runRecord.directory, fileName), contents);
 }
 
@@ -766,17 +417,6 @@ function formatArtifactValue(value) {
   }
 
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-/**
- * @param {string} value
- * @returns {string}
- */
-function indent(value) {
-  return value
-    .split('\n')
-    .map(line => `    ${line}`)
-    .join('\n');
 }
 
 /**

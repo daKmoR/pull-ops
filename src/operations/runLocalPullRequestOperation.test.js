@@ -7,7 +7,9 @@ import { describe, it } from 'node:test';
 import { DEFAULT_PULL_OPS_CONFIG } from '../config/PullOpsConfig.js';
 import { createManagedPrStateSection } from '../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from './operationCatalog.js';
-import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
+import { runPrFinalize } from './pr-finalize/run.js';
+import { runPrReview } from './pr-review/run.js';
+import { runPrUpdateBranch } from './pr-update-branch/run.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -15,7 +17,7 @@ import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js'
  * @typedef {import('../git/types.js').CommitAllOptions} CommitAllOptions
  */
 
-describe('runLocalPullRequestOperation', () => {
+describe('local pull request operations', () => {
   it('01: runs pr-review locally without mutating GitHub', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-pr-review-'));
     const github = createFakeGitHub();
@@ -31,7 +33,7 @@ describe('runLocalPullRequestOperation', () => {
       }),
     });
 
-    const result = await runLocalPullRequestOperation(
+    const result = await runPrReview(
       createContext({
         cwd,
         operation: 'pr-review',
@@ -78,7 +80,7 @@ describe('runLocalPullRequestOperation', () => {
     const git = createFakeGit({ hasChangesResults: [false] });
     const codex = createFakeCodexRunner({ output: '{}' });
 
-    const result = await runLocalPullRequestOperation(
+    const result = await runPrUpdateBranch(
       createContext({
         cwd,
         operation: 'pr-update-branch',
@@ -122,7 +124,7 @@ describe('runLocalPullRequestOperation', () => {
       }),
     });
 
-    const result = await runLocalPullRequestOperation(
+    const result = await runPrFinalize(
       createContext({
         cwd,
         operation: 'pr-finalize',
@@ -174,7 +176,7 @@ describe('runLocalPullRequestOperation', () => {
       ),
     });
 
-    const result = await runLocalPullRequestOperation(
+    const result = await runPrReview(
       createContext({
         cwd,
         operation: 'pr-review',

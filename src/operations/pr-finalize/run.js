@@ -20,6 +20,14 @@ import {
   prepareOperationRunnerStep,
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
+import {
+  blockLocalPullRequestOperation,
+  completeLocalPullRequestRunRecord,
+  formatPullRequest,
+  runLocalCodexOperation,
+  runLocalPullRequestOperation,
+  writeLocalPullRequestRunArtifact,
+} from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { validatePlannerCommitPlan } from './commitPlan.js';
@@ -51,7 +59,217 @@ export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalize(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrFinalize });
+  }
+
   return await runOperationRunnerStep(context, createPrFinalizeRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {import('../../local-run-state/types.js').LocalRunRecord} runRecord
+ * @param {import('../runLocalPullRequestOperation.types.js').PreparedLocalPullRequestOperation} preparation
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPrFinalize(context, runRecord, preparation) {
+  const baseBranch = preparation.pullRequest.baseRefName ?? context.config.baseBranch;
+  const changedFiles = await context.gitClient.getChangedFilesSinceBase({ baseBranch });
+  const commits =
+    (await context.gitClient.getCommitsSinceBase?.({ baseBranch })) ??
+    /** @type {GitCommit[]} */ ([]);
+  const prompt = buildLocalPrFinalizePrompt({
+    pullRequest: preparation.pullRequest,
+    issue: preparation.issue,
+    reviewContext: preparation.reviewContext,
+    changedFiles,
+    commits,
+  });
+  const validation = await runLocalCodexOperation(context, runRecord, {
+    operationReference: 'pr:finalize',
+    prompt,
+    validate: validatePrFinalizeOutput,
+  });
+
+  if (!validation.valid) {
+    return await blockLocalPullRequestOperation(context, runRecord, {
+      pullRequest: preparation.pullRequest,
+      reason: `Invalid PR Finalize Output: ${validation.reason}`,
+    });
+  }
+
+  if (validation.value.status === 'blocked') {
+    return await completeLocalPullRequestRunRecord(runRecord, {
+      status: 'blocked',
+      summary: validation.value.summary,
+      operation: 'pr:finalize',
+      pullRequest: formatPullRequest(preparation.pullRequest),
+      failureReason: validation.value.failureReason,
+    });
+  }
+
+  const commitPlan = validatePlannerCommitPlan({
+    plannedCommits: validation.value.commitPlan.commits,
+    changedFiles,
+  });
+  if (!commitPlan.valid) {
+    return await blockLocalPullRequestOperation(context, runRecord, {
+      pullRequest: preparation.pullRequest,
+      reason: `Invalid PR Finalize Planner Output: ${commitPlan.reason}`,
+    });
+  }
+
+  await writeLocalPullRequestRunArtifact(
+    runRecord,
+    'planned-commits.json',
+    `${JSON.stringify(commitPlan.commits, null, 2)}\n`,
+  );
+
+  return await completeLocalPullRequestRunRecord(runRecord, {
+    status: 'planned',
+    summary: `Planned local dry-run pr:finalize for PR #${preparation.pullRequest.number}.`,
+    operation: 'pr:finalize',
+    pullRequest: formatPullRequest(preparation.pullRequest),
+    prFinalize: {
+      plannedCommits: commitPlan.commits.length,
+      followUps: validation.value.followUps,
+    },
+  });
+}
+
+/**
+ * @param {{
+ *   pullRequest: GitHubPullRequest,
+ *   issue: GitHubIssue,
+ *   reviewContext: GitHubPullRequestReviewContext,
+ *   changedFiles: string[],
+ *   commits: GitCommit[],
+ * }} options
+ * @returns {string}
+ */
+function buildLocalPrFinalizePrompt({ pullRequest, issue, reviewContext, changedFiles, commits }) {
+  return [
+    'Use the pullops-pr-finalize skill.',
+    '',
+    `Plan local dry-run PR Finalize history grouping for PR #${pullRequest.number}: ${pullRequest.title}`,
+    '',
+    'Planner scope:',
+    '- Propose commit grouping and commit messages only.',
+    '- Do not edit files, run commands, create commits, reset, stage, push, edit labels, update PR bodies, change review state, change checks, change draft state, post GitHub comments, or merge the pull request.',
+    '- PullOps will validate the output and keep the result in the Local Run Record.',
+    '',
+    'Linked issue or PRD context:',
+    [`Issue #${issue.number}: ${issue.title}`, issue.body.trim() || '(empty)'].join('\n'),
+    '',
+    'Pull request body:',
+    pullRequest.body.trim() || '(empty)',
+    '',
+    'Changed files that must be assigned exactly once:',
+    formatLocalPlannerStringList(changedFiles),
+    '',
+    'Changed file summary:',
+    formatLocalPlannerReviewFiles(reviewContext),
+    '',
+    'Current commits since base:',
+    formatLocalPlannerCommits(commits),
+    '',
+    'Planner constraints:',
+    '- Each changed file must appear in exactly one commit files array, and no unchanged files may appear.',
+    '- Include commitPlan.justification only when grouping is not obvious, and make it a non-empty explanation when included.',
+    '- Commit headers must be conventional commit headers.',
+    `- Commit footers must include a relevant Refs: #<issue> footer, usually Refs: #${issue.number}.`,
+    '- Return blocked if you cannot propose a safe grouping from the supplied information.',
+    '',
+    'Final response must be only JSON in this shape:',
+    JSON.stringify(
+      {
+        status: 'planned',
+        summary: 'One sentence summary of the history grouping plan.',
+        commitPlan: {
+          commits: [
+            {
+              header: 'feat(issue): implement #42',
+              body: ['Explain the logical change in this commit.'],
+              footers: ['Refs: #42'],
+              files: ['src/example.js'],
+            },
+          ],
+        },
+        followUps: ['Optional follow-up that should not block this PR.'],
+      },
+      null,
+      2,
+    ),
+    '',
+    'If blocked, return only JSON in this shape:',
+    JSON.stringify(
+      {
+        status: 'blocked',
+        summary: 'Short blocked summary.',
+        failureReason: 'Specific reason the history grouping plan could not be produced safely.',
+      },
+      null,
+      2,
+    ),
+  ].join('\n');
+}
+
+/**
+ * @param {string[]} items
+ * @returns {string}
+ */
+function formatLocalPlannerStringList(items) {
+  if (items.length === 0) {
+    return '(none)';
+  }
+
+  return items.map(item => `- ${item}`).join('\n');
+}
+
+/**
+ * @param {GitCommit[]} commits
+ * @returns {string}
+ */
+function formatLocalPlannerCommits(commits) {
+  if (commits.length === 0) {
+    return '(none)';
+  }
+
+  return commits
+    .map(commit =>
+      [
+        `- ${commit.sha} ${commit.subject}`,
+        `  Files: ${commit.files.length === 0 ? '(none)' : commit.files.join(', ')}`,
+        '  Message:',
+        indentLocalPlannerValue(commit.body),
+      ].join('\n'),
+    )
+    .join('\n');
+}
+
+/**
+ * @param {GitHubPullRequestReviewContext} reviewContext
+ * @returns {string}
+ */
+function formatLocalPlannerReviewFiles(reviewContext) {
+  if (reviewContext.files.length === 0) {
+    return '(none)';
+  }
+
+  return reviewContext.files
+    .map(file => `- ${file.path} (+${file.additions} / -${file.deletions})`)
+    .join('\n');
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function indentLocalPlannerValue(value) {
+  return value
+    .split('\n')
+    .map(line => `    ${line}`)
+    .join('\n');
 }
 
 /**

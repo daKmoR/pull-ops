@@ -10,6 +10,14 @@ import {
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
 import {
+  blockLocalPullRequestOperation,
+  commitLocalChangesIfPresent,
+  completeLocalPullRequestRunRecord,
+  formatPullRequest,
+  runLocalCodexOperation,
+  runLocalPullRequestOperation,
+} from '../runLocalPullRequestOperation.js';
+import {
   appendOperationAuditFooter,
   commentOnPullRequestWithOperationAudit,
 } from '../auditComment.js';
@@ -47,7 +55,77 @@ const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReview(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrAddressReview });
+  }
+
   return await runOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {import('../../local-run-state/types.js').LocalRunRecord} runRecord
+ * @param {import('../runLocalPullRequestOperation.types.js').PreparedLocalPullRequestOperation} preparation
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPrAddressReview(context, runRecord, preparation) {
+  const feedbackItems = collectPrAddressReviewFeedback(preparation.reviewContext);
+  const prompt = buildAddressPrReviewompt({
+    ...preparation,
+    feedbackItems,
+  });
+  const validation = await runLocalCodexOperation(context, runRecord, {
+    operationReference: 'pr:address-review',
+    prompt,
+    validate: validatePrAddressReviewOutput,
+  });
+
+  if (!validation.valid) {
+    return await blockLocalPullRequestOperation(context, runRecord, {
+      pullRequest: preparation.pullRequest,
+      reason: `Invalid Address Review Output: ${validation.reason}`,
+    });
+  }
+
+  if (validation.value.status === 'blocked') {
+    return await completeLocalPullRequestRunRecord(runRecord, {
+      status: 'blocked',
+      summary: validation.value.summary,
+      operation: 'pr:address-review',
+      pullRequest: formatPullRequest(preparation.pullRequest),
+      failureReason: validation.value.failureReason,
+    });
+  }
+
+  const coverage = validateAddressReviewFeedbackCoverage(
+    validation.value,
+    feedbackItems.map(item => item.id),
+  );
+  if (!coverage.valid) {
+    return await blockLocalPullRequestOperation(context, runRecord, {
+      pullRequest: preparation.pullRequest,
+      reason: `Invalid Address Review Output: ${coverage.reason}`,
+    });
+  }
+
+  const changesCommitted = await commitLocalChangesIfPresent(context, {
+    message: createPrAddressReviewCommitMessage(preparation.pullRequest, validation.value),
+  });
+
+  return await completeLocalPullRequestRunRecord(runRecord, {
+    status: 'accepted',
+    summary: `Completed local dry-run pr:address-review for PR #${preparation.pullRequest.number}.`,
+    operation: 'pr:address-review',
+    pullRequest: formatPullRequest(preparation.pullRequest),
+    prAddressReview: {
+      feedback: {
+        addressed: validation.value.addressed.length,
+        declined: validation.value.declined.length,
+        deferred: validation.value.deferred.length,
+      },
+      changesCommitted,
+    },
+  });
 }
 
 /**

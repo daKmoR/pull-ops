@@ -4,7 +4,6 @@ import {
   getOperationCatalogWorkflowOperation,
   supportsOperationCatalogRunnerLifecycle,
 } from './operationCatalog.js';
-import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 
 /**
  * @typedef {import('./types.js').WorkflowOperation} WorkflowOperation
@@ -69,15 +68,6 @@ async function runWorkflowOperationWithoutBranchRestore(context) {
     throw new Error(
       `${context.operation} catalog handler is missing for --runner ${context.runnerAdapter} and --phase ${context.phase}.`,
     );
-  }
-
-  if (
-    context.executionBackend === 'local' &&
-    context.target.type === 'pr' &&
-    context.phase === 'run' &&
-    context.runnerAdapter === 'codex-cli'
-  ) {
-    return await runLocalPullRequestOperation(context);
   }
 
   return await catalogHandler(context);

@@ -6,6 +6,7 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { GITHUB_ACTIONS_BOT_COMMITTER } from '../githubActionsBot.js';
+import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -19,6 +20,10 @@ import { GITHUB_ACTIONS_BOT_COMMITTER } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrUpdateBranch(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context);
+  }
+
   assertPullRequestTarget(context);
 
   const pullRequest = await context.githubClient.getPullRequest(context.target.number);

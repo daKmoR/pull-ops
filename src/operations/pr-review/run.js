@@ -10,6 +10,14 @@ import {
   prepareOperationRunnerStep,
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
+import {
+  blockLocalPullRequestOperation,
+  commitLocalChangesIfPresent,
+  completeLocalPullRequestRunRecord,
+  formatPullRequest,
+  runLocalCodexOperation,
+  runLocalPullRequestOperation,
+} from '../runLocalPullRequestOperation.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { appendOperationAuditFooter } from '../auditComment.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
@@ -38,7 +46,66 @@ import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrReview(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrReview });
+  }
+
   return await runOperationRunnerStep(context, createPrReviewRunnerOperation);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @param {import('../../local-run-state/types.js').LocalRunRecord} runRecord
+ * @param {import('../runLocalPullRequestOperation.types.js').PreparedLocalPullRequestOperation} preparation
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function runLocalPrReview(context, runRecord, preparation) {
+  const prompt = buildPrReviewPrompt(preparation);
+  const validation = await runLocalCodexOperation(context, runRecord, {
+    operationReference: 'pr:review',
+    prompt,
+    validate: validatePrReviewOutput,
+  });
+
+  if (!validation.valid) {
+    return await blockLocalPullRequestOperation(context, runRecord, {
+      pullRequest: preparation.pullRequest,
+      reason: `Invalid Review Result: ${validation.reason}`,
+    });
+  }
+
+  if (validation.value.status === 'blocked') {
+    return await completeLocalPullRequestRunRecord(runRecord, {
+      status: 'blocked',
+      summary: validation.value.summary,
+      operation: 'pr:review',
+      pullRequest: formatPullRequest(preparation.pullRequest),
+      failureReason: validation.value.failureReason,
+    });
+  }
+
+  const comments = filterCommentsToDiffAnchors({
+    comments: validation.value.comments,
+    patch: preparation.diff.patch,
+  });
+  const directChangesCommitted = await commitLocalChangesIfPresent(context, {
+    message: createPrReviewCommitMessage(preparation.pullRequest, validation.value),
+  });
+
+  return await completeLocalPullRequestRunRecord(runRecord, {
+    status: 'accepted',
+    summary: `Completed local dry-run pr:review for PR #${preparation.pullRequest.number}.`,
+    operation: 'pr:review',
+    reviewResult: validation.value.status,
+    pullRequest: formatPullRequest(preparation.pullRequest),
+    review: {
+      comments: {
+        publishable: comments.publishable.length,
+        dropped: comments.dropped.length,
+      },
+      directChangesCommitted,
+    },
+  });
 }
 
 /**

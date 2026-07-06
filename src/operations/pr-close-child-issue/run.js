@@ -1,4 +1,5 @@
 import { closeMergedChildIssuePullRequest } from '../../prd-automation/childCoordination.js';
+import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 
 /**
  * @typedef {import('../../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -9,6 +10,10 @@ import { closeMergedChildIssuePullRequest } from '../../prd-automation/childCoor
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrCloseChildIssue(context) {
+  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    return await runLocalPullRequestOperation(context);
+  }
+
   assertPullRequestTarget(context);
   return await closeMergedChildIssuePullRequest(context, {
     pullRequestNumber: context.target.number,
