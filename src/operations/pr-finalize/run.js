@@ -16,12 +16,10 @@ import {
   parseParentBranchName,
 } from '../branchNames.js';
 import {
-  createExternalRunnerJob,
-  createSkippedCodexActionOutput,
-  isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from '../codexAction.js';
+  finalizeOperationRunnerStep,
+  prepareOperationRunnerStep,
+  runOperationRunnerStep,
+} from '../runnerLifecycle.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { validatePlannerCommitPlan } from './commitPlan.js';
@@ -53,36 +51,7 @@ export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalize(context) {
-  const preparation = await preparePrFinalize(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  if (preparation.mode === 'planner') {
-    const localRunStateRecord =
-      context.localRunRecordDirectory === undefined
-        ? undefined
-        : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
-    let rawOutput;
-
-    try {
-      rawOutput = await context.codexRunner.run({
-        cwd: context.cwd,
-        command: context.config.runner.command,
-        model: context.model,
-        prompt: preparation.prompt,
-        streamOutput: context.suppressRunnerOutput !== true,
-        env: localRunStateRecord?.heartbeatEnvironment,
-      });
-    } catch (error) {
-      await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
-      throw error;
-    }
-
-    return await completePrFinalizePlannerFallback(context, preparation, rawOutput);
-  }
-
-  return await completePrFinalize(context, preparation);
+  return await runOperationRunnerStep(context, createPrFinalizeRunnerOperation);
 }
 
 /**
@@ -94,37 +63,7 @@ export async function runPrFinalize(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeCodexActionPrepare(context) {
-  const preparation = await preparePrFinalize(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  if (preparation.mode !== 'planner') {
-    return await completePrFinalize(context, preparation);
-  }
-
-  let handoff;
-  try {
-    handoff = await writeCodexActionPrompt(context, preparation.prompt, {
-      branch: preparation.pullRequest.headRefName,
-    });
-  } catch (error) {
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
-    throw error;
-  }
-
-  return {
-    status: 'waiting',
-    summary: `Prepared external PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
-    pullRequest: {
-      number: preparation.pullRequest.number,
-      url: preparation.pullRequest.url,
-    },
-    runnerJob: createExternalRunnerJob(context, handoff, {
-      model: context.model,
-      branch: preparation.pullRequest.headRefName,
-    }),
-  };
+  return await prepareOperationRunnerStep(context, createPrFinalizeRunnerOperation);
 }
 
 /**
@@ -132,29 +71,54 @@ export async function runPrFinalizeCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeCodexActionFinalize(context) {
+  return await finalizeOperationRunnerStep(context, createPrFinalizeRunnerOperation, {
+    order: 'prepare-first',
+  });
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../runnerLifecycle.types.js').RunnerLifecycleOperation>}
+ */
+async function createPrFinalizeRunnerOperation(context) {
   const preparation = await preparePrFinalize(context);
   if (!preparation.ready) {
-    return preparation.output;
+    return { status: 'settled', output: preparation.output };
   }
 
   if (preparation.mode !== 'planner') {
-    return await completePrFinalize(context, preparation);
+    return { status: 'settled', output: await completePrFinalize(context, preparation) };
   }
 
-  let rawOutput;
+  const localRunStateRecord =
+    context.localRunRecordDirectory === undefined
+      ? undefined
+      : await readLocalRunStateRecordFromDirectory(context.localRunRecordDirectory);
 
-  try {
-    rawOutput = await readCodexActionOutput(context);
-  } catch (error) {
-    if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
-    }
-
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
-    throw error;
-  }
-
-  return await completePrFinalizePlannerFallback(context, preparation, rawOutput);
+  return {
+    status: 'runner',
+    prompt: preparation.prompt,
+    model: context.model,
+    branch: preparation.pullRequest.headRefName,
+    runOptions: {
+      streamOutput: context.suppressRunnerOutput !== true,
+      env: localRunStateRecord?.heartbeatEnvironment,
+    },
+    waiting: {
+      summary: `Prepared external PR Finalize history planner for PR #${preparation.pullRequest.number}.`,
+      details: {
+        pullRequest: {
+          number: preparation.pullRequest.number,
+          url: preparation.pullRequest.url,
+        },
+      },
+    },
+    finalize: async rawOutput =>
+      await completePrFinalizePlannerFallback(context, preparation, rawOutput),
+    onRunnerFailure: async error => {
+      await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error));
+    },
+  };
 }
 
 /**
