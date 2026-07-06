@@ -13,6 +13,8 @@ export interface RunnerExecFileResult {
 
 export type RunnerAdapter = 'codex-cli' | 'external';
 
+export type RunnerCommandCli = 'codex' | 'claude';
+
 export interface ExternalRunnerCommand {
   argv: string[];
   env: Record<string, string>;

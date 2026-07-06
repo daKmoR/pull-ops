@@ -47,8 +47,28 @@ Local PullOps work does not require repository Actions secrets.
 
 - For GitHub reads, issue mutation, labels, and local publishing to GitHub, log
   in with the GitHub CLI: `gh auth login`.
-- For runner work, log in to the local Codex CLI used by your configured
-  PullOps runner command.
+- For runner work, log in to the local agent CLI used by your configured
+  PullOps Runner Command: the Codex CLI by default, or the Claude Code CLI when
+  the Runner Command runs `claude`.
+
+### Choose the Runner
+
+PullOps runs the Codex CLI by default. To run the Claude Code CLI instead,
+point the Runner Command at `claude` in `pullops.config.js`:
+
+```js
+export default {
+  runner: {
+    command: 'claude --permission-mode bypassPermissions',
+  },
+};
+```
+
+When the Runner Command runs `claude` and `runner.models` is not overridden,
+the model tiers default to `claude-opus-4-8` (high), `claude-sonnet-5` (mid),
+and `claude-haiku-4-5` (low). Generated GitHub Actions workflows switch from
+the Codex Action to the Claude Code Action; rerun `pullops setup github-actions`
+after changing the Runner Command so the workflows match.
 
 ## Remember One Thing
 
@@ -129,7 +149,9 @@ Lower-level command variants live in
 Local setup and operation commands authenticate GitHub API calls from
 `PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token` in the current
 process. Sandboxed agents may not see the host machine's `gh` credentials; in
-that case, forward `GITHUB_TOKEN` into the sandbox through Codex config.
+that case, forward `GITHUB_TOKEN` into the sandbox through Codex config. The
+Claude Code CLI inherits the host environment by default, so it needs no
+equivalent step.
 
 In a trusted host shell, check whether `GITHUB_TOKEN` is present without printing
 the token:
@@ -169,7 +191,9 @@ Configure these secrets when you want GitHub labels to run PullOps:
   pull requests, and reconcile workflows for the Target Repository. In GitHub
   terms, it needs write access for contents, issues, pull requests, and actions.
 - `OPENAI_API_KEY`: the key passed to the Codex Action step in generated
-  workflows.
+  workflows when the configured Runner Command runs Codex (the default).
+- `ANTHROPIC_API_KEY`: the key passed to the Claude Code Action step in
+  generated workflows when the configured Runner Command runs `claude`.
 
 `pullops setup doctor --profile github-actions --json` checks GitHub Actions
 readiness. Missing or uninspectable repository secrets are reported as warnings,

@@ -111,7 +111,7 @@ jobs:
 
       - name: Verify OpenAI API key
         if: steps.prepare.outputs.run_runner == 'true'
-        id: openai_key
+        id: runner_key
         continue-on-error: true
         run: |
           if [ -z "$OPENAI_API_KEY" ]; then
@@ -122,8 +122,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Run Codex conflict pass 1
-        if: steps.prepare.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex_1
+        if: steps.prepare.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'
+        id: runner_1
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
@@ -143,15 +143,15 @@ jobs:
           cache: npm
 
       - name: Record successful runner result for conflict pass 1
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome == 'success'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner_1.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "${{ steps.prepare.outputs.result_file }}"
 
       - name: Record failed runner result for conflict pass 1
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome != 'success' && steps.codex_1.outcome != 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner_1.outcome != 'success' && steps.runner_1.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "${{ steps.prepare.outputs.result_file }}"
 
       - name: Record cancelled runner result for conflict pass 1
-        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.codex_1.outcome == 'cancelled'
+        if: always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.run_runner == 'true' && steps.runner_1.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.prepare.outputs.result_file }}"
 
       - name: Record skipped runner result for conflict pass 1
@@ -194,8 +194,8 @@ jobs:
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
       - name: Run Codex conflict pass 2
-        if: steps.complete_1.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex_2
+        if: steps.complete_1.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'
+        id: runner_2
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
@@ -215,15 +215,15 @@ jobs:
           cache: npm
 
       - name: Record successful runner result for conflict pass 2
-        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome == 'success'
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.runner_2.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "${{ steps.complete_1.outputs.result_file }}"
 
       - name: Record failed runner result for conflict pass 2
-        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome != 'success' && steps.codex_2.outcome != 'cancelled'
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.runner_2.outcome != 'success' && steps.runner_2.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "${{ steps.complete_1.outputs.result_file }}"
 
       - name: Record cancelled runner result for conflict pass 2
-        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.codex_2.outcome == 'cancelled'
+        if: always() && steps.complete_1.outputs.run_runner == 'true' && steps.runner_2.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.complete_1.outputs.result_file }}"
 
       - name: Complete PullOps resolve conflicts pass 2
@@ -262,8 +262,8 @@ jobs:
           GITHUB_ACTOR: ${{ inputs.trigger_actor }}
 
       - name: Run Codex conflict pass 3
-        if: steps.complete_2.outputs.run_runner == 'true' && steps.openai_key.outcome == 'success'
-        id: codex_3
+        if: steps.complete_2.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'
+        id: runner_3
         uses: openai/codex-action@v1
         continue-on-error: true
         with:
@@ -283,15 +283,15 @@ jobs:
           cache: npm
 
       - name: Record successful runner result for conflict pass 3
-        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome == 'success'
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.runner_3.outcome == 'success'
         run: npm exec pullops -- runner-result --status success --file "${{ steps.complete_2.outputs.result_file }}"
 
       - name: Record failed runner result for conflict pass 3
-        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome != 'success' && steps.codex_3.outcome != 'cancelled'
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.runner_3.outcome != 'success' && steps.runner_3.outcome != 'cancelled'
         run: npm exec pullops -- runner-result --status failed --file "${{ steps.complete_2.outputs.result_file }}"
 
       - name: Record cancelled runner result for conflict pass 3
-        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.codex_3.outcome == 'cancelled'
+        if: always() && steps.complete_2.outputs.run_runner == 'true' && steps.runner_3.outcome == 'cancelled'
         run: npm exec pullops -- runner-result --status cancelled --file "${{ steps.complete_2.outputs.result_file }}"
 
       - name: Complete PullOps resolve conflicts pass 3

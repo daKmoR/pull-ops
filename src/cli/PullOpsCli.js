@@ -133,8 +133,8 @@ function readLocalOperationLabelReferenceNames() {
  * @param {NodeJS.ProcessEnv} env
  * @returns {RunnerAdapter}
  */
-function readCodexHostedLocalRunnerAdapter(configuredRunnerAdapter, env) {
-  if (isCodexHostedPullOpsGo(env)) {
+function readAgentHostedLocalRunnerAdapter(configuredRunnerAdapter, env) {
+  if (isAgentHostedPullOpsGo(env)) {
     return 'external';
   }
 
@@ -142,11 +142,18 @@ function readCodexHostedLocalRunnerAdapter(configuredRunnerAdapter, env) {
 }
 
 /**
+ * Local runs started from inside a hosting agent session (Codex or Claude
+ * Code) hand runner work back to that agent through the external Runner
+ * Adapter instead of nesting another agent CLI process.
+ *
  * @param {NodeJS.ProcessEnv} env
  * @returns {boolean}
  */
-function isCodexHostedPullOpsGo(env) {
-  return readOptionalEnv(env.CODEX_THREAD_ID) !== undefined;
+function isAgentHostedPullOpsGo(env) {
+  return (
+    readOptionalEnv(env.CODEX_THREAD_ID) !== undefined ||
+    readOptionalEnv(env.CLAUDECODE) !== undefined
+  );
 }
 
 /** @type {import('../operation-output/types.js').OperationOutputContract} */
@@ -928,7 +935,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[workflowOperation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = readCodexHostedLocalRunnerAdapter(config.runner.adapter, this.env);
+    const runnerAdapter = readAgentHostedLocalRunnerAdapter(config.runner.adapter, this.env);
     if (runnerAdapter === 'external') {
       validateRunnerLifecycle({
         operationName: workflowOperation.name,
@@ -1156,7 +1163,7 @@ export class PullOpsCli {
     const config = await loadPullOpsConfig({ cwd: this.cwd });
     const operationConfig = config.operations[operation.configKey];
     const model = config.runner.models[operationConfig.modelTier];
-    const runnerAdapter = readCodexHostedLocalRunnerAdapter(config.runner.adapter, this.env);
+    const runnerAdapter = readAgentHostedLocalRunnerAdapter(config.runner.adapter, this.env);
     if (runnerAdapter === 'external') {
       return await this.runLocalExternalIssueImplementReference({
         operation,

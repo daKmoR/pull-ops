@@ -25,7 +25,7 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - name: Verify trigger actor can run Codex
+      - name: Verify trigger actor can run PullOps operations
         uses: actions/github-script@v8
         env:
           TRIGGER_ACTOR: ${{ github.actor }}
@@ -41,7 +41,7 @@ jobs:
 
             if (!['admin', 'maintain', 'write'].includes(data.permission)) {
               core.setFailed(
-                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '${data.permission}'.`,
+                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps workflows. Detected permission: '${data.permission}'.`,
               );
             }
 
@@ -92,7 +92,7 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Verify trigger actor can run Codex
+      - name: Verify trigger actor can run PullOps operations
         uses: actions/github-script@v8
         env:
           TRIGGER_ACTOR: ${{ github.actor }}
@@ -108,7 +108,7 @@ jobs:
 
             if (!['admin', 'maintain', 'write'].includes(data.permission)) {
               core.setFailed(
-                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps Codex workflows. Detected permission: '${data.permission}'.`,
+                `Actor '${process.env.TRIGGER_ACTOR}' must have write access to run PullOps workflows. Detected permission: '${data.permission}'.`,
               );
             }
 
