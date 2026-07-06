@@ -996,16 +996,8 @@ export class PullOpsCli {
     operationConfig,
     model,
   }) {
-    const createdAt = this.now();
-    const runRecordLocation = createLocalPrdRunRecordLocation({
-      cwd: this.cwd,
-      operationReference: reference,
-      targetNumber: parsedArgs.targetNumber,
-      createdAt,
-    });
-    await mkdir(runRecordLocation.directory, { recursive: true });
-    const stateRecord = await initializeLocalRunState({
-      runRecordDirectory: runRecordLocation.directory,
+    return await this.runLocalExternalOperationPrepare({
+      operation,
       operationReference: reference,
       target: {
         type: 'pr',
@@ -1013,18 +1005,68 @@ export class PullOpsCli {
       },
       publicationMode: 'publish',
       runGoal: 'operation',
+      config,
+      operationConfig,
+      model,
+      workLabel: `Local external ${reference}`,
+    });
+  }
+
+  /**
+   * Prepare a hidden local external runner for one operation: create the
+   * Local Run Record, guard the worktree, dispatch the prepare phase, and
+   * record the resulting run state.
+   *
+   * @param {object} options
+   * @param {import('../operations/types.js').WorkflowOperation} options.operation
+   * @param {string} options.operationReference
+   * @param {{ type: 'issue' | 'pr', number: number }} options.target
+   * @param {'dry-run' | 'publish'} options.publicationMode
+   * @param {import('./types.js').OperationRunGoal} options.runGoal
+   * @param {import('../config/types.js').PullOpsConfig} options.config
+   * @param {import('../config/types.js').OperationConfig} options.operationConfig
+   * @param {string} options.model
+   * @param {string} options.workLabel
+   * @returns {Promise<number>}
+   */
+  async runLocalExternalOperationPrepare({
+    operation,
+    operationReference,
+    target,
+    publicationMode,
+    runGoal,
+    config,
+    operationConfig,
+    model,
+    workLabel,
+  }) {
+    const createdAt = this.now();
+    const runRecordLocation = createLocalPrdRunRecordLocation({
+      cwd: this.cwd,
+      operationReference,
+      targetNumber: target.number,
+      createdAt,
+    });
+    await mkdir(runRecordLocation.directory, { recursive: true });
+    const stateRecord = await initializeLocalRunState({
+      runRecordDirectory: runRecordLocation.directory,
+      operationReference,
+      target,
+      publicationMode,
+      runGoal,
       createdAt,
     });
 
     try {
       if (await this.gitClient.hasChanges()) {
         const reason = [
-          `Local external ${reference} requires a clean worktree before preparing a hidden worker.`,
+          `${workLabel} requires a clean worktree before preparing a hidden worker.`,
           'Commit, stash, or discard existing changes and run PullOps again.',
         ].join(' ');
+        const targetDescription = `${target.type === 'pr' ? 'PR' : 'issue'} #${target.number}`;
         const output = {
           status: 'failed',
-          summary: `Local external ${reference} for PR #${parsedArgs.targetNumber} failed before prepare.`,
+          summary: `${workLabel} for ${targetDescription} failed before prepare.`,
           failureReason: reason,
           localRunRecord: runRecordLocation.directory,
           runStatePath: stateRecord.statePath,
@@ -1045,12 +1087,9 @@ export class PullOpsCli {
         runnerAdapter: 'external',
         executionBackend: 'local',
         suppressFollowUpOperationLabels: true,
-        publicationMode: 'publish',
-        runGoal: 'operation',
-        target: {
-          type: 'pr',
-          number: parsedArgs.targetNumber,
-        },
+        publicationMode,
+        runGoal,
+        target,
         cwd: this.cwd,
         config,
         modelTier: operationConfig.modelTier,
@@ -1178,16 +1217,8 @@ export class PullOpsCli {
     operationConfig,
     model,
   }) {
-    const createdAt = this.now();
-    const runRecordLocation = createLocalPrdRunRecordLocation({
-      cwd: this.cwd,
-      operationReference: 'issue:implement',
-      targetNumber: parsedArgs.targetNumber,
-      createdAt,
-    });
-    await mkdir(runRecordLocation.directory, { recursive: true });
-    const stateRecord = await initializeLocalRunState({
-      runRecordDirectory: runRecordLocation.directory,
+    return await this.runLocalExternalOperationPrepare({
+      operation,
       operationReference: 'issue:implement',
       target: {
         type: 'issue',
@@ -1195,94 +1226,11 @@ export class PullOpsCli {
       },
       publicationMode: parsedArgs.publicationMode,
       runGoal: parsedArgs.runGoal,
-      createdAt,
+      config,
+      operationConfig,
+      model,
+      workLabel: 'Local external issue implementation',
     });
-
-    try {
-      if (await this.gitClient.hasChanges()) {
-        const reason = [
-          'Local external issue implementation requires a clean worktree before preparing a hidden worker.',
-          'Commit, stash, or discard existing changes and run PullOps again.',
-        ].join(' ');
-        const output = {
-          status: 'failed',
-          summary: `Local external issue implementation for issue #${parsedArgs.targetNumber} failed before prepare.`,
-          failureReason: reason,
-          localRunRecord: runRecordLocation.directory,
-          runStatePath: stateRecord.statePath,
-        };
-        await recordLocalRunTerminalStatus({
-          statePath: stateRecord.statePath,
-          status: 'failed',
-          summary: reason,
-          phase: 'prepare',
-        });
-        this.writeValidatedJson(output);
-        return 1;
-      }
-
-      const output = await this.operationRunner({
-        operation: operation.name,
-        phase: 'prepare',
-        runnerAdapter: 'external',
-        executionBackend: 'local',
-        suppressFollowUpOperationLabels: true,
-        publicationMode: parsedArgs.publicationMode,
-        runGoal: parsedArgs.runGoal,
-        target: {
-          type: 'issue',
-          number: parsedArgs.targetNumber,
-        },
-        cwd: this.cwd,
-        config,
-        modelTier: operationConfig.modelTier,
-        model,
-        githubClient: this.operationGitHubClient,
-        gitClient: this.gitClient,
-        codexRunner: this.codexRunner,
-        triggerActor: this.env.GITHUB_ACTOR,
-        outputDirectory: runRecordLocation.directory,
-        localRunRecordDirectory: runRecordLocation.directory,
-        reasoningEffort: readOptionalEnv(this.env.PULLOPS_REASONING_EFFORT),
-        contextUsage: readContextUsage(this.env),
-        progress: this.progress,
-      });
-      const outputWithRunRecord = addLocalRunRecordToOutput(output, {
-        localRunRecord: runRecordLocation.directory,
-        runStatePath: stateRecord.statePath,
-      });
-
-      if (isExternalRunnerWaitingOutput(outputWithRunRecord)) {
-        await recordLocalRunWaitingForRunner({
-          statePath: stateRecord.statePath,
-          summary: outputWithRunRecord.summary,
-          phase: 'prepare',
-          runnerJob: outputWithRunRecord.runnerJob,
-        });
-      } else {
-        await recordLocalRunTerminalStatus({
-          statePath: stateRecord.statePath,
-          status: mapLocalRunResultStatusToTerminalStatus(
-            /** @type {import('../local-run-state/types.js').LocalRunResultStatus} */ (
-              outputWithRunRecord.status
-            ),
-          ),
-          summary: outputWithRunRecord.summary,
-          phase: 'prepare',
-        });
-      }
-
-      this.writeValidatedJson(outputWithRunRecord);
-      return readOperationExitCode(outputWithRunRecord);
-    } catch (error) {
-      await recordLocalRunTerminalStatus({
-        statePath: stateRecord.statePath,
-        status: 'failed',
-        summary: getErrorMessage(error),
-        phase: 'prepare',
-      });
-      throw error;
-    }
   }
 
   /**
