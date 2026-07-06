@@ -7,12 +7,10 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
-  createExternalRunnerJob,
-  createSkippedCodexActionOutput,
-  isSkippedExternalRunnerResult,
-  readCodexActionOutput,
-  writeCodexActionPrompt,
-} from '../codexAction.js';
+  finalizeOperationRunnerStep,
+  prepareOperationRunnerStep,
+  runOperationRunnerStep,
+} from '../runnerLifecycle.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { classifyCheckFailures } from './classification.js';
@@ -36,37 +34,7 @@ import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCi(context) {
-  const preparation = await preparePrFixCi(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  let rawOutput;
-
-  try {
-    rawOutput = await context.codexRunner.run({
-      cwd: context.cwd,
-      command: context.config.runner.command,
-      model: context.model,
-      prompt: buildPrFixCiPrompt({
-        pullRequest: preparation.pullRequest,
-        issue: preparation.issue,
-        reviewContext: preparation.reviewContext,
-        diff: preparation.diff,
-        checkFailures: preparation.checkFailures,
-      }),
-      streamOutput: context.suppressRunnerOutput !== true,
-    });
-  } catch (error) {
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: preparation.managed,
-      ciFixCycle: preparation.ciFixCycle,
-      maxCiFixCycles: preparation.maxCiFixCycles,
-    });
-    throw error;
-  }
-
-  return await finalizePreparedPrFixCi(context, preparation, rawOutput);
+  return await runOperationRunnerStep(context, createPrFixCiRunnerOperation);
 }
 
 /**
@@ -74,49 +42,7 @@ export async function runPrFixCi(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCiCodexActionPrepare(context) {
-  const preparation = await preparePrFixCi(context);
-  if (!preparation.ready) {
-    return preparation.output;
-  }
-
-  let handoff;
-  try {
-    handoff = await writeCodexActionPrompt(
-      context,
-      buildPrFixCiPrompt({
-        pullRequest: preparation.pullRequest,
-        issue: preparation.issue,
-        reviewContext: preparation.reviewContext,
-        diff: preparation.diff,
-        checkFailures: preparation.checkFailures,
-      }),
-      { branch: preparation.pullRequest.headRefName },
-    );
-  } catch (error) {
-    await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
-      updateBody: preparation.managed,
-      ciFixCycle: preparation.ciFixCycle,
-      maxCiFixCycles: preparation.maxCiFixCycles,
-    });
-    throw error;
-  }
-
-  return {
-    status: 'waiting',
-    summary: `Prepared external pr-fix-ci run for PR #${preparation.pullRequest.number}.`,
-    pullRequest: {
-      number: preparation.pullRequest.number,
-      url: preparation.pullRequest.url,
-    },
-    checks: {
-      failed: preparation.checkFailures.length,
-      classifications: summarizeClassifications(preparation.checkFailures),
-    },
-    runnerJob: createExternalRunnerJob(context, handoff, {
-      model: context.model,
-      branch: preparation.pullRequest.headRefName,
-    }),
-  };
+  return await prepareOperationRunnerStep(context, createPrFixCiRunnerOperation);
 }
 
 /**
@@ -124,34 +50,71 @@ export async function runPrFixCiCodexActionPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFixCiCodexActionFinalize(context) {
-  let rawOutput;
+  return await finalizeOperationRunnerStep(context, createPrFixCiRunnerOperation, {
+    // Do not rerun preparePrFixCi before reading the runner output: its
+    // not-ready branches transition PR state as if the runner outcome were
+    // known, which would mask a runner failure.
+    order: 'output-first',
+    rejectSkippedPreparedRunner: true,
+    onOutputError: async (outputErrorContext, error) => {
+      assertPullRequestTarget(outputErrorContext);
+      const pullRequest = await outputErrorContext.githubClient.getPullRequest(
+        outputErrorContext.target.number,
+      );
+      const state = readManagedPrState(pullRequest.body);
+      await recordPullRequestFailure(outputErrorContext, pullRequest, getErrorMessage(error), {
+        updateBody: state.managed,
+        ciFixCycle: state.ciFixCycles.current + 1,
+        maxCiFixCycles: state.ciFixCycles.max,
+      });
+    },
+  });
+}
 
-  try {
-    rawOutput = await readCodexActionOutput(context, { rejectSkippedPreparedRunner: true });
-  } catch (error) {
-    if (isSkippedExternalRunnerResult(error)) {
-      return createSkippedCodexActionOutput(context);
-    }
-
-    // Do not rerun preparePrFixCi here: its not-ready branches transition PR
-    // state as if the runner outcome were known, which would mask this failure.
-    assertPullRequestTarget(context);
-    const pullRequest = await context.githubClient.getPullRequest(context.target.number);
-    const state = readManagedPrState(pullRequest.body);
-    await recordPullRequestFailure(context, pullRequest, getErrorMessage(error), {
-      updateBody: state.managed,
-      ciFixCycle: state.ciFixCycles.current + 1,
-      maxCiFixCycles: state.ciFixCycles.max,
-    });
-    throw error;
-  }
-
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../runnerLifecycle.types.js').RunnerLifecycleOperation>}
+ */
+async function createPrFixCiRunnerOperation(context) {
   const preparation = await preparePrFixCi(context);
   if (!preparation.ready) {
-    return preparation.output;
+    return { status: 'settled', output: preparation.output };
   }
 
-  return await finalizePreparedPrFixCi(context, preparation, rawOutput);
+  return {
+    status: 'runner',
+    prompt: buildPrFixCiPrompt({
+      pullRequest: preparation.pullRequest,
+      issue: preparation.issue,
+      reviewContext: preparation.reviewContext,
+      diff: preparation.diff,
+      checkFailures: preparation.checkFailures,
+    }),
+    model: context.model,
+    branch: preparation.pullRequest.headRefName,
+    runOptions: { streamOutput: context.suppressRunnerOutput !== true },
+    waiting: {
+      summary: `Prepared external pr-fix-ci run for PR #${preparation.pullRequest.number}.`,
+      details: {
+        pullRequest: {
+          number: preparation.pullRequest.number,
+          url: preparation.pullRequest.url,
+        },
+        checks: {
+          failed: preparation.checkFailures.length,
+          classifications: summarizeClassifications(preparation.checkFailures),
+        },
+      },
+    },
+    finalize: async rawOutput => await finalizePreparedPrFixCi(context, preparation, rawOutput),
+    onRunnerFailure: async error => {
+      await recordPullRequestFailure(context, preparation.pullRequest, getErrorMessage(error), {
+        updateBody: preparation.managed,
+        ciFixCycle: preparation.ciFixCycle,
+        maxCiFixCycles: preparation.maxCiFixCycles,
+      });
+    },
+  };
 }
 
 /**
