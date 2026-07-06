@@ -96,6 +96,10 @@ _Avoid_: Provider config, model command
 The PullOps-owned execution path for running an AI coding agent. `codex-cli` runs the configured Runner Command from the PullOps CLI, while `codex-action` splits execution across prepare, GitHub Action, and finalize workflow steps.
 _Avoid_: Phase, task script, provider
 
+**Runner Lifecycle**:
+The PullOps-owned flow that carries one operation runner step through a Runner Adapter, from an Operation Module's prompt to its validated Operation Output, including skipped-runner handling and failure recording.
+_Avoid_: Phase handler, runner wrapper, codex helper
+
 **Execution Backend**:
 The place where a PullOps Operation is executed, such as the active local checkout or GitHub Actions.
 _Avoid_: Runner adapter, provider
