@@ -6,18 +6,13 @@ import {
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
-import {
-  finalizeOperationRunnerStep,
-  prepareOperationRunnerStep,
-  runOperationRunnerStep,
-} from '../runnerLifecycle.js';
+import { executeOperationPhase } from '../runnerLifecycle.js';
 import {
   blockLocalPullRequestOperation,
   commitLocalChangesIfPresent,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
   runLocalRunnerStep,
-  runLocalPullRequestOperation,
 } from '../runLocalPullRequestOperation.js';
 import {
   appendOperationAuditFooter,
@@ -57,12 +52,15 @@ const REQUESTED_CHANGE_DISMISSAL_MESSAGE =
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReview(context) {
-  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
-    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrAddressReview });
-  }
-
-  return await runOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
+  return await executeOperationPhase(prAddressReviewDescriptor, 'run', context);
 }
+
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const prAddressReviewDescriptor = {
+  operationReference: 'pr:address-review',
+  createOperation: createPrAddressReviewRunnerOperation,
+  localRun: runLocalPrAddressReview,
+};
 
 /**
  * @param {OperationRunnerContext} context
@@ -135,7 +133,7 @@ async function runLocalPrAddressReview(context, runRecord, preparation) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReviewExternalRunnerPrepare(context) {
-  return await prepareOperationRunnerStep(context, createPrAddressReviewRunnerOperation);
+  return await executeOperationPhase(prAddressReviewDescriptor, 'prepare', context);
 }
 
 /**
@@ -143,9 +141,7 @@ export async function runPrAddressReviewExternalRunnerPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrAddressReviewExternalRunnerFinalize(context) {
-  return await finalizeOperationRunnerStep(context, createPrAddressReviewRunnerOperation, {
-    order: 'prepare-first',
-  });
+  return await executeOperationPhase(prAddressReviewDescriptor, 'complete', context);
 }
 
 /**
