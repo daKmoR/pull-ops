@@ -15,17 +15,12 @@ import {
   parseChildIssueBranchName,
   parseParentBranchName,
 } from '../branchNames.js';
-import {
-  finalizeOperationRunnerStep,
-  prepareOperationRunnerStep,
-  runOperationRunnerStep,
-} from '../runnerLifecycle.js';
+import { executeOperationPhase } from '../runnerLifecycle.js';
 import {
   blockLocalPullRequestOperation,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
   runLocalRunnerStep,
-  runLocalPullRequestOperation,
   writeLocalPullRequestRunArtifact,
 } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
@@ -59,12 +54,15 @@ export { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalize(context) {
-  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
-    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrFinalize });
-  }
-
-  return await runOperationRunnerStep(context, createPrFinalizeRunnerOperation);
+  return await executeOperationPhase(prFinalizeDescriptor, 'run', context);
 }
+
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const prFinalizeDescriptor = {
+  operationReference: 'pr:finalize',
+  createOperation: createPrFinalizeRunnerOperation,
+  localRun: runLocalPrFinalize,
+};
 
 /**
  * @param {OperationRunnerContext} context
@@ -278,7 +276,7 @@ function indentLocalPlannerValue(value) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeExternalRunnerPrepare(context) {
-  return await prepareOperationRunnerStep(context, createPrFinalizeRunnerOperation);
+  return await executeOperationPhase(prFinalizeDescriptor, 'prepare', context);
 }
 
 /**
@@ -286,9 +284,7 @@ export async function runPrFinalizeExternalRunnerPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrFinalizeExternalRunnerFinalize(context) {
-  return await finalizeOperationRunnerStep(context, createPrFinalizeRunnerOperation, {
-    order: 'prepare-first',
-  });
+  return await executeOperationPhase(prFinalizeDescriptor, 'complete', context);
 }
 
 /**
