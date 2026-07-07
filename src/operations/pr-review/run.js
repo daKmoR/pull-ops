@@ -7,18 +7,13 @@ import {
   refusePrOperationTarget,
   updateManagedPrState,
 } from '../../managed-pr/ManagedPrState.js';
-import {
-  finalizeOperationRunnerStep,
-  prepareOperationRunnerStep,
-  runOperationRunnerStep,
-} from '../runnerLifecycle.js';
+import { executeOperationPhase } from '../runnerLifecycle.js';
 import {
   blockLocalPullRequestOperation,
   commitLocalChangesIfPresent,
   completeLocalPullRequestRunRecord,
   formatPullRequest,
   runLocalRunnerStep,
-  runLocalPullRequestOperation,
 } from '../runLocalPullRequestOperation.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import { appendOperationAuditFooter } from '../auditComment.js';
@@ -43,16 +38,19 @@ import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @typedef {import('./run.types.js').PrReviewPreparation} PrReviewPreparation
  */
 
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const prReviewDescriptor = {
+  operationReference: 'pr:review',
+  createOperation: createPrReviewRunnerOperation,
+  localRun: runLocalPrReview,
+};
+
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrReview(context) {
-  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
-    return await runLocalPullRequestOperation(context, { runPrepared: runLocalPrReview });
-  }
-
-  return await runOperationRunnerStep(context, createPrReviewRunnerOperation);
+  return await executeOperationPhase(prReviewDescriptor, 'run', context);
 }
 
 /**
@@ -115,7 +113,7 @@ async function runLocalPrReview(context, runRecord, preparation) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrReviewExternalRunnerPrepare(context) {
-  return await prepareOperationRunnerStep(context, createPrReviewRunnerOperation);
+  return await executeOperationPhase(prReviewDescriptor, 'prepare', context);
 }
 
 /**
@@ -123,9 +121,7 @@ export async function runPrReviewExternalRunnerPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrReviewExternalRunnerFinalize(context) {
-  return await finalizeOperationRunnerStep(context, createPrReviewRunnerOperation, {
-    order: 'prepare-first',
-  });
+  return await executeOperationPhase(prReviewDescriptor, 'complete', context);
 }
 
 /**
