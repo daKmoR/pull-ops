@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { readManagedPrState } from '../managed-pr/ManagedPrState.js';
+import { readManagedPrState, readRunBudgetExhaustion } from '../managed-pr/ManagedPrState.js';
 import { hasPullOpsBranchPrefix } from './branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from './githubActionsBot.js';
 import {
@@ -23,6 +23,14 @@ import { getOperationCatalogOperationLabelReferenceForWorkflowOperation } from '
  * @typedef {import('../local-run-state/types.js').LocalRunRecord} LocalRunRecord
  * @typedef {import('./runLocalPullRequestOperation.types.js').RunLocalPullRequestOperationOptions} RunLocalPullRequestOperationOptions
  */
+
+// Operations that loop through Review Cycles or CI Fix Cycles consult the
+// Run Budget before starting; single-shot maintenance operations do not.
+const CYCLE_CONSUMING_OPERATION_REFERENCES = new Set([
+  'pr:review',
+  'pr:address-review',
+  'pr:fix-ci',
+]);
 
 /**
  * Run one PR operation on the local Execution Backend: create the Local Run
@@ -180,6 +188,20 @@ async function prepareLocalPullRequestOperation(context, runRecord, { operationR
     };
   }
 
+  if (CYCLE_CONSUMING_OPERATION_REFERENCES.has(operationReference)) {
+    const budgetExhaustion = readRunBudgetExhaustion(state, context.config.runBudget);
+    if (budgetExhaustion.exhausted) {
+      return {
+        ready: false,
+        output: await blockLocalPullRequestOperation(context, runRecord, {
+          pullRequest,
+          reason: budgetExhaustion.reason,
+          blocker: { kind: 'budget-exhausted' },
+        }),
+      };
+    }
+  }
+
   if (
     operationReference === 'pr:address-review' &&
     state.reviewCycles.current >= state.reviewCycles.max
@@ -320,16 +342,25 @@ async function createLocalPullRequestRunRecord(context, { operationReference }) 
 /**
  * @param {OperationRunnerContext} context
  * @param {LocalRunRecord} runRecord
- * @param {{ reason: string, pullRequest?: GitHubPullRequest }} options
+ * @param {{
+ *   reason: string,
+ *   pullRequest?: GitHubPullRequest,
+ *   blocker?: { kind: 'budget-exhausted' | 'no-progress' | 'safety-refusal' },
+ * }} options
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function blockLocalPullRequestOperation(context, runRecord, { reason, pullRequest }) {
+export async function blockLocalPullRequestOperation(
+  context,
+  runRecord,
+  { reason, pullRequest, blocker },
+) {
   await writeLocalPullRequestRunArtifact(runRecord, 'failure-reason.txt', `${reason}\n`);
   return await completeLocalPullRequestRunRecord(runRecord, {
     status: 'blocked',
     summary: reason,
     operation: readLocalPullRequestOperationReference(context.operation) ?? context.operation,
     target: context.target,
+    ...(blocker === undefined ? {} : { blocker }),
     ...(pullRequest === undefined ? {} : { pullRequest: formatPullRequest(pullRequest) }),
   });
 }

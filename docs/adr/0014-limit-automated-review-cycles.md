@@ -1,3 +1,5 @@
 # Limit automated review cycles
 
 PullOps may automatically loop pr-review and pr-address-review operations, but the loop must stop at a configured maximum, defaulting to three Review Cycles. Because only an approved pr-review records the reviewed tree needed by pr-finalize, PullOps should not spend the final available cycle on address-review work that cannot be followed by another automated review. The current cycle count should be recorded in a visible PR State Marker so humans can see how much automated review work happened before the PR reached them.
+
+Amended by [ADR-0067](0067-gate-pr-automation-on-run-budget-and-progress.md): the primary continuation gate is now the per-target Run Budget plus deterministic progress verification, denominated in tokens and wall-clock time rather than workflow steps. Cycle counts stay recorded in the PullOps Workflow State as telemetry, and the cycle maxima remain only as generous backstop guards with raised defaults (ten Review Cycles), so automation is no longer stopped by a step count while budget remains and cycles keep making verifiable progress.

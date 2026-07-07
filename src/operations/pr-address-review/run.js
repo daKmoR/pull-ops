@@ -1,6 +1,8 @@
 import {
   applyManagedPrTransition,
   readManagedPrState,
+  readOperationBudgetUsage,
+  readRunBudgetExhaustion,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
@@ -281,6 +283,29 @@ async function preparePrAddressReview(context) {
   const reviewMode = determinePrAddressReviewMode(state, {
     reviewId: context.reviewId,
   });
+
+  const budgetExhaustion = readRunBudgetExhaustion(state, context.config.runBudget);
+  if (budgetExhaustion.exhausted) {
+    const reason = `${budgetExhaustion.reason} PR #${pullRequest.number} needs maintainer attention.`;
+    await recordPullRequestFailure(context, pullRequest, reason, {
+      updateBody: true,
+      reviewCycle: state.reviewCycles.current,
+      maxReviewCycles: state.reviewCycles.max,
+    });
+    return {
+      ready: false,
+      output: {
+        status: 'blocked',
+        summary: reason,
+        blocker: { kind: 'budget-exhausted' },
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+        },
+      },
+    };
+  }
+
   if (reviewMode === 'blocked') {
     return {
       ready: false,
@@ -432,6 +457,7 @@ async function finalizePreparedPrAddressReview(executionContext, context, prepar
         reviewId:
           preparation.reviewMode === 'human-feedback-response' ? context.reviewId : undefined,
       },
+      usage: readOperationBudgetUsage(context),
     });
 
     return {

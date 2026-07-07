@@ -3,6 +3,8 @@ import {
   applyManagedPrTransition,
   isFinalizedForRebase,
   readManagedPrState,
+  readOperationBudgetUsage,
+  readRunBudgetExhaustion,
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
@@ -197,6 +199,30 @@ async function preparePrFixCi(context) {
     };
   }
 
+  if (state.managed) {
+    const budgetExhaustion = readRunBudgetExhaustion(state, context.config.runBudget);
+    if (budgetExhaustion.exhausted) {
+      const reason = `${budgetExhaustion.reason} PR #${pullRequest.number} needs maintainer attention.`;
+      await recordPullRequestFailure(context, pullRequest, reason, {
+        updateBody: true,
+        ciFixCycle: state.ciFixCycles.current,
+        maxCiFixCycles: state.ciFixCycles.max,
+      });
+      return {
+        ready: false,
+        output: {
+          status: 'blocked',
+          summary: reason,
+          blocker: { kind: 'budget-exhausted' },
+          pullRequest: {
+            number: pullRequest.number,
+            url: pullRequest.url,
+          },
+        },
+      };
+    }
+  }
+
   if (state.managed && state.ciFixCycles.current >= state.ciFixCycles.max) {
     return {
       ready: false,
@@ -355,6 +381,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
       return {
         status: 'blocked',
         summary: unsafeReason,
+        blocker: { kind: 'safety-refusal' },
         pullRequest: {
           number: pullRequest.number,
           url: pullRequest.url,
@@ -393,6 +420,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
         return {
           status: 'blocked',
           summary: reason,
+          blocker: { kind: 'safety-refusal' },
           pullRequest: {
             number: pullRequest.number,
             url: pullRequest.url,
@@ -421,6 +449,7 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
           ciFixCycle,
           maxCiFixCycles,
         },
+        usage: readOperationBudgetUsage(context),
       });
     } else {
       await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
@@ -643,6 +672,7 @@ async function completeNoFailedChecks(context, pullRequest, { managed }) {
       outcome: {
         kind: 'no-failed-checks',
       },
+      usage: readOperationBudgetUsage(context),
     });
   } else {
     await transitionPullRequestLabelsAfterFix(context, pullRequest, { managed });
@@ -709,6 +739,7 @@ async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFi
       ciFixCycle,
       maxCiFixCycles,
     },
+    usage: readOperationBudgetUsage(context),
   });
 
   return {
@@ -782,6 +813,7 @@ async function recordPullRequestFailure(
       ciFixCycle,
       maxCiFixCycles,
     },
+    usage: readOperationBudgetUsage(context),
   });
 }
 

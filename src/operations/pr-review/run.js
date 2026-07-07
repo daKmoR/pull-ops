@@ -2,6 +2,8 @@ import { createIssueStore } from '../../issue-store/IssueStore.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
+  readOperationBudgetUsage,
+  readRunBudgetExhaustion,
   refusePrOperationTarget,
   updateManagedPrState,
 } from '../../managed-pr/ManagedPrState.js';
@@ -246,6 +248,35 @@ async function preparePrReview(context) {
   }
 
   const reviewMode = determinePrReviewMode(state);
+
+  const budgetExhaustion = readRunBudgetExhaustion(state, context.config.runBudget);
+  if (budgetExhaustion.exhausted) {
+    return {
+      ready: false,
+      output: await blockManagedPrReview(context, pullRequest, state, {
+        reason: `${budgetExhaustion.reason} PR #${pullRequest.number} needs maintainer attention.`,
+        blockerKind: 'budget-exhausted',
+      }),
+    };
+  }
+
+  if (
+    reviewMode !== 'human-feedback-response' &&
+    state.lastCycleTreeHash !== undefined &&
+    state.lastCycleTreeHash === (await context.gitClient.getCurrentTreeHash())
+  ) {
+    return {
+      ready: false,
+      output: await blockManagedPrReview(context, pullRequest, state, {
+        reason: [
+          `No verifiable progress on PR #${pullRequest.number}:`,
+          'the tree is unchanged since the last changes-requested review.',
+        ].join(' '),
+        blockerKind: 'no-progress',
+      }),
+    };
+  }
+
   if (reviewMode === 'blocked') {
     return {
       ready: false,
@@ -360,8 +391,8 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
       pullRequest,
       reviewResult,
     );
-    const reviewedTreeHash =
-      reviewResult.status === 'approved' ? await context.gitClient.getCurrentTreeHash() : undefined;
+    const currentTreeHash = await context.gitClient.getCurrentTreeHash();
+    const reviewedTreeHash = reviewResult.status === 'approved' ? currentTreeHash : undefined;
 
     for (const reply of replies.publishable) {
       await context.githubClient.replyToPullRequestReviewComment({
@@ -403,6 +434,12 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
               maxReviewCycles,
               reviewMode: preparation.reviewMode,
             },
+      usage: {
+        ...readOperationBudgetUsage(context),
+        // Record the rejected tree so a re-review on an unchanged tree can
+        // be detected as no verifiable progress.
+        ...(reviewResult.status === 'approved' ? {} : { treeHash: currentTreeHash }),
+      },
     });
 
     return {
@@ -573,7 +610,46 @@ async function recordPullRequestFailure(
       reviewCycle,
       maxReviewCycles,
     },
+    usage: readOperationBudgetUsage(context),
   });
+}
+
+/**
+ * Block a managed PR review with a structured PullOps Run Blocker kind:
+ * the Run Budget and progress verification gates, not the backstop cycle
+ * counters.
+ *
+ * @param {OperationRunnerContext} context
+ * @param {GitHubPullRequest} pullRequest
+ * @param {import('../../managed-pr/ManagedPrState.types.js').ManagedPrState} state
+ * @param {{ reason: string, blockerKind: 'budget-exhausted' | 'no-progress' }} options
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function blockManagedPrReview(context, pullRequest, state, { reason, blockerKind }) {
+  await applyManagedPrTransition({
+    githubClient: context.githubClient,
+    outputDirectory: context.outputDirectory,
+    pullRequest,
+    operation: requireOperationCatalogOperationLabelName('pr-review'),
+    suppressFollowUpOperationLabels: context.suppressFollowUpOperationLabels,
+    outcome: {
+      kind: 'blocked',
+      reason,
+      reviewCycle: state.reviewCycles.current,
+      maxReviewCycles: state.reviewCycles.max,
+    },
+    usage: readOperationBudgetUsage(context),
+  });
+
+  return {
+    status: 'blocked',
+    summary: reason,
+    blocker: { kind: blockerKind },
+    pullRequest: {
+      number: pullRequest.number,
+      url: pullRequest.url,
+    },
+  };
 }
 
 /**

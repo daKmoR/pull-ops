@@ -235,6 +235,33 @@ describe('runPrFixCi', () => {
     ]);
   });
 
+  it('04b: blocks without running the runner when the Run Budget is exhausted', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: createPullRequestBody({ runBudgetUsedTokens: 2000000 }),
+      }),
+      checks: [createFailedCheck({ name: 'ESLint lint' })],
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: true });
+    const codex = createFakeRunner({ output: '{}' });
+
+    const result = await runPrFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        runner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.blocker, { kind: 'budget-exhausted' });
+    assert.match(String(result.summary), /Run Budget exhausted/);
+    assert.equal(codex.calls.length, 0);
+    assert.equal(git.commits.length, 0);
+  });
+
   it('05: blocks when the runner classifies failures as secret, flaky, or environment', async () => {
     const localRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-fix-ci-classify-'));
     const github = createFakeGitHub({
@@ -871,6 +898,7 @@ function createPullRequest(overrides = {}) {
  *   finalizedTreeHash?: string,
  *   finalizedHeadSha?: string,
  *   mergeMethod?: string,
+ *   runBudgetUsedTokens?: number,
  * }} [options]
  * @returns {string}
  */
@@ -881,6 +909,7 @@ function createPullRequestBody({
   finalizedTreeHash,
   finalizedHeadSha,
   mergeMethod,
+  runBudgetUsedTokens,
 } = {}) {
   return [
     '## Summary',
@@ -897,6 +926,9 @@ function createPullRequestBody({
     '',
     'Review cycles: 1 / 3',
     `CI fix cycles: ${ciFixCycles}`,
+    ...(runBudgetUsedTokens === undefined
+      ? []
+      : [`Run budget used tokens: ${runBudgetUsedTokens}`]),
     'Source: Issue #42',
     ...(finalizedTreeHash === undefined ? [] : [`Finalized tree: ${finalizedTreeHash}`]),
     ...(finalizedHeadSha === undefined ? [] : [`Finalized head: ${finalizedHeadSha}`]),

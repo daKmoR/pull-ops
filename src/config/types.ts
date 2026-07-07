@@ -41,11 +41,17 @@ export type OperationsConfig = {
         : OperationConfig;
 };
 
+export interface RunBudgetConfig {
+  maxUsedTokens: number;
+  maxDurationMs: number;
+}
+
 export interface PullOpsConfig {
   baseBranch: string;
   branchPrefix: string;
   issueStore: IssueStoreConfig;
   runner: RunnerConfig;
+  runBudget: RunBudgetConfig;
   operations: OperationsConfig;
 }
 
@@ -86,10 +92,16 @@ export type UserOperationsConfig = Partial<{
         : UserOperationConfig;
 }>;
 
+export interface UserRunBudgetConfig {
+  maxUsedTokens?: unknown;
+  maxDurationMs?: unknown;
+}
+
 export interface UserPullOpsConfig {
   baseBranch?: unknown;
   branchPrefix?: unknown;
   issueStore?: UserIssueStoreConfig | unknown;
   runner?: UserRunnerConfig | unknown;
+  runBudget?: UserRunBudgetConfig | unknown;
   operations?: UserOperationsConfig | unknown;
 }

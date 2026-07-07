@@ -233,6 +233,49 @@ test('loadPullOpsConfig keeps configured models for claude Runner Commands', asy
   });
 });
 
+test('loadPullOpsConfig defaults and overrides the Run Budget', async () => {
+  assert.deepEqual(DEFAULT_PULL_OPS_CONFIG.runBudget, {
+    maxUsedTokens: 2_000_000,
+    maxDurationMs: 4 * 60 * 60 * 1000,
+  });
+
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-run-budget-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runBudget: {
+          maxUsedTokens: 500000,
+        },
+      };
+    `,
+  );
+
+  const config = await loadPullOpsConfig({ cwd });
+
+  assert.equal(config.runBudget.maxUsedTokens, 500000);
+  assert.equal(config.runBudget.maxDurationMs, 4 * 60 * 60 * 1000);
+});
+
+test('loadPullOpsConfig rejects invalid Run Budget values', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-run-budget-invalid-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runBudget: {
+          maxDurationMs: -5,
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd }),
+    /runBudget\.maxDurationMs must be a positive integer/,
+  );
+});
+
 test('loadPullOpsConfig rejects unknown runner adapters', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-unknown-adapter-'));
   await writeFile(

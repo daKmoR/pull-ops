@@ -27,11 +27,17 @@ export interface PrResolveConflictsOperationConfig extends OperationConfig {
   maxConflictResolutionPasses?: number;
 }
 
+export interface RunBudgetConfig {
+  maxUsedTokens?: number;
+  maxDurationMs?: number;
+}
+
 export interface PullOpsConfig {
   baseBranch?: string;
   branchPrefix?: string;
   issueStore?: IssueStoreConfig;
   runner?: RunnerConfig;
+  runBudget?: RunBudgetConfig;
   operations?: Partial<{
     prdPrepare: OperationConfig;
     issueImplement: OperationConfig;

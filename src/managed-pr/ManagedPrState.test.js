@@ -103,8 +103,8 @@ describe('ManagedPrState', () => {
     );
     assert.equal(oldGrammarState.managed, false);
     assert.equal(oldGrammarState.status, 'Draft automation');
-    assert.deepEqual(oldGrammarState.reviewCycles, { current: 0, max: 3 });
-    assert.deepEqual(oldGrammarState.ciFixCycles, { current: 0, max: 2 });
+    assert.deepEqual(oldGrammarState.reviewCycles, { current: 0, max: 10 });
+    assert.deepEqual(oldGrammarState.ciFixCycles, { current: 0, max: 6 });
     assert.equal(oldGrammarState.escalationReviewCycles, undefined);
     assert.equal(oldGrammarState.humanFeedbackResponseStateMarkersPresent, false);
     assert.equal(oldGrammarState.humanFeedbackResponseCycles, undefined);
@@ -199,6 +199,59 @@ describe('ManagedPrState', () => {
         labels: ['pullops:pr:finalize'],
       },
     ]);
+  });
+
+  it('03b: charges operation usage against the Run Budget and records the rejected tree', async () => {
+    const github = createFakeGitHub();
+
+    await applyManagedPrTransition({
+      githubClient: github.client,
+      pullRequest: createPullRequest({
+        body: createManagedBody({
+          lastOperation: requireOperationCatalogOperationLabelName('issue-implement'),
+        }),
+      }),
+      operation: requireOperationCatalogOperationLabelName('pr-review'),
+      outcome: {
+        kind: 'changes-requested',
+        reviewCycle: 1,
+        maxReviewCycles: 10,
+      },
+      usage: {
+        usedTokens: 120000,
+        durationMs: 300000,
+        treeHash: 'tree-rejected',
+      },
+    });
+
+    const firstBody = github.updatedBodies[0].body;
+    assert.match(firstBody, /Run budget used tokens: 120000/);
+    assert.match(firstBody, /Run budget used ms: 300000/);
+    assert.match(firstBody, /Last cycle tree: tree-rejected/);
+
+    const firstState = readManagedPrState(firstBody);
+    assert.deepEqual(firstState.runBudgetUsage, { usedTokens: 120000, durationMs: 300000 });
+    assert.equal(firstState.lastCycleTreeHash, 'tree-rejected');
+
+    const secondGithub = createFakeGitHub();
+    await applyManagedPrTransition({
+      githubClient: secondGithub.client,
+      pullRequest: createPullRequest({ body: firstBody }),
+      operation: requireOperationCatalogOperationLabelName('pr-address-review'),
+      outcome: {
+        kind: 'addressed',
+        reviewCycle: 1,
+        maxReviewCycles: 10,
+      },
+      usage: {
+        usedTokens: 30000,
+        durationMs: 60000,
+      },
+    });
+
+    const secondState = readManagedPrState(secondGithub.updatedBodies[0].body);
+    assert.deepEqual(secondState.runBudgetUsage, { usedTokens: 150000, durationMs: 360000 });
+    assert.equal(secondState.lastCycleTreeHash, undefined);
   });
 
   it('04: leaves final review approvals ready for human merge without human-required label', async () => {

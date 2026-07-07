@@ -5,6 +5,21 @@ export interface ManagedPrCycleState {
   max: number;
 }
 
+export interface ManagedPrRunBudgetUsage {
+  usedTokens: number;
+  durationMs: number;
+}
+
+export interface ManagedPrOperationUsage {
+  usedTokens?: number;
+  durationMs?: number;
+  treeHash?: string;
+}
+
+export type ManagedPrRunBudgetExhaustion =
+  | { exhausted: false }
+  | { exhausted: true; reason: string };
+
 export interface ManagedPrSpecialReviewState {
   escalationReviewCycles?: ManagedPrCycleState;
   humanFeedbackResponseStateMarkersPresent?: boolean;
@@ -30,6 +45,8 @@ export interface ManagedPrState extends ManagedPrSpecialReviewState {
   mergeMethod?: string;
   reviewCycles: ManagedPrCycleState;
   ciFixCycles: ManagedPrCycleState;
+  runBudgetUsage: ManagedPrRunBudgetUsage;
+  lastCycleTreeHash?: string;
 }
 
 export interface ManagedPrStateSectionOptions extends ManagedPrSpecialReviewState {
@@ -58,6 +75,8 @@ export interface UpdateManagedPrStateOptions extends ManagedPrSpecialReviewState
   finalizedTreeHash?: string;
   finalizedHeadSha?: string;
   mergeMethod?: string;
+  runBudgetUsage?: ManagedPrRunBudgetUsage;
+  lastCycleTreeHash?: string;
   removeMergePreparationMarkers?: boolean;
 }
 
@@ -129,6 +148,7 @@ export interface ApplyManagedPrTransitionOptions {
   pullRequest: GitHubPullRequest;
   operation: string;
   outcome: ManagedPrTransitionOutcome;
+  usage?: ManagedPrOperationUsage;
   suppressFollowUpOperationLabels?: boolean;
 }
 

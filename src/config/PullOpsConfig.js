@@ -31,6 +31,17 @@ export const CLAUDE_RUNNER_MODEL_DEFAULTS = {
   low: 'claude-haiku-4-5',
 };
 
+/**
+ * Default per-target Run Budget: generous resource caps that replace cycle
+ * counts as the primary continuation gate for PullOps-Managed PR automation.
+ *
+ * @type {import('./types.js').RunBudgetConfig}
+ */
+export const DEFAULT_RUN_BUDGET_CONFIG = {
+  maxUsedTokens: 2_000_000,
+  maxDurationMs: 4 * 60 * 60 * 1000,
+};
+
 /** @type {PullOpsConfig} */
 export const DEFAULT_PULL_OPS_CONFIG = {
   baseBranch: 'main',
@@ -45,6 +56,7 @@ export const DEFAULT_PULL_OPS_CONFIG = {
       low: 'gpt-5.4-mini',
     },
   },
+  runBudget: { ...DEFAULT_RUN_BUDGET_CONFIG },
   operations: buildDefaultOperationConfigs(),
 };
 
@@ -363,6 +375,25 @@ function mergeConfig(userConfig) {
     }
   }
 
+  const runBudget = userConfig.runBudget;
+  if (runBudget !== undefined) {
+    if (!isPlainObject(runBudget)) {
+      throw new PullOpsConfigError('PullOps Config runBudget must be an object.');
+    }
+    if (runBudget.maxUsedTokens !== undefined) {
+      config.runBudget.maxUsedTokens = requirePositiveInteger(
+        runBudget.maxUsedTokens,
+        'runBudget.maxUsedTokens',
+      );
+    }
+    if (runBudget.maxDurationMs !== undefined) {
+      config.runBudget.maxDurationMs = requirePositiveInteger(
+        runBudget.maxDurationMs,
+        'runBudget.maxDurationMs',
+      );
+    }
+  }
+
   if (isPlainObject(userConfig.operations)) {
     for (const operation of getOperationCatalogWorkflowOperations()) {
       const settings = userConfig.operations[operation.configKey];
@@ -373,6 +404,18 @@ function mergeConfig(userConfig) {
   }
 
   return config;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {number}
+ */
+function requirePositiveInteger(value, path) {
+  if (!isPositiveInteger(value)) {
+    throw new PullOpsConfigError(`PullOps Config ${path} must be a positive integer.`);
+  }
+  return /** @type {number} */ (value);
 }
 
 /**

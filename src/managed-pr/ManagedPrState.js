@@ -21,9 +21,16 @@ import {
  * @typedef {import('./ManagedPrState.types.js').UpdateManagedPrStateOptions} UpdateManagedPrStateOptions
  */
 
-export const DEFAULT_MAX_REVIEW_CYCLES = 3;
-export const DEFAULT_MAX_CI_FIX_CYCLES = 2;
+// Cycle counters are telemetry and generous backstop guards; the primary
+// continuation gate is the Run Budget plus verifiable progress.
+export const DEFAULT_MAX_REVIEW_CYCLES = 10;
+export const DEFAULT_MAX_CI_FIX_CYCLES = 6;
 export const DEFAULT_MAX_ESCALATION_REVIEW_CYCLES = 1;
+
+// Marker sentinel that clears the recorded rejected tree once a later
+// operation has changed the tree, so no-progress detection never blocks a
+// cycle that did real work.
+const CLEARED_LAST_CYCLE_TREE_HASH = 'none';
 
 /** @type {ReadonlySet<string>} */
 const PR_OPERATION_LABELS = new Set([
@@ -225,7 +232,98 @@ export function readManagedPrState(body) {
     pendingHumanFeedbackReviewId: readPendingHumanFeedbackReviewId(workflowState),
     reviewFollowUpIssueNumbers: readReviewFollowUpIssueNumbers(workflowState),
     ciFixCycles: readCiFixCycles(workflowState),
+    runBudgetUsage: readRunBudgetUsage(workflowState),
+    lastCycleTreeHash: readLastCycleTreeHash(workflowState),
   };
+}
+
+/**
+ * @param {string} body
+ * @returns {string | undefined}
+ */
+function readLastCycleTreeHash(body) {
+  const value = readMarker(body, 'Last cycle tree:');
+  return value === undefined || value === CLEARED_LAST_CYCLE_TREE_HASH ? undefined : value;
+}
+
+/**
+ * Read the accumulated operation usage a target's Run Budget is charged
+ * against from a PullOps Workflow State block. Absent markers mean nothing
+ * has been recorded yet.
+ *
+ * @param {string} body
+ * @returns {import('./ManagedPrState.types.js').ManagedPrRunBudgetUsage}
+ */
+function readRunBudgetUsage(body) {
+  return {
+    usedTokens: readNonNegativeIntegerMarker(body, 'Run budget used tokens:') ?? 0,
+    durationMs: readNonNegativeIntegerMarker(body, 'Run budget used ms:') ?? 0,
+  };
+}
+
+/**
+ * @param {string} body
+ * @param {string} prefix
+ * @returns {number | undefined}
+ */
+function readNonNegativeIntegerMarker(body, prefix) {
+  const value = readMarker(body, prefix);
+  if (value === undefined || !/^\d+$/.test(value)) {
+    return undefined;
+  }
+
+  return Number(value);
+}
+
+/**
+ * Read the operation usage that should be charged to a target's Run Budget
+ * from an operation runner context: runner-reported Context Usage tokens
+ * and elapsed wall-clock time since the operation was dispatched. Unknown
+ * components stay unknown rather than being estimated.
+ *
+ * @param {import('../cli/types.js').OperationRunnerContext} context
+ * @param {Date} [now]
+ * @returns {import('./ManagedPrState.types.js').ManagedPrOperationUsage}
+ */
+export function readOperationBudgetUsage(context, now = new Date()) {
+  const usedTokens = context.contextUsage?.used;
+  const durationMs =
+    context.operationStartedAt === undefined
+      ? undefined
+      : Math.max(0, now.getTime() - context.operationStartedAt.getTime());
+
+  return {
+    ...(usedTokens === undefined ? {} : { usedTokens }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+  };
+}
+
+/**
+ * Decide whether a target's accumulated usage has exhausted the configured
+ * Run Budget. This is the primary continuation gate for PullOps-Managed PR
+ * automation; cycle counters remain only as generous backstops.
+ *
+ * @param {import('./ManagedPrState.types.js').ManagedPrState} state
+ * @param {import('../config/types.js').RunBudgetConfig} runBudget
+ * @returns {import('./ManagedPrState.types.js').ManagedPrRunBudgetExhaustion}
+ */
+export function readRunBudgetExhaustion(state, runBudget) {
+  const { usedTokens, durationMs } = state.runBudgetUsage;
+  if (usedTokens >= runBudget.maxUsedTokens) {
+    return {
+      exhausted: true,
+      reason: `Run Budget exhausted: ${usedTokens} / ${runBudget.maxUsedTokens} tokens used.`,
+    };
+  }
+
+  if (durationMs >= runBudget.maxDurationMs) {
+    return {
+      exhausted: true,
+      reason: `Run Budget exhausted: ${durationMs} / ${runBudget.maxDurationMs} ms of operation time used.`,
+    };
+  }
+
+  return { exhausted: false };
 }
 
 /**
@@ -408,6 +506,8 @@ export function updateManagedPrState({
   finalizedTreeHash,
   finalizedHeadSha,
   mergeMethod,
+  runBudgetUsage,
+  lastCycleTreeHash,
   removeMergePreparationMarkers: shouldRemoveMergePreparationMarkers = false,
 }) {
   let updated = body.trimEnd();
@@ -499,6 +599,23 @@ export function updateManagedPrState({
     workflowState = upsertLine(workflowState, 'Merge method:', mergeMethod);
   }
 
+  if (runBudgetUsage !== undefined) {
+    workflowState = upsertLine(
+      workflowState,
+      'Run budget used tokens:',
+      String(runBudgetUsage.usedTokens),
+    );
+    workflowState = upsertLine(
+      workflowState,
+      'Run budget used ms:',
+      String(runBudgetUsage.durationMs),
+    );
+  }
+
+  if (lastCycleTreeHash !== undefined) {
+    workflowState = upsertLine(workflowState, 'Last cycle tree:', lastCycleTreeHash);
+  }
+
   if (lastOperation !== undefined) {
     workflowState = upsertLine(workflowState, 'Last operation:', lastOperation);
   }
@@ -518,6 +635,7 @@ export async function applyManagedPrTransition({
   pullRequest,
   operation,
   outcome,
+  usage,
   suppressFollowUpOperationLabels = false,
 }) {
   assertPrOperation(operation);
@@ -534,6 +652,7 @@ export async function applyManagedPrTransition({
         createTransition({ body: pullRequest.body, operation, outcome, state }),
       )
     : createTransition({ body: pullRequest.body, operation, outcome, state });
+  chargeRunBudgetUsage({ transition, state, usage, body: pullRequest.body });
   await executeTransition({
     githubClient,
     outputDirectory,
@@ -644,6 +763,9 @@ function createTransition({ body, operation, outcome, state }) {
         },
         ...createPrAddressReviewSpecialStateUpdate(state, outcome.reviewId),
         removeMergePreparationMarkers: true,
+        // Feedback was addressed, so the rejected tree recorded by the last
+        // changes-requested review is stale for no-progress detection.
+        lastCycleTreeHash: CLEARED_LAST_CYCLE_TREE_HASH,
         lastOperation: operation,
       }),
       removeLabels: labelsForSuccessfulOperation(
@@ -788,6 +910,9 @@ function createPrFixCiTransition({ body, outcome }) {
         max: outcome.maxCiFixCycles,
       },
       removeMergePreparationMarkers: true,
+      // The CI repair changed the tree, so the rejected tree recorded by
+      // the last changes-requested review is stale for no-progress checks.
+      lastCycleTreeHash: CLEARED_LAST_CYCLE_TREE_HASH,
       lastOperation: requireOperationCatalogOperationLabelName('pr-fix-ci'),
     }),
     removeLabels: labelsForSuccessfulOperation(
@@ -1395,6 +1520,46 @@ function removeMergePreparationMarkersOutsideWorkflowStateBlock(body) {
  */
 function workflowStateBlockPattern() {
   return /<details>\s*<summary>\s*PullOps workflow state\s*<\/summary>\s*[\s\S]*?\s*<\/details>/i;
+}
+
+/**
+ * Charge one operation's usage against the target's Run Budget by
+ * accumulating it into the transition's PullOps Workflow State markers.
+ * When the transition would not otherwise update the body, the budget
+ * charge still forces one so the durable record stays accurate.
+ *
+ * @param {{
+ *   transition: import('./ManagedPrState.types.js').InternalTransition,
+ *   state: import('./ManagedPrState.types.js').ManagedPrState,
+ *   usage: import('./ManagedPrState.types.js').ManagedPrOperationUsage | undefined,
+ *   body: string,
+ * }} options
+ */
+function chargeRunBudgetUsage({ transition, state, usage, body }) {
+  if (usage === undefined) {
+    return;
+  }
+
+  const hasUsage =
+    usage.usedTokens !== undefined ||
+    usage.durationMs !== undefined ||
+    usage.treeHash !== undefined;
+  if (!hasUsage) {
+    return;
+  }
+
+  transition.body = updateManagedPrState({
+    body: transition.body ?? body,
+    ...(usage.usedTokens === undefined && usage.durationMs === undefined
+      ? {}
+      : {
+          runBudgetUsage: {
+            usedTokens: state.runBudgetUsage.usedTokens + (usage.usedTokens ?? 0),
+            durationMs: state.runBudgetUsage.durationMs + (usage.durationMs ?? 0),
+          },
+        }),
+    ...(usage.treeHash === undefined ? {} : { lastCycleTreeHash: usage.treeHash }),
+  });
 }
 
 /**

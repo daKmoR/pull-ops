@@ -31,13 +31,18 @@ export function getOperationLabelReference(reference) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runWorkflowOperation(context) {
-  if (context.executionBackend === 'local') {
-    return await runWithInitialBranchRestored(context, async () => {
-      return await runWorkflowOperationWithoutBranchRestore(context);
+  // Each dispatch is one operation: restamp the start time so Run Budget
+  // wall-clock charges stay per-operation even for nested runs that reuse
+  // a parent context.
+  const stampedContext = { ...context, operationStartedAt: new Date() };
+
+  if (stampedContext.executionBackend === 'local') {
+    return await runWithInitialBranchRestored(stampedContext, async () => {
+      return await runWorkflowOperationWithoutBranchRestore(stampedContext);
     });
   }
 
-  return await runWorkflowOperationWithoutBranchRestore(context);
+  return await runWorkflowOperationWithoutBranchRestore(stampedContext);
 }
 
 /**

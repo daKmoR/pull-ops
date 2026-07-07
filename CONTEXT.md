@@ -176,6 +176,10 @@ _Avoid_: Error message, failed log line, blocked issue number
 A structured supervisor finding that a running PullOps worker appears stalled after lease expiry and liveness reconciliation, recorded before interruption, retry, or replacement.
 _Avoid_: Timeout error, process kill, manual hunch
 
+**Run Budget**:
+The configured per-target resource cap for PullOps-Managed PR automation, denominated in runner-reported tokens and measured operation wall-clock time. Budget exhaustion and lack of verifiable progress are the primary continuation gates; Review Cycle and CI Fix Cycle counters remain only as telemetry and generous backstop guards.
+_Avoid_: Cycle budget, retry limit, cost estimate
+
 **Run Duration**:
 The measured elapsed time for one PullOps run, reported in machine-readable milliseconds and optionally anchored by start and finish timestamps.
 _Avoid_: Human duration string, timeout

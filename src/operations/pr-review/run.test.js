@@ -582,6 +582,90 @@ describe('runPrReview', () => {
     assert.match(github.updatedBodies[0].body, /Status: Ready for human merge/);
   });
 
+  it('11b: blocks review when the Run Budget is exhausted before invoking the runner', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: [
+          '## PullOps',
+          '',
+          'Managed: yes',
+          'Status: Draft automation',
+          '',
+          '<details>',
+          '<summary>PullOps workflow state</summary>',
+          '',
+          'Review cycles: 1 / 10',
+          'Run budget used tokens: 2000000',
+          'Run budget used ms: 60000',
+          'Source: Issue #42',
+          'Last operation: pullops:issue:implement',
+          '',
+          '</details>',
+        ].join('\n'),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeRunner({ output: '{}' });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        runner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.blocker, { kind: 'budget-exhausted' });
+    assert.match(String(result.summary), /Run Budget exhausted: 2000000 \/ 2000000 tokens used/);
+    assert.equal(codex.calls.length, 0);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:human-required'],
+      },
+    ]);
+  });
+
+  it('11c: blocks review as no-progress when the tree is unchanged since the last changes-requested review', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest({
+        body: [
+          '## PullOps',
+          '',
+          'Managed: yes',
+          'Status: Changes requested',
+          '',
+          '<details>',
+          '<summary>PullOps workflow state</summary>',
+          '',
+          'Review cycles: 1 / 10',
+          'Last cycle tree: reviewed-tree-123',
+          'Source: Issue #42',
+          'Last operation: pullops:pr:review',
+          '',
+          '</details>',
+        ].join('\n'),
+      }),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const codex = createFakeRunner({ output: '{}' });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: createFakeGit({ hasChanges: false, treeHash: 'reviewed-tree-123' }).client,
+        runner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.blocker, { kind: 'no-progress' });
+    assert.match(String(result.summary), /No verifiable progress/);
+    assert.equal(codex.calls.length, 0);
+  });
+
   it('12: refuses incomplete Umbrella PRD PRs before Codex can approve them', async () => {
     const github = createFakeGitHub({
       issue: createIssue({

@@ -53,6 +53,7 @@ export interface OperationRunnerContext {
   localRunRecordDirectory?: string;
   reasoningEffort?: string;
   contextUsage?: OperationContextUsage;
+  operationStartedAt?: Date;
   suppressRunnerOutput?: boolean;
   progress?: (message: string) => void;
   progressEventWriter?: OperationProgressEventWriter;
