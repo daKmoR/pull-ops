@@ -100,6 +100,10 @@ _Avoid_: Phase, task script, provider
 The PullOps-owned flow that carries one operation runner step through a Runner Adapter, from an Operation Module's prompt to its validated Operation Output, including skipped-runner handling and failure recording.
 _Avoid_: Phase handler, runner wrapper, codex helper
 
+**Operation Descriptor**:
+The one interface an Operation Module hands the Runner Lifecycle: runner-step factories, finalize ordering, and local dry-run flow as data, with declared overrides for genuinely bespoke phases. The Runner Lifecycle owns the shared entry flow so Operation Modules never re-implement it.
+_Avoid_: Handler map, plugin manifest, catalog entry
+
 **Execution Backend**:
 The place where a PullOps Operation is executed, such as the active local checkout or GitHub Actions.
 _Avoid_: Runner adapter, provider
@@ -387,6 +391,10 @@ _Avoid_: Relationship database, dependency source of truth
 **PullOps-Managed PR Transition**:
 A single PullOps-owned change to a PullOps-Managed PR's automated workflow state, derived from a PullOps Operation outcome. It may advance, block, reroute, or complete the PR's pre-human review workflow.
 _Avoid_: PR body update, label cleanup
+
+**PullOps-Managed PR Transition Graph**:
+The declarative managed-pr-owned graph that answers every routing question of the pre-human review workflow: which PullOps Operation follows which outcome, the allowed outcome kinds per operation, blocked follow-up operations, and state-based continuation routing. It is the routing trust boundary — verified harness structure, never runner judgment.
+_Avoid_: State machine, routing table, workflow engine
 
 **PR Operation Refusal**:
 A PullOps Operation outcome where PullOps declines a pull request target before treating it as an active PullOps-Managed PR workflow participant. Refusals cover guardrail failures such as unsupported pull request shape or missing PullOps-managed state.
