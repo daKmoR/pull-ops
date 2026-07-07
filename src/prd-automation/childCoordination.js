@@ -11,6 +11,10 @@ import {
   resumeManagedPrWorkflow,
 } from '../managed-pr/ManagedPrState.js';
 import {
+  chooseNextManagedPrOperationFromState,
+  getNextManagedPrOperation,
+} from '../managed-pr/transitionPolicy.js';
+import {
   createIssueBranchName,
   createParentBranchName,
   parseChildIssueBranchName,
@@ -2864,19 +2868,19 @@ async function completePublishedLocalUmbrellaPullRequest(
 
     if (nextOperation === 'pr-address-review') {
       addressReviews.push(output);
-      nextOperation = 'pr-review';
+      nextOperation = requireNextPullRequestOperation('pr-address-review', 'addressed');
       continue;
     }
 
     if (nextOperation === 'pr-review') {
       review = output;
       if (review.reviewResult === 'approved') {
-        nextOperation = 'pr-finalize';
+        nextOperation = requireNextPullRequestOperation('pr-review', 'approved');
         continue;
       }
 
       if (review.reviewResult === 'changes_requested') {
-        nextOperation = 'pr-address-review';
+        nextOperation = requireNextPullRequestOperation('pr-review', 'changes-requested');
         continue;
       }
 
@@ -2888,8 +2892,13 @@ async function completePublishedLocalUmbrellaPullRequest(
       });
     }
 
-    if (nextOperation === 'pr-fix-ci' || nextOperation === 'pr-resolve-conflicts') {
-      nextOperation = 'pr-review';
+    if (nextOperation === 'pr-fix-ci') {
+      nextOperation = requireNextPullRequestOperation('pr-fix-ci', 'fixed');
+      continue;
+    }
+
+    if (nextOperation === 'pr-resolve-conflicts') {
+      nextOperation = requireNextPullRequestOperation('pr-resolve-conflicts', 'resolved');
       continue;
     }
 
@@ -2937,6 +2946,27 @@ async function completePublishedLocalUmbrellaPullRequest(
       localRunRecords,
     };
   }
+}
+
+/**
+ * Consult the PullOps-Managed PR Transition graph for the operation that
+ * follows one local automation outcome. Local automation loops only drive
+ * operations with a defined continuation, so a terminal edge here is a
+ * routing bug, not a workflow state.
+ *
+ * @param {import('../managed-pr/transitionPolicy.types.js').ManagedPrOperationName} operation
+ * @param {string} outcomeKind
+ * @returns {PullRequestOperationName}
+ */
+function requireNextPullRequestOperation(operation, outcomeKind) {
+  const nextOperation = getNextManagedPrOperation({ operation, outcomeKind });
+  if (nextOperation === undefined || !isLocalChildPullRequestOperation(nextOperation)) {
+    throw new Error(
+      `The PullOps-Managed PR Transition graph has no local automation edge for ${operation} + ${outcomeKind}.`,
+    );
+  }
+
+  return nextOperation;
 }
 
 /**
@@ -3196,26 +3226,7 @@ function selectLocalChildPullRequestOperation(pullRequest) {
     return undefined;
   }
 
-  if (state.reviewedTreeHash !== undefined || state.status === 'Review approved') {
-    return 'pr-finalize';
-  }
-
-  if (state.status === 'Changes requested') {
-    return 'pr-address-review';
-  }
-
-  if (
-    state.status === 'Review feedback addressed' ||
-    state.status === 'Review required' ||
-    state.status === 'Draft automation' ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('issue-implement') ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('pr-finalize') ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
-  ) {
-    return 'pr-review';
-  }
-
-  return undefined;
+  return chooseNextManagedPrOperationFromState({ state, profile: 'local-drive' });
 }
 
 /**
@@ -3235,15 +3246,12 @@ function selectLocalParentPullRequestOperation(pullRequest) {
     return undefined;
   }
 
-  if (state.reviewedTreeHash !== undefined || state.status === 'Review approved') {
-    return 'pr-finalize';
-  }
-
-  if (state.status === 'Changes requested') {
-    return 'pr-address-review';
-  }
-
-  return 'pr-review';
+  // Parent umbrella PRs default to a fresh review when no recorded state
+  // routes elsewhere.
+  const nextOperation = chooseNextManagedPrOperationFromState({ state, profile: 'local-drive' });
+  return nextOperation !== undefined && isLocalChildPullRequestOperation(nextOperation)
+    ? nextOperation
+    : 'pr-review';
 }
 
 /**
