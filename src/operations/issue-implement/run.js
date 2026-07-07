@@ -7,11 +7,7 @@ import {
   readIssueWorkTarget,
 } from '../../prd-automation/childCoordination.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
-import {
-  finalizeOperationRunnerStep,
-  prepareOperationRunnerStep,
-  runOperationRunnerStep,
-} from '../runnerLifecycle.js';
+import { executeOperationPhase, runOperationRunnerStep } from '../runnerLifecycle.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 import { createIssueSnapshot } from '../../issue-store/issueSnapshot.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
@@ -64,6 +60,36 @@ function shouldSuppressFollowUpOperationLabels(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplement(context) {
+  return await executeOperationPhase(issueImplementDescriptor, 'run', context);
+}
+
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const issueImplementDescriptor = {
+  operationReference: 'issue:implement',
+  createOperation: createIssueImplementRunnerOperation,
+  // The finalize phase reads the branch prepared earlier instead of
+  // preparing again, so a finished external runner result is never
+  // re-prepared away.
+  createFinalizeOperation: createPreparedIssueImplementRunnerOperation,
+  finalize: {
+    order: 'output-first',
+    onOutputError: async (outputErrorContext, error) => {
+      const preparation = await readPreparedIssueImplement(outputErrorContext);
+      await recordIssueFailure(outputErrorContext, preparation.issue, getErrorMessage(error));
+    },
+  },
+  run: dispatchIssueImplement,
+};
+
+/**
+ * Issue targets own their entry dispatch: dry-run publication loops locally,
+ * local publish creates the PR from the local worktree, and everything else
+ * is one runner step.
+ *
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function dispatchIssueImplement(context) {
   if (context.publicationMode === 'dry-run') {
     return await runIssueImplementDryRun(context);
   }
@@ -393,7 +419,7 @@ async function runIssueImplementDryRun(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplementExternalRunnerPrepare(context) {
-  return await prepareOperationRunnerStep(context, createIssueImplementRunnerOperation);
+  return await executeOperationPhase(issueImplementDescriptor, 'prepare', context);
 }
 
 /**
@@ -401,13 +427,7 @@ export async function runIssueImplementExternalRunnerPrepare(context) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runIssueImplementExternalRunnerFinalize(context) {
-  return await finalizeOperationRunnerStep(context, createPreparedIssueImplementRunnerOperation, {
-    order: 'output-first',
-    onOutputError: async (outputErrorContext, error) => {
-      const preparation = await readPreparedIssueImplement(outputErrorContext);
-      await recordIssueFailure(outputErrorContext, preparation.issue, getErrorMessage(error));
-    },
-  });
+  return await executeOperationPhase(issueImplementDescriptor, 'complete', context);
 }
 
 /**
