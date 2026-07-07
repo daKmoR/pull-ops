@@ -30,15 +30,19 @@ import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js'
  */
 export async function executeOperationPhase(descriptor, phase, context) {
   if (phase === 'run') {
-    if (descriptor.run !== undefined) {
-      return await descriptor.run(context);
-    }
-
-    if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+    if (
+      context.target.type === 'pr' &&
+      context.executionBackend === 'local' &&
+      context.publicationMode !== 'publish'
+    ) {
       return await runLocalPullRequestOperation(
         context,
         descriptor.localRun === undefined ? {} : { runPrepared: descriptor.localRun },
       );
+    }
+
+    if (descriptor.run !== undefined) {
+      return await descriptor.run(context);
     }
 
     return await runOperationRunnerStep(context, requireCreateOperation(descriptor, phase));

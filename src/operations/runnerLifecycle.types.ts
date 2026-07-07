@@ -34,8 +34,9 @@ export interface OperationDescriptor {
    */
   localRun?: LocalPullRequestOperationFlow;
   /**
-   * Full run-phase override for operations with their own entry dispatch,
-   * such as bespoke multi-pass loops. Bypasses the local dry-run guard.
+   * Run-phase flow override for operations with a bespoke runner flow, such
+   * as multi-pass loops. Pull request targets still pass the shared local
+   * dry-run guard first; issue targets own their full entry dispatch.
    */
   run?: OperationPhaseHandler;
   /** Full prepare-phase override. */

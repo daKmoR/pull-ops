@@ -16,7 +16,7 @@ import {
   readExternalRunnerOutput,
   writeExternalRunnerPrompt,
 } from '../externalRunner.js';
-import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
+import { executeOperationPhase } from '../runnerLifecycle.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { validatePrResolveConflictsOutput } from './output.js';
 import { buildPrResolveConflictsPrompt } from './prompt.js';
@@ -35,15 +35,31 @@ import { GITHUB_ACTIONS_BOT_COMMITTER } from '../githubActionsBot.js';
  */
 
 const CONFLICT_PASS_STATE_FILE = 'pr_resolve_conflicts_state.json';
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const prResolveConflictsDescriptor = {
+  operationReference: 'pr:resolve-conflicts',
+  run: resolveConflictsWithRunner,
+  prepare: runPrResolveConflictsExternalRunnerPrepare,
+  complete: runPrResolveConflictsExternalRunnerFinalize,
+};
+
 /**
  * @param {OperationRunnerContext} context
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runPrResolveConflicts(context) {
-  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
-    return await runLocalPullRequestOperation(context);
-  }
+  return await executeOperationPhase(prResolveConflictsDescriptor, 'run', context);
+}
 
+/**
+ * Drive the multi-pass Conflict Resolution rebase loop: each pass runs the
+ * runner against the current conflict context and continues the rebase until
+ * it completes, blocks, or the pass budget is exhausted.
+ *
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function resolveConflictsWithRunner(context) {
   const preparation = await preparePrResolveConflicts(context);
   if (!preparation.ready) {
     return preparation.output;
