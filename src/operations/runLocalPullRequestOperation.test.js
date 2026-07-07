@@ -124,21 +124,37 @@ describe('local pull request operations', () => {
       }),
     });
 
-    const result = await runPrFinalize(
-      createContext({
-        cwd,
-        operation: 'pr-finalize',
-        githubClient: github.client,
-        gitClient: git.client,
-        runner: fakeRunner.runner,
-      }),
-    );
+    const previousUsedTokens = process.env.PULLOPS_CONTEXT_USED_TOKENS;
+    process.env.PULLOPS_CONTEXT_USED_TOKENS = '75000';
+    let result;
+    try {
+      result = await runPrFinalize(
+        createContext({
+          cwd,
+          operation: 'pr-finalize',
+          githubClient: github.client,
+          gitClient: git.client,
+          runner: fakeRunner.runner,
+        }),
+      );
+    } finally {
+      if (previousUsedTokens === undefined) {
+        delete process.env.PULLOPS_CONTEXT_USED_TOKENS;
+      } else {
+        process.env.PULLOPS_CONTEXT_USED_TOKENS = previousUsedTokens;
+      }
+    }
 
     assert.equal(result.status, 'planned');
     const localRunRecord = String(result.localRunRecord);
     const state = JSON.parse(await readFile(join(localRunRecord, 'state.json'), 'utf8'));
     assert.equal(state.status, 'accepted');
     assert.equal(state.lastEvent.status, 'accepted');
+    assert.equal(typeof state.startedAt, 'string');
+    assert.equal(typeof state.finishedAt, 'string');
+    assert.equal(typeof state.durationMs, 'number');
+    assert.ok(state.durationMs >= 0);
+    assert.deepEqual(state.contextUsage, { used: 75000 });
     assert.match(
       await readFile(join(localRunRecord, 'result.json'), 'utf8'),
       /"status": "planned"/,

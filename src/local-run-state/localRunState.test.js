@@ -236,6 +236,69 @@ describe('localRunState', () => {
     assert.equal(stored.lastEvent.status, 'accepted');
     assert.equal(stored.lastEvent.summary, 'Completed local run.');
     assert.equal(stored.heartbeatAt, initial.state.heartbeatAt);
+    assert.equal(stored.startedAt, '2024-01-01T00:00:00.000Z');
+    assert.equal(stored.finishedAt, '2024-01-01T00:10:00.000Z');
+    assert.equal(stored.durationMs, 600000);
+  });
+
+  it('03e: records known context usage at terminal status and keeps unknown usage unknown', async () => {
+    const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-run-usage-'));
+    const initial = await initializeLocalRunState({
+      runRecordDirectory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: 42,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+
+    const finished = await recordLocalRunTerminalStatus({
+      statePath: initial.statePath,
+      status: 'accepted',
+      summary: 'Completed local run.',
+      at: new Date('2024-01-01T00:05:00.000Z'),
+      contextUsage: { used: 120000, limit: 272000 },
+    });
+
+    assert.deepEqual(finished.contextUsage, { used: 120000, limit: 272000 });
+    assert.equal(finished.durationMs, 300000);
+
+    const stored = JSON.parse(await readFile(initial.statePath, 'utf8'));
+    assert.deepEqual(stored.contextUsage, { used: 120000, limit: 272000 });
+    assert.equal(stored.durationMs, 300000);
+
+    const rereadState = await readLocalRunState(initial.statePath);
+    assert.deepEqual(rereadState.contextUsage, { used: 120000, limit: 272000 });
+
+    const withoutUsageDirectory = await mkdtemp(join(tmpdir(), 'pullops-local-run-no-usage-'));
+    const withoutUsage = await initializeLocalRunState({
+      runRecordDirectory: withoutUsageDirectory,
+      operationReference: 'issue:implement',
+      target: {
+        type: 'issue',
+        number: 43,
+      },
+      publicationMode: 'dry-run',
+      createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    });
+
+    const previousUsedTokens = process.env.PULLOPS_CONTEXT_USED_TOKENS;
+    delete process.env.PULLOPS_CONTEXT_USED_TOKENS;
+    try {
+      const finishedWithoutUsage = await recordLocalRunTerminalStatus({
+        statePath: withoutUsage.statePath,
+        status: 'blocked',
+        summary: 'Blocked without runner-reported usage.',
+        at: new Date('2024-01-01T00:01:00.000Z'),
+      });
+      assert.equal(finishedWithoutUsage.contextUsage, undefined);
+    } finally {
+      if (previousUsedTokens !== undefined) {
+        process.env.PULLOPS_CONTEXT_USED_TOKENS = previousUsedTokens;
+      }
+    }
   });
 
   it('03b: records a resumable external runner wait with the runner job contract', async () => {

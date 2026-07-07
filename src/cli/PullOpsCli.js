@@ -46,6 +46,7 @@ import {
 } from '../operations/operationCatalog.js';
 import { createLocalPrdAutoCompleteSummary } from '../operations/prd-automation/eventStream.js';
 import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/externalRunner.js';
+import { readRunScorecard, renderRunScorecard } from '../run-scorecard/runScorecard.js';
 import { createRunner } from '../runner/Runner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 import {
@@ -305,7 +306,51 @@ export class PullOpsCli {
       return await this.runStep(args);
     }
 
+    if (command === 'runs') {
+      return await this.runRuns(args);
+    }
+
     throw new CliUsageError(`Unknown command "${command}".\n\n${usage()}`);
+  }
+
+  /**
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runRuns(args) {
+    const [subcommand, ...rest] = args;
+
+    if (subcommand === undefined) {
+      throw new CliUsageError('Missing runs subcommand. Expected one of: scorecard.');
+    }
+
+    if (subcommand === 'scorecard') {
+      return await this.runRunsScorecard(rest);
+    }
+
+    throw new CliUsageError(`Unknown runs subcommand "${subcommand}". Expected one of: scorecard.`);
+  }
+
+  /**
+   * Report the Run Scorecard for this checkout's Local Run Records.
+   *
+   * @param {string[]} args
+   * @returns {Promise<number>}
+   */
+  async runRunsScorecard(args) {
+    const parsedArgs = parseRunsScorecardArgs(args);
+    const runsDirectory = isAbsolute(parsedArgs.runsDirectory ?? '')
+      ? /** @type {string} */ (parsedArgs.runsDirectory)
+      : resolve(this.cwd, parsedArgs.runsDirectory ?? join('.pullops', 'runs'));
+    const scorecard = await readRunScorecard({ runsDirectory });
+
+    if (parsedArgs.json) {
+      this.stdout.write(`${JSON.stringify(scorecard, null, 2)}\n`);
+    } else {
+      this.stdout.write(`${renderRunScorecard(scorecard)}\n`);
+    }
+
+    return 0;
   }
 
   /**
@@ -2284,6 +2329,30 @@ function parsePublishFileArgs(args, subcommand) {
 
 /**
  * @param {string[]} args
+ * @returns {{ runsDirectory?: string, json: boolean }}
+ */
+function parseRunsScorecardArgs(args) {
+  const consumed = new Set();
+  const runsDirectory = parseOptionalStringOption(args, '--dir', consumed);
+  const json = parseBooleanFlag(args, '--json', consumed);
+
+  const remaining = args.filter((value, argIndex) => {
+    void value;
+    return !consumed.has(argIndex);
+  });
+
+  if (remaining.length > 0) {
+    throw new CliUsageError(`Unknown arguments for runs scorecard: ${remaining.join(' ')}.`);
+  }
+
+  return {
+    ...(runsDirectory === undefined ? {} : { runsDirectory }),
+    json,
+  };
+}
+
+/**
+ * @param {string[]} args
  * @returns {{ filePath?: string, parentIssueNumber?: number, forceUpdate: boolean }}
  */
 function parsePublishChildrenArgs(args) {
@@ -2856,6 +2925,7 @@ function usage() {
     '  pullops issues publish-prd [--file <path>]',
     '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
+    '  pullops runs scorecard [--dir <path>] [--json]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
     '  pullops runner-result --status success|failed|cancelled|skipped [--file <path>]',
     '  pullops step [--long] "<summary>" -- <command...>',

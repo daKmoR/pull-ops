@@ -18,6 +18,7 @@ import { createInMemoryIssueStore } from '../issue-store/inMemoryIssueStore.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
 import {
   initializeLocalRunState,
+  recordLocalRunTerminalStatus,
   recordLocalRunWaitingForRunner,
 } from '../local-run-state/localRunState.js';
 import { runPullOpsInit } from '../setup/init.js';
@@ -4036,6 +4037,65 @@ test('cli reports clear usage errors for unknown commands and missing arguments'
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /only supports the default run phase/);
   });
+});
+
+test('runs scorecard reports aggregated Local Run Records as JSON and human output', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-cli-runs-scorecard-'));
+  const runRecordDirectory = join(cwd, '.pullops', 'runs', 'run-a-issue-implement-7');
+  const stateRecord = await initializeLocalRunState({
+    runRecordDirectory,
+    operationReference: 'issue:implement',
+    target: { type: 'issue', number: 7 },
+    publicationMode: 'dry-run',
+    createdAt: new Date('2026-07-01T00:00:00.000Z'),
+  });
+  await recordLocalRunTerminalStatus({
+    statePath: stateRecord.statePath,
+    status: 'accepted',
+    summary: 'Implemented issue #7.',
+    at: new Date('2026-07-01T00:05:00.000Z'),
+    contextUsage: { used: 90000, limit: 272000 },
+  });
+  await writeFile(
+    join(runRecordDirectory, 'metadata.json'),
+    `${JSON.stringify({ operationReference: 'issue:implement', modelTier: 'high' })}\n`,
+  );
+
+  const jsonStdout = createWritableBuffer();
+  const jsonCli = new PullOpsCli({ cwd, stdout: jsonStdout, stderr: createWritableBuffer() });
+  const jsonExitCode = await jsonCli.run(['runs', 'scorecard', '--json']);
+
+  assert.equal(jsonExitCode, 0);
+  const scorecard = JSON.parse(jsonStdout.text);
+  assert.equal(scorecard.schemaVersion, 1);
+  assert.equal(scorecard.totals.runs, 1);
+  assert.equal(scorecard.totals.acceptedRate, 1);
+  assert.equal(scorecard.totals.duration.totalMs, 300000);
+  assert.equal(scorecard.totals.contextUsage.totalUsedTokens, 90000);
+  assert.equal(scorecard.operations[0].operationReference, 'issue-implement');
+  assert.equal(scorecard.operations[0].modelTiers[0].modelTier, 'high');
+
+  const humanStdout = createWritableBuffer();
+  const humanCli = new PullOpsCli({ cwd, stdout: humanStdout, stderr: createWritableBuffer() });
+  const humanExitCode = await humanCli.run(['runs', 'scorecard']);
+
+  assert.equal(humanExitCode, 0);
+  assert.match(humanStdout.text, /Run Scorecard for /);
+  assert.match(humanStdout.text, /Accepted: 1 \(100%\)/);
+  assert.match(humanStdout.text, /model tier high/);
+});
+
+test('runs scorecard rejects unknown arguments and subcommands', async () => {
+  const stderr = createWritableBuffer();
+  const cli = new PullOpsCli({ stdout: createWritableBuffer(), stderr });
+
+  assert.equal(await cli.run(['runs', 'scorecard', '--bogus']), 1);
+  assert.match(stderr.text, /Unknown arguments for runs scorecard: --bogus\./);
+
+  const unknownStderr = createWritableBuffer();
+  const unknownCli = new PullOpsCli({ stdout: createWritableBuffer(), stderr: unknownStderr });
+  assert.equal(await unknownCli.run(['runs', 'nope']), 1);
+  assert.match(unknownStderr.text, /Unknown runs subcommand "nope"\./);
 });
 
 /**

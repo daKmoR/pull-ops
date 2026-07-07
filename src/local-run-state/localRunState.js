@@ -108,16 +108,21 @@ export async function recordLocalRunTerminalStatus({
   summary,
   phase,
   at = new Date(),
+  contextUsage = readLocalRunContextUsageFromEnvironment(process.env),
 }) {
   const terminalStatus = assertLocalRunTerminalStatus(status);
   return await updateLocalRunState(statePath, currentState => {
     const nextPhase = phase ?? currentState.phase;
     const isoAt = at.toISOString();
+    const durationMs = readRunDurationMs(currentState.startedAt, at);
 
     return {
       ...currentState,
       status: terminalStatus,
       phase: nextPhase,
+      finishedAt: isoAt,
+      ...(durationMs === undefined ? {} : { durationMs }),
+      ...(contextUsage === undefined ? {} : { contextUsage }),
       lastEvent: {
         schemaVersion: LOCAL_RUN_STATE_SCHEMA_VERSION,
         event: 'run.summary',
@@ -253,6 +258,7 @@ export function createLocalRunStateRecord({
     heartbeatCount: 0,
     completedNonHeartbeatStepsSinceHeartbeat: 0,
     leaseExpiresAt,
+    startedAt: heartbeatAt,
     lastEvent: createRunStartedEvent({
       operationReference,
       normalizedOperationReference,
@@ -438,6 +444,29 @@ function parseLocalRunState(value, statePath) {
   if (typeof state.leaseExpiresAt !== 'string' || state.leaseExpiresAt.trim() === '') {
     throw new Error(`Local run state at ${statePath} is missing leaseExpiresAt.`);
   }
+  if (
+    state.startedAt !== undefined &&
+    (typeof state.startedAt !== 'string' || state.startedAt.trim() === '')
+  ) {
+    throw new Error(`Local run state at ${statePath} has an invalid startedAt.`);
+  }
+  if (
+    state.finishedAt !== undefined &&
+    (typeof state.finishedAt !== 'string' || state.finishedAt.trim() === '')
+  ) {
+    throw new Error(`Local run state at ${statePath} has an invalid finishedAt.`);
+  }
+  if (
+    state.durationMs !== undefined &&
+    (typeof state.durationMs !== 'number' ||
+      !Number.isFinite(state.durationMs) ||
+      state.durationMs < 0)
+  ) {
+    throw new Error(`Local run state at ${statePath} has an invalid durationMs.`);
+  }
+  if (state.contextUsage !== undefined && !isLocalRunContextUsageRecord(state.contextUsage)) {
+    throw new Error(`Local run state at ${statePath} has an invalid contextUsage.`);
+  }
   if (!isRecord(state.lastEvent)) {
     throw new Error(`Local run state at ${statePath} is missing lastEvent.`);
   }
@@ -455,6 +484,56 @@ function parseLocalRunState(value, statePath) {
   }
 
   return /** @type {LocalRunState} */ (state);
+}
+
+/**
+ * Read runner-reported Context Usage from the current process environment.
+ * Unknown usage stays undefined rather than being estimated.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {import('./types.js').LocalRunContextUsage | undefined}
+ */
+export function readLocalRunContextUsageFromEnvironment(env) {
+  const used = readPositiveIntegerEnvironmentValue(env.PULLOPS_CONTEXT_USED_TOKENS);
+  const limit = readPositiveIntegerEnvironmentValue(env.PULLOPS_CONTEXT_LIMIT_TOKENS);
+
+  if (used === undefined) {
+    return undefined;
+  }
+
+  return limit === undefined ? { used } : { used, limit };
+}
+
+/**
+ * @param {string | undefined} value
+ * @returns {number | undefined}
+ */
+function readPositiveIntegerEnvironmentValue(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * @param {string | undefined} startedAt
+ * @param {Date} finishedAt
+ * @returns {number | undefined}
+ */
+function readRunDurationMs(startedAt, finishedAt) {
+  if (startedAt === undefined) {
+    return undefined;
+  }
+
+  const startedMs = Date.parse(startedAt);
+  if (Number.isNaN(startedMs)) {
+    return undefined;
+  }
+
+  const durationMs = finishedAt.getTime() - startedMs;
+  return durationMs < 0 ? undefined : durationMs;
 }
 
 /**
@@ -624,6 +703,21 @@ export function normalizeOperationReferenceForPath(reference) {
  */
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is import('./types.js').LocalRunContextUsage}
+ */
+function isLocalRunContextUsageRecord(value) {
+  return (
+    isRecord(value) &&
+    typeof value.used === 'number' &&
+    Number.isInteger(value.used) &&
+    value.used > 0 &&
+    (value.limit === undefined ||
+      (typeof value.limit === 'number' && Number.isInteger(value.limit) && value.limit > 0))
+  );
 }
 
 /**

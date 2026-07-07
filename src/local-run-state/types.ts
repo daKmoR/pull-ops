@@ -22,6 +22,11 @@ export interface LocalRunTarget {
   number: number;
 }
 
+export interface LocalRunContextUsage {
+  used: number;
+  limit?: number;
+}
+
 export interface LocalRunRunLink {
   runId: string;
   operationReference: string;
@@ -55,6 +60,10 @@ export interface LocalRunState {
   heartbeatCount?: number;
   completedNonHeartbeatStepsSinceHeartbeat?: number;
   leaseExpiresAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  contextUsage?: LocalRunContextUsage;
   lastEvent: Record<string, unknown>;
   runnerJob?: ExternalRunnerJob;
   parentRun?: LocalRunRunLink;
@@ -113,6 +122,7 @@ export interface RecordLocalRunTerminalStatusOptions {
   summary: string;
   phase?: string;
   at?: Date;
+  contextUsage?: LocalRunContextUsage;
 }
 
 export interface RecordLocalRunWaitingForRunnerOptions {

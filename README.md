@@ -237,5 +237,7 @@ PullOps keeps human control at the important edges:
 
 - [PullOps Operation Reference](./docs/operation-reference.md): labels, local
   command equivalents, and workflow-facing commands.
+- [Run Scorecard](./docs/run-scorecard.md): aggregate Local Run Records into
+  outcome metrics and capture baselines before behavior changes.
 - [CONTEXT.md](./CONTEXT.md): PullOps domain language.
 - [docs/adr](./docs/adr): architectural decisions behind the workflow.
