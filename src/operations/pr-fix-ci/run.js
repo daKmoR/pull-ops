@@ -8,13 +8,8 @@ import {
   refusePrOperationTarget,
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
-import {
-  finalizeOperationRunnerStep,
-  prepareOperationRunnerStep,
-  runOperationRunnerStep,
-} from '../runnerLifecycle.js';
+import { executeOperationPhase } from '../runnerLifecycle.js';
 import { writeRunArtifact } from '../../local-run-record/localRunRecord.js';
-import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
 import {
@@ -37,32 +32,11 @@ import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
  * @typedef {import('./run.types.js').PrFixCiPreparation} PrFixCiPreparation
  */
 
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function runPrFixCi(context) {
-  if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
-    return await runLocalPullRequestOperation(context);
-  }
-
-  return await runOperationRunnerStep(context, createPrFixCiRunnerOperation);
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function runPrFixCiExternalRunnerPrepare(context) {
-  return await prepareOperationRunnerStep(context, createPrFixCiRunnerOperation);
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function runPrFixCiExternalRunnerFinalize(context) {
-  return await finalizeOperationRunnerStep(context, createPrFixCiRunnerOperation, {
+/** @type {import('../runnerLifecycle.types.js').OperationDescriptor} */
+export const prFixCiDescriptor = {
+  operationReference: 'pr:fix-ci',
+  createOperation: createPrFixCiRunnerOperation,
+  finalize: {
     // Do not rerun preparePrFixCi before reading the runner output: its
     // not-ready branches transition PR state as if the runner outcome were
     // known, which would mask a runner failure.
@@ -80,7 +54,31 @@ export async function runPrFixCiExternalRunnerFinalize(context) {
         maxCiFixCycles: state.ciFixCycles.max,
       });
     },
-  });
+  },
+};
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPrFixCi(context) {
+  return await executeOperationPhase(prFixCiDescriptor, 'run', context);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPrFixCiExternalRunnerPrepare(context) {
+  return await executeOperationPhase(prFixCiDescriptor, 'prepare', context);
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runPrFixCiExternalRunnerFinalize(context) {
+  return await executeOperationPhase(prFixCiDescriptor, 'complete', context);
 }
 
 /**
