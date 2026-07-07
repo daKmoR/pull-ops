@@ -5,13 +5,84 @@ import {
   readExternalRunnerOutput,
   writeExternalRunnerPrompt,
 } from './externalRunner.js';
+import { runLocalPullRequestOperation } from './runLocalPullRequestOperation.js';
 
 /**
+ * @typedef {import('../cli/types.js').OperationPhase} OperationPhase
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
  * @typedef {import('./runnerLifecycle.types.js').FinalizeOperationRunnerStepOptions} FinalizeOperationRunnerStepOptions
+ * @typedef {import('./runnerLifecycle.types.js').OperationDescriptor} OperationDescriptor
  * @typedef {import('./runnerLifecycle.types.js').RunnerLifecycleOperationFactory} RunnerLifecycleOperationFactory
  * @typedef {import('./runnerLifecycle.types.js').RunnerStepLifecycleOperation} RunnerStepLifecycleOperation
  */
+
+/**
+ * Execute one phase of an Operation Module through its Operation Descriptor.
+ *
+ * The Runner Lifecycle owns the shared flow — the local dry-run guard, phase
+ * dispatch, and finalize ordering — so an Operation Module describes its one
+ * runner step instead of re-implementing entry scaffolding.
+ *
+ * @param {OperationDescriptor} descriptor
+ * @param {OperationPhase} phase
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function executeOperationPhase(descriptor, phase, context) {
+  if (phase === 'run') {
+    if (descriptor.run !== undefined) {
+      return await descriptor.run(context);
+    }
+
+    if (context.executionBackend === 'local' && context.publicationMode !== 'publish') {
+      return await runLocalPullRequestOperation(
+        context,
+        descriptor.localRun === undefined ? {} : { runPrepared: descriptor.localRun },
+      );
+    }
+
+    return await runOperationRunnerStep(context, requireCreateOperation(descriptor, phase));
+  }
+
+  if (phase === 'prepare') {
+    if (descriptor.prepare !== undefined) {
+      return await descriptor.prepare(context);
+    }
+
+    return await prepareOperationRunnerStep(context, requireCreateOperation(descriptor, phase));
+  }
+
+  if (phase === 'complete') {
+    if (descriptor.complete !== undefined) {
+      return await descriptor.complete(context);
+    }
+
+    return await finalizeOperationRunnerStep(
+      context,
+      descriptor.createFinalizeOperation ?? requireCreateOperation(descriptor, phase),
+      descriptor.finalize ?? { order: 'prepare-first' },
+    );
+  }
+
+  throw new Error(
+    `Unknown operation phase "${phase}" for the ${descriptor.operationReference} descriptor.`,
+  );
+}
+
+/**
+ * @param {OperationDescriptor} descriptor
+ * @param {OperationPhase} phase
+ * @returns {RunnerLifecycleOperationFactory}
+ */
+function requireCreateOperation(descriptor, phase) {
+  if (descriptor.createOperation === undefined) {
+    throw new Error(
+      `The ${descriptor.operationReference} descriptor is missing createOperation for the ${phase} phase.`,
+    );
+  }
+
+  return descriptor.createOperation;
+}
 
 /**
  * Run an operation's runner step inline through the codex-cli Runner Adapter.

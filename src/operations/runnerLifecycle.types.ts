@@ -1,4 +1,48 @@
 import type { OperationRunnerContext } from '../cli/types.js';
+import type { LocalPullRequestOperationFlow } from './runLocalPullRequestOperation.types.js';
+
+/** One phase of an Operation Module executed against a runner context. */
+export type OperationPhaseHandler = (
+  context: OperationRunnerContext,
+) => Promise<Record<string, unknown>>;
+
+/**
+ * The one interface an Operation Module hands the Runner Lifecycle: catalog
+ * identity, runner-step factories, and flow data. The lifecycle owns the
+ * shared flow — the local dry-run guard, phase dispatch, and finalize
+ * ordering — so Operation Modules do not re-implement entry scaffolding.
+ */
+export interface OperationDescriptor {
+  /** Operation Label Reference this descriptor executes, such as 'pr:review'. */
+  operationReference: string;
+  /**
+   * Factory for the standard run, prepare, and complete phases. Required
+   * unless every used phase is overridden.
+   */
+  createOperation?: RunnerLifecycleOperationFactory;
+  /**
+   * Complete-phase factory for operations whose finalize must read prepared
+   * state instead of preparing again.
+   */
+  createFinalizeOperation?: RunnerLifecycleOperationFactory;
+  /** Finalize ordering and error recording; defaults to 'prepare-first'. */
+  finalize?: FinalizeOperationRunnerStepOptions;
+  /**
+   * The Operation Module's local dry-run flow. Operations without one are
+   * blocked as not implemented for local execution after the shared
+   * guardrails run.
+   */
+  localRun?: LocalPullRequestOperationFlow;
+  /**
+   * Full run-phase override for operations with their own entry dispatch,
+   * such as bespoke multi-pass loops. Bypasses the local dry-run guard.
+   */
+  run?: OperationPhaseHandler;
+  /** Full prepare-phase override. */
+  prepare?: OperationPhaseHandler;
+  /** Full complete-phase override. */
+  complete?: OperationPhaseHandler;
+}
 
 /**
  * The single interface an Operation Module presents to the Runner Lifecycle:

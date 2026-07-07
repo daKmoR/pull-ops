@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+  executeOperationPhase,
   finalizeOperationRunnerStep,
   prepareOperationRunnerStep,
   runOperationRunnerStep,
@@ -337,5 +338,157 @@ describe('finalizeOperationRunnerStep', () => {
     });
 
     assert.deepEqual(output, { status: 'accepted', rawOutput: '{"status":"accepted"}' });
+  });
+});
+
+describe('executeOperationPhase', () => {
+  it('01: run phase executes the descriptor runner step and finalizes', async () => {
+    const context = await createContext({ run: async () => '{"status":"accepted"}' });
+
+    const output = await executeOperationPhase(
+      { operationReference: 'pr:review', createOperation: async () => createRunnerStep() },
+      'run',
+      context,
+    );
+
+    assert.deepEqual(output, { status: 'accepted', rawOutput: '{"status":"accepted"}' });
+  });
+
+  it('02: run phase uses the run override without invoking the runner', async () => {
+    let runnerInvocations = 0;
+    /** @type {unknown[]} */
+    const overrideContexts = [];
+    const context = await createContext({
+      run: async () => {
+        runnerInvocations += 1;
+        return '';
+      },
+    });
+
+    const output = await executeOperationPhase(
+      {
+        operationReference: 'pr:resolve-conflicts',
+        run: async runContext => {
+          overrideContexts.push(runContext);
+          return { status: 'accepted', bespoke: true };
+        },
+      },
+      'run',
+      context,
+    );
+
+    assert.deepEqual(output, { status: 'accepted', bespoke: true });
+    assert.deepEqual(overrideContexts, [context]);
+    assert.equal(runnerInvocations, 0);
+  });
+
+  it('03: prepare phase writes the worker prompt and reports waiting', async () => {
+    const context = await createContext();
+
+    const output = await executeOperationPhase(
+      {
+        operationReference: 'pr:review',
+        createOperation: async () => createRunnerStep({ waiting: { summary: 'Waiting.' } }),
+      },
+      'prepare',
+      context,
+    );
+
+    assert.equal(output.status, 'waiting');
+    assert.equal(output.summary, 'Waiting.');
+  });
+
+  it('04: complete phase defaults to prepare-first finalize ordering', async () => {
+    const context = await createContext();
+    await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
+
+    const output = await executeOperationPhase(
+      { operationReference: 'pr:review', createOperation: async () => createRunnerStep() },
+      'complete',
+      context,
+    );
+
+    assert.deepEqual(output, { status: 'accepted', rawOutput: '{"status":"accepted"}' });
+  });
+
+  it('05: complete phase prefers the finalize factory over createOperation', async () => {
+    let createOperationCalls = 0;
+    const context = await createContext();
+    await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
+
+    const output = await executeOperationPhase(
+      {
+        operationReference: 'issue:implement',
+        createOperation: async () => {
+          createOperationCalls += 1;
+          return createRunnerStep();
+        },
+        createFinalizeOperation: async () =>
+          createRunnerStep({
+            finalize: async rawOutput => ({ status: 'accepted', prepared: true, rawOutput }),
+          }),
+      },
+      'complete',
+      context,
+    );
+
+    assert.deepEqual(output, {
+      status: 'accepted',
+      prepared: true,
+      rawOutput: '{"status":"accepted"}',
+    });
+    assert.equal(createOperationCalls, 0);
+  });
+
+  it('06: complete phase honors the descriptor finalize options', async () => {
+    /** @type {unknown[]} */
+    const outputErrors = [];
+    const context = await createContext();
+    await writeExternalRunnerFiles(context, 'skipped');
+
+    await assert.rejects(
+      executeOperationPhase(
+        {
+          operationReference: 'pr:fix-ci',
+          createOperation: async () => createRunnerStep(),
+          finalize: {
+            order: 'output-first',
+            rejectSkippedPreparedRunner: true,
+            onOutputError: async (_, error) => {
+              outputErrors.push(error);
+            },
+          },
+        },
+        'complete',
+        context,
+      ),
+      /skipped even though prepare requested a runner step/,
+    );
+
+    assert.equal(outputErrors.length, 1);
+  });
+
+  it('07: rejects an unknown phase', async () => {
+    const context = await createContext();
+
+    await assert.rejects(
+      executeOperationPhase(
+        { operationReference: 'pr:review', createOperation: async () => createRunnerStep() },
+        /** @type {import('../cli/types.js').OperationPhase} */ (
+          /** @type {unknown} */ ('publish')
+        ),
+        context,
+      ),
+      /Unknown operation phase "publish" for the pr:review descriptor/,
+    );
+  });
+
+  it('08: rejects a descriptor without createOperation for a standard phase', async () => {
+    const context = await createContext();
+
+    await assert.rejects(
+      executeOperationPhase({ operationReference: 'pr:review' }, 'prepare', context),
+      /missing createOperation for the prepare phase/,
+    );
   });
 });
