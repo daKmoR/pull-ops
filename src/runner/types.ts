@@ -38,6 +38,16 @@ export interface ExternalRunnerJob {
   completeCommand: ExternalRunnerCommand;
 }
 
+/**
+ * Compact pointer to an external runner job for result payloads. The
+ * executable handoff (worker prompt, completion and complete commands) lives
+ * only on a result's top-level `runnerJob` and in the run's Local Run State.
+ */
+export type ExternalRunnerJobReference = Pick<
+  ExternalRunnerJob,
+  'cwd' | 'promptFile' | 'outputFile' | 'resultFile' | 'model' | 'branch'
+>;
+
 export interface ExternalRunnerJobResult {
   status?: RunnerResultStatus;
 }

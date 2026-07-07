@@ -374,7 +374,8 @@ function isDependencyFrontierChildBlock(child) {
  *   summary?: string,
  *   pullRequest?: { number: number },
  *   nextOperation?: string,
- *   runnerJob?: import('../../runner/types.js').ExternalRunnerJob,
+ *   runnerJob?: import('../../runner/types.js').ExternalRunnerJob
+ *     | import('../../runner/types.js').ExternalRunnerJobReference,
  * } | undefined} parentPullRequest
  * @param {string} operationLabelReference
  * @returns {Record<string, unknown> | undefined}

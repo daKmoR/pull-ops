@@ -2494,7 +2494,7 @@ describe('runPrdAutoComplete', () => {
     );
     assert.deepEqual(
       readChildResults(result).map(child => [child.issue.number, child.status, child.runnerJob]),
-      [[34, 'waiting', runnerJob]],
+      [[34, 'waiting', externalRunnerJobReference(runnerJob)]],
     );
 
     const parentState = JSON.parse(
@@ -2562,7 +2562,7 @@ describe('runPrdAutoComplete', () => {
         child.blockedOperation,
         child.runnerJob,
       ]),
-      [[34, 'waiting', 'pr:review', runnerJob]],
+      [[34, 'waiting', 'pr:review', externalRunnerJobReference(runnerJob)]],
     );
 
     const parentState = JSON.parse(
@@ -3202,6 +3202,21 @@ function childCommit({ childIssueNumber, parentIssueNumber, file }) {
  */
 function readChildResults(result) {
   return /** @type {ChildAutomationResult[]} */ (result.children);
+}
+
+/**
+ * @param {import('../../runner/types.js').ExternalRunnerJob} runnerJob
+ * @returns {import('../../runner/types.js').ExternalRunnerJobReference}
+ */
+function externalRunnerJobReference(runnerJob) {
+  return {
+    cwd: runnerJob.cwd,
+    promptFile: runnerJob.promptFile,
+    outputFile: runnerJob.outputFile,
+    resultFile: runnerJob.resultFile,
+    model: runnerJob.model,
+    branch: runnerJob.branch,
+  };
 }
 
 /**

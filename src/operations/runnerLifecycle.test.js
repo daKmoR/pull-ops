@@ -523,4 +523,70 @@ describe('executeOperationPhase', () => {
       /missing createOperation for the prepare phase/,
     );
   });
+
+  it('09: complete phase under a PRD parent suggests the parent continuation command', async () => {
+    const context = await createContext();
+    await initializeLocalRunState({
+      runRecordDirectory: /** @type {string} */ (context.outputDirectory),
+      operationReference: 'pr:review',
+      target: { type: 'pr', number: 7 },
+      publicationMode: 'publish',
+      parentRun: {
+        runId: 'parent-run',
+        operationReference: 'prd:auto-complete',
+        normalizedOperationReference: 'prd-auto-complete',
+        target: { type: 'issue', number: 207 },
+        statePath: join(/** @type {string} */ (context.outputDirectory), 'parent-state.json'),
+      },
+    });
+    await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
+
+    const output = await executeOperationPhase(
+      { operationReference: 'pr:review', createOperation: async () => createRunnerStep() },
+      'complete',
+      context,
+    );
+
+    assert.equal(output.status, 'accepted');
+    assert.deepEqual(output.nextSteps, ['Continue prd:auto-complete for parent issue #207.']);
+    assert.deepEqual(output.suggestedActions, [
+      {
+        kind: 'command',
+        description: 'Continue prd:auto-complete for parent issue #207.',
+        argv: [
+          'pullops',
+          'run',
+          'prd:auto-complete',
+          '207',
+          '--runner',
+          'external',
+          '--events',
+          'jsonl',
+          '--publish',
+          'pr',
+        ],
+        approvalRequired: false,
+      },
+    ]);
+  });
+
+  it('10: complete phase without a parent run leaves the output unchanged', async () => {
+    const context = await createContext();
+    await initializeLocalRunState({
+      runRecordDirectory: /** @type {string} */ (context.outputDirectory),
+      operationReference: 'pr:review',
+      target: { type: 'pr', number: 7 },
+      publicationMode: 'publish',
+    });
+    await writeExternalRunnerFiles(context, 'success', '{"status":"accepted"}');
+
+    const output = await executeOperationPhase(
+      { operationReference: 'pr:review', createOperation: async () => createRunnerStep() },
+      'complete',
+      context,
+    );
+
+    assert.equal(output.suggestedActions, undefined);
+    assert.equal(output.nextSteps, undefined);
+  });
 });

@@ -49,7 +49,11 @@ import {
   normalizeOperationReferenceForPath,
 } from '../local-run-record/localRunRecord.js';
 import { startPullOpsParentEventSink } from '../parent-event-sink/parentEventSink.js';
-import { isExternalRunnerWaitingOutput } from '../runner/externalRunnerHandoff.js';
+import {
+  createExternalRunnerJobReference,
+  isExecutableExternalRunnerJob,
+  isExternalRunnerWaitingOutput,
+} from '../runner/externalRunnerHandoff.js';
 
 /**
  * @typedef {import('../cli/types.js').OperationRunnerContext} OperationRunnerContext
@@ -331,8 +335,8 @@ async function coordinateLocalPrdAutomation(
         url: parentIssue.url,
       },
       preparation: refreshedPreparation,
-      children,
-      parentPullRequest,
+      children: children.map(compactChildResultRunnerJob),
+      parentPullRequest: compactParentResultRunnerJob(parentPullRequest),
       publicationMode,
       branch: parentBranchName,
       virtualCompletedChildren,
@@ -1249,7 +1253,10 @@ async function createObservedLocalPrdChildRunLink(
       statePath: stateRecord.statePath,
       summary: child.summary,
       phase: readObservedLocalPrdChildPhase(child, operationReference),
-      runnerJob: child.runnerJob,
+      runnerJob:
+        child.runnerJob !== undefined && isExecutableExternalRunnerJob(child.runnerJob)
+          ? child.runnerJob
+          : undefined,
     });
     return stateRecord.runLink;
   }
@@ -3372,15 +3379,56 @@ function readWaitingRunnerJob({ children, parentPullRequest }) {
   const waitingChild = children.find(
     child => child.status === 'waiting' && child.runnerJob !== undefined,
   );
-  if (waitingChild?.runnerJob !== undefined) {
+  if (
+    waitingChild?.runnerJob !== undefined &&
+    isExecutableExternalRunnerJob(waitingChild.runnerJob)
+  ) {
     return waitingChild.runnerJob;
   }
 
-  if (parentPullRequest?.status === 'waiting' && parentPullRequest.runnerJob !== undefined) {
+  if (
+    parentPullRequest?.status === 'waiting' &&
+    parentPullRequest.runnerJob !== undefined &&
+    isExecutableExternalRunnerJob(parentPullRequest.runnerJob)
+  ) {
     return parentPullRequest.runnerJob;
   }
 
   return undefined;
+}
+
+/**
+ * Result payloads reference child runner jobs compactly; the executable
+ * handoff stays only on the result's top-level `runnerJob` and in each run's
+ * Local Run State.
+ *
+ * @param {ChildAutomationResult} child
+ * @returns {ChildAutomationResult}
+ */
+function compactChildResultRunnerJob(child) {
+  if (child.runnerJob === undefined || !isExecutableExternalRunnerJob(child.runnerJob)) {
+    return child;
+  }
+
+  return { ...child, runnerJob: createExternalRunnerJobReference(child.runnerJob) };
+}
+
+/**
+ * @param {ParentReviewResult | undefined} parentPullRequest
+ * @returns {ParentReviewResult | undefined}
+ */
+function compactParentResultRunnerJob(parentPullRequest) {
+  if (
+    parentPullRequest?.runnerJob === undefined ||
+    !isExecutableExternalRunnerJob(parentPullRequest.runnerJob)
+  ) {
+    return parentPullRequest;
+  }
+
+  return {
+    ...parentPullRequest,
+    runnerJob: createExternalRunnerJobReference(parentPullRequest.runnerJob),
+  };
 }
 
 /**

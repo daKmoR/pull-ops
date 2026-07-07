@@ -31,6 +31,9 @@ Important event fields:
 - `suggestedActions`: commands PullOps believes are safe next steps.
 - `localNextSteps` or `nextSteps`: human-readable next actions.
 - `children`, `parentPullRequest`, `pullRequest`: PR/issue state to inspect.
+  Child and parent entries reference their runner jobs compactly; the
+  executable handoff is only the top-level `runnerJob` (also recorded in the
+  run's Local Run State).
 - `localRunRecord`: run artifact path for post-failure diagnosis.
 - `heartbeatAt`, `leaseExpiresAt`, `heartbeatCount`, `heartbeatSummary`:
   liveness fields on `child.heartbeat` events.
@@ -138,7 +141,13 @@ Known PullOps failure shapes and preferred recovery:
 Before running any PullOps CLI command from this reference, read and follow
 [`docs/agents/pullops-cli.md`](../../../../docs/agents/pullops-cli.md).
 
-When rerunning a PRD, include the same publication intent:
+After a child complete command reports `accepted` under a PRD run, its output
+includes a `suggestedActions[]` entry pointing back at the parent PRD command.
+Prefer running that `argv` (wrapped in the standard `npm exec` form) over
+reconstructing the command from prose.
+
+When rerunning a PRD without a suggested action, include the same publication
+intent:
 
 ```bash
 npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --runner external --events jsonl --publish pr

@@ -1,3 +1,6 @@
+import { isAbsolute, resolve } from 'node:path';
+
+import { readLocalRunStateRecordFromDirectory } from '../local-run-state/localRunState.js';
 import {
   createExternalRunnerJob,
   createSkippedExternalRunnerOutput,
@@ -57,20 +60,94 @@ export async function executeOperationPhase(descriptor, phase, context) {
   }
 
   if (phase === 'complete') {
-    if (descriptor.complete !== undefined) {
-      return await descriptor.complete(context);
-    }
-
-    return await finalizeOperationRunnerStep(
-      context,
-      descriptor.createFinalizeOperation ?? requireCreateOperation(descriptor, phase),
-      descriptor.finalize ?? { order: 'prepare-first' },
-    );
+    const output =
+      descriptor.complete !== undefined
+        ? await descriptor.complete(context)
+        : await finalizeOperationRunnerStep(
+            context,
+            descriptor.createFinalizeOperation ?? requireCreateOperation(descriptor, phase),
+            descriptor.finalize ?? { order: 'prepare-first' },
+          );
+    return await appendParentPrdContinuation(context, output);
   }
 
   throw new Error(
     `Unknown operation phase "${phase}" for the ${descriptor.operationReference} descriptor.`,
   );
+}
+
+const PARENT_PRD_OPERATION_REFERENCES = new Set(['prd:auto-advance', 'prd:auto-complete']);
+
+/**
+ * Completing a child operation under a PRD run points the operator back at the
+ * parent command, so the continuation is machine-readable output instead of
+ * operator-skill prose.
+ *
+ * @param {OperationRunnerContext} context
+ * @param {Record<string, unknown>} output
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function appendParentPrdContinuation(context, output) {
+  if (output.status !== 'accepted') {
+    return output;
+  }
+
+  const state = await readCompletedRunState(context);
+  const parentRun = state?.parentRun;
+  if (
+    state === undefined ||
+    parentRun === undefined ||
+    !PARENT_PRD_OPERATION_REFERENCES.has(parentRun.operationReference)
+  ) {
+    return output;
+  }
+
+  const description = `Continue ${parentRun.operationReference} for parent issue #${parentRun.target.number}.`;
+  return {
+    ...output,
+    nextSteps: [...(Array.isArray(output.nextSteps) ? output.nextSteps : []), description],
+    suggestedActions: [
+      ...(Array.isArray(output.suggestedActions) ? output.suggestedActions : []),
+      {
+        kind: 'command',
+        description,
+        argv: [
+          'pullops',
+          'run',
+          parentRun.operationReference,
+          String(parentRun.target.number),
+          '--runner',
+          'external',
+          ...(parentRun.operationReference === 'prd:auto-complete' ? ['--events', 'jsonl'] : []),
+          ...(state.publicationMode === 'publish' ? ['--publish', 'pr'] : []),
+        ],
+        approvalRequired: false,
+      },
+    ],
+  };
+}
+
+/**
+ * @param {OperationRunnerContext} context
+ * @returns {Promise<import('../local-run-state/types.js').LocalRunState | undefined>}
+ */
+async function readCompletedRunState(context) {
+  if (context.outputDirectory === undefined || context.outputDirectory.trim() === '') {
+    return undefined;
+  }
+
+  const outputDirectory = isAbsolute(context.outputDirectory)
+    ? context.outputDirectory
+    : resolve(context.cwd, context.outputDirectory);
+  try {
+    return (await readLocalRunStateRecordFromDirectory(outputDirectory)).state;
+  } catch (error) {
+    if (/** @type {{ code?: string }} */ (error).code === 'ENOENT') {
+      return undefined;
+    }
+
+    throw error;
+  }
 }
 
 /**

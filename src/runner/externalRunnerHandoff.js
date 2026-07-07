@@ -85,6 +85,30 @@ export function isExternalRunnerWaitingOutput(output) {
 
 /**
  * @param {ExternalRunnerJob} runnerJob
+ * @returns {import('./types.js').ExternalRunnerJobReference}
+ */
+export function createExternalRunnerJobReference(runnerJob) {
+  return {
+    cwd: runnerJob.cwd,
+    promptFile: runnerJob.promptFile,
+    outputFile: runnerJob.outputFile,
+    resultFile: runnerJob.resultFile,
+    model: runnerJob.model,
+    branch: runnerJob.branch,
+  };
+}
+
+/**
+ * @param {ExternalRunnerJob | import('./types.js').ExternalRunnerJobReference} runnerJob
+ * @returns {runnerJob is ExternalRunnerJob}
+ */
+export function isExecutableExternalRunnerJob(runnerJob) {
+  const job = /** @type {Partial<ExternalRunnerJob>} */ (runnerJob);
+  return job.completionCommands !== undefined && job.completeCommand !== undefined;
+}
+
+/**
+ * @param {ExternalRunnerJob} runnerJob
  * @param {ExternalRunnerJobRunner} runWorker
  * @returns {Promise<RunnerResultStatus>}
  */

@@ -403,6 +403,7 @@ describe('PRD Child Coordination', () => {
 
     assert.equal(result.status, 'waiting');
     assert.deepEqual(operations, ['pr-review']);
+    assert.deepEqual(result.runnerJob, runnerJob);
     assert.deepEqual(
       result.children?.map(child => [
         child.issue.number,
@@ -410,7 +411,21 @@ describe('PRD Child Coordination', () => {
         child.blockedOperation,
         child.runnerJob,
       ]),
-      [[34, 'waiting', 'pr:review', runnerJob]],
+      [
+        [
+          34,
+          'waiting',
+          'pr:review',
+          {
+            cwd: runnerJob.cwd,
+            promptFile: runnerJob.promptFile,
+            outputFile: runnerJob.outputFile,
+            resultFile: runnerJob.resultFile,
+            model: runnerJob.model,
+            branch: runnerJob.branch,
+          },
+        ],
+      ],
     );
   });
 
@@ -487,6 +502,7 @@ describe('PRD Child Coordination', () => {
     );
 
     assert.equal(result.status, 'waiting');
+    assert.deepEqual(result.runnerJob, runnerJob);
     assert.deepEqual(
       result.children?.map(child => [
         child.issue.number,
@@ -494,7 +510,21 @@ describe('PRD Child Coordination', () => {
         child.blockedOperation,
         child.runnerJob,
       ]),
-      [[34, 'waiting', 'pr:finalize', runnerJob]],
+      [
+        [
+          34,
+          'waiting',
+          'pr:finalize',
+          {
+            cwd: runnerJob.cwd,
+            promptFile: runnerJob.promptFile,
+            outputFile: runnerJob.outputFile,
+            resultFile: runnerJob.resultFile,
+            model: runnerJob.model,
+            branch: runnerJob.branch,
+          },
+        ],
+      ],
     );
   });
 

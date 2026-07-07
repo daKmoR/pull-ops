@@ -76,7 +76,9 @@ Before running any PullOps CLI command, read and follow
      and `env`.
    - After `runner_result.json` is written, run `runnerJob.completeCommand`
      with its explicit `argv` and `env`, then continue the operator loop from
-     that complete output.
+     that complete output. When the complete output carries
+     `suggestedActions[]`, run those `argv` next instead of reconstructing
+     commands from prose.
    PullOps Heartbeats remain worker-owned liveness; the manager must not fake worker heartbeats.
 5. When supervising `prd:auto-complete --runner external --events jsonl`, read
    [`references/event-supervision.md`](references/event-supervision.md) before

@@ -1,7 +1,7 @@
 import type { GitHubIssue, GitHubIssueReference } from '../github/types.js';
 import type { LocalRunRunLink } from '../local-run-state/types.js';
 import type { PullOpsParentEventSinkChildEnvironment } from '../parent-event-sink/types.js';
-import type { ExternalRunnerJob } from '../runner/types.js';
+import type { ExternalRunnerJob, ExternalRunnerJobReference } from '../runner/types.js';
 
 export type PrdAutomationMode = 'auto-advance' | 'auto-complete';
 
@@ -58,7 +58,7 @@ export interface ChildAutomationResult {
   finalizedHeadSha?: string;
   headSha?: string;
   treeHash?: string;
-  runnerJob?: ExternalRunnerJob;
+  runnerJob?: ExternalRunnerJob | ExternalRunnerJobReference;
 }
 
 export interface ChildDependencyDecision {
@@ -102,7 +102,7 @@ export interface ParentReviewResult {
   addressReviews?: Record<string, unknown>[];
   finalize?: Record<string, unknown>;
   localRunRecords?: string[];
-  runnerJob?: ExternalRunnerJob;
+  runnerJob?: ExternalRunnerJob | ExternalRunnerJobReference;
 }
 
 export interface PrdAutomationResult extends Record<string, unknown> {
