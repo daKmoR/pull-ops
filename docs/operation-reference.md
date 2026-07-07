@@ -118,6 +118,47 @@ External runner workflow runs split runner-backed operations into
 commands. Those phase commands are workflow lifecycle plumbing, not
 maintainer-facing controls.
 
+## PullOps-Managed PR Transition Graph
+
+The pre-human review workflow for PullOps-Managed PRs is routed by the
+declarative transition graph `MANAGED_PR_TRANSITION_GRAPH` in
+`src/managed-pr/transitionPolicy.js`. For each PR operation and outcome kind,
+the graph names the next operation, or marks the outcome as terminal for
+automation. Which operation may follow which outcome is verified harness
+structure, never runner judgment.
+
+| Operation              | Outcome kind        | Next operation                        |
+| ---------------------- | ------------------- | ------------------------------------- |
+| `pr-review`            | `approved`          | `pr-finalize` (predicate edge, below) |
+| `pr-review`            | `changes-requested` | `pr-address-review`                   |
+| `pr-review`            | `blocked`           | Terminal for automation               |
+| `pr-address-review`    | `addressed`         | `pr-review`                           |
+| `pr-address-review`    | `blocked`           | Terminal for automation               |
+| `pr-fix-ci`            | `fixed`             | `pr-review`                           |
+| `pr-fix-ci`            | `no-failed-checks`  | `pr-review`                           |
+| `pr-fix-ci`            | `blocked`           | Terminal for automation               |
+| `pr-update-branch`     | `updated`           | Terminal for automation               |
+| `pr-update-branch`     | `conflicts-found`   | `pr-resolve-conflicts`                |
+| `pr-update-branch`     | `blocked`           | Terminal for automation               |
+| `pr-resolve-conflicts` | `resolved`          | `pr-review`                           |
+| `pr-resolve-conflicts` | `blocked`           | Terminal for automation               |
+| `pr-finalize`          | `ready`             | Terminal for automation               |
+| `pr-finalize`          | `route-to-review`   | `pr-review`                           |
+| `pr-finalize`          | `route-to-ci-fix`   | `pr-fix-ci`                           |
+| `pr-finalize`          | `blocked`           | Terminal for automation               |
+
+The graph has exactly one predicate edge, reserved for routing that depends on
+recorded workflow state: `pr-review` with outcome `approved` routes to
+`pr-finalize` unless the recorded last operation was `pr-finalize`. In that
+case the approving review validated an already finalized tree, and the
+workflow ends instead of re-finalizing forever.
+
+A `blocked` outcome is terminal for automation, but two operations define
+blocked follow-up behavior through `getBlockedManagedPrFollowUpOperations`:
+when a blocked `pr-address-review` or `pr-fix-ci` is resolved, `pr-review` is
+re-added alongside the failure label, so the PR re-enters the workflow at
+review once the blocker is cleared.
+
 ## Status Label
 
 PullOps avoids using labels for ordinary progress. The only status label is for
