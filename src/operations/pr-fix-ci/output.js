@@ -55,12 +55,26 @@ export function validatePrFixCiOutput(input) {
       return failureReason;
     }
 
+    const blockedClassifications =
+      result.value.classifications === undefined
+        ? undefined
+        : readOutputClassifications(
+            result.value.classifications,
+            'Operation Output.classifications',
+          );
+    if (blockedClassifications !== undefined && !blockedClassifications.valid) {
+      return blockedClassifications;
+    }
+
     return {
       valid: true,
       value: {
         status,
         summary: summary.value,
         failureReason: failureReason.value,
+        ...(blockedClassifications === undefined
+          ? {}
+          : { classifications: blockedClassifications.value }),
       },
     };
   }

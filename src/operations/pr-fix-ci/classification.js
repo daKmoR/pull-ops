@@ -14,6 +14,11 @@ export const ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS = [
 ];
 
 /**
+ * Detect failed checks and attach the keyword-based classification prior.
+ * The prior is a non-binding hint: the runner owns the governing Check
+ * Failure Classification, and PullOps records disagreement between the two
+ * so this keyword classifier's removal can be decided from scorecard data.
+ *
  * @param {GitHubCheckRun[]} checks
  * @returns {ClassifiedCheckFailure[]}
  */

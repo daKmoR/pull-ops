@@ -4,7 +4,17 @@ import type {
   GitHubPullRequestDiff,
   GitHubPullRequestReviewContext,
 } from '../../github/types.js';
-import type { ClassifiedCheckFailure } from './classification.types.js';
+import type { CheckFailureClassification, ClassifiedCheckFailure } from './classification.types.js';
+
+export interface CheckClassificationComparison {
+  checkId: string;
+  checkName?: string;
+  runnerClassification: CheckFailureClassification;
+  runnerRationale: string;
+  keywordPrior?: CheckFailureClassification;
+  keywordPriorReason?: string;
+  agreesWithKeywordPrior?: boolean;
+}
 
 export type PrFixCiPreparation =
   | { ready: false; output: Record<string, unknown> }

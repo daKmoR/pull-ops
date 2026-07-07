@@ -27,6 +27,7 @@ export interface BlockedPrFixCiOutput {
   status: 'blocked';
   summary: string;
   failureReason: string;
+  classifications?: PrFixCiOutputClassification[];
 }
 
 export type PrFixCiOutput = CompletedPrFixCiOutput | BlockedPrFixCiOutput;

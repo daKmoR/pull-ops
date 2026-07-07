@@ -11,12 +11,17 @@ import {
   prepareOperationRunnerStep,
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
+import { writeRunArtifact } from '../../local-run-record/localRunRecord.js';
 import { runLocalPullRequestOperation } from '../runLocalPullRequestOperation.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { hasPullOpsBranchPrefix } from '../branchNames.js';
-import { classifyCheckFailures } from './classification.js';
+import {
+  ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS,
+  classifyCheckFailures,
+} from './classification.js';
 import { validatePrFixCiOutput } from './output.js';
 import { buildPrFixCiPrompt } from './prompt.js';
+import { verifyPrFixCiWorkingTreeSafety } from './safetyVerification.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
 
 /**
@@ -214,18 +219,6 @@ async function preparePrFixCi(context) {
     };
   }
 
-  const nonActionableFailures = checkFailures.filter(failure => !failure.actionable);
-  if (nonActionableFailures.length > 0) {
-    return {
-      ready: false,
-      output: await blockNonActionableFailures(context, pullRequest, nonActionableFailures, {
-        updateBody: state.managed,
-        ciFixCycle: state.ciFixCycles.current,
-        maxCiFixCycles: state.ciFixCycles.max,
-      }),
-    };
-  }
-
   const issue =
     state.sourceIssueNumber === undefined
       ? undefined
@@ -284,6 +277,10 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
     }
 
     if (validatedOutput.value.status === 'blocked') {
+      await recordCheckClassificationArtifact(context, {
+        checkFailures,
+        classifications: validatedOutput.value.classifications,
+      });
       failureRecorded = true;
       await recordPullRequestFailure(context, pullRequest, validatedOutput.value.failureReason, {
         updateBody: managed,
@@ -310,6 +307,41 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
         maxCiFixCycles,
       });
       throw new Error(reason);
+    }
+
+    const classificationComparisons = await recordCheckClassificationArtifact(context, {
+      checkFailures,
+      classifications: validatedOutput.value.classifications,
+    });
+
+    const nonActionableClassifications = validatedOutput.value.classifications.filter(
+      classification =>
+        !ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS.includes(classification.classification),
+    );
+    if (nonActionableClassifications.length > 0) {
+      const reason = [
+        `CI failures are not safely actionable for PullOps on PR #${pullRequest.number}:`,
+        nonActionableClassifications
+          .map(
+            classification =>
+              `${classification.checkId} is classified as ${classification.classification}: ${classification.rationale}`,
+          )
+          .join('; '),
+      ].join(' ');
+      failureRecorded = true;
+      await recordPullRequestFailure(context, pullRequest, reason, {
+        updateBody: managed,
+        ciFixCycle,
+        maxCiFixCycles,
+      });
+      return {
+        status: 'blocked',
+        summary: reason,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.url,
+        },
+      };
     }
 
     const unsafeReason = summarizeUnsafeSafetyChecks(pullRequest, validatedOutput.value);
@@ -340,6 +372,33 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
         maxCiFixCycles,
       });
       throw new Error(reason);
+    }
+
+    if (context.gitClient.readWorkingTreePatch !== undefined) {
+      const verification = verifyPrFixCiWorkingTreeSafety(
+        await context.gitClient.readWorkingTreePatch(),
+      );
+      if (!verification.safe) {
+        const reason = [
+          `Deterministic safety verification refused the CI repair for PR #${pullRequest.number}:`,
+          verification.violations.join(' '),
+          'PullOps will not commit unsafe CI repairs.',
+        ].join(' ');
+        failureRecorded = true;
+        await recordPullRequestFailure(context, pullRequest, reason, {
+          updateBody: managed,
+          ciFixCycle,
+          maxCiFixCycles,
+        });
+        return {
+          status: 'blocked',
+          summary: reason,
+          pullRequest: {
+            number: pullRequest.number,
+            url: pullRequest.url,
+          },
+        };
+      }
     }
 
     await context.gitClient.commitAll({
@@ -377,8 +436,11 @@ async function finalizePreparedPrFixCi(context, preparation, rawOutput) {
       prFixCi: {
         checks: {
           failed: checkFailures.length,
-          classifications: summarizeClassifications(checkFailures),
+          classifications: summarizeClassifications(validatedOutput.value.classifications),
         },
+        classificationDisagreements: classificationComparisons.filter(
+          comparison => comparison.agreesWithKeywordPrior === false,
+        ).length,
         changesCommitted: true,
       },
     };
@@ -413,17 +475,20 @@ export function createPrFixCiCommitMessage(pullRequest, output) {
 }
 
 /**
+ * Require the runner to classify every failed check exactly once. The
+ * runner owns the classification judgment; PullOps only verifies coverage
+ * and the schema-level taxonomy.
+ *
  * @param {CompletedPrFixCiOutput} output
  * @param {ClassifiedCheckFailure[]} checkFailures
  * @returns {{ valid: true } | { valid: false, reason: string }}
  */
 function validateClassificationCoverage(output, checkFailures) {
-  const expected = new Map(checkFailures.map(failure => [failure.id, failure.classification]));
+  const expected = new Set(checkFailures.map(failure => failure.id));
   const seen = new Set();
 
   for (const classification of output.classifications) {
-    const expectedClassification = expected.get(classification.checkId);
-    if (expectedClassification === undefined) {
+    if (!expected.has(classification.checkId)) {
       return {
         valid: false,
         reason: `Operation Output.classifications references unknown checkId "${classification.checkId}".`,
@@ -437,17 +502,10 @@ function validateClassificationCoverage(output, checkFailures) {
       };
     }
 
-    if (classification.classification !== expectedClassification) {
-      return {
-        valid: false,
-        reason: `Check failure "${classification.checkId}" was preclassified as ${expectedClassification}, but output reported ${classification.classification}.`,
-      };
-    }
-
     seen.add(classification.checkId);
   }
 
-  for (const checkId of expected.keys()) {
+  for (const checkId of expected) {
     if (!seen.has(checkId)) {
       return {
         valid: false,
@@ -457,6 +515,61 @@ function validateClassificationCoverage(output, checkFailures) {
   }
 
   return { valid: true };
+}
+
+/**
+ * Record the runner's Check Failure Classification next to the keyword
+ * prior in the Local Run Record, so disagreement between them stays
+ * measurable while the keyword classifier is demoted to a non-binding hint.
+ *
+ * @param {OperationRunnerContext} context
+ * @param {{
+ *   checkFailures: ClassifiedCheckFailure[],
+ *   classifications: import('./output.types.js').PrFixCiOutputClassification[] | undefined,
+ * }} options
+ * @returns {Promise<import('./run.types.js').CheckClassificationComparison[]>}
+ */
+async function recordCheckClassificationArtifact(context, { checkFailures, classifications }) {
+  if (classifications === undefined) {
+    return [];
+  }
+
+  const priorsById = new Map(checkFailures.map(failure => [failure.id, failure]));
+  const comparisons = classifications.map(classification => {
+    const prior = priorsById.get(classification.checkId);
+    return {
+      checkId: classification.checkId,
+      ...(prior === undefined ? {} : { checkName: prior.checkName }),
+      runnerClassification: classification.classification,
+      runnerRationale: classification.rationale,
+      ...(prior === undefined
+        ? {}
+        : { keywordPrior: prior.classification, keywordPriorReason: prior.reason }),
+      ...(prior === undefined
+        ? {}
+        : { agreesWithKeywordPrior: prior.classification === classification.classification }),
+    };
+  });
+
+  const directory = context.localRunRecordDirectory ?? context.outputDirectory;
+  if (directory !== undefined) {
+    await writeRunArtifact(
+      { directory },
+      'check-classification.json',
+      `${JSON.stringify(
+        {
+          comparisons,
+          disagreements: comparisons.filter(
+            comparison => comparison.agreesWithKeywordPrior === false,
+          ).length,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+
+  return comparisons;
 }
 
 /**
@@ -611,48 +724,6 @@ async function blockCiFixCycleBudget(context, pullRequest, { ciFixCycle, maxCiFi
 /**
  * @param {OperationRunnerContext} context
  * @param {GitHubPullRequest} pullRequest
- * @param {ClassifiedCheckFailure[]} nonActionableFailures
- * @param {{ updateBody: boolean, ciFixCycle: number, maxCiFixCycles: number }} options
- * @returns {Promise<Record<string, unknown>>}
- */
-async function blockNonActionableFailures(
-  context,
-  pullRequest,
-  nonActionableFailures,
-  { updateBody, ciFixCycle, maxCiFixCycles },
-) {
-  const reason = [
-    `CI failures are not safely actionable for PullOps on PR #${pullRequest.number}:`,
-    nonActionableFailures.map(formatNonActionableFailure).join('; '),
-  ].join(' ');
-
-  await recordPullRequestFailure(context, pullRequest, reason, {
-    updateBody,
-    ciFixCycle,
-    maxCiFixCycles,
-  });
-
-  return {
-    status: 'blocked',
-    summary: reason,
-    pullRequest: {
-      number: pullRequest.number,
-      url: pullRequest.url,
-    },
-  };
-}
-
-/**
- * @param {ClassifiedCheckFailure} failure
- * @returns {string}
- */
-function formatNonActionableFailure(failure) {
-  return `${failure.id} "${failure.checkName}" is classified as ${failure.classification}: ${failure.reason}`;
-}
-
-/**
- * @param {OperationRunnerContext} context
- * @param {GitHubPullRequest} pullRequest
  * @param {{ reason: string }} options
  * @returns {Promise<Record<string, unknown>>}
  */
@@ -715,13 +786,13 @@ async function recordPullRequestFailure(
 }
 
 /**
- * @param {ClassifiedCheckFailure[]} checkFailures
+ * @param {{ classification: string }[]} classifiedFailures
  * @returns {Record<string, number>}
  */
-function summarizeClassifications(checkFailures) {
+function summarizeClassifications(classifiedFailures) {
   /** @type {Record<string, number>} */
   const classifications = {};
-  for (const failure of checkFailures) {
+  for (const failure of classifiedFailures) {
     classifications[failure.classification] = (classifications[failure.classification] ?? 0) + 1;
   }
   return classifications;

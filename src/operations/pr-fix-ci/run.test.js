@@ -70,7 +70,8 @@ describe('runPrFixCi', () => {
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Use the pullops-pr-fix-ci skill/);
     assert.match(codex.calls[0].prompt, /checkId `check-1`/);
-    assert.match(codex.calls[0].prompt, /Classification: lint/);
+    assert.match(codex.calls[0].prompt, /Keyword prior \(non-binding\): lint/);
+    assert.match(codex.calls[0].prompt, /Classify every failed checkId yourself/);
     assert.deepEqual(git.commits, [
       {
         message: [
@@ -109,6 +110,7 @@ describe('runPrFixCi', () => {
           lint: 1,
         },
       },
+      classificationDisagreements: 0,
       changesCommitted: true,
     });
   });
@@ -233,15 +235,116 @@ describe('runPrFixCi', () => {
     ]);
   });
 
-  it('05: blocks non-actionable secret, flaky, or environment failures before running Codex', async () => {
+  it('05: blocks when the runner classifies failures as secret, flaky, or environment', async () => {
+    const localRunRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-pr-fix-ci-classify-'));
     const github = createFakeGitHub({
       pullRequest: createPullRequest(),
-      checks: [createFailedCheck({ name: 'Deploy with missing secret token' })],
+      checks: [createFailedCheck({ name: 'Deploy pipeline step' })],
       reviewContext: createReviewContext(),
       diff: createDiff(),
     });
     const git = createFakeGit({ hasChanges: true });
-    const codex = createFakeRunner({ output: '{}' });
+    const codex = createFakeRunner({
+      output: JSON.stringify({
+        status: 'fixed',
+        summary: 'Repaired the deploy step.',
+        classifications: [
+          {
+            checkId: 'check-1',
+            classification: 'secret',
+            rationale: 'The deploy step fails because a repository secret is missing.',
+          },
+        ],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: false,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Adjusted the deploy step.'],
+        testPlan: ['Manual inspection.'],
+      }),
+    });
+
+    const result = await runPrFixCi(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        runner: codex.runner,
+        localRunRecordDirectory,
+      }),
+    );
+
+    assert.equal(result.status, 'blocked');
+    assert.equal(codex.calls.length, 1);
+    assert.equal(git.commits.length, 0);
+    assert.match(String(result.summary), /check-1 is classified as secret/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:human-required'],
+      },
+    ]);
+
+    const artifact = JSON.parse(
+      await readFile(join(localRunRecordDirectory, 'check-classification.json'), 'utf8'),
+    );
+    assert.equal(artifact.disagreements, 1);
+    assert.deepEqual(artifact.comparisons, [
+      {
+        checkId: 'check-1',
+        checkName: 'Deploy pipeline step',
+        runnerClassification: 'secret',
+        runnerRationale: 'The deploy step fails because a repository secret is missing.',
+        keywordPrior: 'build',
+        keywordPriorReason:
+          'No more specific signal matched, so PullOps treats this as a build failure requiring careful repair.',
+        agreesWithKeywordPrior: false,
+      },
+    ]);
+  });
+
+  it('05b: blocks unsafe working tree changes found by deterministic safety verification', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      checks: [createFailedCheck({ name: 'Unit tests' })],
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({
+      hasChanges: true,
+      workingTreePatch: [
+        'diff --git a/src/example.test.js b/src/example.test.js',
+        '--- a/src/example.test.js',
+        '+++ b/src/example.test.js',
+        '@@ -1,3 +1,2 @@',
+        "-  it('01: verifies the behavior', () => {",
+        '-    assert.equal(actual, expected);',
+        "+  it.skip('01: verifies the behavior', () => {",
+        '',
+      ].join('\n'),
+    });
+    const codex = createFakeRunner({
+      output: JSON.stringify({
+        status: 'fixed',
+        summary: 'Fixed the failing unit test.',
+        classifications: [
+          {
+            checkId: 'check-1',
+            classification: 'test',
+            rationale: 'The unit test asserts outdated behavior.',
+          },
+        ],
+        safetyChecks: {
+          weakenedTests: false,
+          deletedAssertions: false,
+          bypassedChecks: false,
+          secretOrInfrastructureWorkaround: false,
+        },
+        changes: ['Updated the failing test.'],
+        testPlan: ['npm test'],
+      }),
+    });
 
     const result = await runPrFixCi(
       createContext({
@@ -252,15 +355,10 @@ describe('runPrFixCi', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.equal(codex.calls.length, 0);
     assert.equal(git.commits.length, 0);
-    assert.match(github.comments[0].body, /classified as secret/);
-    assert.deepEqual(github.pullRequestLabelsAdded, [
-      {
-        number: 100,
-        labels: ['pullops:human-required'],
-      },
-    ]);
+    assert.equal(git.pushes.length, 0);
+    assert.match(String(result.summary), /Deterministic safety verification refused/);
+    assert.match(String(result.summary), /Skips or focuses tests/);
   });
 
   it('06: refuses unsafe fix output before committing or pushing', async () => {
@@ -978,14 +1076,14 @@ function createFakeGitHub({ pullRequest, checks, reviewContext, diff }) {
 }
 
 /**
- * @param {{ hasChanges: boolean }} options
+ * @param {{ hasChanges: boolean, workingTreePatch?: string }} options
  * @returns {{
  *   commits: CommitAllOptions[];
  *   pushes: PushBranchOptions[];
  *   client: import('../../git/types.js').GitClient;
  * }}
  */
-function createFakeGit({ hasChanges }) {
+function createFakeGit({ hasChanges, workingTreePatch = '' }) {
   /** @type {CommitAllOptions[]} */
   const commits = [];
   /** @type {PushBranchOptions[]} */
@@ -1000,6 +1098,9 @@ function createFakeGit({ hasChanges }) {
       },
       async hasChanges() {
         return hasChanges;
+      },
+      async readWorkingTreePatch() {
+        return workingTreePatch;
       },
       async commitAll(options) {
         commits.push(options);

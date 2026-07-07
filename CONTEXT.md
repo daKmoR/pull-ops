@@ -337,8 +337,8 @@ One automated loop where PullOps responds to failing checks on a PullOps-Managed
 _Avoid_: Build retry, CI retry
 
 **Check Failure Classification**:
-The `pr-fix-ci` operation's classification of a failed check as formatting, lint, type, test, build, environment, flaky, secret, or another actionable category before changing code.
-_Avoid_: CI error type, failure reason
+The runner's judgment, within the `pr-fix-ci` operation, classifying each failed check as formatting, lint, type, test, build, environment, flaky, or secret before changing code. PullOps supplies a non-binding keyword prior with each failed check, records disagreement between the prior and the runner's classification in the Local Run Record, and only accepts repairs for actionable classifications.
+_Avoid_: CI error type, failure reason, keyword classification
 
 **Branch Update**:
 The PullOps Operation that cleanly brings a PR branch up to date with its base branch without AI conflict resolution.

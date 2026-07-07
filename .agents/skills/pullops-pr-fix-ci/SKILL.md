@@ -6,56 +6,41 @@ disable-model-invocation: true
 
 # PullOps Fix CI
 
-Repair code-actionable failed checks on the pull request. The supplied Check
-Failure Classification is the operation boundary; the linked issue or PRD, PR
-body, changed files, and diff are context for keeping the repair in scope.
+Goal: make the failed checks on the pull request pass with the smallest
+correct repair, or return `blocked` when no safe code repair exists. The
+linked issue or PRD, PR body, changed files, and diff are context for keeping
+the repair in scope.
 
-## Fix
+## Classification
 
-1. Inspect the supplied Check Failure Classification, linked issue or PRD, PR
-   body, changed files, and diff before editing. Completion criterion: every
-   supplied `checkId` has been copied into a local check ledger with its
-   supplied classification, actionable status, and rationale.
-2. Preserve the classification ledger. Do not reclassify checks. Completion
-   criterion: the final `classifications` array will echo every supplied
-   `checkId` exactly once with its supplied classification and a non-empty
-   rationale, with no omitted, duplicated, or invented check IDs.
-3. Decide repairability before changing code. Fix only failures classified as
-   `formatting`, `lint`, `type`, `test`, or `build` when they are safely
-   code-actionable. Return `blocked` for `environment`, `flaky`, or `secret`
-   failures, or when a safe code repair cannot be inferred from the supplied
-   context. Completion criterion: every actionable check has a focused repair
-   plan, or the output is blocked with a specific reason.
-4. Use the appropriate discipline:
-   - Use `coding-standards` for formatting, lint, type, and focused source/test repairs.
-   - Use `diagnosing-bugs` for test or build failures whose cause is not already isolated.
-   - Use `tdd` when the repair needs a regression test at a clear behavior seam.
-   Completion criterion: every referenced discipline needed for the failed
-   checks has been applied before the relevant edits.
-5. Keep the patch scoped to the failed checks and the pull request diff.
-   Preserve the intent of the pull request. Record unrelated defects, broad
-   refactors, and larger design problems as `followUps` instead of folding them
-   into this operation. Completion criterion: the working tree contains only CI
-   repair changes or necessary adjacent work.
-6. Run focused verification that demonstrates the repair. If automated
-   verification is unavailable, perform the tightest manual check available and
-   say exactly what was checked in `testPlan`. Completion criterion: `testPlan`
-   names verification that was actually run, or the focused manual check used
-   when automated verification was unavailable.
-7. Run the safety audit before returning `fixed`. Completion criterion:
-   `safetyChecks.weakenedTests`, `deletedAssertions`, `bypassedChecks`, and
-   `secretOrInfrastructureWorkaround` are all `false`. If any would be `true`,
-   return `blocked` instead.
+You own the Check Failure Classification. Classify every supplied `checkId`
+yourself as `formatting`, `lint`, `type`, `test`, `build`, `environment`,
+`flaky`, or `secret`, based on the check evidence. The keyword prior shown
+with each failed check is a non-binding hint you may overrule; PullOps
+records where your judgment differs from it.
 
-## Completion Criteria
+Only `formatting`, `lint`, `type`, `test`, and `build` failures are yours to
+repair. Return `blocked` when the failures are `environment`, `flaky`, or
+`secret`, or when a safe repair cannot be inferred from the supplied context.
+Include your classifications in blocked output too, so the classification
+evidence is preserved.
 
-- The `classifications` array exactly equals the supplied `checkId` set.
-- Each output classification matches the supplied classification for that
-  `checkId`.
-- `changes` names concrete code, test, documentation, or explanation edits.
-- `testPlan` names verification that was actually run, or the focused manual
-  check used when automated verification was unavailable.
-- `safetyChecks` are all `false` for a `fixed` result.
+## Repair
+
+Keep the patch scoped to the failed checks and the pull request diff, and
+preserve the intent of the pull request. Record unrelated defects, broad
+refactors, and larger design problems as `followUps` instead of folding them
+into this operation.
+
+Useful disciplines, whichever fit the failure: `coding-standards` for
+formatting, lint, type, and focused source or test repairs;
+`diagnosing-bugs` for test or build failures whose cause is not already
+isolated; `tdd` when the repair needs a regression test at a clear behavior
+seam.
+
+Run focused verification that demonstrates the repair. If automated
+verification is unavailable, perform the tightest manual check available and
+say exactly what was checked in `testPlan`.
 
 ## Liveness and command execution
 
@@ -91,9 +76,11 @@ user, emit non-JSON, commit, push, edit labels, update the PR body, post GitHub
 comments, or leave the failed-check scope. PullOps handles GitHub mutations
 after validating your output.
 
-Do not weaken tests, delete assertions, bypass checks, skip verification, or
-work around missing secrets, credentials, permissions, external outages, or
-infrastructure failures. If a safe code repair is not possible, return
+Never weaken tests, delete assertions, skip checks, or work around missing
+secrets, credentials, permissions, external outages, or infrastructure
+failures. PullOps deterministically verifies the resulting diff and will not
+commit repairs that delete or skip tests, remove assertions, or alter check
+and workflow configuration. If a safe code repair is not possible, return
 `blocked`.
 
 Final response must be only JSON:
@@ -127,6 +114,13 @@ If blocked, final response must be only JSON:
 {
   "status": "blocked",
   "summary": "Short blocked summary.",
-  "failureReason": "Specific reason the CI failure could not be safely fixed."
+  "failureReason": "Specific reason the CI failure could not be safely fixed.",
+  "classifications": [
+    {
+      "checkId": "check-1",
+      "classification": "environment",
+      "rationale": "The runner lost network access while installing dependencies."
+    }
+  ]
 }
 ```
