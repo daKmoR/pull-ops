@@ -8,6 +8,7 @@ export interface RunnerConfig {
   adapter?: RunnerAdapter;
   command?: string;
   models?: Record<ModelTier, string>;
+  argsTemplate?: string[];
 }
 
 export interface OperationConfig {

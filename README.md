@@ -70,6 +70,20 @@ and `claude-haiku-4-5` (low). Generated GitHub Actions workflows switch from
 the Codex Action to the Claude Code Action; rerun `pullops setup github-actions`
 after changing the Runner Command so the workflows match.
 
+To run any other agent CLI locally, set `runner.argsTemplate`. PullOps
+substitutes `{model}` and `{prompt}` placeholders, appends the prompt as the
+final argument when no `{prompt}` placeholder is used, and reads the final
+message from stdout:
+
+```js
+export default {
+  runner: {
+    command: 'my-agent chat',
+    argsTemplate: ['--model', '{model}', '--message', '{prompt}'],
+  },
+};
+```
+
 ## Remember One Thing
 
 After setup, when you are not sure what to do next, ask your local agent to run

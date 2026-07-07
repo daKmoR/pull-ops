@@ -8,6 +8,7 @@ export interface RunnerConfig {
   adapter: RunnerAdapter;
   command: string;
   models: Record<ModelTier, string>;
+  argsTemplate?: string[];
 }
 
 export interface IssueStoreConfig {
@@ -63,6 +64,7 @@ export interface UserRunnerConfig {
   adapter?: unknown;
   command?: unknown;
   models?: unknown;
+  argsTemplate?: unknown;
 }
 
 export interface UserOperationConfig {

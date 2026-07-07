@@ -239,6 +239,77 @@ describe('createRunner', () => {
     assert.deepEqual(calls[0].args, ['-p', '--model', 'claude-sonnet-5', 'Review PR #2']);
   });
 
+  it('06b: runs arbitrary agent CLIs through the configured args template', async () => {
+    /** @type {string[]} */
+    const traces = [];
+    /** @type {Array<{ file: string, args: string[], options: unknown }>} */
+    const calls = [];
+    const runner = createRunner({
+      traceCommand(command) {
+        traces.push(command);
+      },
+      spawn: (file, args, options) => {
+        calls.push({ file, args, options });
+        const child = createFakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout.write('{"status":"implemented"}\n');
+          child.emit('close', 0, null);
+        });
+        return child;
+      },
+    });
+
+    const result = await runner.run({
+      cwd: '/repo',
+      command: 'my-agent chat',
+      argsTemplate: ['--model', '{model}', '--message', '{prompt}'],
+      model: 'agent-large',
+      prompt: 'Implement issue #1',
+    });
+
+    assert.equal(result, '{"status":"implemented"}\n');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].file, 'my-agent');
+    assert.deepEqual(calls[0].args, [
+      'chat',
+      '--model',
+      'agent-large',
+      '--message',
+      'Implement issue #1',
+    ]);
+    assert.deepEqual(calls[0].options, {
+      cwd: '/repo',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+    assert.deepEqual(traces, ['my-agent chat --model agent-large --message <prompt>']);
+  });
+
+  it('06c: appends the prompt as the final argument when the template has no prompt placeholder', async () => {
+    /** @type {Array<{ args: string[] }>} */
+    const calls = [];
+    const runner = createRunner({
+      spawn: (file, args) => {
+        calls.push({ args });
+        const child = createFakeChildProcess();
+        queueMicrotask(() => {
+          child.emit('close', 0, null);
+        });
+        return child;
+      },
+    });
+
+    await runner.run({
+      cwd: '/repo',
+      command: 'my-agent',
+      argsTemplate: ['run', '--model={model}'],
+      model: 'agent-small',
+      prompt: 'Review PR #2',
+    });
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].args, ['run', '--model=agent-small', 'Review PR #2']);
+  });
+
   it('07: rejects failed claude runner commands with a Claude runner reason', async () => {
     const runner = createRunner({
       output: createWritableBuffer(),

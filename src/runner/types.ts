@@ -71,6 +71,7 @@ export interface RunnerRunOptions {
   command: string;
   model: string;
   prompt: string;
+  argsTemplate?: string[];
   streamOutput?: boolean;
   env?: NodeJS.ProcessEnv;
 }

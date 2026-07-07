@@ -106,6 +106,7 @@ describe('runOperationRunnerStep', () => {
       {
         cwd: context.cwd,
         command: 'codex',
+        argsTemplate: undefined,
         model: 'gpt-5-codex',
         prompt: 'Do the operation.',
       },
@@ -132,6 +133,7 @@ describe('runOperationRunnerStep', () => {
       {
         cwd: context.cwd,
         command: 'codex',
+        argsTemplate: undefined,
         model: 'gpt-5-codex',
         prompt: 'Do the operation.',
         streamOutput: true,

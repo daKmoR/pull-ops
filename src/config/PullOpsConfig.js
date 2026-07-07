@@ -373,6 +373,9 @@ function mergeConfig(userConfig) {
     } else if (readRunnerCommandCli(config.runner.command) === 'claude') {
       config.runner.models = { ...CLAUDE_RUNNER_MODEL_DEFAULTS };
     }
+    if (runner.argsTemplate !== undefined) {
+      config.runner.argsTemplate = requireStringArray(runner.argsTemplate, 'runner.argsTemplate');
+    }
   }
 
   const runBudget = userConfig.runBudget;
@@ -404,6 +407,24 @@ function mergeConfig(userConfig) {
   }
 
   return config;
+}
+
+/**
+ * @param {unknown} value
+ * @param {string} path
+ * @returns {string[]}
+ */
+function requireStringArray(value, path) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some(item => typeof item !== 'string' || item.trim() === '')
+  ) {
+    throw new PullOpsConfigError(
+      `PullOps Config ${path} must be a non-empty array of non-empty strings.`,
+    );
+  }
+  return /** @type {string[]} */ ([...value]);
 }
 
 /**

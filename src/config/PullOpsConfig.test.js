@@ -233,6 +233,43 @@ test('loadPullOpsConfig keeps configured models for claude Runner Commands', asy
   });
 });
 
+test('loadPullOpsConfig accepts a runner args template and rejects invalid ones', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-config-args-template-'));
+  await writeFile(
+    join(cwd, 'pullops.config.js'),
+    `
+      export default {
+        runner: {
+          command: 'my-agent chat',
+          argsTemplate: ['--model', '{model}', '--message', '{prompt}'],
+        },
+      };
+    `,
+  );
+
+  const config = await loadPullOpsConfig({ cwd });
+
+  assert.deepEqual(config.runner.argsTemplate, ['--model', '{model}', '--message', '{prompt}']);
+  assert.equal(DEFAULT_PULL_OPS_CONFIG.runner.argsTemplate, undefined);
+
+  const invalidCwd = await mkdtemp(join(tmpdir(), 'pullops-config-args-template-invalid-'));
+  await writeFile(
+    join(invalidCwd, 'pullops.config.js'),
+    `
+      export default {
+        runner: {
+          argsTemplate: ['--model', ''],
+        },
+      };
+    `,
+  );
+
+  await assert.rejects(
+    loadPullOpsConfig({ cwd: invalidCwd }),
+    /runner\.argsTemplate must be a non-empty array of non-empty strings/,
+  );
+});
+
 test('loadPullOpsConfig defaults and overrides the Run Budget', async () => {
   assert.deepEqual(DEFAULT_PULL_OPS_CONFIG.runBudget, {
     maxUsedTokens: 2_000_000,

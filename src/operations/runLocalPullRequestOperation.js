@@ -117,6 +117,7 @@ export async function runLocalRunnerStep(
   const rawOutput = await context.runner.run({
     cwd: context.cwd,
     command: context.config.runner.command,
+    argsTemplate: context.config.runner.argsTemplate,
     model: context.model,
     prompt,
     streamOutput: context.suppressRunnerOutput !== true,

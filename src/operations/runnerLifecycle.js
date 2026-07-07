@@ -32,6 +32,7 @@ export async function runOperationRunnerStep(context, createOperation) {
     rawOutput = await context.runner.run({
       cwd: context.cwd,
       command: context.config.runner.command,
+      argsTemplate: context.config.runner.argsTemplate,
       model: operation.model,
       prompt: operation.prompt,
       ...(operation.runOptions?.streamOutput === undefined

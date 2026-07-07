@@ -30,6 +30,10 @@ export function createRunner({ spawn = nodeSpawn, output, traceCommand } = {}) {
      * @returns {Promise<string>}
      */
     async run(options) {
+      if (options.argsTemplate !== undefined) {
+        return await runTemplatedCommand({ spawn, output, traceCommand }, options);
+      }
+
       if (readRunnerCommandCli(options.command) === 'claude') {
         return await runClaudeCommand({ spawn, output, traceCommand }, options);
       }
@@ -37,6 +41,56 @@ export function createRunner({ spawn = nodeSpawn, output, traceCommand } = {}) {
       return await runCodexCommand({ spawn, output, traceCommand }, options);
     },
   };
+}
+
+/**
+ * Run an arbitrary agent CLI through the configured runner.argsTemplate:
+ * substitute {model} and {prompt} placeholders, append the prompt as the
+ * final positional argument when no {prompt} placeholder is used, rely on
+ * the spawn working directory, and read the final message from stdout.
+ *
+ * @param {{ spawn: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} runner
+ * @param {RunnerRunOptions} options
+ * @returns {Promise<string>}
+ */
+async function runTemplatedCommand(
+  { spawn, output, traceCommand },
+  { cwd, command, model, prompt, argsTemplate = [], streamOutput = true, env },
+) {
+  const runnerCommand = parseRunnerCommand(command);
+  const hasPromptPlaceholder = argsTemplate.some(arg => arg.includes('{prompt}'));
+  const substituteArg = (/** @type {string} */ arg) =>
+    arg.replaceAll('{model}', model).replaceAll('{prompt}', prompt);
+  const args = [
+    ...runnerCommand.args,
+    ...argsTemplate.map(substituteArg),
+    ...(hasPromptPlaceholder ? [] : [prompt]),
+  ];
+  const displayArgs = [
+    ...runnerCommand.args,
+    ...argsTemplate.map(arg =>
+      arg.includes('{prompt}') ? '<prompt>' : arg.replaceAll('{model}', model),
+    ),
+    ...(hasPromptPlaceholder ? [] : ['<prompt>']),
+  ];
+  traceCommand?.(
+    [
+      runnerCommand.file,
+      ...displayArgs.map(arg => (arg === '<prompt>' ? arg : quoteCommandPart(arg))),
+    ].join(' '),
+  );
+
+  const result = await runStreamingProcess({
+    spawn,
+    file: runnerCommand.file,
+    args,
+    cwd,
+    env,
+    output: streamOutput ? output : undefined,
+    cliDisplayName: 'Runner',
+  });
+
+  return result.stdout;
 }
 
 /**
