@@ -81,6 +81,47 @@ describe('transitionPolicy graph', () => {
     assert.deepEqual(getBlockedManagedPrFollowUpOperations('pr-fix-ci'), ['pr-review']);
     assert.deepEqual(getBlockedManagedPrFollowUpOperations('pr-review'), []);
   });
+
+  it('07: exhaustively resolves every edge and blocked follow-up to a terminal or known operation', () => {
+    // Probe every edge with routing states that drive any state predicate down
+    // both branches: a fresh workflow, and one whose last operation finalized
+    // the PR (the true branch of the pr-review approved predicate).
+    /** @type {(import('./transitionPolicy.types.js').ManagedPrRoutingState | undefined)[]} */
+    const routingStates = [
+      undefined,
+      { lastOperation: requireOperationCatalogOperationLabelName('pr-finalize') },
+    ];
+
+    for (const operation of MANAGED_PR_OPERATION_NAMES) {
+      for (const outcomeKind of getAllowedManagedPrOutcomeKinds(operation)) {
+        /** @type {Set<string | undefined>} */
+        const resolutions = new Set();
+        for (const state of routingStates) {
+          const next = getNextManagedPrOperation({ operation, outcomeKind, state });
+          assert.ok(
+            next === undefined || MANAGED_PR_OPERATION_NAMES.includes(next),
+            `${operation} + ${outcomeKind} with state ${JSON.stringify(state)} routed to unknown operation ${next}.`,
+          );
+          resolutions.add(next);
+        }
+
+        if (operation === 'pr-review' && outcomeKind === 'approved') {
+          assert.equal(
+            resolutions.size,
+            2,
+            'the pr-review approved predicate must resolve both branches across the probed states.',
+          );
+        }
+      }
+
+      for (const followUp of getBlockedManagedPrFollowUpOperations(operation)) {
+        assert.ok(
+          MANAGED_PR_OPERATION_NAMES.includes(followUp),
+          `${operation} blocked follow-up ${followUp} is not a workflow operation.`,
+        );
+      }
+    }
+  });
 });
 
 describe('chooseNextManagedPrOperationFromState', () => {
