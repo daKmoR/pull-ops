@@ -231,7 +231,7 @@ describe('runPrReview', () => {
     const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
     assert.match(prompt, /ensure the checkout .* is on branch `pullops\/issue-42`/);
     assert.match(prompt, /Use the pullops-pr-review skill/);
-    assert.match(prompt, /Review PullOps-managed PR #100/);
+    assert.match(prompt, /Goal: review PullOps-managed PR #100/);
     const runnerJob = /** @type {any} */ (result.runnerJob);
     assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
     assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));

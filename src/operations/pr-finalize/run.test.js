@@ -758,7 +758,7 @@ describe('runPrFinalize', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(codex.calls.length, 1);
-    assert.match(codex.calls[0].prompt, /Plan ambiguous PR Finalize history grouping/);
+    assert.match(codex.calls[0].prompt, /Goal: propose the Logical Commit Stack for PR #/);
     assert.match(codex.calls[0].prompt, /Do not edit files, run commands, create commits/);
     assert.doesNotMatch(codex.calls[0].prompt, /"pullRequest"/);
     assert.match(github.comments[0].body, /<summary>PullOps operation audit<\/summary>/);
@@ -803,7 +803,7 @@ describe('runPrFinalize', () => {
     assert.equal(result.status, 'waiting');
     assert.equal(codex.calls.length, 0);
     const prompt = await readFile(join(outputDirectory, 'runner_prompt.md'), 'utf8');
-    assert.match(prompt, /Plan ambiguous PR Finalize history grouping/);
+    assert.match(prompt, /Goal: propose the Logical Commit Stack for PR #/);
     const runnerJob = /** @type {any} */ (result.runnerJob);
     assert.equal(runnerJob.promptFile, join(outputDirectory, 'runner_prompt.md'));
     assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));

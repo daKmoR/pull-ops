@@ -839,7 +839,7 @@ describe('runPrdAutoComplete', () => {
     assert.equal(result.mode, 'auto-complete');
     assert.equal(result.publicationMode, 'publish');
     assert.equal(fakeRunner.calls.length, 1);
-    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.match(fakeRunner.calls[0].prompt, /Goal: review PullOps-managed PR #200/);
     assert.deepEqual(github.mergedPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
@@ -1040,7 +1040,7 @@ describe('runPrdAutoComplete', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(fakeRunner.calls.length, 1);
-    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.match(fakeRunner.calls[0].prompt, /Goal: review PullOps-managed PR #200/);
     assert.equal(readParentPullRequest(result)?.status, 'waiting');
     assert.deepEqual(github.pullRequestLabelsAdded, []);
     assert.deepEqual(result.localNextSteps, [
@@ -1716,7 +1716,7 @@ describe('runPrdAutoComplete', () => {
     );
     assert.equal(fakeRunner.calls.length, 2);
     assert.match(fakeRunner.calls[0].prompt, /Use the pullops-pr-review skill/);
-    assert.match(fakeRunner.calls[1].prompt, /Review PullOps-managed PR #200/);
+    assert.match(fakeRunner.calls[1].prompt, /Goal: review PullOps-managed PR #200/);
     assert.deepEqual(github.createdPullRequests, []);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
@@ -1794,7 +1794,7 @@ describe('runPrdAutoComplete', () => {
     assert.match(fakeRunner.calls[0].prompt, /Use the pullops-issue-implement skill/);
     assert.match(fakeRunner.calls[1].prompt, /Use the pullops-pr-review skill/);
     assert.match(fakeRunner.calls[2].prompt, /Use the pullops-pr-finalize skill/);
-    assert.match(fakeRunner.calls[3].prompt, /Review PullOps-managed PR #301/);
+    assert.match(fakeRunner.calls[3].prompt, /Goal: review PullOps-managed PR #301/);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [302]);
     assert.deepEqual(
@@ -1880,7 +1880,7 @@ describe('runPrdAutoComplete', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(fakeRunner.calls.length, 1);
-    assert.match(fakeRunner.calls[0].prompt, /Review PullOps-managed PR #200/);
+    assert.match(fakeRunner.calls[0].prompt, /Goal: review PullOps-managed PR #200/);
     assert.deepEqual(github.closedIssues, [34]);
     assert.deepEqual(github.closedPullRequests, [101]);
     assert.deepEqual(github.mergedPullRequests, []);
