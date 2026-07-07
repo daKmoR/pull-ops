@@ -6,8 +6,16 @@ import {
   getOperationCatalogOperationLabelNamesForTarget,
   requireOperationCatalogOperationLabelName,
 } from '../operations/operationCatalog.js';
+import {
+  MANAGED_PR_OPERATION_NAMES,
+  chooseNextManagedPrOperationFromState,
+  getBlockedManagedPrFollowUpOperations,
+  getNextManagedPrOperation,
+  validateManagedPrOutcome,
+} from './transitionPolicy.js';
 
 /**
+ * @typedef {import('./transitionPolicy.types.js').ManagedPrOperationName} ManagedPrOperationName
  * @typedef {import('./ManagedPrState.types.js').ApplyManagedPrTransitionOptions} ApplyManagedPrTransitionOptions
  * @typedef {import('./ManagedPrState.types.js').InternalTransition} InternalTransition
  * @typedef {import('./ManagedPrState.types.js').ManagedPrState} ManagedPrState
@@ -32,15 +40,13 @@ export const DEFAULT_MAX_ESCALATION_REVIEW_CYCLES = 1;
 // cycle that did real work.
 const CLEARED_LAST_CYCLE_TREE_HASH = 'none';
 
+/** @type {ReadonlyMap<string, ManagedPrOperationName>} */
+const PR_OPERATION_NAME_BY_LABEL = new Map(
+  MANAGED_PR_OPERATION_NAMES.map(name => [requireOperationCatalogOperationLabelName(name), name]),
+);
+
 /** @type {ReadonlySet<string>} */
-const PR_OPERATION_LABELS = new Set([
-  requireOperationCatalogOperationLabelName('pr-review'),
-  requireOperationCatalogOperationLabelName('pr-address-review'),
-  requireOperationCatalogOperationLabelName('pr-fix-ci'),
-  requireOperationCatalogOperationLabelName('pr-update-branch'),
-  requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
-  requireOperationCatalogOperationLabelName('pr-finalize'),
-]);
+const PR_OPERATION_LABELS = new Set(PR_OPERATION_NAME_BY_LABEL.keys());
 
 /** @type {ReadonlySet<string>} */
 const ACTIVE_PULL_OPS_PR_LABELS = new Set([
@@ -728,7 +734,7 @@ export async function refusePrOperationTarget({
  * @returns {InternalTransition}
  */
 function createTransition({ body, operation, outcome, state }) {
-  validateOperationOutcome(operation, outcome);
+  validateManagedPrOutcome(requirePrOperationName(operation), outcome.kind);
 
   if (outcome.kind === 'blocked') {
     return createBlockedTransition({
@@ -753,6 +759,7 @@ function createTransition({ body, operation, outcome, state }) {
       throw new Error(`${outcome.kind} is not a valid ${operation} PullOps-Managed PR outcome.`);
     }
 
+    const nextOperationLabel = readNextOperationLabel('pr-address-review', outcome, state);
     return {
       body: updateManagedPrState({
         body,
@@ -768,13 +775,10 @@ function createTransition({ body, operation, outcome, state }) {
         lastCycleTreeHash: CLEARED_LAST_CYCLE_TREE_HASH,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(
-        operation,
-        requireOperationCatalogOperationLabelName('pr-review'),
-      ),
-      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
+      removeLabels: labelsForSuccessfulOperation(operation, nextOperationLabel),
+      addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
+      ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
     };
   }
 
@@ -787,6 +791,7 @@ function createTransition({ body, operation, outcome, state }) {
   }
 
   if (operation === requireOperationCatalogOperationLabelName('pr-resolve-conflicts')) {
+    const nextOperationLabel = readNextOperationLabel('pr-resolve-conflicts', outcome, state);
     return {
       body: updateManagedPrState({
         body,
@@ -794,13 +799,10 @@ function createTransition({ body, operation, outcome, state }) {
         removeMergePreparationMarkers: true,
         lastOperation: operation,
       }),
-      removeLabels: labelsForSuccessfulOperation(
-        operation,
-        requireOperationCatalogOperationLabelName('pr-review'),
-      ),
-      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
+      removeLabels: labelsForSuccessfulOperation(operation, nextOperationLabel),
+      addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
+      ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
     };
   }
 
@@ -821,8 +823,8 @@ function createPrReviewTransition({ body, outcome, state }) {
   );
 
   if (outcome.kind === 'approved') {
-    const finalizedReview =
-      state.lastOperation === requireOperationCatalogOperationLabelName('pr-finalize');
+    const nextOperationLabel = readNextOperationLabel('pr-review', outcome, state);
+    const finalizedReview = nextOperationLabel === undefined;
     return {
       body: updateManagedPrState({
         body,
@@ -838,15 +840,11 @@ function createPrReviewTransition({ body, outcome, state }) {
       }),
       removeLabels: labelsForSuccessfulOperation(
         requireOperationCatalogOperationLabelName('pr-review'),
-        finalizedReview ? undefined : requireOperationCatalogOperationLabelName('pr-finalize'),
+        nextOperationLabel,
       ),
-      addLabelsAfterRemove: finalizedReview
-        ? []
-        : [requireOperationCatalogOperationLabelName('pr-finalize')],
+      addLabelsAfterRemove: finalizedReview ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
-      ...(finalizedReview
-        ? {}
-        : { nextOperationLabel: requireOperationCatalogOperationLabelName('pr-finalize') }),
+      ...(finalizedReview ? {} : { nextOperationLabel }),
     };
   }
 
@@ -856,6 +854,7 @@ function createPrReviewTransition({ body, outcome, state }) {
     );
   }
 
+  const nextOperationLabel = readNextOperationLabel('pr-review', outcome, state);
   return {
     body: updateManagedPrState({
       body,
@@ -870,11 +869,11 @@ function createPrReviewTransition({ body, outcome, state }) {
     }),
     removeLabels: labelsForSuccessfulOperation(
       requireOperationCatalogOperationLabelName('pr-review'),
-      requireOperationCatalogOperationLabelName('pr-address-review'),
+      nextOperationLabel,
     ),
-    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-address-review')],
+    addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
     addLabelsBeforeRemove: [],
-    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-address-review'),
+    ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
   };
 }
 
@@ -883,15 +882,17 @@ function createPrReviewTransition({ body, outcome, state }) {
  * @returns {InternalTransition}
  */
 function createPrFixCiTransition({ body, outcome }) {
+  const nextOperationLabel = readNextOperationLabel('pr-fix-ci', outcome);
+
   if (outcome.kind === 'no-failed-checks') {
     return {
       removeLabels: labelsForSuccessfulOperation(
         requireOperationCatalogOperationLabelName('pr-fix-ci'),
-        requireOperationCatalogOperationLabelName('pr-review'),
+        nextOperationLabel,
       ),
-      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
+      addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
-      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
+      ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
     };
   }
 
@@ -917,11 +918,11 @@ function createPrFixCiTransition({ body, outcome }) {
     }),
     removeLabels: labelsForSuccessfulOperation(
       requireOperationCatalogOperationLabelName('pr-fix-ci'),
-      requireOperationCatalogOperationLabelName('pr-review'),
+      nextOperationLabel,
     ),
-    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
+    addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
     addLabelsBeforeRemove: [],
-    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
+    ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
   };
 }
 
@@ -930,6 +931,8 @@ function createPrFixCiTransition({ body, outcome }) {
  * @returns {InternalTransition}
  */
 function createPrUpdateBranchTransition({ body, outcome }) {
+  const nextOperationLabel = readNextOperationLabel('pr-update-branch', outcome);
+
   if (outcome.kind === 'conflicts-found') {
     return {
       body: updateManagedPrState({
@@ -940,18 +943,18 @@ function createPrUpdateBranchTransition({ body, outcome }) {
       }),
       removeLabels: labelsForSuccessfulOperation(
         requireOperationCatalogOperationLabelName('pr-update-branch'),
-        requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
+        nextOperationLabel,
       ),
-      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-resolve-conflicts')],
+      addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
       commentBody: [
         'PullOps could not complete `pullops run pr-update-branch` without conflicts.',
         '',
         `Base branch: ${outcome.baseBranch}`,
         `Conflicted files: ${formatList(outcome.conflictedFiles)}`,
-        `Next operation: ${requireOperationCatalogOperationLabelName('pr-resolve-conflicts')}`,
+        `Next operation: ${nextOperationLabel}`,
       ].join('\n'),
-      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-resolve-conflicts'),
+      ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
     };
   }
 
@@ -981,6 +984,8 @@ function createPrUpdateBranchTransition({ body, outcome }) {
  * @returns {InternalTransition}
  */
 function createPrFinalizeTransition({ body, outcome }) {
+  const nextOperationLabel = readNextOperationLabel('pr-finalize', outcome);
+
   if (outcome.kind === 'ready') {
     return {
       body: updateManagedPrState({
@@ -1010,16 +1015,16 @@ function createPrFinalizeTransition({ body, outcome }) {
       failureReason: outcome.reason,
       removeLabels: labelsForSuccessfulOperation(
         requireOperationCatalogOperationLabelName('pr-finalize'),
-        requireOperationCatalogOperationLabelName('pr-review'),
+        nextOperationLabel,
       ),
-      addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-review')],
+      addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
       addLabelsBeforeRemove: [],
       commentBody: [
         'PullOps routed `pullops run pr-finalize` back to review.',
         '',
         `Reason: ${outcome.reason}`,
       ].join('\n'),
-      nextOperationLabel: requireOperationCatalogOperationLabelName('pr-review'),
+      ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
     };
   }
 
@@ -1033,16 +1038,16 @@ function createPrFinalizeTransition({ body, outcome }) {
     failureReason: outcome.reason,
     removeLabels: labelsForSuccessfulOperation(
       requireOperationCatalogOperationLabelName('pr-finalize'),
-      requireOperationCatalogOperationLabelName('pr-fix-ci'),
+      nextOperationLabel,
     ),
-    addLabelsAfterRemove: [requireOperationCatalogOperationLabelName('pr-fix-ci')],
+    addLabelsAfterRemove: nextOperationLabel === undefined ? [] : [nextOperationLabel],
     addLabelsBeforeRemove: [],
     commentBody: [
       'PullOps routed `pullops run pr-finalize` to CI repair.',
       '',
       `Reason: ${outcome.reason}`,
     ].join('\n'),
-    nextOperationLabel: requireOperationCatalogOperationLabelName('pr-fix-ci'),
+    ...(nextOperationLabel === undefined ? {} : { nextOperationLabel }),
   };
 }
 
@@ -1239,42 +1244,35 @@ function assertPrOperation(operation) {
 
 /**
  * @param {string} operation
- * @param {ManagedPrTransitionOutcome} outcome
- * @returns {void}
+ * @returns {ManagedPrOperationName}
  */
-function validateOperationOutcome(operation, outcome) {
-  const allowed = getAllowedOutcomes(operation);
-  if (!allowed.includes(outcome.kind)) {
-    throw new Error(`${outcome.kind} is not a valid ${operation} PullOps-Managed PR outcome.`);
+function requirePrOperationName(operation) {
+  const operationName = PR_OPERATION_NAME_BY_LABEL.get(operation);
+  if (operationName === undefined) {
+    throw new Error(`${operation} is not a PullOps PR Operation Label.`);
   }
+
+  return operationName;
 }
 
 /**
- * @param {string} operation
- * @returns {string[]}
+ * Resolve the next Operation Label for one transition through the
+ * PullOps-Managed PR Transition graph.
+ *
+ * @param {ManagedPrOperationName} operation
+ * @param {ManagedPrTransitionOutcome} outcome
+ * @param {ManagedPrState} [state]
+ * @returns {string | undefined}
  */
-function getAllowedOutcomes(operation) {
-  if (operation === requireOperationCatalogOperationLabelName('pr-review')) {
-    return ['approved', 'changes-requested', 'blocked'];
-  }
-
-  if (operation === requireOperationCatalogOperationLabelName('pr-address-review')) {
-    return ['addressed', 'blocked'];
-  }
-
-  if (operation === requireOperationCatalogOperationLabelName('pr-fix-ci')) {
-    return ['fixed', 'no-failed-checks', 'blocked'];
-  }
-
-  if (operation === requireOperationCatalogOperationLabelName('pr-update-branch')) {
-    return ['updated', 'conflicts-found', 'blocked'];
-  }
-
-  if (operation === requireOperationCatalogOperationLabelName('pr-resolve-conflicts')) {
-    return ['resolved', 'blocked'];
-  }
-
-  return ['ready', 'route-to-review', 'route-to-ci-fix', 'blocked'];
+function readNextOperationLabel(operation, outcome, state) {
+  const nextOperation = getNextManagedPrOperation({
+    operation,
+    outcomeKind: outcome.kind,
+    state,
+  });
+  return nextOperation === undefined
+    ? undefined
+    : requireOperationCatalogOperationLabelName(nextOperation);
 }
 
 /**
@@ -1282,30 +1280,18 @@ function getAllowedOutcomes(operation) {
  * @returns {string | undefined}
  */
 function chooseNextManagedPrOperation({ body, state }) {
-  const status = state.status ?? readPullOpsStateMarker(body).status;
-
   if (isFinalizedForRebase(state)) {
     return undefined;
   }
 
-  if (state.reviewedTreeHash !== undefined || status === 'Review approved') {
-    return requireOperationCatalogOperationLabelName('pr-finalize');
-  }
-
-  if (status === 'Changes requested') {
-    return requireOperationCatalogOperationLabelName('pr-address-review');
-  }
-
-  if (
-    status === 'Review feedback addressed' ||
-    status === 'Draft automation' ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('issue-implement') ||
-    state.lastOperation === requireOperationCatalogOperationLabelName('pr-address-review')
-  ) {
-    return requireOperationCatalogOperationLabelName('pr-review');
-  }
-
-  return undefined;
+  const nextOperation = chooseNextManagedPrOperationFromState({
+    state,
+    status: state.status ?? readPullOpsStateMarker(body).status,
+    profile: 'resume',
+  });
+  return nextOperation === undefined
+    ? undefined
+    : requireOperationCatalogOperationLabelName(nextOperation);
 }
 
 /**
@@ -1349,14 +1335,14 @@ function labelsForBlockedOperation(operation) {
  * @returns {string[]}
  */
 function extraBlockedLabels(operation) {
-  if (
-    operation === requireOperationCatalogOperationLabelName('pr-address-review') ||
-    operation === requireOperationCatalogOperationLabelName('pr-fix-ci')
-  ) {
-    return [requireOperationCatalogOperationLabelName('pr-review')];
+  const operationName = PR_OPERATION_NAME_BY_LABEL.get(operation);
+  if (operationName === undefined) {
+    return [];
   }
 
-  return [];
+  return getBlockedManagedPrFollowUpOperations(operationName).map(name =>
+    requireOperationCatalogOperationLabelName(name),
+  );
 }
 
 /**
