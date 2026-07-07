@@ -15,3 +15,8 @@ current process.
 If a setup command exits nonzero but prints JSON, read the JSON before treating
 the command as a tool failure; incomplete setup is reported through structured
 blockers and warnings.
+
+If `npm exec` fails with `ENOENT` under the cache's `_npx` directory
+(`Could not read package.json: ... _npx/<hash>/package.json`), that npx cache
+entry is corrupted. Remove the named `_npx/<hash>` directory and rerun the
+command; do not clear the whole cache.

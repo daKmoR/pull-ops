@@ -26,6 +26,12 @@ export interface ExternalRunnerJob {
   outputFile: string;
   resultFile: string;
   workerPrompt: string;
+  /**
+   * PULLOPS_-prefixed liveness environment for the hidden worker, read from
+   * the run record's Local Run State. Hosts that spawn worker processes
+   * should export it; the same entries are embedded in the worker prompt.
+   */
+  heartbeatEnvironment?: Record<string, string>;
   model: string;
   branch: string;
   completionCommands: Record<RunnerResultStatus, ExternalRunnerCommand>;

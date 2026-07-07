@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { initializeLocalRunState } from '../local-run-state/localRunState.js';
 import {
   executeOperationPhase,
   finalizeOperationRunnerStep,
@@ -195,6 +196,8 @@ describe('prepareOperationRunnerStep', () => {
     const workerPrompt = await readFile(/** @type {string} */ (runnerJob.promptFile), 'utf8');
     assert.match(workerPrompt, /Do the operation\./);
     assert.match(workerPrompt, /git checkout pullops\/pr-7/);
+    assert.doesNotMatch(workerPrompt, /PULLOPS_RUN_STATE_PATH/);
+    assert.equal(runnerJob.heartbeatEnvironment, undefined);
   });
 
   it('03: records a prompt write failure before rethrowing it', async () => {
@@ -214,6 +217,35 @@ describe('prepareOperationRunnerStep', () => {
     );
 
     assert.equal(recorded.length, 1);
+  });
+
+  it('04: shares the run heartbeat environment with the hidden worker', async () => {
+    const context = await createContext();
+    const stateRecord = await initializeLocalRunState({
+      runRecordDirectory: /** @type {string} */ (context.outputDirectory),
+      operationReference: 'pr:review',
+      target: { type: 'pr', number: 7 },
+      publicationMode: 'publish',
+    });
+
+    const output = await prepareOperationRunnerStep(context, async () => createRunnerStep());
+
+    const runnerJob = /** @type {Record<string, unknown>} */ (output.runnerJob);
+    const heartbeatEnvironment = /** @type {Record<string, string>} */ (
+      runnerJob.heartbeatEnvironment
+    );
+    assert.equal(
+      heartbeatEnvironment.PULLOPS_RUN_STATE_PATH,
+      stateRecord.heartbeatEnvironment.PULLOPS_RUN_STATE_PATH,
+    );
+    assert.equal(heartbeatEnvironment.PULLOPS_HEARTBEAT_TOKEN, stateRecord.state.heartbeatToken);
+    assert.equal(heartbeatEnvironment.npm_config_cache, undefined);
+    const workerPrompt = await readFile(/** @type {string} */ (runnerJob.promptFile), 'utf8');
+    assert.match(workerPrompt, /pullops step.*pullops heartbeat.*command with this environment/);
+    assert.match(
+      workerPrompt,
+      new RegExp(`PULLOPS_HEARTBEAT_TOKEN=${stateRecord.state.heartbeatToken}`),
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
+import { readLocalRunStateRecordFromDirectory } from '../local-run-state/localRunState.js';
 import { readRunnerResult, RUNNER_RESULT_FILE } from '../runner/runnerResult.js';
 
 export const EXTERNAL_RUNNER_PROMPT_FILE = 'runner_prompt.md';
@@ -19,23 +20,32 @@ export const SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV =
  * @param {OperationRunnerContext} context
  * @param {string} prompt
  * @param {{ branch?: string }} [options]
- * @returns {Promise<{ promptFile: string, outputFile: string, resultFile: string, workerPrompt: string }>}
+ * @returns {Promise<{
+ *   promptFile: string,
+ *   outputFile: string,
+ *   resultFile: string,
+ *   workerPrompt: string,
+ *   heartbeatEnvironment?: Record<string, string>,
+ * }>}
  */
 export async function writeExternalRunnerPrompt(context, prompt, options = {}) {
   const outputDirectory = requireOutputDirectory(context);
   await mkdir(outputDirectory, { recursive: true });
 
   const files = getExternalRunnerFiles(context);
+  const heartbeatEnvironment = await readWorkerHeartbeatEnvironment(outputDirectory);
   const workerPrompt = buildExternalRunnerWorkerPrompt({
     prompt,
     files,
     cwd: resolve(context.cwd),
     branch: options.branch,
+    heartbeatEnvironment,
   });
   await writeFile(files.promptFile, workerPrompt);
   return {
     ...files,
     workerPrompt,
+    ...(heartbeatEnvironment === undefined ? {} : { heartbeatEnvironment }),
   };
 }
 
@@ -123,6 +133,7 @@ async function didExternalRunnerPrepareRunner(context) {
  *   outputFile: string,
  *   resultFile: string,
  *   workerPrompt: string,
+ *   heartbeatEnvironment?: Record<string, string>,
  * }} files
  * @param {{ model: string, branch: string }} options
  * @returns {ExternalRunnerJob}
@@ -135,6 +146,9 @@ export function createExternalRunnerJob(context, files, { model, branch }) {
     outputFile: files.outputFile,
     resultFile: files.resultFile,
     workerPrompt: files.workerPrompt,
+    ...(files.heartbeatEnvironment === undefined
+      ? {}
+      : { heartbeatEnvironment: files.heartbeatEnvironment }),
     model,
     branch,
     completionCommands: /** @type {Record<RunnerResultStatus, ExternalRunnerCommand>} */ (
@@ -209,9 +223,10 @@ export function isSkippedExternalRunnerResult(error) {
  * @param {{ outputFile: string, resultFile: string }} options.files
  * @param {string} options.cwd
  * @param {string} [options.branch]
+ * @param {Record<string, string>} [options.heartbeatEnvironment]
  * @returns {string}
  */
-function buildExternalRunnerWorkerPrompt({ prompt, files, cwd, branch }) {
+function buildExternalRunnerWorkerPrompt({ prompt, files, cwd, branch, heartbeatEnvironment }) {
   return [
     'External runner artifact contract:',
     `- Write the final Operation Output JSON to ${files.outputFile}.`,
@@ -221,9 +236,43 @@ function buildExternalRunnerWorkerPrompt({ prompt, files, cwd, branch }) {
       : [
           `- Before editing files, ensure the checkout in ${cwd} is on branch \`${branch}\`; if needed, run \`git checkout ${branch}\`.`,
         ]),
+    ...(heartbeatEnvironment === undefined || Object.keys(heartbeatEnvironment).length === 0
+      ? []
+      : [
+          '- Run every `pullops step` and `pullops heartbeat` command with this environment so heartbeats reach this run:',
+          ...Object.entries(heartbeatEnvironment).map(([key, value]) => `  - ${key}=${value}`),
+        ]),
     '',
     prompt,
   ].join('\n');
+}
+
+/**
+ * The PullOps Heartbeat environment for the hidden worker, read from the run
+ * record's Local Run State. Only the PULLOPS_-prefixed liveness entries are
+ * shared; cache paths stay host-owned.
+ *
+ * @param {string} outputDirectory
+ * @returns {Promise<Record<string, string> | undefined>}
+ */
+async function readWorkerHeartbeatEnvironment(outputDirectory) {
+  let record;
+  try {
+    record = await readLocalRunStateRecordFromDirectory(outputDirectory);
+  } catch (error) {
+    if (isErrorWithCode(error, 'ENOENT')) {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record.heartbeatEnvironment).filter(
+      /** @returns {entry is [string, string]} */
+      entry => entry[0].startsWith('PULLOPS_') && typeof entry[1] === 'string',
+    ),
+  );
 }
 
 /**

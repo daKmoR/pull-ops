@@ -50,11 +50,24 @@ Before running any PullOps CLI command, read and follow
 4. Execute one external runner handoff at a time (this limit applies to runner
    handoffs only; read-only helper sub-agents for diagnosis or discovery may run
    alongside while the supervision loop stays with the operator):
-   - Spawn one hidden worker at a time through the Codex host using
-     `runnerJob.workerPrompt` in `runnerJob.cwd`. Do not invoke a nested
-     `codex exec` from the PullOps CLI.
+   - Spawn one hidden worker at a time through the session's agent host using
+     `runnerJob.workerPrompt` in `runnerJob.cwd`: a Codex hidden worker on the
+     Codex host, a background sub-agent on Claude Code, or the equivalent
+     host-native worker elsewhere. Do not invoke a nested `codex exec` from the
+     PullOps CLI. If the host denies spawning an external agent process, fall
+     back to the host-native sub-agent with the same worker prompt and
+     artifact contract; `runnerJob.model` is advisory and binds only hosts
+     that can select it.
+   - When the job carries `heartbeatEnvironment`, provide it to the worker
+     (export it for a worker process; the same entries are embedded in the
+     worker prompt for prompt-driven workers).
    - The worker writes only `runner_output.json` through the path named by
      `runnerJob.outputFile`. The manager owns `runner_result.json`.
+   - While the hidden worker runs, its PullOps Heartbeats land in the run
+     record's `state.json` (`heartbeatAt`, `heartbeatCount`,
+     `heartbeatSummary`, `leaseExpiresAt`). Watch those fields for worker
+     liveness during the handoff; if the lease expires without a fresh
+     heartbeat, reconcile before intervening.
    - Record success only when the hidden worker completed and
      `runnerJob.outputFile` exists with non-empty contents. Otherwise record
      `failed`, `cancelled`, or `skipped` according to the worker outcome.
@@ -114,3 +127,6 @@ Keep the final response operational:
   and remaining human step if any.
 - Name PullOps fixes made along the way and the tests that passed.
 - Mention any cleanup deliberately left alone because it belonged to the user.
+- Restore the branch recorded at Run step 1 when the worktree is clean and no
+  remaining human step needs the current checkout; otherwise say which branch
+  the checkout was left on and why.

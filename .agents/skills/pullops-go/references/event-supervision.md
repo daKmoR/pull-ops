@@ -68,6 +68,18 @@ to declare a healthy leased run stuck. Do not perform routine child `state.json`
 inspection during healthy work; durable child run-state reads are fallback and
 recovery tools.
 
+## Worker Liveness During a Handoff
+
+After the CLI exits at a `waiting` handoff, no parent event stream exists, so
+the healthy-run rules above about avoiding durable reads do not apply to the
+handed-off run. The hidden worker the manager spawned heartbeats into that run
+record's `state.json` (`heartbeatAt`, `heartbeatCount`, `heartbeatSummary`,
+`leaseExpiresAt`); watching those fields is the intended liveness channel for
+the manager's own worker, alongside waiting for `runner_output.json` to appear.
+Report coalesced heartbeat summaries as liveness, not implementation progress,
+and reconcile before intervening if the lease expires without a fresh
+heartbeat.
+
 ## Stall Classification
 
 Before intervention, record the stall facts in the run record when PullOps
