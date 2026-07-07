@@ -13,7 +13,7 @@ import {
   runOperationRunnerStep,
 } from '../runnerLifecycle.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
-import { getParentIssueNumber } from '../issueDependencies.js';
+import { createIssueSnapshot } from '../../issue-store/issueSnapshot.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { getWorkflowOperation } from '../operations.js';
 import { validateAddressReviewFeedbackCoverage } from '../pr-address-review/feedbackCoverage.js';
@@ -26,6 +26,8 @@ import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
   LOCAL_RUN_HEARTBEAT_COMMAND,
+} from '../../run-supervision/runSupervision.js';
+import {
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
   normalizeOperationReferenceForPath,
@@ -2042,7 +2044,7 @@ async function readUmbrellaPullRequestNumber(context, { parentIssueNumber, baseB
  */
 export function createIssueImplementCommitMessage(
   issue,
-  parentIssueNumber = getParentIssueNumber(issue),
+  parentIssueNumber = createIssueSnapshot(issue).parentIssueNumber,
 ) {
   const footers = [`Refs: #${issue.number}`];
   if (parentIssueNumber !== undefined) {

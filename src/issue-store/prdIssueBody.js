@@ -1,10 +1,13 @@
+import {
+  createPublicationAuditDetails,
+  createPublicationMarkerComment,
+  readPublicationMarker,
+} from './publicationMarker.js';
+
 /**
  * @typedef {import('./types.js').NormalizedPrdIssueRequest} NormalizedPrdIssueRequest
  * @typedef {import('./types.js').PrdIssuePublicationMarker} PrdIssuePublicationMarker
  */
-
-const PULL_OPS_PUBLICATION_MARKER_PREFIX = '<!-- PullOps publication marker: ';
-const PULL_OPS_PUBLICATION_MARKER_SUFFIX = ' -->';
 
 /**
  * @param {NormalizedPrdIssueRequest} request
@@ -61,76 +64,10 @@ export function createPrdIssueBody(request) {
  * @returns {PrdIssuePublicationMarker | undefined}
  */
 export function readPrdIssuePublicationMarker(body) {
-  const markerText = readPublicationMarkerText(body);
-  if (markerText === undefined) {
+  const marker = readPublicationMarker(body);
+  if (marker?.kind !== 'prd-issue') {
     return undefined;
   }
 
-  try {
-    const parsed = JSON.parse(markerText);
-    if (!isPrdIssuePublicationMarker(parsed)) {
-      return undefined;
-    }
-
-    return parsed;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * @param {PrdIssuePublicationMarker} marker
- * @returns {string}
- */
-function createPublicationMarkerComment(marker) {
-  return `${PULL_OPS_PUBLICATION_MARKER_PREFIX}${JSON.stringify(marker)}${PULL_OPS_PUBLICATION_MARKER_SUFFIX}`;
-}
-
-/**
- * @param {string[]} auditDetails
- * @returns {string}
- */
-function createPublicationAuditDetails(auditDetails) {
-  return [
-    '<details>',
-    '<summary>PullOps publication audit</summary>',
-    '',
-    ...auditDetails.map(detail => `- ${detail}`),
-    '',
-    '</details>',
-  ].join('\n');
-}
-
-/**
- * @param {string} body
- * @returns {string | undefined}
- */
-function readPublicationMarkerText(body) {
-  const pattern = /<!--\s*PullOps publication marker:\s*([\s\S]*?)\s*-->/i;
-  const match = body.match(pattern);
-  if (match?.[1] === undefined) {
-    return undefined;
-  }
-
-  return match[1].trim();
-}
-
-/**
- * @param {unknown} value
- * @returns {value is PrdIssuePublicationMarker}
- */
-function isPrdIssuePublicationMarker(value) {
-  if (!isPlainObject(value)) {
-    return false;
-  }
-
-  return value.schemaVersion === 1 && value.provider === 'github' && value.kind === 'prd-issue';
-}
-
-/**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  return marker;
 }

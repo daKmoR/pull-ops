@@ -22,7 +22,7 @@ import {
   createLocalPrdAutoCompleteParentWaitingEvent,
   createLocalPrdAutoCompletePhaseCompletedEvent,
 } from '../operations/prd-automation/eventStream.js';
-import { isIssueDone, parseIssueDependencies } from '../operations/issueDependencies.js';
+import { createIssueSnapshot } from '../issue-store/issueSnapshot.js';
 import {
   createPrdPreparePullRequestBodyForIssue,
   runPrdPrepare,
@@ -31,6 +31,8 @@ import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
   LOCAL_RUN_HEARTBEAT_COMMAND,
+} from '../run-supervision/runSupervision.js';
+import {
   createLocalRunLink,
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
@@ -39,9 +41,9 @@ import {
   recordLocalRunWaitingForRunner,
 } from '../local-run-state/localRunState.js';
 import {
-  createLocalPrdRunRecordLocation,
+  createRunRecordLocation,
   normalizeOperationReferenceForPath,
-} from './localRunRecord.js';
+} from '../local-run-record/localRunRecord.js';
 import { startPullOpsParentEventSink } from '../parent-event-sink/parentEventSink.js';
 import { isExternalRunnerWaitingOutput } from '../runner/externalRunnerHandoff.js';
 
@@ -1220,10 +1222,10 @@ async function createObservedLocalPrdChildRunLink(
     });
   }
 
-  const runRecordDirectory = createLocalPrdRunRecordLocation({
+  const runRecordDirectory = createRunRecordLocation({
     cwd: context.cwd,
     operationReference,
-    targetNumber: childIssue.number,
+    targetReference: childIssue.number,
     createdAt: recordedAt,
   }).directory;
   const stateRecord = await initializeLocalRunState({
@@ -1597,10 +1599,10 @@ async function coordinateLocalChildIssue(
   }
 
   const childRunStartedAt = new Date();
-  const childRunLocation = createLocalPrdRunRecordLocation({
+  const childRunLocation = createRunRecordLocation({
     cwd: context.cwd,
     operationReference: 'issue:implement',
-    targetNumber: childIssue.number,
+    targetReference: childIssue.number,
   });
   const childRunLink = createLocalRunLink({
     runRecordDirectory: childRunLocation.directory,
@@ -1929,7 +1931,7 @@ function blockedByLocalAutoCompletePhaseResult(childIssue, localBlocker) {
  * @returns {Promise<{ decision: ChildDependencyDecision, blockingDependencies: GitHubIssue[] }>}
  */
 async function readChildDependencyDecision(context, { issue, virtualCompletedIssueNumbers }) {
-  const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
+  const dependencyNumbers = createIssueSnapshot(issue).blockedBy;
   /** @type {number[]} */
   const satisfiedByClosedIssues = [];
   /** @type {number[]} */
@@ -1939,7 +1941,7 @@ async function readChildDependencyDecision(context, { issue, virtualCompletedIss
 
   for (const dependencyNumber of dependencyNumbers) {
     const dependency = await context.githubClient.getIssue(dependencyNumber);
-    if (isIssueDone(dependency)) {
+    if (createIssueSnapshot(dependency).isDone) {
       satisfiedByClosedIssues.push(dependencyNumber);
       continue;
     }
@@ -3052,13 +3054,13 @@ function readRecordProperty(output, key) {
  * @returns {Promise<GitHubIssue[]>}
  */
 async function findBlockingDependencies(context, issue) {
-  const dependencyNumbers = parseIssueDependencies(issue.body).blockedBy;
+  const dependencyNumbers = createIssueSnapshot(issue).blockedBy;
   /** @type {GitHubIssue[]} */
   const blockingDependencies = [];
 
   for (const dependencyNumber of dependencyNumbers) {
     const dependency = await context.githubClient.getIssue(dependencyNumber);
-    if (!isIssueDone(dependency)) {
+    if (!createIssueSnapshot(dependency).isDone) {
       blockingDependencies.push(dependency);
     }
   }
@@ -3553,10 +3555,10 @@ async function createLocalPrdRunRecord(
   const createdAt = new Date();
   const directory =
     context.localRunRecordDirectory ??
-    createLocalPrdRunRecordLocation({
+    createRunRecordLocation({
       cwd: context.cwd,
       operationReference,
-      targetNumber,
+      targetReference: targetNumber,
     }).directory;
 
   await mkdir(directory, { recursive: true });

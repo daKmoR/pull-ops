@@ -1,8 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { normalizeOperationReferenceForPath } from '../prd-automation/localRunRecord.js';
-
 /**
  * @param {{
  *   cwd: string,
@@ -16,7 +14,7 @@ import { normalizeOperationReferenceForPath } from '../prd-automation/localRunRe
  *   runId: string,
  * }}
  */
-export function createIssueStoreRunRecordLocation({
+export function createRunRecordLocation({
   cwd,
   operationReference,
   targetReference,
@@ -39,9 +37,22 @@ export function createIssueStoreRunRecordLocation({
  * @param {string} contents
  * @returns {Promise<void>}
  */
-export async function writeIssueStoreRunArtifact(runRecord, fileName, contents) {
+export async function writeRunArtifact(runRecord, fileName, contents) {
   await mkdir(runRecord.directory, { recursive: true });
   await writeFile(join(runRecord.directory, fileName), contents);
+}
+
+/**
+ * @param {string} reference
+ * @returns {string}
+ */
+export function normalizeOperationReferenceForPath(reference) {
+  return reference
+    .trim()
+    .toLowerCase()
+    .replaceAll(':', '-')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /**

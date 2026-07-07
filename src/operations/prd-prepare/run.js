@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import { createIssueBranchName, createParentBranchName } from '../branchNames.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
-import { getParentIssueNumber } from '../issueDependencies.js';
+import { createIssueSnapshot } from '../../issue-store/issueSnapshot.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import { createPrdPreparePullRequestBody } from './prBody.js';
 
@@ -28,7 +28,7 @@ export async function runPrdPrepare(context) {
     });
   }
 
-  const parentIssueNumber = getParentIssueNumber(issue);
+  const parentIssueNumber = createIssueSnapshot(issue).parentIssueNumber;
   if (parentIssueNumber !== undefined) {
     return await blockPreparation(context, issue, {
       reason: [

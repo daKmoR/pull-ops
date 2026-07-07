@@ -1,4 +1,4 @@
-import { publishConcreteIssue } from '../../issue-store/publishConcreteIssue.js';
+import { createIssueStore } from '../../issue-store/IssueStore.js';
 import {
   applyManagedPrTransition,
   readManagedPrState,
@@ -704,17 +704,19 @@ async function createReviewFollowUpIssuesIfNeeded(
   const issueNumbers = [];
   for (const [index, proposal] of reviewFollowUpIssues.entries()) {
     const recordedIssueNumber = recordedIssueNumbers[index];
-    const publication = await publishConcreteIssue({
+    const issueStore = createIssueStore({
       cwd: context.cwd,
       config: context.config,
       githubClient: context.githubClient,
-      rawRequest: createReviewFollowUpIssuePublicationRequest({
+    });
+    const publication = await issueStore.publishConcreteIssue(
+      createReviewFollowUpIssuePublicationRequest({
         issueNumber: recordedIssueNumber,
         pullRequest,
         sourceIssue,
         proposal,
       }),
-    });
+    );
     if (publication.status !== 'accepted') {
       if (publication.issue !== undefined) {
         issueNumbers.push(publication.issue.number);

@@ -1,3 +1,6 @@
+import type { PullOpsConfig } from '../config/types.js';
+import type { GitHubClient } from '../github/types.js';
+
 export type TriageRole =
   | 'needs-triage'
   | 'needs-info'
@@ -131,6 +134,29 @@ export interface ChildIssuePublicationMarker {
   sliceRef: string;
 }
 
+export type PublicationMarker =
+  | PrdIssuePublicationMarker
+  | ChildIssuePublicationMarker
+  | ConcreteIssuePublicationMarker;
+
+export type IssueSnapshotKind = PublicationMarker['kind'];
+
+export interface IssueSnapshot {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  labels: string[];
+  kind: IssueSnapshotKind | undefined;
+  publishedByPullOps: boolean;
+  marker: PublicationMarker | undefined;
+  parentIssueNumber: number | undefined;
+  childIssueNumbers: number[];
+  blockedBy: number[];
+  isDone: boolean;
+}
+
 export interface IssueStorePublishWarning {
   code: string;
   message: string;
@@ -188,3 +214,34 @@ export interface ChildIssuePublishFailureOutput {
 export type ChildIssuePublishOutput =
   | ChildIssuePublishSuccessOutput
   | ChildIssuePublishFailureOutput;
+
+export interface IssueStorePublishOptions {
+  createdAt?: Date;
+}
+
+export interface IssueStoreContext {
+  cwd: string;
+  config: Pick<PullOpsConfig, 'issueStore'>;
+  githubClient: GitHubClient;
+}
+
+export interface IssueStore {
+  publishPrdIssue(
+    rawRequest: unknown,
+    options?: IssueStorePublishOptions,
+  ): Promise<PrdIssuePublishOutput>;
+  publishChildIssues(
+    rawRequest: unknown,
+    options?: IssueStorePublishOptions & {
+      parentIssueNumber?: number;
+      forceUpdate?: boolean;
+    },
+  ): Promise<ChildIssuePublishOutput>;
+  publishConcreteIssue(
+    rawRequest: unknown,
+    options?: IssueStorePublishOptions,
+  ): Promise<ConcreteIssuePublishOutput>;
+  readIssueSnapshot(issueNumber: number): Promise<IssueSnapshot>;
+  readChildIssueSnapshots(parentIssueNumber: number): Promise<IssueSnapshot[]>;
+  relateChildIssue(options: { parentIssueNumber: number; childIssueNumber: number }): Promise<void>;
+}

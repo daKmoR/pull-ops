@@ -7,11 +7,13 @@ import {
   coordinateLocalPrdAutoComplete,
   resumePrdAutomationForParentIssue as resumePrdAutomation,
 } from '../../prd-automation/childCoordination.js';
-import { createLocalPrdRunRecordLocation } from '../../prd-automation/localRunRecord.js';
+import { createRunRecordLocation } from '../../local-run-record/localRunRecord.js';
 import {
   DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
   LOCAL_RUN_HEARTBEAT_COMMAND,
+} from '../../run-supervision/runSupervision.js';
+import {
   initializeLocalRunState,
   mapLocalRunResultStatusToTerminalStatus,
   recordLocalRunWaitingForRunner,
@@ -554,10 +556,10 @@ async function createNestedLocalPullRequestRunRecord(
 ) {
   const operationReference = readPullRequestOperationReference(operation);
   const createdAt = new Date();
-  const directory = createLocalPrdRunRecordLocation({
+  const directory = createRunRecordLocation({
     cwd: context.cwd,
     operationReference,
-    targetNumber: pullRequestNumber,
+    targetReference: pullRequestNumber,
     createdAt,
   }).directory;
 

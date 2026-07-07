@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { createChildIssueBody, readChildIssuePublicationMarker } from './childIssueBody.js';
-import { createIssueStoreRunRecordLocation, writeIssueStoreRunArtifact } from './localRunRecord.js';
+import { createRunRecordLocation, writeRunArtifact } from '../local-run-record/localRunRecord.js';
 import { readPrdIssuePublicationMarker } from './prdIssueBody.js';
 
 /**
@@ -60,13 +60,13 @@ export async function publishChildIssues({
       forceUpdate,
     );
   } catch (error) {
-    const runRecord = createIssueStoreRunRecordLocation({
+    const runRecord = createRunRecordLocation({
       cwd,
       operationReference: 'issues:publish-children',
       targetReference: 'invalid',
       createdAt,
     });
-    await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
+    await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
     return await writeFailureResult(runRecord, {
       summary: 'Publish Child Issue batch failed.',
       failureReason: getErrorMessage(error),
@@ -74,15 +74,15 @@ export async function publishChildIssues({
     });
   }
 
-  const runRecord = createIssueStoreRunRecordLocation({
+  const runRecord = createRunRecordLocation({
     cwd,
     operationReference: 'issues:publish-children',
     targetReference: normalizedRequest.parentIssueNumber,
     createdAt,
   });
 
-  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
-  await writeIssueStoreRunArtifact(
+  await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
+  await writeRunArtifact(
     runRecord,
     'request.json',
     `${JSON.stringify(normalizedRequest, null, 2)}\n`,
@@ -964,17 +964,13 @@ function createMappings(children) {
  * @returns {Promise<void>}
  */
 async function writeSuccessArtifacts(runRecord, output) {
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(
     runRecord,
     'warnings.json',
     `${JSON.stringify(output.warnings, null, 2)}\n`,
   );
-  await writeIssueStoreRunArtifact(runRecord, 'failures.json', `${JSON.stringify([], null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failures.json', `${JSON.stringify([], null, 2)}\n`);
 }
 
 /**
@@ -995,18 +991,10 @@ async function writeFailureResult(runRecord, { summary, failureReason, warnings 
     warnings,
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   if (warnings.length > 0) {
-    await writeIssueStoreRunArtifact(
-      runRecord,
-      'warnings.json',
-      `${JSON.stringify(warnings, null, 2)}\n`,
-    );
+    await writeRunArtifact(runRecord, 'warnings.json', `${JSON.stringify(warnings, null, 2)}\n`);
   }
   return output;
 }
@@ -1041,22 +1029,14 @@ async function writePartialFailure(
     warnings,
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
-  await writeIssueStoreRunArtifact(
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(
     runRecord,
     'failures.json',
     `${JSON.stringify(failedChildren, null, 2)}\n`,
   );
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'warnings.json',
-    `${JSON.stringify(warnings, null, 2)}\n`,
-  );
+  await writeRunArtifact(runRecord, 'warnings.json', `${JSON.stringify(warnings, null, 2)}\n`);
   return output;
 }
 

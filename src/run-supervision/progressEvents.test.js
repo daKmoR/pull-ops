@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { initializeLocalRunState } from '../../local-run-state/localRunState.js';
-import { createOperationProgressEventWriter } from './eventStream.js';
+import { initializeLocalRunState } from '../local-run-state/localRunState.js';
+import { createOperationProgressEventWriter } from './progressEvents.js';
 
 describe('Operation progress event streams', () => {
   it('01: rejects details that contain reserved identity fields', async () => {
@@ -44,10 +44,9 @@ describe('Operation progress event streams', () => {
         number: 123,
       },
     });
-    const unsupportedEvent =
-      /** @type {import('../../cli/types.js').OperationProgressEventName} */ (
-        'child.custom-completed'
-      );
+    const unsupportedEvent = /** @type {import('./types.js').OperationProgressEventName} */ (
+      'child.custom-completed'
+    );
 
     await assert.rejects(
       writer.emit(unsupportedEvent, {
@@ -111,7 +110,7 @@ describe('Operation progress event streams', () => {
 });
 
 /**
- * @returns {import('../../cli/types.js').WritableLike & { text: string }}
+ * @returns {import('../cli/types.js').WritableLike & { text: string }}
  */
 function createWritableBuffer() {
   return {

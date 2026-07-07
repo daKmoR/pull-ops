@@ -22,28 +22,12 @@ export interface OperationTarget {
   number: number;
 }
 
-export type OperationProgressEventName =
-  | 'run.started'
-  | 'phase.started'
-  | 'phase.completed'
-  | 'child.started'
-  | 'child.progress'
-  | 'child.heartbeat'
-  | 'child.completed'
-  | 'child.blocked'
-  | 'waiting'
-  | 'run.summary';
+import type {
+  OperationProgressEventName,
+  OperationProgressEventWriter,
+} from '../run-supervision/types.js';
 
-export interface OperationProgressEventWriter {
-  runId: string;
-  operationLabelReference: string;
-  target: OperationTarget;
-  bindLocalRunRecord(localRunRecord: string): Promise<void>;
-  emit(
-    event: OperationProgressEventName,
-    details?: Record<string, unknown>,
-  ): Promise<Record<string, unknown>>;
-}
+export type { OperationProgressEventName, OperationProgressEventWriter };
 
 export interface OperationRunnerContext {
   operation: string;

@@ -1,41 +1,34 @@
+import { readPublicationMarker } from './publicationMarker.js';
+
 /**
  * @typedef {import('../github/types.js').GitHubIssue} GitHubIssue
+ * @typedef {import('./types.js').IssueSnapshot} IssueSnapshot
  */
 
 /**
- * @param {string} body
- * @returns {{ partOf: number | undefined, blockedBy: number[] }}
+ * Builds an Issue Snapshot: the PullOps-shaped point-in-time read of one issue,
+ * carrying its kind, parent, Issue Dependencies, and publication ownership.
+ *
+ * @param {GitHubIssue} issue
+ * @returns {IssueSnapshot}
  */
-export function parseIssueDependencies(body) {
+export function createIssueSnapshot(issue) {
+  const marker = readPublicationMarker(issue.body);
   return {
-    partOf: parseFirstIssueReference(body, 'Part of'),
-    blockedBy: parseBlockingIssueReferences(body),
+    number: issue.number,
+    title: issue.title,
+    body: issue.body,
+    url: issue.url,
+    state: issue.state,
+    labels: issue.labels,
+    kind: marker?.kind,
+    publishedByPullOps: marker !== undefined,
+    marker,
+    parentIssueNumber: issue.parent?.number,
+    childIssueNumbers: issue.subIssues.map(subIssue => subIssue.number),
+    blockedBy: parseBlockingIssueReferences(issue.body),
+    isDone: issue.state === 'CLOSED',
   };
-}
-
-/**
- * @param {GitHubIssue} issue
- * @returns {number | undefined}
- */
-export function getParentIssueNumber(issue) {
-  return issue.parent?.number;
-}
-
-/**
- * @param {GitHubIssue} issue
- * @returns {boolean}
- */
-export function isIssueDone(issue) {
-  return issue.state === 'CLOSED';
-}
-
-/**
- * @param {string} body
- * @param {string} fieldName
- * @returns {number | undefined}
- */
-function parseFirstIssueReference(body, fieldName) {
-  return parseIssueReferenceList(body, fieldName)[0];
 }
 
 /**

@@ -1,5 +1,5 @@
 import { createPrdIssueBody, readPrdIssuePublicationMarker } from './prdIssueBody.js';
-import { createIssueStoreRunRecordLocation, writeIssueStoreRunArtifact } from './localRunRecord.js';
+import { createRunRecordLocation, writeRunArtifact } from '../local-run-record/localRunRecord.js';
 
 /**
  * @typedef {Pick<import('../config/types.js').PullOpsConfig, 'issueStore'>} IssueStoreConfig
@@ -40,15 +40,15 @@ export async function publishPrdIssue({
 
   try {
     const normalizedRequest = normalizePrdIssuePublicationRequest(rawRequest);
-    const runRecord = createIssueStoreRunRecordLocation({
+    const runRecord = createRunRecordLocation({
       cwd,
       operationReference: 'issues:publish-prd',
       targetReference: normalizedRequest.issueNumber ?? 'new',
       createdAt,
     });
 
-    await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
-    await writeIssueStoreRunArtifact(
+    await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
+    await writeRunArtifact(
       runRecord,
       'request.json',
       `${JSON.stringify(normalizedRequest, null, 2)}\n`,
@@ -76,13 +76,13 @@ export async function publishPrdIssue({
       runRecord,
     });
   } catch (error) {
-    const runRecord = createIssueStoreRunRecordLocation({
+    const runRecord = createRunRecordLocation({
       cwd,
       operationReference: 'issues:publish-prd',
       targetReference: 'invalid',
       createdAt,
     });
-    await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
+    await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequestText}\n`);
     return await writeFailureResult(runRecord, {
       summary: 'Publish PRD request failed.',
       failureReason: getErrorMessage(error),
@@ -131,17 +131,9 @@ async function createPrdIssue({ githubClient, normalizedRequest, runRecord }) {
       localRunRecord: runRecord.directory,
       warnings,
     });
-    await writeIssueStoreRunArtifact(
-      runRecord,
-      'response.json',
-      `${JSON.stringify(output, null, 2)}\n`,
-    );
+    await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
     if (warnings.length > 0) {
-      await writeIssueStoreRunArtifact(
-        runRecord,
-        'warnings.json',
-        `${JSON.stringify(warnings, null, 2)}\n`,
-      );
+      await writeRunArtifact(runRecord, 'warnings.json', `${JSON.stringify(warnings, null, 2)}\n`);
     }
     return output;
   } catch (error) {
@@ -217,17 +209,9 @@ async function updatePrdIssue({ githubClient, normalizedRequest, runRecord }) {
       localRunRecord: runRecord.directory,
       warnings,
     });
-    await writeIssueStoreRunArtifact(
-      runRecord,
-      'response.json',
-      `${JSON.stringify(output, null, 2)}\n`,
-    );
+    await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
     if (warnings.length > 0) {
-      await writeIssueStoreRunArtifact(
-        runRecord,
-        'warnings.json',
-        `${JSON.stringify(warnings, null, 2)}\n`,
-      );
+      await writeRunArtifact(runRecord, 'warnings.json', `${JSON.stringify(warnings, null, 2)}\n`);
     }
     return output;
   } catch (error) {
@@ -296,12 +280,8 @@ async function writeFailureResult(runRecord, options) {
     warnings: [],
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   return output;
 }
 
@@ -341,12 +321,8 @@ async function writePartialFailure(runRecord, options) {
       ? {}
       : { triageRole: normalizedRequest.triageRole }),
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   return output;
 }
 

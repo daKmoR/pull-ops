@@ -14,6 +14,7 @@ import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { getOperationCatalogWorkflowOperations } from '../operations/operationCatalog.js';
 import { createChildIssueBody } from '../issue-store/childIssueBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
+import { createInMemoryIssueStore } from '../issue-store/inMemoryIssueStore.js';
 import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
 import {
   initializeLocalRunState,
@@ -2875,10 +2876,7 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const addLabelCalls = [];
+    const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
       title: 'Publish standalone issue',
       whatToBuild: 'Implement the issue-store publication path.',
@@ -2892,36 +2890,24 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 88,
-            url: 'https://github.test/owner/repo/issues/88',
-          });
-        },
-        async addLabelsToIssue(options) {
-          addLabelCalls.push(options);
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-issue', '--file', requestPath]);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.equal(createIssueCalls[0].title, request.title);
-    assert.equal(createIssueCalls[0].labels, undefined);
-    assert.match(createIssueCalls[0].body, /PullOps publication marker/);
-    assert.match(createIssueCalls[0].body, /## What to build/);
-    assert.match(createIssueCalls[0].body, /## Acceptance criteria/);
-    assert.match(createIssueCalls[0].body, /## Blocked by/);
-    assert.deepEqual(addLabelCalls, [{ number: 88, labels: ['ready-for-agent'] }]);
+    const createdIssue = inMemory.readIssue(1);
+    assert.equal(createdIssue.title, request.title);
+    assert.match(createdIssue.body, /PullOps publication marker/);
+    assert.match(createdIssue.body, /## What to build/);
+    assert.match(createdIssue.body, /## Acceptance criteria/);
+    assert.match(createdIssue.body, /## Blocked by/);
+    assert.deepEqual(createdIssue.labels, ['ready-for-agent']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
     assert.equal(output.action, 'created');
-    assert.equal(output.issue.number, 88);
+    assert.equal(output.issue.number, 1);
     assert.equal(output.triageRole, 'ready-for-agent');
     assert.deepEqual(output.warnings, []);
     assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
@@ -2950,8 +2936,7 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-relative-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
+    const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
       title: 'Publish standalone issue from relative file',
       whatToBuild: 'Read the publish request from the CLI cwd.',
@@ -2963,34 +2948,19 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 88,
-            url: 'https://github.test/owner/repo/issues/88',
-          });
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-issue', '--file', 'request.json']);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.equal(createIssueCalls[0].title, request.title);
+    assert.equal(inMemory.readIssue(1).title, request.title);
   });
 
   await t.test('stdin input', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-stdin-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
-    const updateIssueCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const removeLabelCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const addLabelCalls = [];
     const request = {
       issueNumber: 41,
       title: 'Refresh standalone issue',
@@ -3007,46 +2977,31 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
       acceptanceCriteria: request.acceptanceCriteria,
       blockedBy: [],
     });
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 41,
+          body: existingBody,
+          labels: ['needs-triage', 'needs-info'],
+        },
+      ],
+    });
 
     const cli = new PullOpsCli({
       cwd,
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          assert.equal(number, 41);
-          return createGitHubIssue({
-            number: 41,
-            body: existingBody,
-            labels: ['needs-triage', 'needs-info'],
-          });
-        },
-        async updateIssue(options) {
-          updateIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 41,
-            body: options.body,
-            labels: ['ready-for-human'],
-          });
-        },
-        async removeLabelsFromIssue(options) {
-          removeLabelCalls.push(options);
-        },
-        async addLabelsToIssue(options) {
-          addLabelCalls.push(options);
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-issue']);
 
     assert.equal(exitCode, 0);
-    assert.equal(updateIssueCalls.length, 1);
-    assert.equal(updateIssueCalls[0].number, 41);
-    assert.equal(updateIssueCalls[0].labels, undefined);
-    assert.match(updateIssueCalls[0].body, /PullOps publication marker/);
-    assert.deepEqual(removeLabelCalls, [{ number: 41, labels: ['needs-triage', 'needs-info'] }]);
-    assert.deepEqual(addLabelCalls, [{ number: 41, labels: ['ready-for-human'] }]);
+    const updatedIssue = inMemory.readIssue(41);
+    assert.equal(updatedIssue.title, request.title);
+    assert.match(updatedIssue.body, /PullOps publication marker/);
+    assert.deepEqual(updatedIssue.labels, ['ready-for-human']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3083,10 +3038,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const addLabelCalls = [];
+    const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
       title: 'Publish PRD issue support',
       problemStatement: 'PullOps should publish PRDs through its own Issue Store.',
@@ -3119,37 +3071,25 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 88,
-            url: 'https://github.test/owner/repo/issues/88',
-          });
-        },
-        async addLabelsToIssue(options) {
-          addLabelCalls.push(options);
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-prd', '--file', requestPath]);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.equal(createIssueCalls[0].title, request.title);
-    assert.equal(createIssueCalls[0].labels, undefined);
-    assert.match(createIssueCalls[0].body, /PullOps publication marker/);
-    assert.match(createIssueCalls[0].body, /## Problem Statement/);
-    assert.match(createIssueCalls[0].body, /## User Stories/);
-    assert.match(createIssueCalls[0].body, /- 1\. As a maintainer/);
-    assert.match(createIssueCalls[0].body, /<summary>PullOps publication audit<\/summary>/);
-    assert.deepEqual(addLabelCalls, [{ number: 88, labels: ['ready-for-agent'] }]);
+    const createdIssue = inMemory.readIssue(1);
+    assert.equal(createdIssue.title, request.title);
+    assert.match(createdIssue.body, /PullOps publication marker/);
+    assert.match(createdIssue.body, /## Problem Statement/);
+    assert.match(createdIssue.body, /## User Stories/);
+    assert.match(createdIssue.body, /- 1\. As a maintainer/);
+    assert.match(createdIssue.body, /<summary>PullOps publication audit<\/summary>/);
+    assert.deepEqual(createdIssue.labels, ['ready-for-agent']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
     assert.equal(output.action, 'created');
-    assert.equal(output.issue.number, 88);
+    assert.equal(output.issue.number, 1);
     assert.equal(output.triageRole, 'ready-for-agent');
     assert.deepEqual(output.warnings, []);
     assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
@@ -3194,8 +3134,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-relative-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
+    const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
       title: 'Publish PRD issue support from relative file',
       problemStatement: 'PullOps should resolve PRD request files from the CLI cwd.',
@@ -3216,34 +3155,19 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 88,
-            url: 'https://github.test/owner/repo/issues/88',
-          });
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-prd', '--file', 'request.json']);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.equal(createIssueCalls[0].title, request.title);
+    assert.equal(inMemory.readIssue(1).title, request.title);
   });
 
   await t.test('stdin input', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-stdin-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
-    const updateIssueCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const removeLabelCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const addLabelCalls = [];
     const request = {
       issueNumber: 41,
       title: 'Refresh PRD issue',
@@ -3277,46 +3201,31 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
       furtherNotes: [],
       auditDetails: [],
     });
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 41,
+          body: existingBody,
+          labels: ['needs-triage', 'needs-info'],
+        },
+      ],
+    });
 
     const cli = new PullOpsCli({
       cwd,
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          assert.equal(number, 41);
-          return createGitHubIssue({
-            number: 41,
-            body: existingBody,
-            labels: ['needs-triage', 'needs-info'],
-          });
-        },
-        async updateIssue(options) {
-          updateIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 41,
-            body: options.body,
-            labels: ['ready-for-human'],
-          });
-        },
-        async removeLabelsFromIssue(options) {
-          removeLabelCalls.push(options);
-        },
-        async addLabelsToIssue(options) {
-          addLabelCalls.push(options);
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-prd']);
 
     assert.equal(exitCode, 0);
-    assert.equal(updateIssueCalls.length, 1);
-    assert.equal(updateIssueCalls[0].number, 41);
-    assert.equal(updateIssueCalls[0].labels, undefined);
-    assert.match(updateIssueCalls[0].body, /PullOps publication marker/);
-    assert.deepEqual(removeLabelCalls, [{ number: 41, labels: ['needs-triage', 'needs-info'] }]);
-    assert.deepEqual(addLabelCalls, [{ number: 41, labels: ['ready-for-human'] }]);
+    const updatedIssue = inMemory.readIssue(41);
+    assert.equal(updatedIssue.title, request.title);
+    assert.match(updatedIssue.body, /PullOps publication marker/);
+    assert.deepEqual(updatedIssue.labels, ['ready-for-human']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3369,12 +3278,26 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
-    /** @type {import('../github/types.js').AddSubIssueOptions[]} */
-    const subIssueCalls = [];
-    /** @type {import('../github/types.js').EditLabelsOptions[]} */
-    const addLabelCalls = [];
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 126,
+          title: 'Published parent',
+          body: createPrdIssueBody({
+            title: 'Published parent',
+            problemStatement: 'Parent problem.',
+            solution: 'Parent solution.',
+            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            implementationDecisions: ['Use native sub-issues.'],
+            testingDecisions: ['Use fake clients.'],
+            outOfScope: ['Dependency publication.'],
+            furtherNotes: [],
+            auditDetails: [],
+          }),
+        },
+      ],
+    });
     const request = {
       children: [
         {
@@ -3393,39 +3316,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          assert.equal(number, 126);
-          return createGitHubIssue({
-            number: 126,
-            body: createPrdIssueBody({
-              title: 'Published parent',
-              problemStatement: 'Parent problem.',
-              solution: 'Parent solution.',
-              userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
-              implementationDecisions: ['Use native sub-issues.'],
-              testingDecisions: ['Use fake clients.'],
-              outOfScope: ['Dependency publication.'],
-              furtherNotes: [],
-              auditDetails: [],
-            }),
-          });
-        },
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 201,
-            url: 'https://github.test/owner/repo/issues/201',
-            body: options.body,
-          });
-        },
-        async addSubIssue(options) {
-          subIssueCalls.push(options);
-        },
-        async addLabelsToIssue(options) {
-          addLabelCalls.push(options);
-        },
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run([
@@ -3438,11 +3329,15 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     ]);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.match(createIssueCalls[0].body, /"sliceRef":"1"/);
-    assert.match(createIssueCalls[0].body, /^## Covered PRD user stories$/m);
-    assert.deepEqual(subIssueCalls, [{ parentIssueNumber: 126, childIssueNumber: 201 }]);
-    assert.deepEqual(addLabelCalls, [{ number: 201, labels: ['ready-for-agent'] }]);
+    const childIssue = inMemory.readIssue(127);
+    assert.match(childIssue.body, /"sliceRef":"1"/);
+    assert.match(childIssue.body, /^## Covered PRD user stories$/m);
+    assert.equal(childIssue.parent?.number, 126);
+    assert.deepEqual(
+      inMemory.readIssue(126).subIssues.map(subIssue => subIssue.number),
+      [127],
+    );
+    assert.deepEqual(childIssue.labels, ['ready-for-agent']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3450,8 +3345,8 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     assert.deepEqual(output.mappings, [
       {
         sliceRef: '1',
-        issueNumber: 201,
-        issueUrl: 'https://github.test/owner/repo/issues/201',
+        issueNumber: 127,
+        issueUrl: 'https://github.example/issues/127',
       },
     ]);
     assert.deepEqual(output.warnings, []);
@@ -3466,8 +3361,26 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-relative-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 126,
+          title: 'Published parent',
+          body: createPrdIssueBody({
+            title: 'Published parent',
+            problemStatement: 'Parent problem.',
+            solution: 'Parent solution.',
+            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            implementationDecisions: ['Use native sub-issues.'],
+            testingDecisions: ['Use fake clients.'],
+            outOfScope: ['Dependency publication.'],
+            furtherNotes: [],
+            auditDetails: [],
+          }),
+        },
+      ],
+    });
     const request = {
       children: [
         {
@@ -3484,34 +3397,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          assert.equal(number, 126);
-          return createGitHubIssue({
-            number: 126,
-            body: createPrdIssueBody({
-              title: 'Published parent',
-              problemStatement: 'Parent problem.',
-              solution: 'Parent solution.',
-              userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
-              implementationDecisions: ['Use native sub-issues.'],
-              testingDecisions: ['Use fake clients.'],
-              outOfScope: ['Dependency publication.'],
-              furtherNotes: [],
-              auditDetails: [],
-            }),
-          });
-        },
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 201,
-            url: 'https://github.test/owner/repo/issues/201',
-            body: options.body,
-          });
-        },
-        async addSubIssue() {},
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run([
@@ -3524,14 +3410,14 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     ]);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.equal(createIssueCalls[0].title, request.children[0].title);
+    assert.equal(inMemory.readIssue(127).title, request.children[0].title);
   });
 
   await t.test('conflicting parent flag and JSON parent', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-conflict-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
+    const inMemory = createInMemoryIssueStore({ cwd });
     const cli = new PullOpsCli({
       cwd,
       stdout,
@@ -3551,7 +3437,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
           }),
         ])
       ),
-      githubClient: createFakeGitHubClient(),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-children', '--parent', '126']);
@@ -3567,31 +3453,58 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-rerun-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    const existingChild = createGitHubIssue({
-      number: 201,
-      url: 'https://github.test/owner/repo/issues/201',
-      title: 'Base child',
-      body: createChildIssueBody({
-        parentIssueNumber: 126,
-        sliceRef: 'base',
-        title: 'Base child',
-        whatToBuild: 'Base work.',
-        acceptanceCriteria: ['Base criteria.'],
-        blockedBy: [],
-        blockedBySliceRefs: [],
-        coveredUserStories: [2],
-        supportWork: false,
-      }),
-      parent: {
-        number: 126,
-        title: 'Published parent',
-        url: 'https://github.test/owner/repo/issues/126',
-        state: 'OPEN',
-        relationshipSource: 'native',
-      },
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 126,
+          title: 'Published parent',
+          url: 'https://github.test/owner/repo/issues/126',
+          body: createPrdIssueBody({
+            title: 'Published parent',
+            problemStatement: 'Parent problem.',
+            solution: 'Parent solution.',
+            userStories: [
+              { number: 2, story: 'As a user, I want child issue publication.' },
+              { number: 3, story: 'As a user, I want reruns to resume safely.' },
+            ],
+            implementationDecisions: ['Reuse marker-owned children on plain reruns.'],
+            testingDecisions: ['Use fake clients.'],
+            outOfScope: ['Dependency publication.'],
+            furtherNotes: [],
+            auditDetails: [],
+          }),
+          subIssues: [
+            {
+              number: 201,
+              title: 'Base child',
+              relationshipSource: 'native',
+            },
+          ],
+        },
+        {
+          number: 201,
+          url: 'https://github.test/owner/repo/issues/201',
+          title: 'Base child',
+          body: createChildIssueBody({
+            parentIssueNumber: 126,
+            sliceRef: 'base',
+            title: 'Base child',
+            whatToBuild: 'Base work.',
+            acceptanceCriteria: ['Base criteria.'],
+            blockedBy: [],
+            blockedBySliceRefs: [],
+            coveredUserStories: [2],
+            supportWork: false,
+          }),
+          parent: {
+            number: 126,
+            title: 'Published parent',
+            relationshipSource: 'native',
+          },
+        },
+      ],
     });
-    /** @type {import('../github/types.js').CreateIssueOptions[]} */
-    const createIssueCalls = [];
     const request = {
       parentIssueNumber: 126,
       children: [
@@ -3617,58 +3530,17 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       cwd,
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          if (number === 126) {
-            return createGitHubIssue({
-              number,
-              body: createPrdIssueBody({
-                title: 'Published parent',
-                problemStatement: 'Parent problem.',
-                solution: 'Parent solution.',
-                userStories: [
-                  { number: 2, story: 'As a user, I want child issue publication.' },
-                  { number: 3, story: 'As a user, I want reruns to resume safely.' },
-                ],
-                implementationDecisions: ['Reuse marker-owned children on plain reruns.'],
-                testingDecisions: ['Use fake clients.'],
-                outOfScope: ['Dependency publication.'],
-                furtherNotes: [],
-                auditDetails: [],
-              }),
-              subIssues: [
-                {
-                  number: 201,
-                  title: 'Base child',
-                  url: 'https://github.test/owner/repo/issues/201',
-                  state: 'OPEN',
-                  relationshipSource: 'native',
-                },
-              ],
-            });
-          }
-          assert.equal(number, 201);
-          return existingChild;
-        },
-        async createIssue(options) {
-          createIssueCalls.push(options);
-          return createGitHubIssue({
-            number: 202,
-            url: 'https://github.test/owner/repo/issues/202',
-            body: options.body,
-          });
-        },
-        async addSubIssue() {},
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run(['issues', 'publish-children']);
 
     assert.equal(exitCode, 0);
-    assert.equal(createIssueCalls.length, 1);
-    assert.match(createIssueCalls[0].body, /^## Blocked by$/m);
-    assert.match(createIssueCalls[0].body, /- #201/);
-    assert.doesNotMatch(createIssueCalls[0].body, /base/);
+    const dependentIssue = inMemory.readIssue(202);
+    assert.match(dependentIssue.body, /^## Blocked by$/m);
+    assert.match(dependentIssue.body, /- #201/);
+    assert.doesNotMatch(dependentIssue.body, /base/);
+    assert.equal(dependentIssue.parent?.number, 126);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3688,7 +3560,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         action: 'created',
         issue: {
           number: 202,
-          url: 'https://github.test/owner/repo/issues/202',
+          url: 'https://github.example/issues/202',
         },
         blockedBy: [201],
       },
@@ -3702,7 +3574,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       {
         sliceRef: 'dependent',
         issueNumber: 202,
-        issueUrl: 'https://github.test/owner/repo/issues/202',
+        issueUrl: 'https://github.example/issues/202',
       },
     ]);
   });
@@ -3711,29 +3583,52 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-force-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
-    /** @type {import('../github/types.js').UpdateIssueOptions[]} */
-    const updates = [];
-    const existingChild = createGitHubIssue({
-      number: 201,
-      title: 'Old child',
-      body: createChildIssueBody({
-        parentIssueNumber: 126,
-        sliceRef: '1',
-        title: 'Old child',
-        whatToBuild: 'Old work.',
-        acceptanceCriteria: ['Old criteria.'],
-        blockedBy: [],
-        blockedBySliceRefs: [],
-        coveredUserStories: [2],
-        supportWork: false,
-      }),
-      parent: {
-        number: 126,
-        title: 'Published parent',
-        url: 'https://github.test/owner/repo/issues/126',
-        state: 'OPEN',
-        relationshipSource: 'native',
-      },
+    const inMemory = createInMemoryIssueStore({
+      cwd,
+      issues: [
+        {
+          number: 126,
+          title: 'Published parent',
+          body: createPrdIssueBody({
+            title: 'Published parent',
+            problemStatement: 'Parent problem.',
+            solution: 'Parent solution.',
+            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            implementationDecisions: ['Use native sub-issues.'],
+            testingDecisions: ['Use fake clients.'],
+            outOfScope: ['Dependency publication.'],
+            furtherNotes: [],
+            auditDetails: [],
+          }),
+          subIssues: [
+            {
+              number: 201,
+              title: 'Old child',
+              relationshipSource: 'native',
+            },
+          ],
+        },
+        {
+          number: 201,
+          title: 'Old child',
+          body: createChildIssueBody({
+            parentIssueNumber: 126,
+            sliceRef: '1',
+            title: 'Old child',
+            whatToBuild: 'Old work.',
+            acceptanceCriteria: ['Old criteria.'],
+            blockedBy: [],
+            blockedBySliceRefs: [],
+            coveredUserStories: [2],
+            supportWork: false,
+          }),
+          parent: {
+            number: 126,
+            title: 'Published parent',
+            relationshipSource: 'native',
+          },
+        },
+      ],
     });
     const request = {
       parentIssueNumber: 126,
@@ -3753,46 +3648,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const cli = new PullOpsCli({
       cwd,
       stdout,
-      githubClient: createFakeGitHubClient({
-        async getIssue(number) {
-          if (number === 126) {
-            return createGitHubIssue({
-              number,
-              body: createPrdIssueBody({
-                title: 'Published parent',
-                problemStatement: 'Parent problem.',
-                solution: 'Parent solution.',
-                userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
-                implementationDecisions: ['Use native sub-issues.'],
-                testingDecisions: ['Use fake clients.'],
-                outOfScope: ['Dependency publication.'],
-                furtherNotes: [],
-                auditDetails: [],
-              }),
-              subIssues: [
-                {
-                  number: 201,
-                  title: 'Old child',
-                  url: 'https://github.test/owner/repo/issues/201',
-                  state: 'OPEN',
-                  relationshipSource: 'native',
-                },
-              ],
-            });
-          }
-          assert.equal(number, 201);
-          return existingChild;
-        },
-        async updateIssue(options) {
-          updates.push(options);
-          return createGitHubIssue({
-            ...existingChild,
-            title: options.title,
-            body: options.body,
-          });
-        },
-        async addSubIssue() {},
-      }),
+      issueStoreFactory: () => inMemory.store,
     });
 
     const exitCode = await cli.run([
@@ -3804,8 +3660,9 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     ]);
 
     assert.equal(exitCode, 0);
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].number, 201);
+    const updatedChild = inMemory.readIssue(201);
+    assert.equal(updatedChild.title, request.children[0].title);
+    assert.match(updatedChild.body, /Update the native Child Issue\./);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3817,11 +3674,12 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
 test('issues publish-issue rejects malformed JSON input with stable failure output', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-issue-malformed-'));
   const stdout = createWritableBuffer();
+  const inMemory = createInMemoryIssueStore({ cwd });
   const cli = new PullOpsCli({
     cwd,
     stdout,
     stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
-    githubClient: createFakeGitHubClient(),
+    issueStoreFactory: () => inMemory.store,
   });
 
   const exitCode = await cli.run(['issues', 'publish-issue']);
@@ -3852,11 +3710,12 @@ test('issues publish-issue rejects malformed JSON input with stable failure outp
 test('issues publish-prd rejects malformed JSON input with stable failure output', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-malformed-'));
   const stdout = createWritableBuffer();
+  const inMemory = createInMemoryIssueStore({ cwd });
   const cli = new PullOpsCli({
     cwd,
     stdout,
     stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
-    githubClient: createFakeGitHubClient(),
+    issueStoreFactory: () => inMemory.store,
   });
 
   const exitCode = await cli.run(['issues', 'publish-prd']);

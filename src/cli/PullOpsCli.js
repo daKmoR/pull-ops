@@ -5,13 +5,8 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { createGitClient } from '../git/GitClient.js';
 import { createGitHubClient, parseGitHubRepository } from '../github/GitHubClient.js';
-import {
-  createIssueStoreRunRecordLocation,
-  writeIssueStoreRunArtifact,
-} from '../issue-store/localRunRecord.js';
-import { publishChildIssues } from '../issue-store/publishChildIssues.js';
-import { publishConcreteIssue } from '../issue-store/publishConcreteIssue.js';
-import { publishPrdIssue } from '../issue-store/publishPrdIssue.js';
+import { createRunRecordLocation, writeRunArtifact } from '../local-run-record/localRunRecord.js';
+import { createIssueStore } from '../issue-store/IssueStore.js';
 import { validateOperationOutput } from '../operation-output/OperationOutput.js';
 import { runPullOpsInit } from '../setup/init.js';
 import {
@@ -23,16 +18,19 @@ import {
 } from '../setup/setup.js';
 import { hasSetupChanges } from '../setup/setupResult.js';
 import {
-  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
   initializeLocalRunState,
   LocalRunHeartbeatError,
   mapLocalRunResultStatusToTerminalStatus,
-  readLocalRunState,
-  recordLocalRunCompletedNonHeartbeatStep,
-  recordLocalRunHeartbeat,
   recordLocalRunTerminalStatus,
   recordLocalRunWaitingForRunner,
 } from '../local-run-state/localRunState.js';
+import {
+  createOperationProgressEventWriter,
+  recordCompletedStep,
+  recordHeartbeatAndPublish,
+  recordHeartbeatIfDue,
+  startPeriodicHeartbeats,
+} from '../run-supervision/runSupervision.js';
 import {
   getOperationLabelReference,
   getWorkflowOperation,
@@ -46,13 +44,8 @@ import {
   getOperationCatalogWorkflowOperations,
   supportsOperationCatalogRunnerLifecycle,
 } from '../operations/operationCatalog.js';
-import {
-  createLocalPrdAutoCompleteSummary,
-  createOperationProgressEventWriter,
-} from '../operations/prd-automation/eventStream.js';
+import { createLocalPrdAutoCompleteSummary } from '../operations/prd-automation/eventStream.js';
 import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/externalRunner.js';
-import { publishHeartbeatToParentEventSink } from '../parent-event-sink/parentEventSink.js';
-import { createLocalPrdRunRecordLocation } from '../prd-automation/localRunRecord.js';
 import { createRunner } from '../runner/Runner.js';
 import { isRunnerAdapter, RUNNER_ADAPTERS } from '../runner/runnerAdapters.js';
 import {
@@ -164,7 +157,6 @@ const COMMAND_OUTPUT_CONTRACT = {
   },
 };
 const STEP_USAGE = 'Usage: pullops step [--long] "<summary>" -- <command...>';
-const COMPLETED_NON_HEARTBEAT_STEPS_BEFORE_HEARTBEAT = 3;
 
 export class PullOpsCli {
   /**
@@ -180,6 +172,7 @@ export class PullOpsCli {
    * @param {NodeJS.ProcessEnv} [options.env]
    * @param {StepCommandSpawner} [options.spawnCommand]
    * @param {() => Date} [options.now]
+   * @param {typeof createIssueStore} [options.issueStoreFactory]
    */
   constructor({
     cwd = process.cwd(),
@@ -193,6 +186,7 @@ export class PullOpsCli {
     env = process.env,
     spawnCommand = spawn,
     now = () => new Date(),
+    issueStoreFactory = createIssueStore,
   } = {}) {
     this.cwd = cwd;
     this.stdout = stdout;
@@ -226,6 +220,7 @@ export class PullOpsCli {
     this.env = env;
     this.spawnCommand = spawnCommand;
     this.now = now;
+    this.issueStoreFactory = issueStoreFactory;
   }
 
   /**
@@ -321,18 +316,27 @@ export class PullOpsCli {
     const parsedArgs = parseStepArgs(args);
     const statePath = this.readRequiredStepStatePath();
     const token = this.readRequiredStepHeartbeatToken(statePath);
-    const firstHeartbeat = await this.recordStepHeartbeatIfDue({
+    const firstHeartbeat = await recordHeartbeatIfDue({
       force: parsedArgs.long,
       statePath,
       token,
       summary: parsedArgs.summary,
+      now: this.now,
+      env: this.env,
     });
+    this.writeParentEventSinkWarning(firstHeartbeat.warning);
     const periodicHeartbeats = parsedArgs.long
-      ? this.startLongStepHeartbeats({
+      ? startPeriodicHeartbeats({
           statePath,
           token,
           summary: parsedArgs.summary,
           intervalMs: firstHeartbeat.heartbeatIntervalMs,
+          now: this.now,
+          env: this.env,
+          onWarning: warning => this.writeParentEventSinkWarning(warning),
+          onError: error => {
+            this.writeError(`[pullops] step heartbeat failed: ${getErrorMessage(error)}`);
+          },
         })
       : undefined;
 
@@ -376,79 +380,12 @@ export class PullOpsCli {
   }
 
   /**
-   * @param {{
-   *   force: boolean,
-   *   statePath: string,
-   *   token: string,
-   *   summary: string,
-   * }} options
-   * @returns {Promise<{ emitted: boolean, heartbeatIntervalMs: number }>}
-   */
-  async recordStepHeartbeatIfDue({ force, statePath, token, summary }) {
-    const state = await readLocalRunState(statePath);
-    const heartbeatIntervalMs = readStepHeartbeatIntervalMs(state);
-    if (!isStepHeartbeatDue(state, { force, now: this.now(), heartbeatIntervalMs })) {
-      return { emitted: false, heartbeatIntervalMs };
-    }
-
-    const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
-      statePath,
-      token,
-      summary,
-      at: this.now(),
-    });
-    this.writeParentEventSinkWarning(sinkDelivery.warning);
-    const updated = sinkDelivery.runState;
-    return {
-      emitted: true,
-      heartbeatIntervalMs: readStepHeartbeatIntervalMs(updated),
-    };
-  }
-
-  /**
-   * @param {{
-   *   statePath: string,
-   *   token: string,
-   *   summary: string,
-   *   intervalMs: number,
-   * }} options
-   * @returns {{ stop: () => Promise<void> }}
-   */
-  startLongStepHeartbeats({ statePath, token, summary, intervalMs }) {
-    /** @type {Promise<void>} */
-    let heartbeatWrite = Promise.resolve();
-    const timer = setInterval(() => {
-      heartbeatWrite = heartbeatWrite
-        .catch(() => undefined)
-        .then(async () => {
-          const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
-            statePath,
-            token,
-            summary,
-            at: this.now(),
-          });
-          this.writeParentEventSinkWarning(sinkDelivery.warning);
-        })
-        .catch(error => {
-          this.writeError(`[pullops] step heartbeat failed: ${getErrorMessage(error)}`);
-        });
-    }, intervalMs);
-
-    return {
-      stop: async () => {
-        clearInterval(timer);
-        await heartbeatWrite.catch(() => undefined);
-      },
-    };
-  }
-
-  /**
    * @param {string} statePath
    * @returns {Promise<void>}
    */
   async recordCompletedNonHeartbeatStep(statePath) {
     try {
-      await recordLocalRunCompletedNonHeartbeatStep({ statePath });
+      await recordCompletedStep({ statePath });
     } catch (error) {
       this.writeError(`[pullops] failed to record completed step: ${getErrorMessage(error)}`);
     }
@@ -509,10 +446,11 @@ export class PullOpsCli {
         throw new LocalRunHeartbeatError(`Missing heartbeat token for ${statePath}.`);
       }
 
-      const sinkDelivery = await this.recordLocalRunHeartbeatAndPublish({
+      const sinkDelivery = await recordHeartbeatAndPublish({
         statePath,
         token: parsedArgs.token,
         summary: parsedArgs.summary,
+        env: this.env,
       });
       this.writeValidatedJson({
         status: 'accepted',
@@ -558,26 +496,6 @@ export class PullOpsCli {
       },
     });
     return 0;
-  }
-
-  /**
-   * @param {import('../local-run-state/types.js').RecordLocalRunHeartbeatOptions} options
-   * @returns {Promise<{
-   *   runState: import('../local-run-state/types.js').LocalRunState,
-   *   warning?: string,
-   * }>}
-   */
-  async recordLocalRunHeartbeatAndPublish(options) {
-    const runState = await recordLocalRunHeartbeat(options);
-    const sinkDelivery = await publishHeartbeatToParentEventSink({
-      env: this.env,
-      localRunRecord: dirname(options.statePath),
-      runState,
-    });
-    return {
-      runState,
-      ...(sinkDelivery.warning === undefined ? {} : { warning: sinkDelivery.warning }),
-    };
   }
 
   /**
@@ -636,13 +554,12 @@ export class PullOpsCli {
         stdin: this.stdin,
       });
       const config = await loadPullOpsConfig({ cwd: this.cwd });
-      const output = await publishPrdIssue({
+      const issueStore = this.issueStoreFactory({
         cwd: this.cwd,
         config,
         githubClient: this.githubClient,
-        rawRequest,
-        createdAt,
       });
+      const output = await issueStore.publishPrdIssue(rawRequest, { createdAt });
 
       this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
       return output.status === 'accepted' ? 0 : 1;
@@ -674,13 +591,12 @@ export class PullOpsCli {
         stdin: this.stdin,
       });
       const config = await loadPullOpsConfig({ cwd: this.cwd });
-      const output = await publishConcreteIssue({
+      const issueStore = this.issueStoreFactory({
         cwd: this.cwd,
         config,
         githubClient: this.githubClient,
-        rawRequest,
-        createdAt,
       });
+      const output = await issueStore.publishConcreteIssue(rawRequest, { createdAt });
 
       this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
       return output.status === 'accepted' ? 0 : 1;
@@ -712,11 +628,12 @@ export class PullOpsCli {
         stdin: this.stdin,
       });
       const config = await loadPullOpsConfig({ cwd: this.cwd });
-      const output = await publishChildIssues({
+      const issueStore = this.issueStoreFactory({
         cwd: this.cwd,
         config,
         githubClient: this.githubClient,
-        rawRequest,
+      });
+      const output = await issueStore.publishChildIssues(rawRequest, {
         parentIssueNumber: parsedArgs.parentIssueNumber,
         forceUpdate: parsedArgs.forceUpdate,
         createdAt,
@@ -1048,10 +965,10 @@ export class PullOpsCli {
     workLabel,
   }) {
     const createdAt = this.now();
-    const runRecordLocation = createLocalPrdRunRecordLocation({
+    const runRecordLocation = createRunRecordLocation({
       cwd: this.cwd,
       operationReference,
-      targetNumber: target.number,
+      targetReference: target.number,
       createdAt,
     });
     await mkdir(runRecordLocation.directory, { recursive: true });
@@ -1308,10 +1225,10 @@ export class PullOpsCli {
     const startedAt = new Date();
     const localRunRecordLocation =
       parsedArgs.eventsFormat === 'jsonl'
-        ? createLocalPrdRunRecordLocation({
+        ? createRunRecordLocation({
             cwd: this.cwd,
             operationReference: 'prd:auto-complete',
-            targetNumber: parsedArgs.targetNumber,
+            targetReference: parsedArgs.targetNumber,
             createdAt: startedAt,
           })
         : undefined;
@@ -2006,45 +1923,6 @@ function parseRunnerResultArgs(args) {
     status: rawStatus,
     ...(filePath === undefined ? {} : { filePath }),
   };
-}
-
-/**
- * @param {import('../local-run-state/types.js').LocalRunState} state
- * @param {{
- *   force: boolean,
- *   now: Date,
- *   heartbeatIntervalMs: number,
- * }} options
- * @returns {boolean}
- */
-function isStepHeartbeatDue(state, { force, now, heartbeatIntervalMs }) {
-  if (force) {
-    return true;
-  }
-
-  if ((state.heartbeatCount ?? 0) === 0) {
-    return true;
-  }
-
-  const heartbeatAt = Date.parse(state.heartbeatAt);
-  if (!Number.isFinite(heartbeatAt) || now.getTime() - heartbeatAt >= heartbeatIntervalMs) {
-    return true;
-  }
-
-  return (
-    (state.completedNonHeartbeatStepsSinceHeartbeat ?? 0) >=
-    COMPLETED_NON_HEARTBEAT_STEPS_BEFORE_HEARTBEAT
-  );
-}
-
-/**
- * @param {import('../local-run-state/types.js').LocalRunState} state
- * @returns {number}
- */
-function readStepHeartbeatIntervalMs(state) {
-  return state.heartbeatIntervalMs > 0
-    ? state.heartbeatIntervalMs
-    : DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS;
 }
 
 /**
@@ -3083,14 +2961,14 @@ function createLocalPrdAutoCompleteFailureOutput({
  * @returns {Promise<ChildIssuePublishFailureOutput>}
  */
 async function writePublishChildrenFailure({ cwd, createdAt, rawRequest, failureReason }) {
-  const runRecord = createIssueStoreRunRecordLocation({
+  const runRecord = createRunRecordLocation({
     cwd,
     operationReference: 'issues:publish-children',
     targetReference: 'invalid',
     createdAt,
   });
 
-  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+  await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
 
   /** @type {ChildIssuePublishFailureOutput} */
   const output = {
@@ -3100,12 +2978,8 @@ async function writePublishChildrenFailure({ cwd, createdAt, rawRequest, failure
     warnings: [],
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   return output;
 }
 
@@ -3118,14 +2992,14 @@ async function writePublishChildrenFailure({ cwd, createdAt, rawRequest, failure
  * @returns {Promise<ConcreteIssuePublishFailureOutput>}
  */
 async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureReason }) {
-  const runRecord = createIssueStoreRunRecordLocation({
+  const runRecord = createRunRecordLocation({
     cwd,
     operationReference: 'issues:publish-issue',
     targetReference: 'invalid',
     createdAt,
   });
 
-  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+  await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
 
   /** @type {ConcreteIssuePublishFailureOutput} */
   const output = {
@@ -3135,12 +3009,8 @@ async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureRea
     warnings: [],
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   return output;
 }
 
@@ -3153,14 +3023,14 @@ async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureRea
  * @returns {Promise<PrdIssuePublishFailureOutput>}
  */
 async function writePublishPrdFailure({ cwd, createdAt, rawRequest, failureReason }) {
-  const runRecord = createIssueStoreRunRecordLocation({
+  const runRecord = createRunRecordLocation({
     cwd,
     operationReference: 'issues:publish-prd',
     targetReference: 'invalid',
     createdAt,
   });
 
-  await writeIssueStoreRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
+  await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
 
   /** @type {PrdIssuePublishFailureOutput} */
   const output = {
@@ -3170,12 +3040,8 @@ async function writePublishPrdFailure({ cwd, createdAt, rawRequest, failureReaso
     warnings: [],
     localRunRecord: runRecord.directory,
   };
-  await writeIssueStoreRunArtifact(
-    runRecord,
-    'response.json',
-    `${JSON.stringify(output, null, 2)}\n`,
-  );
-  await writeIssueStoreRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
+  await writeRunArtifact(runRecord, 'response.json', `${JSON.stringify(output, null, 2)}\n`);
+  await writeRunArtifact(runRecord, 'failure-reason.txt', `${failureReason}\n`);
   return output;
 }
 

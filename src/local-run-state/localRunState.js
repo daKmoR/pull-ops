@@ -3,6 +3,12 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import {
+  DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_LOCAL_RUN_LEASE_DURATION_MS,
+  LOCAL_RUN_HEARTBEAT_COMMAND,
+} from '../run-supervision/supervisionPolicy.js';
+
 /**
  * @typedef {import('./types.js').InitializeLocalRunStateOptions} InitializeLocalRunStateOptions
  * @typedef {import('./types.js').LocalRunHeartbeatEnvironment} LocalRunHeartbeatEnvironment
@@ -20,9 +26,6 @@ import { setTimeout as delay } from 'node:timers/promises';
  * @typedef {import('./types.js').RecordLocalRunWaitingForRunnerOptions} RecordLocalRunWaitingForRunnerOptions
  */
 
-export const LOCAL_RUN_HEARTBEAT_COMMAND = 'npm exec -- pullops heartbeat';
-export const DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 4 * 60 * 1000;
-export const DEFAULT_LOCAL_RUN_LEASE_DURATION_MS = DEFAULT_LOCAL_RUN_HEARTBEAT_INTERVAL_MS * 2;
 export const LOCAL_RUN_STATE_FILE_NAME = 'state.json';
 const LOCAL_RUN_NPM_CACHE_DIRECTORY_NAME = 'npm-cache';
 const LOCAL_RUN_STATE_SCHEMA_VERSION = 1;

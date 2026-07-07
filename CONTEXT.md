@@ -128,6 +128,10 @@ _Avoid_: Hidden cache, audit store
 The PullOps Go behavior of observing a long-running Human-Facing Command through its PullOps Progress Events, using PullOps Run State only for reconciliation, and intervening only after lease expiry and liveness reconciliation. For nested runs, the parent command's PullOps Progress Events are the default supervision surface.
 _Avoid_: Log watching, process polling, artifact scraping
 
+**PullOps Run Supervision**:
+The PullOps-owned module that carries run liveness and progress signals — PullOps Heartbeats, PullOps Leases, PullOps Progress Events, and PullOps Stall Classification — between an active worker and its supervisor. It classifies stalls but never intervenes; interruption, retry, and replacement stay with the supervisor.
+_Avoid_: Watchdog, monitor, supervision boundary
+
 **PullOps Heartbeat**:
 A durable machine-only liveness update reported by the active PullOps worker, separate from semantic progress and intended to prevent false intervention during long-running work.
 _Avoid_: Progress event, human status update, milestone
@@ -263,6 +267,10 @@ _Avoid_: Normal issue, task
 **Issue Store**:
 The PullOps-owned interface for creating, force-updating, reading, listing, and relating PRD Issues, Child Issues, Concrete Issues, and Issue Dependencies in the configured Issue Tracker. Ordinary tracker-specific mutations that are not PRDs, sub-issues, issues, or issue relationships, such as applying GitHub labels or posting comments, stay with their direct client.
 _Avoid_: Issue tracker wrapper, work store
+
+**Issue Snapshot**:
+A PullOps-shaped point-in-time read of one issue from the Issue Store, carrying its kind, parent, Issue Dependencies, and publication ownership. Mutations never go through a snapshot; they go through the Issue Store.
+_Avoid_: Raw issue, tracker payload, issue facts
 
 **PullOps-Published Issue**:
 A PRD Issue, Child Issue, or Concrete Issue whose generated issue content is marked as owned by PullOps Issue Store publication and can therefore be force-updated by PullOps.
