@@ -3,17 +3,17 @@ export type WorkflowTarget = 'issue' | 'pr';
 export type WorkflowTargetOption = 'issue' | 'pr';
 
 export type WorkflowOperationConfigKey =
-  | 'prdPrepare'
+  | 'specPrepare'
   | 'issueImplement'
-  | 'prdAutoAdvance'
-  | 'prdAutoComplete'
+  | 'specAutoAdvance'
+  | 'specAutoComplete'
   | 'prReview'
   | 'prAddressReview'
   | 'prFixCi'
   | 'prUpdateBranch'
   | 'prResolveConflicts'
   | 'prFinalize'
-  | 'prCloseChildIssue';
+  | 'prCloseTicket';
 
 export interface WorkflowOperation {
   name: string;

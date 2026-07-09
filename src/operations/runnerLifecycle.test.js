@@ -524,7 +524,7 @@ describe('executeOperationPhase', () => {
     );
   });
 
-  it('09: complete phase under a PRD parent suggests the parent continuation command', async () => {
+  it('09: complete phase under a Spec parent suggests the parent continuation command', async () => {
     const context = await createContext();
     await initializeLocalRunState({
       runRecordDirectory: /** @type {string} */ (context.outputDirectory),
@@ -533,8 +533,8 @@ describe('executeOperationPhase', () => {
       publicationMode: 'publish',
       parentRun: {
         runId: 'parent-run',
-        operationReference: 'prd:auto-complete',
-        normalizedOperationReference: 'prd-auto-complete',
+        operationReference: 'spec:auto-complete',
+        normalizedOperationReference: 'spec-auto-complete',
         target: { type: 'issue', number: 207 },
         statePath: join(/** @type {string} */ (context.outputDirectory), 'parent-state.json'),
       },
@@ -548,15 +548,15 @@ describe('executeOperationPhase', () => {
     );
 
     assert.equal(output.status, 'accepted');
-    assert.deepEqual(output.nextSteps, ['Continue prd:auto-complete for parent issue #207.']);
+    assert.deepEqual(output.nextSteps, ['Continue spec:auto-complete for parent issue #207.']);
     assert.deepEqual(output.suggestedActions, [
       {
         kind: 'command',
-        description: 'Continue prd:auto-complete for parent issue #207.',
+        description: 'Continue spec:auto-complete for parent issue #207.',
         argv: [
           'pullops',
           'run',
-          'prd:auto-complete',
+          'spec:auto-complete',
           '207',
           '--runner',
           'external',

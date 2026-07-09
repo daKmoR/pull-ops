@@ -8,7 +8,7 @@ describe('updatePullRequestBodyForPrFinalize', () => {
     const body = [
       '## Summary',
       '',
-      'Implemented child issue work.',
+      'Implemented ticket work.',
       '',
       '## Traceability',
       '',

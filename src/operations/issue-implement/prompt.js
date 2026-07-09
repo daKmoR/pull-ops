@@ -60,7 +60,7 @@ function formatParentContext({ issue, parentIssueNumber }) {
 
   return [
     `Parent Issue #${resolvedParentIssueNumber}: ${issue.parent?.title ?? '(title unavailable)'}`,
-    'This is a manually selected Child Issue. Implement only the selected Child Issue, using the Parent Issue as context.',
+    'This is a manually selected Ticket. Implement only the selected Ticket, using the Parent Issue as context.',
     '',
   ];
 }

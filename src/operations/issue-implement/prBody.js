@@ -102,7 +102,7 @@ function formatPullOpsLinkSummary({ issue, parentIssueNumber, umbrellaPullReques
   }
 
   return [
-    'Kind: Child Issue PR',
+    'Kind: Ticket PR',
     `Source Issue: #${issue.number}`,
     umbrellaPullRequestNumber === undefined
       ? 'Umbrella PR: pending'

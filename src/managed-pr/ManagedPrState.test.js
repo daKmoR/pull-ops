@@ -458,7 +458,7 @@ describe('ManagedPrState', () => {
       pullRequest: createPullRequest({
         body: createManagedBody({
           status: 'Draft parent preparation',
-          lastOperation: requireOperationCatalogOperationLabelName('prd-prepare'),
+          lastOperation: requireOperationCatalogOperationLabelName('spec-prepare'),
         }),
       }),
     });

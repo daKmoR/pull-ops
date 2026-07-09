@@ -26,7 +26,7 @@ export function buildPrResolveConflictsPrompt({
     '',
     `Goal: resolve the rebase conflicts on PR #${pullRequest.number} so the branch preserves the linked issue intent and both sides of the rebase: ${pullRequest.title}`,
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     formatIssue(issue),
     '',
     'Pull request body:',

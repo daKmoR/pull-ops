@@ -5,7 +5,7 @@ import { PULL_OPS_STATUS_LABELS } from '../../labels/pullOpsLabels.js';
 import {
   readBlockingDependencies,
   readIssueWorkTarget,
-} from '../../prd-automation/childCoordination.js';
+} from '../../spec-automation/ticketCoordination.js';
 import { commentOnPullRequestWithOperationAudit } from '../auditComment.js';
 import { executeOperationPhase, runOperationRunnerStep } from '../runnerLifecycle.js';
 import { GITHUB_ACTIONS_BOT_AUTHOR } from '../githubActionsBot.js';
@@ -456,26 +456,26 @@ async function prepareIssueImplement(context) {
       ready: false,
       output: await blockIssue(context, issue, {
         reason: [
-          `Issue #${issue.number} is a Parent Issue with child issues.`,
+          `Issue #${issue.number} is a Parent Issue with tickets.`,
           [
-            `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
+            `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} on the parent issue`,
             'to create or update its umbrella branch and draft PR.',
           ].join(' '),
-          `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+          `PullOps will not implement tickets from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       }),
     };
   }
 
-  if (looksLikePrdIssue(issue)) {
+  if (looksLikeSpecIssue(issue)) {
     return {
       ready: false,
       output: await blockIssue(context, issue, {
         reason: [
-          `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+          `Issue #${issue.number} looks like a Parent Issue or Spec.`,
           [
-            `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
-            `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+            `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} for parent setup,`,
+            `then label concrete tickets with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
           ].join(' '),
         ].join(' '),
       }),
@@ -582,25 +582,25 @@ async function prepareIssueImplementDryRun(context, runRecord) {
   if (issue.subIssues.length > 0) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
-        `Issue #${issue.number} is a Parent Issue with child issues.`,
+        `Issue #${issue.number} is a Parent Issue with tickets.`,
         [
-          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
+          `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} on the parent issue`,
           'to create or update its umbrella branch and draft PR.',
         ].join(' '),
-        `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+        `PullOps will not implement tickets from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
       ].join(' '),
       branchName: prepared.branchName,
       baseBranch: prepared.baseBranch,
     });
   }
 
-  if (looksLikePrdIssue(issue)) {
+  if (looksLikeSpecIssue(issue)) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
-        `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+        `Issue #${issue.number} looks like a Parent Issue or Spec.`,
         [
-          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
-          `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+          `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} for parent setup,`,
+          `then label concrete tickets with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       ].join(' '),
       branchName: prepared.branchName,
@@ -620,7 +620,7 @@ async function prepareIssueImplementDryRun(context, runRecord) {
     });
   }
 
-  const synced = await syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, prepared);
+  const synced = await syncTicketBranchWithBaseIfSupported(context, runRecord, issue, prepared);
   if (synced !== undefined) {
     return synced;
   }
@@ -666,7 +666,7 @@ async function prepareIssueImplementLocalPublish(context, runRecord) {
     return blocked;
   }
 
-  const synced = await syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, prepared);
+  const synced = await syncTicketBranchWithBaseIfSupported(context, runRecord, issue, prepared);
   if (synced !== undefined) {
     return synced;
   }
@@ -703,12 +703,12 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
   if (issue.subIssues.length > 0) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
-        `Issue #${issue.number} is a Parent Issue with child issues.`,
+        `Issue #${issue.number} is a Parent Issue with tickets.`,
         [
-          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} on the parent issue`,
+          `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} on the parent issue`,
           'to create or update its umbrella branch and draft PR.',
         ].join(' '),
-        `PullOps will not implement child issues from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+        `PullOps will not implement tickets from ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
       ].join(' '),
       branchName: prepared.branchName,
       baseBranch: prepared.baseBranch,
@@ -716,13 +716,13 @@ async function readIssueImplementLocalBlock(context, prepared, issue, runRecord)
     });
   }
 
-  if (looksLikePrdIssue(issue)) {
+  if (looksLikeSpecIssue(issue)) {
     return await blockIssueDryRun(runRecord, issue, {
       reason: [
-        `Issue #${issue.number} looks like a Parent Issue or PRD.`,
+        `Issue #${issue.number} looks like a Parent Issue or Spec.`,
         [
-          `Use ${requireOperationCatalogOperationLabelName('prd-prepare')} for parent setup,`,
-          `then label concrete child issues with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
+          `Use ${requireOperationCatalogOperationLabelName('spec-prepare')} for parent setup,`,
+          `then label concrete tickets with ${requireOperationCatalogOperationLabelName('issue-implement')}.`,
         ].join(' '),
       ].join(' '),
       branchName: prepared.branchName,
@@ -778,7 +778,7 @@ async function readPreparedIssueImplement(context) {
 }
 
 /**
- * @param {import('../../prd-automation/childCoordination.types.js').IssueWorkTarget} workTarget
+ * @param {import('../../spec-automation/ticketCoordination.types.js').IssueWorkTarget} workTarget
  * @returns {IssueImplementPreparation & { ready: true }}
  */
 function buildPreparedIssueImplement(workTarget) {
@@ -1784,7 +1784,7 @@ async function buildLocalFollowUpPrompt(
     '',
     `Run this PullOps follow-up locally for issue implementation PR branch for issue #${preparation.issue.number}.`,
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     formatLocalIssueContext(preparation.issue),
     '',
     'Local PR context:',
@@ -2071,7 +2071,7 @@ export function createIssueImplementCommitMessage(
 ) {
   const footers = [`Refs: #${issue.number}`];
   if (parentIssueNumber !== undefined) {
-    footers.push(`PRD: #${parentIssueNumber}`);
+    footers.push(`Spec: #${parentIssueNumber}`);
   }
 
   return [
@@ -2097,9 +2097,9 @@ function assertIssueTarget(context) {
  * @param {GitHubIssue} issue
  * @returns {boolean}
  */
-function looksLikePrdIssue(issue) {
+function looksLikeSpecIssue(issue) {
   return (
-    issue.title.trim().toLowerCase().startsWith('prd:') ||
+    issue.title.trim().toLowerCase().startsWith('spec:') ||
     (/^##\s+Problem Statement\s*$/im.test(issue.body) && /^##\s+Solution\s*$/im.test(issue.body))
   );
 }
@@ -2541,7 +2541,7 @@ async function checkoutPullOpsBranchForDryRun(context, preparation) {
  * @param {IssueImplementPreparation & { ready: true }} preparation
  * @returns {Promise<IssueImplementPreparation | undefined>}
  */
-async function syncChildIssueBranchWithBaseIfSupported(context, runRecord, issue, preparation) {
+async function syncTicketBranchWithBaseIfSupported(context, runRecord, issue, preparation) {
   if (
     preparation.parentIssueNumber === undefined ||
     context.gitClient.rebaseExistingBranchOntoBase === undefined

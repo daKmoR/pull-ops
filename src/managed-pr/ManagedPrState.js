@@ -1396,10 +1396,10 @@ function readSource({ body, workflowState }) {
     };
   }
 
-  const prdIssueMatch = body.match(/^PRD Issue:\s*#(\d+)\s*$/im);
-  if (prdIssueMatch?.[1] !== undefined) {
+  const specIssueMatch = body.match(/^Spec Issue:\s*#(\d+)\s*$/im);
+  if (specIssueMatch?.[1] !== undefined) {
     return {
-      number: Number(prdIssueMatch[1]),
+      number: Number(specIssueMatch[1]),
       kind: 'parentIssue',
     };
   }

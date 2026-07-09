@@ -103,8 +103,8 @@ query($owner: String!, $repo: String!, $number: Int!) {
 `;
 
 const ADD_SUB_ISSUE_MUTATION = `
-mutation($parentIssueId: ID!, $childIssueId: ID!) {
-  addSubIssue(input: { issueId: $parentIssueId, subIssueId: $childIssueId, replaceParent: false }) {
+mutation($parentIssueId: ID!, $ticketId: ID!) {
+  addSubIssue(input: { issueId: $parentIssueId, subIssueId: $ticketId, replaceParent: false }) {
     issue {
       number
     }
@@ -506,8 +506,8 @@ export function createGitHubClient({
      * @param {AddSubIssueOptions} options
      * @returns {Promise<void>}
      */
-    async addSubIssue({ parentIssueNumber, childIssueNumber }) {
-      await addSubIssue(api, getRepository(), { parentIssueNumber, childIssueNumber });
+    async addSubIssue({ parentIssueNumber, ticketNumber }) {
+      await addSubIssue(api, getRepository(), { parentIssueNumber, ticketNumber });
     },
 
     /**
@@ -1124,17 +1124,17 @@ async function updateIssue(octokit, repository, { number, title, body, labels })
  * @param {AddSubIssueOptions} options
  * @returns {Promise<void>}
  */
-async function addSubIssue(octokit, repository, { parentIssueNumber, childIssueNumber }) {
+async function addSubIssue(octokit, repository, { parentIssueNumber, ticketNumber }) {
   try {
     const parentIssueId = await getIssueNodeId(octokit, repository, parentIssueNumber);
-    const childIssueId = await getIssueNodeId(octokit, repository, childIssueNumber);
+    const ticketId = await getIssueNodeId(octokit, repository, ticketNumber);
     await octokit.graphql(ADD_SUB_ISSUE_MUTATION, {
       parentIssueId,
-      childIssueId,
+      ticketId,
     });
   } catch (error) {
     throw new Error(
-      `Failed to add GitHub issue #${childIssueNumber} as a sub-issue of #${parentIssueNumber}: ${getGitHubErrorMessage(error)}`,
+      `Failed to add GitHub issue #${ticketNumber} as a sub-issue of #${parentIssueNumber}: ${getGitHubErrorMessage(error)}`,
       { cause: error },
     );
   }

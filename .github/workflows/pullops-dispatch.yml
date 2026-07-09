@@ -18,9 +18,9 @@ jobs:
     if: >-
       github.event_name == 'issues' &&
       (
-        github.event.label.name == 'pullops:prd:prepare' ||
-        github.event.label.name == 'pullops:prd:auto-advance' ||
-        github.event.label.name == 'pullops:prd:auto-complete' ||
+        github.event.label.name == 'pullops:spec:prepare' ||
+        github.event.label.name == 'pullops:spec:auto-advance' ||
+        github.event.label.name == 'pullops:spec:auto-complete' ||
         github.event.label.name == 'pullops:issue:implement'
       )
     runs-on: ubuntu-latest
@@ -55,9 +55,9 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const workflows = {
-              'pullops:prd:prepare': 'pullops-prd-prepare.yml',
-              'pullops:prd:auto-advance': 'pullops-prd-auto-advance.yml',
-              'pullops:prd:auto-complete': 'pullops-prd-auto-complete.yml',
+              'pullops:spec:prepare': 'pullops-spec-prepare.yml',
+              'pullops:spec:auto-advance': 'pullops-spec-auto-advance.yml',
+              'pullops:spec:auto-complete': 'pullops-spec-auto-complete.yml',
               'pullops:issue:implement': 'pullops-issue-implement.yml',
             };
             const workflow_id = workflows[process.env.LABEL];

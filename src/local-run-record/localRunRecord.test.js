@@ -27,27 +27,27 @@ describe('Test localRunRecord', () => {
   it('02: slugifies string targets for path safety', () => {
     const location = createRunRecordLocation({
       cwd: '/repo',
-      operationReference: 'issues:publish-prd',
-      targetReference: 'My PRD Title!',
+      operationReference: 'issues:publish-spec',
+      targetReference: 'My Spec Title!',
       createdAt: new Date('2026-07-07T10:20:30.400Z'),
     });
 
-    assert.equal(location.runId, '2026-07-07T102030400Z-issues-publish-prd-my-prd-title');
+    assert.equal(location.runId, '2026-07-07T102030400Z-issues-publish-spec-my-spec-title');
   });
 
   it('03: falls back to "new" for targets without path-safe characters', () => {
     const location = createRunRecordLocation({
       cwd: '/repo',
-      operationReference: 'issues:publish-prd',
+      operationReference: 'issues:publish-spec',
       targetReference: '???',
       createdAt: new Date('2026-07-07T10:20:30.400Z'),
     });
 
-    assert.equal(location.runId, '2026-07-07T102030400Z-issues-publish-prd-new');
+    assert.equal(location.runId, '2026-07-07T102030400Z-issues-publish-spec-new');
   });
 
   it('04: normalizes operation references for paths', () => {
-    assert.equal(normalizeOperationReferenceForPath('prd:auto-complete'), 'prd-auto-complete');
+    assert.equal(normalizeOperationReferenceForPath('spec:auto-complete'), 'spec-auto-complete');
     assert.equal(normalizeOperationReferenceForPath('  Issue:Implement  '), 'issue-implement');
   });
 

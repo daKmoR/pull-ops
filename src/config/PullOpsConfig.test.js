@@ -47,22 +47,22 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
     mid: 'gpt-5.4',
     low: 'gpt-5.4-mini',
   });
-  assert.equal(config.operations.prdPrepare.modelTier, 'low');
+  assert.equal(config.operations.specPrepare.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
   assert.deepEqual(
-    config.operations.prdAutoAdvance,
-    getOperationCatalogDefaultOperationSettings('prd-auto-advance'),
+    config.operations.specAutoAdvance,
+    getOperationCatalogDefaultOperationSettings('spec-auto-advance'),
   );
   assert.deepEqual(
-    config.operations.prdAutoComplete,
-    getOperationCatalogDefaultOperationSettings('prd-auto-complete'),
+    config.operations.specAutoComplete,
+    getOperationCatalogDefaultOperationSettings('spec-auto-complete'),
   );
   assert.equal(config.operations.prFixCi.modelTier, 'mid');
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prResolveConflicts.modelTier, 'high');
   assert.equal(config.operations.prResolveConflicts.maxConflictResolutionPasses, 3);
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, true);
-  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
+  assert.equal(config.operations.prCloseTicket.modelTier, 'low');
   assert.deepEqual(
     config.operations.prFixCi,
     getOperationCatalogDefaultOperationSettings('pr-fix-ci'),
@@ -88,8 +88,8 @@ test('loadPullOpsConfig returns defaults and infers GitHub issue store when a Gi
     getOperationCatalogDefaultOperationSettings('pr-finalize'),
   );
   assert.deepEqual(
-    config.operations.prCloseChildIssue,
-    getOperationCatalogDefaultOperationSettings('pr-close-child-issue'),
+    config.operations.prCloseTicket,
+    getOperationCatalogDefaultOperationSettings('pr-close-ticket'),
   );
 });
 
@@ -177,9 +177,9 @@ test('loadPullOpsConfig loads JavaScript config and merges with defaults', async
   assert.equal(config.operations.prUpdateBranch.modelTier, 'low');
   assert.equal(config.operations.prFinalize.modelTier, 'high');
   assert.equal(config.operations.prFinalize.aiHistoryCleanup, false);
-  assert.equal(config.operations.prCloseChildIssue.modelTier, 'low');
+  assert.equal(config.operations.prCloseTicket.modelTier, 'low');
   assert.equal(config.operations.issueImplement.modelTier, 'high');
-  assert.equal(config.operations.prdPrepare.modelTier, 'low');
+  assert.equal(config.operations.specPrepare.modelTier, 'low');
 });
 
 test('loadPullOpsConfig defaults model tiers to Claude models for claude Runner Commands', async () => {

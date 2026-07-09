@@ -16,7 +16,7 @@ import { requireOperationCatalogOperationLabelName } from '../operationCatalog.j
  * @param {number | undefined} options.parentIssueNumber
  * @param {string} options.finalizedTreeHash
  * @param {string} options.finalizedHeadSha
- * @param {GitHubIssueReference[]} [options.childIssues]
+ * @param {GitHubIssueReference[]} [options.tickets]
  * @param {PrFinalizeBodyStatus} [options.status]
  * @returns {string}
  */
@@ -26,12 +26,12 @@ export function updatePullRequestBodyForPrFinalize({
   parentIssueNumber,
   finalizedTreeHash,
   finalizedHeadSha,
-  childIssues,
+  tickets,
   status = 'finalized',
 }) {
   let updated = body.trimEnd();
-  if (childIssues !== undefined) {
-    updated = upsertSection(updated, 'Child Issues', formatChildIssues(childIssues));
+  if (tickets !== undefined) {
+    updated = upsertSection(updated, 'Tickets', formatTickets(tickets));
   }
   updated = upsertSection(
     updated,
@@ -49,20 +49,19 @@ export function updatePullRequestBodyForPrFinalize({
 }
 
 /**
- * @param {GitHubIssueReference[]} childIssues
+ * @param {GitHubIssueReference[]} tickets
  * @returns {string}
  */
-function formatChildIssues(childIssues) {
-  if (childIssues.length === 0) {
+function formatTickets(tickets) {
+  if (tickets.length === 0) {
     return '(none discovered)';
   }
 
-  return childIssues
-    .map(childIssue => {
-      const title = childIssue.title === undefined ? '(title unavailable)' : childIssue.title;
-      const state =
-        childIssue.state === undefined ? 'state unknown' : childIssue.state.toLowerCase();
-      return `- #${childIssue.number} ${title} (${state})`;
+  return tickets
+    .map(ticket => {
+      const title = ticket.title === undefined ? '(title unavailable)' : ticket.title;
+      const state = ticket.state === undefined ? 'state unknown' : ticket.state.toLowerCase();
+      return `- #${ticket.number} ${title} (${state})`;
     })
     .join('\n');
 }

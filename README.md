@@ -14,8 +14,8 @@ The workflow stays visible in git. Shared runner logic comes from the local
 
 PullOps supports two issue-to-PR workflows:
 
-- A **PRD Issue** describes a larger change. PullOps breaks it into **Child
-  Issues**, implements each Child Issue through a Child Issue PR, and integrates
+- A **Spec Issue** describes a larger change. PullOps breaks it into
+  **Tickets**, implements each Ticket through a Ticket PR, and integrates
   those PRs through an **Umbrella Branch**.
 - A **Concrete Issue** is already small enough to implement directly. PullOps
   turns it into one **PullOps-Managed PR**.
@@ -89,37 +89,41 @@ export default {
 After setup, when you are not sure what to do next, ask your local agent to run
 `/pullops-go`.
 
-`/pullops-go` is the main local entrypoint. It can list runnable PRDs and issues,
+`/pullops-go` is the main local entrypoint. It can list runnable specs and issues,
 choose the right PullOps command, supervise long runs, repair PullOps failures
 where possible, and stop at the next real human decision.
 
 If there is no ready work, `/pullops-go` guides you into `/grill-with-docs` so a
-new PRD or issue can be shaped.
+new Spec or issue can be shaped.
 
 You do not need to remember every label or command. The rest of this README is
 reference for the paths `/pullops-go` may choose.
 
 ## Create Work
 
-PullOps works best when the issue tracker contains clear PRD Issues, Child
-Issues, and Concrete Issues.
+PullOps works best when the issue tracker contains clear Spec Issues, Tickets,
+and Concrete Issues.
 
 Use the authoring skills from
-[mattpocock/skills](https://github.com/mattpocock/skills) to create that work:
+[mattpocock/skills](https://github.com/mattpocock/skills) to create that work.
+The flow is grilling → spec → tickets → implement → code review:
 
 1. Run `/grill-with-docs` to sharpen the idea, project language, and any
-   decisions worth recording.
-2. Run `/to-prd` in the same agent session to publish the PRD Issue while the
+   decisions worth recording. When the idea is too big for one agent session,
+   run `/wayfinder` instead: it charts the planning work as a shared map of
+   research, prototype, grilling, and task tickets on the issue tracker, and
+   you work them one session at a time until the way to a spec is clear.
+2. Run `/to-spec` in the same agent session to publish the Spec Issue while the
    agent still has that context.
-3. Run `/to-issues 123`, where `123` is the GitHub issue number for the PRD
-   Issue, to break it into independently runnable Child Issues.
-4. Run `/pullops-go 123` from a clean checkout to have the local agent run PRD
+3. Run `/to-tickets 123`, where `123` is the GitHub issue number for the Spec
+   Issue, to break it into independently runnable Tickets.
+4. Run `/pullops-go 123` from a clean checkout to have the local agent run Spec
    auto-complete and publish PRs with your local credentials.
-5. Alternatively, add `pullops:prd:auto-complete` to the PRD Issue to dispatch
+5. Alternatively, add `pullops:spec:auto-complete` to the Spec Issue to dispatch
    GitHub Actions using repository secrets.
 
 PullOps setup can detect whether optional authoring skills such as
-`grill-with-docs`, `to-prd`, and `to-issues` are available. It does not invoke
+`grill-with-docs`, `to-spec`, and `to-tickets` are available. It does not invoke
 remote skill installers during PullOps setup.
 
 If your agent environment does not already provide those skills, install them
@@ -142,8 +146,8 @@ Ask the local agent:
 /pullops-go
 ```
 
-If you name a PRD, issue, PR, or operation, `/pullops-go` selects the matching
-PullOps command. If you do not name a target, it discovers open PRDs and
+If you name a Spec, issue, PR, or operation, `/pullops-go` selects the matching
+PullOps command. If you do not name a target, it discovers open specs and
 implementable issues and asks you to choose.
 
 Examples:
@@ -217,18 +221,18 @@ because credential readiness depends on the execution path you intend to use.
 
 Apply these labels when GitHub Actions should run PullOps:
 
-- Use `pullops:prd:auto-advance` when you want PullOps to prepare a PRD and
-  implement the currently unblocked Child Issue frontier. Humans still approve
-  and merge each Child Issue PR.
-- Use `pullops:prd:auto-complete` when you want PullOps to keep advancing
-  through Child Issues, review and finalize them, integrate them into the
+- Use `pullops:spec:auto-advance` when you want PullOps to prepare a Spec and
+  implement the currently unblocked Ticket frontier. Humans still approve
+  and merge each Ticket PR.
+- Use `pullops:spec:auto-complete` when you want PullOps to keep advancing
+  through Tickets, review and finalize them, integrate them into the
   Umbrella Branch, and stop before the human default-branch merge.
 - Use `pullops:issue:implement` when you want PullOps to implement one Concrete
-  Issue or manually selected Child Issue into a PullOps-Managed PR.
+  Issue or manually selected Ticket into a PullOps-Managed PR.
 
-`pullops:prd:auto-advance` and `pullops:prd:auto-complete` are durable PRD
+`pullops:spec:auto-advance` and `pullops:spec:auto-complete` are durable Spec
 automation mode labels, meaning PullOps does not remove them after one run. They
-stay on the PRD Issue so later Child Issue merges can resume the selected mode.
+stay on the Spec Issue so later Ticket merges can resume the selected mode.
 
 `pullops:issue:implement` is a request for one issue implementation. PullOps
 removes one-shot request labels when the request is fulfilled.
@@ -241,9 +245,9 @@ Workflow State in PR bodies, and local run records.
 
 PullOps keeps human control at the important edges:
 
-- Child Issue PRs remain reviewable implementation units.
-- `pullops:prd:auto-advance` leaves Child Issue PR merges to humans.
-- `pullops:prd:auto-complete` may complete and integrate the PRD branch, but
+- Ticket PRs remain reviewable implementation units.
+- `pullops:spec:auto-advance` leaves Ticket PR merges to humans.
+- `pullops:spec:auto-complete` may complete and integrate the Spec branch, but
   the final Umbrella PR merge into the default branch remains human-controlled.
 - PullOps blocks with `pullops:human-required` when it cannot safely continue.
 

@@ -666,23 +666,23 @@ describe('runPrReview', () => {
     assert.equal(codex.calls.length, 0);
   });
 
-  it('12: refuses incomplete Umbrella PRD PRs before Codex can approve them', async () => {
+  it('12: refuses incomplete Umbrella Spec PRs before Codex can approve them', async () => {
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
-        title: 'PRD: Parent workflow',
+        title: 'Spec: Parent workflow',
         subIssues: [
           {
             number: 42,
-            title: 'Implement child workflow',
+            title: 'Implement ticket workflow',
             state: 'OPEN',
             relationshipSource: 'native',
           },
         ],
       }),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         baseRefName: 'main',
         body: [
           '## Summary',
@@ -699,7 +699,7 @@ describe('runPrReview', () => {
           '',
           'Review cycles: 0 / 3',
           'Source: Parent Issue #7',
-          'Last operation: pullops:prd:prepare',
+          'Last operation: pullops:spec:prepare',
           '',
           '</details>',
         ].join('\n'),
@@ -727,8 +727,8 @@ describe('runPrReview', () => {
     assert.equal(codex.calls.length, 0);
     assert.equal(github.publishedReviews.length, 0);
     assert.match(github.updatedBodies[0].body, /Status: Human required/);
-    assert.match(github.comments[0].body, /native Child Issues #42 remain open/);
-    assert.match(github.comments[0].body, /Incomplete PRDs cannot be approved/);
+    assert.match(github.comments[0].body, /native Tickets #42 remain open/);
+    assert.match(github.comments[0].body, /Incomplete specs cannot be approved/);
   });
 
   it('13: uses the human feedback response model tier when a pending special-cycle marker is present', async () => {

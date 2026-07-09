@@ -2,7 +2,7 @@
 
 PullOps Event Supervision extends ADR-0052's JSONL Progress Event stream with a mutable `state.json` in each Local Run Record. The event stream remains the semantic history and terminal summary surface, while `state.json` carries machine-only supervision state such as `status`, `phase`, `heartbeatAt`, `leaseExpiresAt`, `lastEvent`, and `childRuns`.
 
-For nested local runs such as PRD Auto-Complete driving Child Issue operations, the parent command's Progress Event stream is the complete default supervision surface. The parent command starts a PullOps Parent Event Sink and passes its local authenticated endpoint to nested PullOps commands. Child workers still record PullOps Heartbeats through the PullOps Heartbeat Command into their own `state.json`; when a parent event sink is configured, the same command also publishes the heartbeat payload to that sink. The parent coordinator converts sink payloads into `child.heartbeat` events containing the active child run, heartbeat time, lease expiry, heartbeat count, heartbeat summary, and completed non-heartbeat step count, so an observing agent can keep waiting or classify a stall without routinely opening child `state.json` files. Parent streams emit one `child.heartbeat` per distinct child heartbeat count; human-facing supervisors can throttle display separately. Child Local Run Records remain the durable recovery and postmortem surface when the stream is truncated, inconsistent, or terminal.
+For nested local runs such as Spec Auto-Complete driving Ticket operations, the parent command's Progress Event stream is the complete default supervision surface. The parent command starts a PullOps Parent Event Sink and passes its local authenticated endpoint to nested PullOps commands. Child workers still record PullOps Heartbeats through the PullOps Heartbeat Command into their own `state.json`; when a parent event sink is configured, the same command also publishes the heartbeat payload to that sink. The parent coordinator converts sink payloads into `child.heartbeat` events containing the active child run, heartbeat time, lease expiry, heartbeat count, heartbeat summary, and completed non-heartbeat step count, so an observing agent can keep waiting or classify a stall without routinely opening child `state.json` files. Parent streams emit one `child.heartbeat` per distinct child heartbeat count; human-facing supervisors can throttle display separately. Child Local Run Records remain the durable recovery and postmortem surface when the stream is truncated, inconsistent, or terminal.
 
 The PullOps Heartbeat Command's success boundary is durable heartbeat recording. If it successfully updates the child `state.json` but cannot publish to the parent event sink, the command still returns accepted and reports the sink delivery failure as warning metadata or stderr. Sink delivery is the live liveness path, not the durable record. A parent supervisor treats missing live events as a possible sink-loss condition and reconciles from durable run state only after stream interruption, sink loss, or lease expiry.
 
@@ -13,9 +13,9 @@ The parent event sink is a generic nested-operation live transport, but its init
 ```json
 {
   "type": "heartbeat",
-  "parentRunId": "2026-06-30T160737013Z-prd-auto-complete-163",
+  "parentRunId": "2026-06-30T160737013Z-spec-auto-complete-163",
   "childRunId": "2026-06-30T165657800Z-issue-implement-165",
-  "childIssue": { "number": 165 },
+  "ticket": { "number": 165 },
   "localRunRecord": "/repo/.pullops/runs/2026-06-30T165657800Z-issue-implement-165",
   "heartbeatAt": "2026-06-30T17:10:00.000Z",
   "leaseExpiresAt": "2026-06-30T17:18:00.000Z",
@@ -25,7 +25,7 @@ The parent event sink is a generic nested-operation live transport, but its init
 }
 ```
 
-The parent sink validates the bearer token, expected parent run id, active child run id or active child issue, and monotonic heartbeat count before emitting `child.heartbeat`. Invalid sink requests are rejected and do not become PullOps Progress Events.
+The parent sink validates the bearer token, expected parent run id, active child run id or active ticket, and monotonic heartbeat count before emitting `child.heartbeat`. Invalid sink requests are rejected and do not become PullOps Progress Events.
 
 Long-running local workers report PullOps Heartbeats through a deterministic PullOps Heartbeat Command using the current run state path and a per-run token passed in the runner environment. The heartbeat is produced by the active worker, not invented by an outer process waiting on it, and it is distinct from human-facing PullOps Progress Events.
 

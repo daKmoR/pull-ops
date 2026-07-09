@@ -23,7 +23,7 @@ describe('Test IssueStore', () => {
     assert.deepEqual(snapshot.blockedBy, [3]);
   });
 
-  it('02: reads Child Issue Snapshots from native sub-issues', async () => {
+  it('02: reads Ticket Snapshots from native sub-issues', async () => {
     const { store } = createStoreWithIssues([
       createIssue({
         number: 9,
@@ -36,10 +36,10 @@ describe('Test IssueStore', () => {
       createIssue({ number: 13 }),
     ]);
 
-    const children = await store.readChildIssueSnapshots(9);
+    const tickets = await store.readTicketSnapshots(9);
 
     assert.deepEqual(
-      children.map(child => ({ number: child.number, isDone: child.isDone })),
+      tickets.map(ticket => ({ number: ticket.number, isDone: ticket.isDone })),
       [
         { number: 12, isDone: true },
         { number: 13, isDone: false },
@@ -47,7 +47,7 @@ describe('Test IssueStore', () => {
     );
   });
 
-  it('03: relates a Child Issue to its Parent Issue through native sub-issues', async () => {
+  it('03: relates a Ticket to its Parent Issue through native sub-issues', async () => {
     /** @type {import('../github/types.js').AddSubIssueOptions[]} */
     const related = [];
     const { store } = createStoreWithIssues([], {
@@ -57,16 +57,16 @@ describe('Test IssueStore', () => {
       },
     });
 
-    await store.relateChildIssue({ parentIssueNumber: 9, childIssueNumber: 12 });
+    await store.relateTicket({ parentIssueNumber: 9, ticketNumber: 12 });
 
-    assert.deepEqual(related, [{ parentIssueNumber: 9, childIssueNumber: 12 }]);
+    assert.deepEqual(related, [{ parentIssueNumber: 9, ticketNumber: 12 }]);
   });
 
   it('04: rejects relating when the GitHub client lacks sub-issue support', async () => {
     const { store } = createStoreWithIssues([], { addSubIssue: undefined });
 
     await assert.rejects(
-      store.relateChildIssue({ parentIssueNumber: 9, childIssueNumber: 12 }),
+      store.relateTicket({ parentIssueNumber: 9, ticketNumber: 12 }),
       /does not support sub-issue relationships/,
     );
   });

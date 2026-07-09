@@ -21,7 +21,7 @@ export function buildPrFixCiPrompt({ pullRequest, issue, reviewContext, diff, ch
     '',
     `Goal: make the failed checks on PR #${pullRequest.number} pass with the smallest correct repair, or return blocked when no safe code repair exists: ${pullRequest.title}`,
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     formatIssue(issue),
     '',
     'Pull request body:',

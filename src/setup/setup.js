@@ -985,7 +985,7 @@ async function collectManifestConflicts({
  */
 async function inspectOptionalAuthoringSkills({ cwd }) {
   const missing = [];
-  for (const skillName of ['to-prd', 'to-issues']) {
+  for (const skillName of ['to-spec', 'to-tickets']) {
     const skillPath = join(cwd, '.agents', 'skills', skillName, 'SKILL.md');
     if (!(await pathExists(skillPath))) {
       missing.push(skillName);

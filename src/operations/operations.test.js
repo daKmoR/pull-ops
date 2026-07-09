@@ -32,7 +32,7 @@ describe('runWorkflowOperation', () => {
     assert.equal(git.currentBranch, 'main');
     assert.deepEqual(git.createdBranches, [
       {
-        branchName: 'pullops/prd-12',
+        branchName: 'pullops/spec-12',
         baseBranch: 'main',
       },
     ]);
@@ -69,7 +69,7 @@ describe('runWorkflowOperation', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(git.currentBranch, 'pullops/prd-12');
+    assert.equal(git.currentBranch, 'pullops/spec-12');
     assert.deepEqual(result.localBranchRestore, {
       status: 'blocked',
       branch: 'main',
@@ -231,56 +231,56 @@ describe('runWorkflowOperation', () => {
     assert.match(runnerJob.resultFile, /runner_result\.json$/);
   });
 
-  it('06: rejects unsupported catalog lifecycles for prd-auto-advance before dispatch', async () => {
+  it('06: rejects unsupported catalog lifecycles for spec-auto-advance before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
           executionBackend: 'local',
-          operation: 'prd-auto-advance',
+          operation: 'spec-auto-advance',
           runnerAdapter: 'external',
         }),
       ),
-      /prd-auto-advance with --runner external and --phase run is not supported by the operation catalog\./,
+      /spec-auto-advance with --runner external and --phase run is not supported by the operation catalog\./,
     );
   });
 
-  it('07: rejects unsupported catalog lifecycles for prd-auto-complete before dispatch', async () => {
+  it('07: rejects unsupported catalog lifecycles for spec-auto-complete before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
           executionBackend: 'local',
-          operation: 'prd-auto-complete',
+          operation: 'spec-auto-complete',
           runnerAdapter: 'external',
           phase: 'prepare',
         }),
       ),
-      /prd-auto-complete with --runner external and --phase prepare is not supported by the operation catalog\./,
+      /spec-auto-complete with --runner external and --phase prepare is not supported by the operation catalog\./,
     );
   });
 
-  it('08: rejects unsupported catalog phases for prd-auto-advance before dispatch', async () => {
+  it('08: rejects unsupported catalog phases for spec-auto-advance before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
           executionBackend: 'local',
-          operation: 'prd-auto-advance',
+          operation: 'spec-auto-advance',
           phase: 'prepare',
         }),
       ),
-      /prd-auto-advance with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
+      /spec-auto-advance with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
     );
   });
 
-  it('09: rejects unsupported catalog phases for prd-auto-complete before dispatch', async () => {
+  it('09: rejects unsupported catalog phases for spec-auto-complete before dispatch', async () => {
     await assert.rejects(
       runWorkflowOperation(
         createContext({
           executionBackend: 'local',
-          operation: 'prd-auto-complete',
+          operation: 'spec-auto-complete',
           phase: 'prepare',
         }),
       ),
-      /prd-auto-complete with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
+      /spec-auto-complete with --runner codex-cli and --phase prepare is not supported by the operation catalog\./,
     );
   });
 
@@ -434,7 +434,7 @@ describe('runWorkflowOperation', () => {
  */
 function createContext(overrides = {}) {
   return {
-    operation: 'prd-prepare',
+    operation: 'spec-prepare',
     phase: 'run',
     runnerAdapter: 'codex-cli',
     target: {

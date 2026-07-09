@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Goal: make the failed checks on the pull request pass with the smallest
 correct repair, or return `blocked` when no safe code repair exists. The
-linked issue or PRD, PR body, changed files, and diff are context for keeping
+linked issue or Spec, PR body, changed files, and diff are context for keeping
 the repair in scope.
 
 ## Classification

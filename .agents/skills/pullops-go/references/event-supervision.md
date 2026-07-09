@@ -1,23 +1,23 @@
 # PullOps Event Supervision
 
 Use this reference while supervising
-`prd:auto-complete --runner external --events jsonl`.
+`spec:auto-complete --runner external --events jsonl`.
 
 ## Reading Events
 
-Parse stdout as JSONL. During healthy nested PRD work, parent
+Parse stdout as JSONL. During healthy nested Spec work, parent
 `child.heartbeat` events are the default nested-run PullOps Liveness Signal.
 Also use the matching `.pullops/runs/<run-id>/events.jsonl` and `result.json`
 when available.
 
-Semantic PullOps Progress Events are milestones, phase changes, child
+Semantic PullOps Progress Events are milestones, phase changes, ticket
 completions, blockers, and terminal summary records. Child Heartbeat Events are
 live liveness records emitted as parent `child.heartbeat` JSONL events from the
-Parent Event Sink. They are distinct from `child.progress` semantic milestones;
+Parent Event Sink. They are distinct from `ticket.progress` semantic milestones;
 supervisors must not report liveness as implementation progress.
 
 Human-facing heartbeat display may throttle or coalesce Child Heartbeat Events
-without dropping machine-readable `child.heartbeat` JSONL events. Durable child
+without dropping machine-readable `child.heartbeat` JSONL events. Durable ticket
 Local Run Records and child `state.json` reads are reserved for stream
 interruption, sink loss, lease expiry reconciliation, or postmortem inspection.
 
@@ -30,8 +30,8 @@ Important event fields:
 - `blockers`: retryable or external blockers.
 - `suggestedActions`: commands PullOps believes are safe next steps.
 - `localNextSteps` or `nextSteps`: human-readable next actions.
-- `children`, `parentPullRequest`, `pullRequest`: PR/issue state to inspect.
-  Child and parent entries reference their runner jobs compactly; the
+- `tickets`, `parentPullRequest`, `pullRequest`: PR/issue state to inspect.
+  Ticket and parent entries reference their runner jobs compactly; the
   executable handoff is only the top-level `runnerJob` (also recorded in the
   run's Local Run State).
 - `localRunRecord`: run artifact path for post-failure diagnosis.
@@ -48,14 +48,14 @@ stream is a recovery path where reading durable `state.json` is appropriate.
 
 Use an observe, reconcile, start next eligible operation, wait loop:
 
-- Report semantic milestones immediately, including child starts, completions,
+- Report semantic milestones immediately, including ticket starts, completions,
   blockers, review phases, finalization, and terminal summaries.
 - Give compact healthy-run updates every 5-10 minutes while work is still
-  healthy. Base the update on the latest semantic event plus coalesced Child
+  healthy. Base the update on the latest semantic event plus coalesced Ticket
   Heartbeat Event facts; do not display every heartbeat.
 - While the PullOps Lease is active and `child.heartbeat` liveness is flowing,
   wait. Avoid artifact, process, git, CI, or GitHub probing while a run remains
-  healthy; do not probe artifacts, processes, git state, CI, GitHub, child
+  healthy; do not probe artifacts, processes, git state, CI, GitHub, ticket
   `state.json`, or child Local Run Records merely because semantic events are
   quiet.
 - After stream interruption, suspected sink loss, or lease expiry, reconcile
@@ -102,10 +102,10 @@ reset or discard local changes, or start parallel same-branch work before lease 
   If they are only "review/merge manually", report the human merge boundary.
 - `blocked` with retryable suggested command: inspect why it is waiting. Rerun
   automatically after checks, labels, or routed operations are cleared.
-- `blocked` due to dependency: run or resume the blocking child when PullOps can
+- `blocked` due to dependency: run or resume the blocking ticket when PullOps can
   do so without product judgment; otherwise report the dependency.
-- `refused` with `wrong-target`: follow the suggested parent PRD command unless
-  the user explicitly wanted the child issue.
+- `refused` with `wrong-target`: follow the suggested parent Spec command unless
+  the user explicitly wanted the ticket.
 - `failed`: diagnose as a bug or environment failure. Prefer fixing PullOps over
   requiring the user to intervene.
 
@@ -130,7 +130,7 @@ Known PullOps failure shapes and preferred recovery:
   abort only with a clear reason, then consider whether PullOps should clean up
   this state itself.
 - Waiting for checks: use `gh pr checks` on the referenced PR/head. If checks
-  pass, rerun the original PRD command. If checks fail, run the appropriate
+  pass, rerun the original Spec command. If checks fail, run the appropriate
   PullOps fix operation or diagnose the failing test.
 - Dirty worktree guardrail: separate user changes from PullOps-generated work.
   Do not reset user changes. Commit/stash only when the user asked or the changes
@@ -141,20 +141,20 @@ Known PullOps failure shapes and preferred recovery:
 Before running any PullOps CLI command from this reference, read and follow
 [`docs/agents/pullops-cli.md`](../../../../docs/agents/pullops-cli.md).
 
-After a child complete command reports `accepted` under a PRD run, its output
-includes a `suggestedActions[]` entry pointing back at the parent PRD command.
+After a child complete command reports `accepted` under a Spec run, its output
+includes a `suggestedActions[]` entry pointing back at the parent Spec command.
 Prefer running that `argv` (wrapped in the standard `npm exec` form) over
 reconstructing the command from prose.
 
-When rerunning a PRD without a suggested action, include the same publication
+When rerunning a Spec without a suggested action, include the same publication
 intent:
 
 ```bash
-npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --runner external --events jsonl --publish pr
+npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run spec:auto-complete <issue> --runner external --events jsonl --publish pr
 ```
 
 When an event `suggestedActions[].argv` omits `--runner external` or
-`--events jsonl`, add them back for PRD auto-complete supervision unless the
+`--events jsonl`, add them back for Spec auto-complete supervision unless the
 suggested command is intentionally a different operation.
 
 If the local shell cannot find the expected Node version, prepend your Node

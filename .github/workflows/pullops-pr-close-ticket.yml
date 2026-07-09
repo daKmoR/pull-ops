@@ -1,0 +1,82 @@
+name: PullOps PR Close Ticket
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: pullops-pr-close-ticket-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  pr-close-ticket:
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate merged ticket PR shape
+        id: ticket_pr
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          base_pattern='^pullops/spec-([0-9]+)$'
+          head_pattern='^pullops/spec-([0-9]+)-issue-([0-9]+)$'
+
+          if [[ "$BASE_REF" =~ $base_pattern ]]; then
+            base_spec="${BASH_REMATCH[1]}"
+          else
+            echo "PullOps pr-close-ticket skipped: base branch '$BASE_REF' is not a Spec branch."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$HEAD_REF" =~ $head_pattern ]]; then
+            head_spec="${BASH_REMATCH[1]}"
+            ticket="${BASH_REMATCH[2]}"
+          else
+            echo "PullOps pr-close-ticket skipped: head branch '$HEAD_REF' is not a ticket branch."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$base_spec" != "$head_spec" ]; then
+            echo "PullOps pr-close-ticket skipped: head Spec '$head_spec' does not match base Spec '$base_spec'."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "PullOps pr-close-ticket accepted for ticket #$ticket in Spec #$base_spec."
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check out repository
+        if: steps.ticket_pr.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        if: steps.ticket_pr.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.ticket_pr.outputs.should_run == 'true'
+        run: npm ci
+
+      - name: Run PullOps close ticket
+        if: steps.ticket_pr.outputs.should_run == 'true'
+        run: npm exec pullops -- run pr-close-ticket --pr "${{ github.event.pull_request.number }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
+          PULLOPS_GITHUB_TOKEN: ${{ secrets.PULLOPS_GITHUB_TOKEN }}

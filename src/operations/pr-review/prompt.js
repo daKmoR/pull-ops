@@ -19,7 +19,7 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
     '',
     `Goal: review PullOps-managed PR #${pullRequest.number} against the linked issue and this repository's coding standards (the Coding Standards Pass), and decide whether it is ready for the next PullOps automation step: ${pullRequest.title}`,
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     `Issue #${issue.number}: ${issue.title}`,
     issue.body.trim() || '(empty)',
     '',

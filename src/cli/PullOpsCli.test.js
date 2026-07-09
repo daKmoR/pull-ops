@@ -12,10 +12,10 @@ import { promisify } from 'node:util';
 import { PullOpsCli } from './PullOpsCli.js';
 import { PULL_OPS_LABELS } from '../github/GitHubClient.js';
 import { getOperationCatalogWorkflowOperations } from '../operations/operationCatalog.js';
-import { createChildIssueBody } from '../issue-store/childIssueBody.js';
+import { createTicketBody } from '../issue-store/ticketBody.js';
 import { createConcreteIssueBody } from '../issue-store/concreteIssueBody.js';
 import { createInMemoryIssueStore } from '../issue-store/inMemoryIssueStore.js';
-import { createPrdIssueBody } from '../issue-store/prdIssueBody.js';
+import { createSpecIssueBody } from '../issue-store/specIssueBody.js';
 import {
   initializeLocalRunState,
   recordLocalRunTerminalStatus,
@@ -361,13 +361,13 @@ test('run review loop operations accept catalog-backed external lifecycles', asy
   assert.match(stdout.text, /"status": "accepted"/);
 });
 
-test('run operation rejects unsupported external lifecycle arguments for prd-prepare', async () => {
+test('run operation rejects unsupported external lifecycle arguments for spec-prepare', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({ stderr });
 
   const exitCode = await cli.run([
     'run',
-    'prd-prepare',
+    'spec-prepare',
     '--phase',
     'prepare',
     '--runner',
@@ -377,7 +377,7 @@ test('run operation rejects unsupported external lifecycle arguments for prd-pre
   ]);
 
   assert.equal(exitCode, 1);
-  assert.match(stderr.text, /prd-prepare only supports codex-cli with the run phase/);
+  assert.match(stderr.text, /spec-prepare only supports codex-cli with the run phase/);
 });
 
 test('run pr-address-review accepts a trusted review id', async () => {
@@ -1134,9 +1134,9 @@ test('heartbeat accepts durable recording when parent event sink delivery fails'
       PULLOPS_HEARTBEAT_TOKEN: stateRecord.state.heartbeatToken,
       PULLOPS_PARENT_EVENT_SINK_URL: 'http://127.0.0.1:1/events',
       PULLOPS_PARENT_EVENT_SINK_TOKEN: 'parent-sink-token',
-      PULLOPS_PARENT_RUN_ID: '2026-06-20T010203000Z-prd-auto-complete-12',
+      PULLOPS_PARENT_RUN_ID: '2026-06-20T010203000Z-spec-auto-complete-12',
       PULLOPS_CHILD_RUN_ID: stateRecord.state.runId,
-      PULLOPS_CHILD_ISSUE_NUMBER: '42',
+      PULLOPS_TICKET_NUMBER: '42',
       PULLOPS_CHILD_LOCAL_RUN_RECORD: runRecordDirectory,
       PULLOPS_CHILD_RUN_STATE_PATH: stateRecord.statePath,
     },
@@ -1400,7 +1400,7 @@ test('step shows usage for missing separator or command', async () => {
   }
 });
 
-test('run prd:auto-advance defaults local dry-run to finalized', async () => {
+test('run spec:auto-advance defaults local dry-run to finalized', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1410,7 +1410,7 @@ test('run prd:auto-advance defaults local dry-run to finalized', async () => {
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-advance dry-run accepted',
+        summary: 'local Spec auto-advance dry-run accepted',
         publicationMode: context.publicationMode,
         runGoal: context.runGoal,
         target: context.target,
@@ -1418,25 +1418,25 @@ test('run prd:auto-advance defaults local dry-run to finalized', async () => {
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-advance', '123']);
+  const exitCode = await cli.run(['run', 'spec:auto-advance', '123']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
-  assert.equal(runnerCalls[0].operation, 'prd-auto-advance');
+  assert.equal(runnerCalls[0].operation, 'spec-auto-advance');
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'dry-run');
   assert.equal(runnerCalls[0].runGoal, 'finalized');
   assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local PRD auto-advance dry-run accepted',
+    summary: 'local Spec auto-advance dry-run accepted',
     publicationMode: 'dry-run',
     runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
 });
 
-test('run prd:auto-advance allows explicit operation-only local dry-run', async () => {
+test('run spec:auto-advance allows explicit operation-only local dry-run', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1446,7 +1446,7 @@ test('run prd:auto-advance allows explicit operation-only local dry-run', async 
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-advance operation dry-run accepted',
+        summary: 'local Spec auto-advance operation dry-run accepted',
         publicationMode: context.publicationMode,
         runGoal: context.runGoal,
         target: context.target,
@@ -1454,7 +1454,7 @@ test('run prd:auto-advance allows explicit operation-only local dry-run', async 
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--until', 'operation']);
+  const exitCode = await cli.run(['run', 'spec:auto-advance', '123', '--until', 'operation']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
@@ -1462,14 +1462,14 @@ test('run prd:auto-advance allows explicit operation-only local dry-run', async 
   assert.equal(runnerCalls[0].runGoal, 'operation');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local PRD auto-advance operation dry-run accepted',
+    summary: 'local Spec auto-advance operation dry-run accepted',
     publicationMode: 'dry-run',
     runGoal: 'operation',
     target: { type: 'issue', number: 123 },
   });
 });
 
-test('run prd:auto-advance accepts local PR publication', async () => {
+test('run spec:auto-advance accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1479,7 +1479,7 @@ test('run prd:auto-advance accepts local PR publication', async () => {
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-advance accepted',
+        summary: 'local Spec auto-advance accepted',
         publicationMode: context.publicationMode,
         runGoal: context.runGoal,
         target: context.target,
@@ -1487,11 +1487,11 @@ test('run prd:auto-advance accepts local PR publication', async () => {
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--publish', 'pr']);
+  const exitCode = await cli.run(['run', 'spec:auto-advance', '123', '--publish', 'pr']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
-  assert.equal(runnerCalls[0].operation, 'prd-auto-advance');
+  assert.equal(runnerCalls[0].operation, 'spec-auto-advance');
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'publish');
   assert.equal(runnerCalls[0].runGoal, 'finalized');
@@ -1499,14 +1499,14 @@ test('run prd:auto-advance accepts local PR publication', async () => {
   assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local PRD auto-advance accepted',
+    summary: 'local Spec auto-advance accepted',
     publicationMode: 'publish',
     runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
 });
 
-test('run prd:auto-advance allows explicit operation-only local PR publication', async () => {
+test('run spec:auto-advance allows explicit operation-only local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1516,7 +1516,7 @@ test('run prd:auto-advance allows explicit operation-only local PR publication',
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-advance accepted',
+        summary: 'local Spec auto-advance accepted',
         publicationMode: context.publicationMode,
         runGoal: context.runGoal,
         target: context.target,
@@ -1526,7 +1526,7 @@ test('run prd:auto-advance allows explicit operation-only local PR publication',
 
   const exitCode = await cli.run([
     'run',
-    'prd:auto-advance',
+    'spec:auto-advance',
     '123',
     '--publish',
     'pr',
@@ -1540,14 +1540,14 @@ test('run prd:auto-advance allows explicit operation-only local PR publication',
   assert.equal(runnerCalls[0].runGoal, 'operation');
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local PRD auto-advance accepted',
+    summary: 'local Spec auto-advance accepted',
     publicationMode: 'publish',
     runGoal: 'operation',
     target: { type: 'issue', number: 123 },
   });
 });
 
-test('run prd:auto-complete accepts local PR publication', async () => {
+test('run spec:auto-complete accepts local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1557,7 +1557,7 @@ test('run prd:auto-complete accepts local PR publication', async () => {
       runnerCalls.push(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete accepted',
+        summary: 'local Spec auto-complete accepted',
         publicationMode: context.publicationMode,
         runGoal: context.runGoal,
         target: context.target,
@@ -1565,11 +1565,11 @@ test('run prd:auto-complete accepts local PR publication', async () => {
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--publish', 'pr']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--publish', 'pr']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
-  assert.equal(runnerCalls[0].operation, 'prd-auto-complete');
+  assert.equal(runnerCalls[0].operation, 'spec-auto-complete');
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'publish');
   assert.equal(runnerCalls[0].runGoal, 'finalized');
@@ -1577,14 +1577,14 @@ test('run prd:auto-complete accepts local PR publication', async () => {
   assert.deepEqual(runnerCalls[0].target, { type: 'issue', number: 123 });
   assert.deepEqual(JSON.parse(stdout.text), {
     status: 'accepted',
-    summary: 'local PRD auto-complete accepted',
+    summary: 'local Spec auto-complete accepted',
     publicationMode: 'publish',
     runGoal: 'finalized',
     target: { type: 'issue', number: 123 },
   });
 });
 
-test('run prd:auto-complete accepts explicit external runner for local PR publication', async () => {
+test('run spec:auto-complete accepts explicit external runner for local PR publication', async () => {
   const stdout = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
   const runnerCalls = [];
@@ -1594,7 +1594,7 @@ test('run prd:auto-complete accepts explicit external runner for local PR public
       runnerCalls.push(context);
       return {
         status: 'waiting',
-        summary: 'Prepared external PRD auto-complete handoff.',
+        summary: 'Prepared external Spec auto-complete handoff.',
         runnerJob: {
           cwd: '/repo',
           promptFile: '/repo/.pullops/runs/runner_prompt.md',
@@ -1602,7 +1602,7 @@ test('run prd:auto-complete accepts explicit external runner for local PR public
           resultFile: '/repo/.pullops/runs/runner_result.json',
           workerPrompt: 'Use the pullops-go handoff.',
           model: 'gpt-5.5',
-          branch: 'pullops/prd-123-issue-456',
+          branch: 'pullops/spec-123-issue-456',
           completionCommands: {
             success: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
             failed: { argv: ['npm', 'exec', '--', 'pullops', 'runner-result'], env: {} },
@@ -1620,7 +1620,7 @@ test('run prd:auto-complete accepts explicit external runner for local PR public
 
   const exitCode = await cli.run([
     'run',
-    'prd:auto-complete',
+    'spec:auto-complete',
     '123',
     '--runner',
     'external',
@@ -1630,7 +1630,7 @@ test('run prd:auto-complete accepts explicit external runner for local PR public
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
-  assert.equal(runnerCalls[0].operation, 'prd-auto-complete');
+  assert.equal(runnerCalls[0].operation, 'spec-auto-complete');
   assert.equal(runnerCalls[0].runnerAdapter, 'external');
   assert.equal(runnerCalls[0].executionBackend, 'local');
   assert.equal(runnerCalls[0].publicationMode, 'publish');
@@ -1638,7 +1638,7 @@ test('run prd:auto-complete accepts explicit external runner for local PR public
   assert.equal(JSON.parse(stdout.text).status, 'waiting');
 });
 
-test('run prd:auto-complete emits jsonl event streams for local runs', async () => {
+test('run spec:auto-complete emits jsonl event streams for local runs', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -1655,92 +1655,92 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
       const runRecord = await bindProgressEventWriter(context);
       await context.progressEventWriter?.emit('run.started', {
         phase: 'run',
-        message: 'Starting local PRD auto-complete for issue #123.',
+        message: 'Starting local Spec auto-complete for issue #123.',
       });
       assert.match(stdout.text, /"event":"run.started"/);
       await context.progressEventWriter?.emit('phase.started', {
-        phase: 'child-coordination',
-        message: 'Coordinating child issues for issue #123.',
+        phase: 'ticket-coordination',
+        message: 'Coordinating tickets for issue #123.',
       });
-      await context.progressEventWriter?.emit('child.started', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.started', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
-        message: 'Coordinating child issue #34.',
+        message: 'Coordinating ticket #34.',
       });
-      await context.progressEventWriter?.emit('child.completed', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.completed', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
         status: 'merged',
-        message: 'Merged finalized child PR #101 locally into PRD issue #123.',
+        message: 'Merged finalized ticket PR #101 locally into Spec issue #123.',
         pullRequest: {
           number: 101,
           url: 'https://github.test/pull/101',
-          baseBranch: 'pullops/prd-123',
-          headBranch: 'pullops/prd-123-issue-34',
+          baseBranch: 'pullops/spec-123',
+          headBranch: 'pullops/spec-123-issue-34',
         },
       });
-      await context.progressEventWriter?.emit('child.started', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.started', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 36,
           url: 'https://github.test/issues/36',
         },
-        message: 'Coordinating child issue #36.',
+        message: 'Coordinating ticket #36.',
       });
-      await context.progressEventWriter?.emit('child.completed', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.completed', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 36,
           url: 'https://github.test/issues/36',
         },
         status: 'merged',
-        message: 'Merged finalized child PR #102 locally into PRD issue #123.',
+        message: 'Merged finalized ticket PR #102 locally into Spec issue #123.',
         pullRequest: {
           number: 102,
           url: 'https://github.test/pull/102',
-          baseBranch: 'pullops/prd-123',
-          headBranch: 'pullops/prd-123-issue-36',
+          baseBranch: 'pullops/spec-123',
+          headBranch: 'pullops/spec-123-issue-36',
         },
       });
       await context.progressEventWriter?.emit('phase.completed', {
-        phase: 'child-coordination',
-        childCounts: {
+        phase: 'ticket-coordination',
+        ticketCounts: {
           total: 2,
           completed: 2,
           blocked: 0,
         },
-        message: 'Coordinated 2 child issue(s) for issue #123: 2 completed, 0 blocked.',
+        message: 'Coordinated 2 ticket(s) for issue #123: 2 completed, 0 blocked.',
       });
 
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete accepted',
+        summary: 'local Spec auto-complete accepted',
         mode: 'auto-complete',
         publicationMode: context.publicationMode,
         issue: {
           number: 123,
           url: 'https://github.test/issues/123',
         },
-        branch: 'pullops/prd-123',
-        children: [
+        branch: 'pullops/spec-123',
+        tickets: [
           {
             issue: {
               number: 34,
               url: 'https://github.test/issues/34',
             },
             status: 'merged',
-            summary: 'Merged finalized child PR #101 locally into PRD issue #123.',
+            summary: 'Merged finalized ticket PR #101 locally into Spec issue #123.',
             pullRequest: {
               number: 101,
               url: 'https://github.test/pull/101',
-              baseBranch: 'pullops/prd-123',
-              headBranch: 'pullops/prd-123-issue-34',
+              baseBranch: 'pullops/spec-123',
+              headBranch: 'pullops/spec-123-issue-34',
             },
           },
           {
@@ -1749,12 +1749,12 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
               url: 'https://github.test/issues/36',
             },
             status: 'merged',
-            summary: 'Merged finalized child PR #102 locally into PRD issue #123.',
+            summary: 'Merged finalized ticket PR #102 locally into Spec issue #123.',
             pullRequest: {
               number: 102,
               url: 'https://github.test/pull/102',
-              baseBranch: 'pullops/prd-123',
-              headBranch: 'pullops/prd-123-issue-36',
+              baseBranch: 'pullops/spec-123',
+              headBranch: 'pullops/spec-123-issue-36',
             },
           },
         ],
@@ -1764,22 +1764,22 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
             number: 200,
             url: 'https://github.test/pull/200',
             baseBranch: 'main',
-            headBranch: 'pullops/prd-123',
+            headBranch: 'pullops/spec-123',
           },
         },
         localRunRecord: runRecord,
         localNextSteps: [
           'Review the Umbrella PR branch and merge the Umbrella PR manually when ready; PullOps did not merge it into the default branch.',
         ],
-        virtualCompletedChildren: [34, 36],
-        remainingBlockedChildren: [],
+        virtualCompletedTickets: [34, 36],
+        remainingBlockedTickets: [],
       };
     },
   });
 
   const exitCode = await cli.run([
     'run',
-    'prd:auto-complete',
+    'spec:auto-complete',
     '123',
     '--events',
     'jsonl',
@@ -1807,25 +1807,25 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
     [
       'run.started',
       'phase.started',
-      'child.started',
-      'child.completed',
-      'child.started',
-      'child.completed',
+      'ticket.started',
+      'ticket.completed',
+      'ticket.started',
+      'ticket.completed',
       'phase.completed',
       'run.summary',
     ],
   );
   assert.equal(events[0].runId, basename(String(runnerCalls[0].localRunRecordDirectory)));
-  assert.equal(events[0].operationLabelReference, 'prd:auto-complete');
+  assert.equal(events[0].operationLabelReference, 'spec:auto-complete');
   assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
-  assert.deepEqual(events[6].childCounts, { total: 2, completed: 2, blocked: 0 });
+  assert.deepEqual(events[6].ticketCounts, { total: 2, completed: 2, blocked: 0 });
   assert.equal(events[3].status, 'merged');
   assert.equal(events[5].status, 'merged');
   assert.equal(summaryEvent.runId, basename(String(runnerCalls[0].localRunRecordDirectory)));
-  assert.equal(summaryEvent.operationLabelReference, 'prd:auto-complete');
+  assert.equal(summaryEvent.operationLabelReference, 'spec:auto-complete');
   assert.equal(summaryEvent.status, 'accepted');
   assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
-  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'accepted');
+  await assertSpecAutoCompleteEventStreamFixture(stdout.text, 'accepted');
 
   const runRecord = String(runnerCalls[0].localRunRecordDirectory);
   const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
@@ -1834,7 +1834,7 @@ test('run prd:auto-complete emits jsonl event streams for local runs', async () 
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete emits blocked jsonl event streams for dependency frontiers', async () => {
+test('run spec:auto-complete emits blocked jsonl event streams for dependency frontiers', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -1851,51 +1851,51 @@ test('run prd:auto-complete emits blocked jsonl event streams for dependency fro
       const runRecord = await bindProgressEventWriter(context);
       await context.progressEventWriter?.emit('run.started', {
         phase: 'run',
-        message: 'Starting local PRD auto-complete for issue #123.',
+        message: 'Starting local Spec auto-complete for issue #123.',
       });
       await context.progressEventWriter?.emit('phase.started', {
-        phase: 'child-coordination',
-        message: 'Coordinating child issues for issue #123.',
+        phase: 'ticket-coordination',
+        message: 'Coordinating tickets for issue #123.',
       });
-      await context.progressEventWriter?.emit('child.started', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.started', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
-        message: 'Coordinating child issue #34.',
+        message: 'Coordinating ticket #34.',
       });
-      await context.progressEventWriter?.emit('child.completed', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.completed', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
         status: 'merged',
-        message: 'Merged finalized child PR #101 locally into PRD issue #123.',
+        message: 'Merged finalized ticket PR #101 locally into Spec issue #123.',
         pullRequest: {
           number: 101,
           url: 'https://github.test/pull/101',
-          baseBranch: 'pullops/prd-123',
-          headBranch: 'pullops/prd-123-issue-34',
+          baseBranch: 'pullops/spec-123',
+          headBranch: 'pullops/spec-123-issue-34',
         },
       });
-      await context.progressEventWriter?.emit('child.started', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.started', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 35,
           url: 'https://github.test/issues/35',
         },
-        message: 'Coordinating child issue #35.',
+        message: 'Coordinating ticket #35.',
       });
-      await context.progressEventWriter?.emit('child.blocked', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.blocked', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 35,
           url: 'https://github.test/issues/35',
         },
         status: 'blocked',
-        message: 'Child issue #35 is blocked by #99.',
+        message: 'Ticket #35 is blocked by #99.',
         blockedBy: [99],
         dependencyDecision: {
           blockedBy: [99],
@@ -1905,38 +1905,38 @@ test('run prd:auto-complete emits blocked jsonl event streams for dependency fro
         },
       });
       await context.progressEventWriter?.emit('phase.completed', {
-        phase: 'child-coordination',
-        childCounts: {
+        phase: 'ticket-coordination',
+        ticketCounts: {
           total: 2,
           completed: 1,
           blocked: 1,
         },
-        message: 'Coordinated 2 child issue(s) for issue #123: 1 completed, 1 blocked.',
+        message: 'Coordinated 2 ticket(s) for issue #123: 1 completed, 1 blocked.',
       });
 
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete accepted',
+        summary: 'local Spec auto-complete accepted',
         mode: 'auto-complete',
         publicationMode: context.publicationMode,
         issue: {
           number: 123,
           url: 'https://github.test/issues/123',
         },
-        branch: 'pullops/prd-123',
-        children: [
+        branch: 'pullops/spec-123',
+        tickets: [
           {
             issue: {
               number: 34,
               url: 'https://github.test/issues/34',
             },
             status: 'merged',
-            summary: 'Merged finalized child PR #101 locally into PRD issue #123.',
+            summary: 'Merged finalized ticket PR #101 locally into Spec issue #123.',
             pullRequest: {
               number: 101,
               url: 'https://github.test/pull/101',
-              baseBranch: 'pullops/prd-123',
-              headBranch: 'pullops/prd-123-issue-34',
+              baseBranch: 'pullops/spec-123',
+              headBranch: 'pullops/spec-123-issue-34',
             },
           },
           {
@@ -1945,7 +1945,7 @@ test('run prd:auto-complete emits blocked jsonl event streams for dependency fro
               url: 'https://github.test/issues/35',
             },
             status: 'blocked',
-            summary: 'Child issue #35 is blocked by #99.',
+            summary: 'Ticket #35 is blocked by #99.',
             blockedBy: [99],
             dependencyDecision: {
               blockedBy: [99],
@@ -1961,20 +1961,20 @@ test('run prd:auto-complete emits blocked jsonl event streams for dependency fro
             number: 200,
             url: 'https://github.test/pull/200',
             baseBranch: 'main',
-            headBranch: 'pullops/prd-123',
+            headBranch: 'pullops/spec-123',
           },
         },
         localRunRecord: runRecord,
-        localNextSteps: ['Resolve the blocker for child issue #35, then rerun PRD auto-complete.'],
-        virtualCompletedChildren: [34],
-        remainingBlockedChildren: [35],
+        localNextSteps: ['Resolve the blocker for ticket #35, then rerun Spec auto-complete.'],
+        virtualCompletedTickets: [34],
+        remainingBlockedTickets: [35],
       };
     },
   });
 
   const exitCode = await cli.run([
     'run',
-    'prd:auto-complete',
+    'spec:auto-complete',
     '123',
     '--events',
     'jsonl',
@@ -2000,24 +2000,24 @@ test('run prd:auto-complete emits blocked jsonl event streams for dependency fro
       phase: 'dependency',
       operationLabelReference: 'issue:implement',
       reason: 'dependency-wait',
-      message: 'Child issue #35 is blocked by #99.',
+      message: 'Ticket #35 is blocked by #99.',
       retryable: true,
     },
   ]);
   assert.deepEqual(summaryEvent.nextSteps, [
-    'Resolve the blocker for child issue #35, then rerun PRD auto-complete.',
+    'Resolve the blocker for ticket #35, then rerun Spec auto-complete.',
   ]);
   assert.deepEqual(summaryEvent.suggestedActions, [
     {
       kind: 'command',
-      description: 'Rerun PRD auto-complete after the blocker is resolved.',
-      argv: ['pullops', 'run', 'prd:auto-complete', '123', '--publish', 'pr'],
+      description: 'Rerun Spec auto-complete after the blocker is resolved.',
+      argv: ['pullops', 'run', 'spec:auto-complete', '123', '--publish', 'pr'],
       approvalRequired: false,
     },
   ]);
 });
 
-test('run prd:auto-complete emits used-only context usage when the runner limit is unavailable', async () => {
+test('run spec:auto-complete emits used-only context usage when the runner limit is unavailable', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -2033,22 +2033,22 @@ test('run prd:auto-complete emits used-only context usage when the runner limit 
       const runRecord = await bindProgressEventWriter(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete accepted',
+        summary: 'local Spec auto-complete accepted',
         mode: 'auto-complete',
         publicationMode: context.publicationMode,
         issue: {
           number: 123,
           url: 'https://github.test/issues/123',
         },
-        branch: 'pullops/prd-123',
-        children: [],
+        branch: 'pullops/spec-123',
+        tickets: [],
         parentPullRequest: {
           status: 'finalized',
           pullRequest: {
             number: 200,
             url: 'https://github.test/pull/200',
             baseBranch: 'main',
-            headBranch: 'pullops/prd-123',
+            headBranch: 'pullops/spec-123',
           },
         },
         localRunRecord: runRecord,
@@ -2057,7 +2057,7 @@ test('run prd:auto-complete emits used-only context usage when the runner limit 
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
@@ -2078,7 +2078,7 @@ test('run prd:auto-complete emits used-only context usage when the runner limit 
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete emits null context usage when runner usage is unavailable', async () => {
+test('run spec:auto-complete emits null context usage when runner usage is unavailable', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -2092,22 +2092,22 @@ test('run prd:auto-complete emits null context usage when runner usage is unavai
       const runRecord = await bindProgressEventWriter(context);
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete accepted',
+        summary: 'local Spec auto-complete accepted',
         mode: 'auto-complete',
         publicationMode: context.publicationMode,
         issue: {
           number: 123,
           url: 'https://github.test/issues/123',
         },
-        branch: 'pullops/prd-123',
-        children: [],
+        branch: 'pullops/spec-123',
+        tickets: [],
         parentPullRequest: {
           status: 'finalized',
           pullRequest: {
             number: 200,
             url: 'https://github.test/pull/200',
             baseBranch: 'main',
-            headBranch: 'pullops/prd-123',
+            headBranch: 'pullops/spec-123',
           },
         },
         localRunRecord: runRecord,
@@ -2116,7 +2116,7 @@ test('run prd:auto-complete emits null context usage when runner usage is unavai
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 0);
   assert.equal(runnerCalls.length, 1);
@@ -2137,7 +2137,7 @@ test('run prd:auto-complete emits null context usage when runner usage is unavai
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete emits blocked jsonl event streams for local waits', async () => {
+test('run spec:auto-complete emits blocked jsonl event streams for local waits', async () => {
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -2150,71 +2150,71 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
       const runRecord = await bindProgressEventWriter(context);
       await context.progressEventWriter?.emit('run.started', {
         phase: 'run',
-        message: 'Starting local PRD auto-complete for issue #123.',
+        message: 'Starting local Spec auto-complete for issue #123.',
       });
       await context.progressEventWriter?.emit('phase.started', {
-        phase: 'child-coordination',
-        message: 'Coordinating child issues for issue #123.',
+        phase: 'ticket-coordination',
+        message: 'Coordinating tickets for issue #123.',
       });
-      await context.progressEventWriter?.emit('child.started', {
-        phase: 'child-coordination',
-        childIssue: {
+      await context.progressEventWriter?.emit('ticket.started', {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
-        message: 'Coordinating child issue #34.',
+        message: 'Coordinating ticket #34.',
       });
       await context.progressEventWriter?.emit('waiting', {
-        phase: 'child-coordination',
-        childIssue: {
+        phase: 'ticket-coordination',
+        ticket: {
           number: 34,
           url: 'https://github.test/issues/34',
         },
         status: 'waiting',
-        message: 'Child PR #101 is waiting for human review or merge gates.',
+        message: 'Ticket PR #101 is waiting for human review or merge gates.',
         pullRequest: {
           number: 101,
           url: 'https://github.test/pull/101',
-          baseBranch: 'pullops/prd-123',
-          headBranch: 'pullops/prd-123-issue-34',
+          baseBranch: 'pullops/spec-123',
+          headBranch: 'pullops/spec-123-issue-34',
         },
         blockedPhase: 'review',
         blockedOperation: 'pr:review',
       });
       await context.progressEventWriter?.emit('phase.completed', {
-        phase: 'child-coordination',
-        childCounts: {
+        phase: 'ticket-coordination',
+        ticketCounts: {
           total: 1,
           completed: 0,
           blocked: 0,
           waiting: 1,
         },
-        message: 'Coordinated 1 child issue(s) for issue #123: 0 completed, 0 blocked, 1 waiting.',
+        message: 'Coordinated 1 ticket(s) for issue #123: 0 completed, 0 blocked, 1 waiting.',
       });
 
       return {
         status: 'accepted',
-        summary: 'local PRD auto-complete reached a waiting boundary',
+        summary: 'local Spec auto-complete reached a waiting boundary',
         mode: 'auto-complete',
         publicationMode: context.publicationMode,
         issue: {
           number: 123,
           url: 'https://github.test/issues/123',
         },
-        branch: 'pullops/prd-123',
-        children: [
+        branch: 'pullops/spec-123',
+        tickets: [
           {
             issue: {
               number: 34,
               url: 'https://github.test/issues/34',
             },
             status: 'waiting',
-            summary: 'Child PR #101 is waiting for human review or merge gates.',
+            summary: 'Ticket PR #101 is waiting for human review or merge gates.',
             pullRequest: {
               number: 101,
               url: 'https://github.test/pull/101',
-              baseBranch: 'pullops/prd-123',
-              headBranch: 'pullops/prd-123-issue-34',
+              baseBranch: 'pullops/spec-123',
+              headBranch: 'pullops/spec-123-issue-34',
             },
             blockedPhase: 'review',
             blockedOperation: 'pr:review',
@@ -2222,16 +2222,16 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
         ],
         localRunRecord: runRecord,
         localNextSteps: [
-          'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+          'Wait for ticket #34 to finish review or checks, then rerun Spec auto-complete.',
         ],
-        remainingBlockedChildren: [34],
+        remainingBlockedTickets: [34],
       };
     },
   });
 
   const exitCode = await cli.run([
     'run',
-    'prd:auto-complete',
+    'spec:auto-complete',
     '123',
     '--events',
     'jsonl',
@@ -2251,12 +2251,12 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
 
   assert.deepEqual(
     events.map(event => event.event),
-    ['run.started', 'phase.started', 'child.started', 'waiting', 'phase.completed', 'run.summary'],
+    ['run.started', 'phase.started', 'ticket.started', 'waiting', 'phase.completed', 'run.summary'],
   );
   assert.equal(events[3].status, 'waiting');
-  assert.deepEqual(events[4].childCounts, { total: 1, completed: 0, blocked: 0, waiting: 1 });
+  assert.deepEqual(events[4].ticketCounts, { total: 1, completed: 0, blocked: 0, waiting: 1 });
   assert.equal(summaryEvent.status, 'blocked');
-  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'blocked');
+  await assertSpecAutoCompleteEventStreamFixture(stdout.text, 'blocked');
   assert.deepEqual(summaryEvent.blockers, [
     {
       targetKind: 'pull-request',
@@ -2264,18 +2264,18 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
       phase: 'review',
       operationLabelReference: 'pr:review',
       reason: 'review-wait',
-      message: 'Child PR #101 is waiting for human review or merge gates.',
+      message: 'Ticket PR #101 is waiting for human review or merge gates.',
       retryable: true,
     },
   ]);
   assert.deepEqual(summaryEvent.nextSteps, [
-    'Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete.',
+    'Wait for ticket #34 to finish review or checks, then rerun Spec auto-complete.',
   ]);
   assert.deepEqual(summaryEvent.suggestedActions, [
     {
       kind: 'command',
-      description: 'Rerun PRD auto-complete after the waiting boundary clears.',
-      argv: ['pullops', 'run', 'prd:auto-complete', '123', '--publish', 'pr'],
+      description: 'Rerun Spec auto-complete after the waiting boundary clears.',
+      argv: ['pullops', 'run', 'spec:auto-complete', '123', '--publish', 'pr'],
       approvalRequired: false,
     },
   ]);
@@ -2287,8 +2287,8 @@ test('run prd:auto-complete emits blocked jsonl event streams for local waits', 
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete emits refused jsonl event streams for local guardrails', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-refused-events-'));
+test('run spec:auto-complete emits refused jsonl event streams for local guardrails', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-refused-events-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({
@@ -2317,7 +2317,7 @@ test('run prd:auto-complete emits refused jsonl event streams for local guardrai
     }),
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '34', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '34', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
   assert.equal(stderr.text, '');
@@ -2332,19 +2332,19 @@ test('run prd:auto-complete emits refused jsonl event streams for local guardrai
     events.map(event => event.event),
     ['run.started', 'phase.started', 'phase.completed', 'run.summary'],
   );
-  assert.equal(summaryEvent.operationLabelReference, 'prd:auto-complete');
+  assert.equal(summaryEvent.operationLabelReference, 'spec:auto-complete');
   assert.deepEqual(summaryEvent.target, { type: 'issue', number: 34 });
-  assert.equal(events[2].childCounts.total, 0);
+  assert.equal(events[2].ticketCounts.total, 0);
   assert.equal(summaryEvent.status, 'refused');
   assert.equal(summaryEvent.reason, 'wrong-target');
   assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
-  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'refused');
-  assert.deepEqual(summaryEvent.nextSteps, ['Run PRD auto-complete on Parent Issue #12 instead.']);
+  await assertSpecAutoCompleteEventStreamFixture(stdout.text, 'refused');
+  assert.deepEqual(summaryEvent.nextSteps, ['Run Spec auto-complete on Parent Issue #12 instead.']);
   assert.deepEqual(summaryEvent.suggestedActions, [
     {
       kind: 'command',
-      description: 'Run PRD auto-complete on Parent Issue #12 instead.',
-      argv: ['pullops', 'run', 'prd:auto-complete', '12'],
+      description: 'Run Spec auto-complete on Parent Issue #12 instead.',
+      argv: ['pullops', 'run', 'spec:auto-complete', '12'],
       approvalRequired: false,
     },
   ]);
@@ -2358,8 +2358,8 @@ test('run prd:auto-complete emits refused jsonl event streams for local guardrai
   assert.equal(stateJson.status, 'refused');
 });
 
-test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refused', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-dirty-events-'));
+test('run spec:auto-complete classifies dirty worktree jsonl guardrails as refused', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-dirty-events-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({
@@ -2374,7 +2374,7 @@ test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refuse
     }),
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
   assert.equal(stderr.text, '');
@@ -2401,8 +2401,8 @@ test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refuse
   assert.deepEqual(summaryEvent.suggestedActions, [
     {
       kind: 'command',
-      description: 'Rerun PRD auto-complete after the worktree is clean.',
-      argv: ['pullops', 'run', 'prd:auto-complete', '123'],
+      description: 'Rerun Spec auto-complete after the worktree is clean.',
+      argv: ['pullops', 'run', 'spec:auto-complete', '123'],
       approvalRequired: true,
       approvalReason:
         'Existing local changes require maintainer approval before rerunning PullOps.',
@@ -2420,8 +2420,8 @@ test('run prd:auto-complete classifies dirty worktree jsonl guardrails as refuse
   assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /clean worktree/);
 });
 
-test('run prd:auto-complete normalizes closed parent issues to accepted jsonl summaries', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-closed-events-'));
+test('run spec:auto-complete normalizes closed parent issues to accepted jsonl summaries', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-closed-events-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({
@@ -2447,7 +2447,7 @@ test('run prd:auto-complete normalizes closed parent issues to accepted jsonl su
     }),
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '34', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '34', '--events', 'jsonl']);
 
   assert.equal(exitCode, 0);
   assert.equal(stderr.text, '');
@@ -2463,7 +2463,7 @@ test('run prd:auto-complete normalizes closed parent issues to accepted jsonl su
     ['run.started', 'phase.started', 'phase.completed', 'run.summary'],
   );
   assert.equal(summaryEvent.status, 'accepted');
-  assert.equal(summaryEvent.summary, 'PRD issue #34 is closed.');
+  assert.equal(summaryEvent.summary, 'Spec issue #34 is closed.');
   assert.equal(summaryEvent.contextUsage, null);
 
   const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
@@ -2473,8 +2473,8 @@ test('run prd:auto-complete normalizes closed parent issues to accepted jsonl su
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete emits failed jsonl event streams for unexpected runtime errors', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-failed-events-'));
+test('run spec:auto-complete emits failed jsonl event streams for unexpected runtime errors', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-failed-events-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({
@@ -2493,7 +2493,7 @@ test('run prd:auto-complete emits failed jsonl event streams for unexpected runt
     }),
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
   assert.equal(stderr.text, '');
@@ -2509,16 +2509,19 @@ test('run prd:auto-complete emits failed jsonl event streams for unexpected runt
     ['run.started', 'phase.started', 'run.summary'],
   );
   assert.equal(events[0].runId, summaryEvent.runId);
-  assert.equal(events[0].operationLabelReference, 'prd:auto-complete');
+  assert.equal(events[0].operationLabelReference, 'spec:auto-complete');
   assert.deepEqual(events[0].target, { type: 'issue', number: 123 });
-  assert.equal(events[1].phase, 'child-coordination');
-  assert.equal(events[1].message, 'Coordinating child issues for issue #123.');
+  assert.equal(events[1].phase, 'ticket-coordination');
+  assert.equal(events[1].message, 'Coordinating tickets for issue #123.');
   assert.equal(summaryEvent.status, 'failed');
-  assert.equal(summaryEvent.summary, 'Local PRD auto-complete for issue #123 failed unexpectedly.');
+  assert.equal(
+    summaryEvent.summary,
+    'Local Spec auto-complete for issue #123 failed unexpectedly.',
+  );
   assert.equal(summaryEvent.displayMessage, summaryEvent.summary);
   assert.equal(summaryEvent.failureReason, 'git exploded');
   assert.deepEqual(summaryEvent.contextUsage, { used: 12, limit: 40 });
-  await assertPrdAutoCompleteEventStreamFixture(stdout.text, 'failed');
+  await assertSpecAutoCompleteEventStreamFixture(stdout.text, 'failed');
 
   const runRecord = join(cwd, '.pullops', 'runs', summaryEvent.runId);
   const eventsJsonl = await readFile(join(runRecord, 'events.jsonl'), 'utf8');
@@ -2530,8 +2533,8 @@ test('run prd:auto-complete emits failed jsonl event streams for unexpected runt
   assert.match(await readFile(join(runRecord, 'error.txt'), 'utf8'), /git exploded/);
 });
 
-test('run prd:auto-complete emits failed jsonl summaries when summary validation fails after the runner returns', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-invalid-summary-'));
+test('run spec:auto-complete emits failed jsonl summaries when summary validation fails after the runner returns', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-invalid-summary-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   /** @type {OperationRunnerContext[]} */
@@ -2544,7 +2547,7 @@ test('run prd:auto-complete emits failed jsonl summaries when summary validation
       runnerCalls.push(context);
       await context.progressEventWriter?.emit('run.started', {
         phase: 'run',
-        message: 'Starting local PRD auto-complete for issue #123.',
+        message: 'Starting local Spec auto-complete for issue #123.',
       });
       return {
         status: 'accepted',
@@ -2552,7 +2555,7 @@ test('run prd:auto-complete emits failed jsonl summaries when summary validation
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
   assert.equal(stderr.text, '');
@@ -2579,15 +2582,15 @@ test('run prd:auto-complete emits failed jsonl summaries when summary validation
   assert.deepEqual(JSON.parse(resultJson), summaryEvent);
 });
 
-test('run prd:auto-complete falls back to a preallocated jsonl run record without overwriting older runs', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-prd-auto-complete-truncated-events-'));
+test('run spec:auto-complete falls back to a preallocated jsonl run record without overwriting older runs', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-spec-auto-complete-truncated-events-'));
   const stdout = createWritableBuffer();
   const stderr = createWritableBuffer();
   const staleRunRecord = join(
     cwd,
     '.pullops',
     'runs',
-    '2026-06-20T000000000Z-prd-auto-complete-123',
+    '2026-06-20T000000000Z-spec-auto-complete-123',
   );
   await mkdir(staleRunRecord, { recursive: true });
   await writeFile(join(staleRunRecord, 'events.jsonl'), '{"event":"stale"}\n');
@@ -2602,7 +2605,7 @@ test('run prd:auto-complete falls back to a preallocated jsonl run record withou
     },
   });
 
-  const exitCode = await cli.run(['run', 'prd:auto-complete', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-complete', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
   assert.equal(stderr.text, '');
@@ -2632,14 +2635,14 @@ test('run prd:auto-complete falls back to a preallocated jsonl run record withou
   );
 });
 
-test('run prd:auto-advance rejects jsonl event streams', async () => {
+test('run spec:auto-advance rejects jsonl event streams', async () => {
   const stderr = createWritableBuffer();
   const cli = new PullOpsCli({ stderr });
 
-  const exitCode = await cli.run(['run', 'prd:auto-advance', '123', '--events', 'jsonl']);
+  const exitCode = await cli.run(['run', 'spec:auto-advance', '123', '--events', 'jsonl']);
 
   assert.equal(exitCode, 1);
-  assert.match(stderr.text, /only supported for local prd:auto-complete/);
+  assert.match(stderr.text, /only supported for local spec:auto-complete/);
 });
 
 test('run local pull request operation references through the matching workflow operation', async () => {
@@ -2691,9 +2694,9 @@ test('run local pull request operation references through the matching workflow 
 
 test('run operation accepts every short operation label reference and infers target kind', async () => {
   const cases = [
-    ['prd:prepare', 'pullops:prd:prepare', 'issue'],
-    ['prd:auto-advance', 'pullops:prd:auto-advance', 'issue'],
-    ['prd:auto-complete', 'pullops:prd:auto-complete', 'issue'],
+    ['spec:prepare', 'pullops:spec:prepare', 'issue'],
+    ['spec:auto-advance', 'pullops:spec:auto-advance', 'issue'],
+    ['spec:auto-complete', 'pullops:spec:auto-complete', 'issue'],
     ['issue:implement', 'pullops:issue:implement', 'issue'],
     ['pr:review', 'pullops:pr:review', 'pr'],
     ['pr:address-review', 'pullops:pr:address-review', 'pr'],
@@ -2799,11 +2802,11 @@ test('run operation reports usage errors for invalid GitHub Actions label refere
     const stderr = createWritableBuffer();
     const cli = new PullOpsCli({ stderr });
 
-    const exitCode = await cli.run(['run', 'prd:prepare', '123']);
+    const exitCode = await cli.run(['run', 'spec:prepare', '123']);
 
     assert.equal(exitCode, 1);
     assert.match(stderr.text, /Local execution is currently only supported for/);
-    assert.match(stderr.text, /Use "prd:prepare --backend github-actions"/);
+    assert.match(stderr.text, /Use "spec:prepare --backend github-actions"/);
   });
 
   await t.test('publish flag with github-actions backend', async () => {
@@ -3034,26 +3037,26 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
   });
 });
 
-test('issues publish-prd accepts structured JSON from file and stdin', async t => {
+test('issues publish-spec accepts structured JSON from file and stdin', async t => {
   await t.test('file input', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-file-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-spec-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
-      title: 'Publish PRD issue support',
-      problemStatement: 'PullOps should publish PRDs through its own Issue Store.',
-      solution: 'Add a PRD publish command on top of the GitHub Issue Store path.',
+      title: 'Publish Spec issue support',
+      problemStatement: 'PullOps should publish specs through its own Issue Store.',
+      solution: 'Add a Spec publish command on top of the GitHub Issue Store path.',
       userStories: [
         {
           number: 8,
           story:
-            'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+            'As an agent, I want to submit structured Spec fields, so that PullOps can render stable and parseable Spec bodies.',
         },
         {
           number: 1,
           story:
-            'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+            'As a maintainer, I want PullOps to own Spec publication, so that generated issue bodies stay consistent.',
         },
       ],
       implementationDecisions: [
@@ -3061,9 +3064,9 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
         'Preserve stable user story numbers.',
       ],
       testingDecisions: ['Exercise the publish command through fake GitHub clients.'],
-      outOfScope: ['Child Issue publication.'],
-      furtherNotes: ['This PRD was published from the new issue-store command.'],
-      auditDetails: ['Requested by to-prd.', 'Recorded in a Local Run Record.'],
+      outOfScope: ['Ticket publication.'],
+      furtherNotes: ['This Spec was published from the new issue-store command.'],
+      auditDetails: ['Requested by to-spec.', 'Recorded in a Local Run Record.'],
       triageRole: 'ready-for-agent',
     };
     const requestPath = join(cwd, 'request.json');
@@ -3075,7 +3078,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run(['issues', 'publish-prd', '--file', requestPath]);
+    const exitCode = await cli.run(['issues', 'publish-spec', '--file', requestPath]);
 
     assert.equal(exitCode, 0);
     const createdIssue = inMemory.readIssue(1);
@@ -3094,7 +3097,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     assert.equal(output.triageRole, 'ready-for-agent');
     assert.deepEqual(output.warnings, []);
     assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
-    assert.match(output.localRunRecord, /issues-publish-prd-new$/);
+    assert.match(output.localRunRecord, /issues-publish-spec-new$/);
     assert.equal(
       await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
       `${JSON.stringify(request)}\n`,
@@ -3109,12 +3112,12 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
           {
             number: 1,
             story:
-              'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+              'As a maintainer, I want PullOps to own Spec publication, so that generated issue bodies stay consistent.',
           },
           {
             number: 8,
             story:
-              'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+              'As an agent, I want to submit structured Spec fields, so that PullOps can render stable and parseable Spec bodies.',
           },
         ],
         implementationDecisions: request.implementationDecisions,
@@ -3132,14 +3135,14 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
   });
 
   await t.test('relative file input resolves against cli cwd', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-relative-file-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-spec-relative-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({ cwd });
     const request = {
-      title: 'Publish PRD issue support from relative file',
-      problemStatement: 'PullOps should resolve PRD request files from the CLI cwd.',
-      solution: 'Resolve relative --file paths before reading publish-prd input.',
+      title: 'Publish Spec issue support from relative file',
+      problemStatement: 'PullOps should resolve Spec request files from the CLI cwd.',
+      solution: 'Resolve relative --file paths before reading publish-spec input.',
       userStories: [
         {
           number: 1,
@@ -3159,39 +3162,39 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run(['issues', 'publish-prd', '--file', 'request.json']);
+    const exitCode = await cli.run(['issues', 'publish-spec', '--file', 'request.json']);
 
     assert.equal(exitCode, 0);
     assert.equal(inMemory.readIssue(1).title, request.title);
   });
 
   await t.test('stdin input', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-stdin-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-spec-stdin-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const request = {
       issueNumber: 41,
-      title: 'Refresh PRD issue',
-      problemStatement: 'Update the rendered PRD body.',
-      solution: 'Re-render the PRD issue body.',
+      title: 'Refresh Spec issue',
+      problemStatement: 'Update the rendered Spec body.',
+      solution: 'Re-render the Spec issue body.',
       userStories: [
         {
           number: 8,
           story:
-            'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+            'As an agent, I want to submit structured Spec fields, so that PullOps can render stable and parseable Spec bodies.',
         },
         {
           number: 1,
           story:
-            'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+            'As a maintainer, I want PullOps to own Spec publication, so that generated issue bodies stay consistent.',
         },
       ],
       implementationDecisions: ['Use the GitHub Issue Store adapter.'],
       testingDecisions: ['Exercise the publish command through fake GitHub clients.'],
-      outOfScope: ['Child Issue publication.'],
+      outOfScope: ['Ticket publication.'],
       triageRole: 'ready-for-human',
     };
-    const existingBody = createPrdIssueBody({
+    const existingBody = createSpecIssueBody({
       title: request.title,
       problemStatement: request.problemStatement,
       solution: request.solution,
@@ -3220,7 +3223,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run(['issues', 'publish-prd']);
+    const exitCode = await cli.run(['issues', 'publish-spec']);
 
     assert.equal(exitCode, 0);
     const updatedIssue = inMemory.readIssue(41);
@@ -3235,7 +3238,7 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
     assert.equal(output.triageRole, 'ready-for-human');
     assert.deepEqual(output.warnings, []);
     assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
-    assert.match(output.localRunRecord, /issues-publish-prd-41$/);
+    assert.match(output.localRunRecord, /issues-publish-spec-41$/);
     assert.equal(
       await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
       `${JSON.stringify(request)}\n`,
@@ -3251,12 +3254,12 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
           {
             number: 1,
             story:
-              'As a maintainer, I want PullOps to own PRD publication, so that generated issue bodies stay consistent.',
+              'As a maintainer, I want PullOps to own Spec publication, so that generated issue bodies stay consistent.',
           },
           {
             number: 8,
             story:
-              'As an agent, I want to submit structured PRD fields, so that PullOps can render stable and parseable PRD bodies.',
+              'As an agent, I want to submit structured Spec fields, so that PullOps can render stable and parseable Spec bodies.',
           },
         ],
         implementationDecisions: request.implementationDecisions,
@@ -3274,9 +3277,9 @@ test('issues publish-prd accepts structured JSON from file and stdin', async t =
   });
 });
 
-test('issues publish-children accepts parent from flag or JSON and rejects conflicts', async t => {
+test('issues publish-tickets accepts parent from flag or JSON and rejects conflicts', async t => {
   await t.test('file input with --parent', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-file-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-tickets-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({
@@ -3285,11 +3288,11 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         {
           number: 126,
           title: 'Published parent',
-          body: createPrdIssueBody({
+          body: createSpecIssueBody({
             title: 'Published parent',
             problemStatement: 'Parent problem.',
             solution: 'Parent solution.',
-            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            userStories: [{ number: 2, story: 'As a user, I want ticket publication.' }],
             implementationDecisions: ['Use native sub-issues.'],
             testingDecisions: ['Use fake clients.'],
             outOfScope: ['Dependency publication.'],
@@ -3300,18 +3303,18 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       ],
     });
     const request = {
-      children: [
+      tickets: [
         {
           sliceRef: '1',
-          title: 'Publish child issue',
-          whatToBuild: 'Create a native Child Issue.',
-          acceptanceCriteria: ['The child is created and attached.'],
+          title: 'Publish ticket',
+          whatToBuild: 'Create a native Ticket.',
+          acceptanceCriteria: ['The ticket is created and attached.'],
           coveredUserStories: [2],
           triageRole: 'ready-for-agent',
         },
       ],
     };
-    const requestPath = join(cwd, 'children.json');
+    const requestPath = join(cwd, 'tickets.json');
     await writeFile(requestPath, `${JSON.stringify(request)}\n`);
 
     const cli = new PullOpsCli({
@@ -3322,7 +3325,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
 
     const exitCode = await cli.run([
       'issues',
-      'publish-children',
+      'publish-tickets',
       '--parent',
       '126',
       '--file',
@@ -3330,15 +3333,15 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     ]);
 
     assert.equal(exitCode, 0);
-    const childIssue = inMemory.readIssue(127);
-    assert.match(childIssue.body, /"sliceRef":"1"/);
-    assert.match(childIssue.body, /^## Covered PRD user stories$/m);
-    assert.equal(childIssue.parent?.number, 126);
+    const ticket = inMemory.readIssue(127);
+    assert.match(ticket.body, /"sliceRef":"1"/);
+    assert.match(ticket.body, /^## Covered Spec user stories$/m);
+    assert.equal(ticket.parent?.number, 126);
     assert.deepEqual(
       inMemory.readIssue(126).subIssues.map(subIssue => subIssue.number),
       [127],
     );
-    assert.deepEqual(childIssue.labels, ['ready-for-agent']);
+    assert.deepEqual(ticket.labels, ['ready-for-agent']);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
@@ -3351,7 +3354,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       },
     ]);
     assert.deepEqual(output.warnings, []);
-    assert.match(output.localRunRecord, /issues-publish-children-126$/);
+    assert.match(output.localRunRecord, /issues-publish-tickets-126$/);
     assert.deepEqual(
       JSON.parse(await readFile(join(output.localRunRecord, 'response.json'), 'utf8')),
       output,
@@ -3359,7 +3362,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
   });
 
   await t.test('relative file input resolves against cli cwd', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-relative-file-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-tickets-relative-file-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({
@@ -3368,11 +3371,11 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         {
           number: 126,
           title: 'Published parent',
-          body: createPrdIssueBody({
+          body: createSpecIssueBody({
             title: 'Published parent',
             problemStatement: 'Parent problem.',
             solution: 'Parent solution.',
-            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            userStories: [{ number: 2, story: 'As a user, I want ticket publication.' }],
             implementationDecisions: ['Use native sub-issues.'],
             testingDecisions: ['Use fake clients.'],
             outOfScope: ['Dependency publication.'],
@@ -3383,17 +3386,17 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       ],
     });
     const request = {
-      children: [
+      tickets: [
         {
           sliceRef: '1',
-          title: 'Publish child issue from relative file',
-          whatToBuild: 'Read the child batch request from the CLI cwd.',
+          title: 'Publish ticket from relative file',
+          whatToBuild: 'Read the ticket batch request from the CLI cwd.',
           acceptanceCriteria: ['Relative --file paths resolve against the CLI cwd.'],
           coveredUserStories: [2],
         },
       ],
     };
-    await writeFile(join(cwd, 'children.json'), `${JSON.stringify(request)}\n`);
+    await writeFile(join(cwd, 'tickets.json'), `${JSON.stringify(request)}\n`);
 
     const cli = new PullOpsCli({
       cwd,
@@ -3403,19 +3406,19 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
 
     const exitCode = await cli.run([
       'issues',
-      'publish-children',
+      'publish-tickets',
       '--parent',
       '126',
       '--file',
-      'children.json',
+      'tickets.json',
     ]);
 
     assert.equal(exitCode, 0);
-    assert.equal(inMemory.readIssue(127).title, request.children[0].title);
+    assert.equal(inMemory.readIssue(127).title, request.tickets[0].title);
   });
 
   await t.test('conflicting parent flag and JSON parent', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-conflict-'));
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-tickets-conflict-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({ cwd });
@@ -3426,12 +3429,12 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         Readable.from([
           JSON.stringify({
             parentIssueNumber: 127,
-            children: [
+            tickets: [
               {
                 sliceRef: '1',
-                title: 'Publish child issue',
-                whatToBuild: 'Create a native Child Issue.',
-                acceptanceCriteria: ['The child is created and attached.'],
+                title: 'Publish ticket',
+                whatToBuild: 'Create a native Ticket.',
+                acceptanceCriteria: ['The ticket is created and attached.'],
                 coveredUserStories: [2],
               },
             ],
@@ -3441,17 +3444,17 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run(['issues', 'publish-children', '--parent', '126']);
+    const exitCode = await cli.run(['issues', 'publish-tickets', '--parent', '126']);
 
     assert.equal(exitCode, 1);
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'failed');
     assert.match(output.failureReason, /Request.parentIssueNumber values conflict/);
-    assert.match(output.localRunRecord, /issues-publish-children-invalid$/);
+    assert.match(output.localRunRecord, /issues-publish-tickets-invalid$/);
   });
 
-  await t.test('plain reruns reuse an existing PullOps-published child by slice ref', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-rerun-'));
+  await t.test('plain reruns reuse an existing PullOps-published ticket by slice ref', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-tickets-rerun-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({
@@ -3461,15 +3464,15 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
           number: 126,
           title: 'Published parent',
           url: 'https://github.test/owner/repo/issues/126',
-          body: createPrdIssueBody({
+          body: createSpecIssueBody({
             title: 'Published parent',
             problemStatement: 'Parent problem.',
             solution: 'Parent solution.',
             userStories: [
-              { number: 2, story: 'As a user, I want child issue publication.' },
+              { number: 2, story: 'As a user, I want ticket publication.' },
               { number: 3, story: 'As a user, I want reruns to resume safely.' },
             ],
-            implementationDecisions: ['Reuse marker-owned children on plain reruns.'],
+            implementationDecisions: ['Reuse marker-owned tickets on plain reruns.'],
             testingDecisions: ['Use fake clients.'],
             outOfScope: ['Dependency publication.'],
             furtherNotes: [],
@@ -3478,7 +3481,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
           subIssues: [
             {
               number: 201,
-              title: 'Base child',
+              title: 'Base ticket',
               relationshipSource: 'native',
             },
           ],
@@ -3486,11 +3489,11 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         {
           number: 201,
           url: 'https://github.test/owner/repo/issues/201',
-          title: 'Base child',
-          body: createChildIssueBody({
+          title: 'Base ticket',
+          body: createTicketBody({
             parentIssueNumber: 126,
             sliceRef: 'base',
-            title: 'Base child',
+            title: 'Base ticket',
             whatToBuild: 'Base work.',
             acceptanceCriteria: ['Base criteria.'],
             blockedBy: [],
@@ -3508,19 +3511,19 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     });
     const request = {
       parentIssueNumber: 126,
-      children: [
+      tickets: [
         {
           sliceRef: 'base',
-          title: 'Base child',
+          title: 'Base ticket',
           whatToBuild: 'Base work.',
           acceptanceCriteria: ['Base criteria.'],
           coveredUserStories: [2],
         },
         {
           sliceRef: 'dependent',
-          title: 'Dependent child issue',
-          whatToBuild: 'Create a dependent native Child Issue.',
-          acceptanceCriteria: ['The dependent child is created and attached.'],
+          title: 'Dependent ticket',
+          whatToBuild: 'Create a dependent native Ticket.',
+          acceptanceCriteria: ['The dependent ticket is created and attached.'],
           blockedBy: ['base'],
           coveredUserStories: [3],
         },
@@ -3534,7 +3537,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run(['issues', 'publish-children']);
+    const exitCode = await cli.run(['issues', 'publish-tickets']);
 
     assert.equal(exitCode, 0);
     const dependentIssue = inMemory.readIssue(202);
@@ -3546,7 +3549,7 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
     assert.equal(output.action, 'mixed');
-    assert.deepEqual(output.children, [
+    assert.deepEqual(output.tickets, [
       {
         sliceRef: 'base',
         action: 'reused',
@@ -3580,8 +3583,8 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     ]);
   });
 
-  await t.test('--force updates an existing PullOps-published child by slice ref', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-children-force-'));
+  await t.test('--force updates an existing PullOps-published ticket by slice ref', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-tickets-force-'));
     await writeGitHubIssueStoreConfig(cwd);
     const stdout = createWritableBuffer();
     const inMemory = createInMemoryIssueStore({
@@ -3590,11 +3593,11 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
         {
           number: 126,
           title: 'Published parent',
-          body: createPrdIssueBody({
+          body: createSpecIssueBody({
             title: 'Published parent',
             problemStatement: 'Parent problem.',
             solution: 'Parent solution.',
-            userStories: [{ number: 2, story: 'As a user, I want child issue publication.' }],
+            userStories: [{ number: 2, story: 'As a user, I want ticket publication.' }],
             implementationDecisions: ['Use native sub-issues.'],
             testingDecisions: ['Use fake clients.'],
             outOfScope: ['Dependency publication.'],
@@ -3604,18 +3607,18 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
           subIssues: [
             {
               number: 201,
-              title: 'Old child',
+              title: 'Old ticket',
               relationshipSource: 'native',
             },
           ],
         },
         {
           number: 201,
-          title: 'Old child',
-          body: createChildIssueBody({
+          title: 'Old ticket',
+          body: createTicketBody({
             parentIssueNumber: 126,
             sliceRef: '1',
-            title: 'Old child',
+            title: 'Old ticket',
             whatToBuild: 'Old work.',
             acceptanceCriteria: ['Old criteria.'],
             blockedBy: [],
@@ -3633,17 +3636,17 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
     });
     const request = {
       parentIssueNumber: 126,
-      children: [
+      tickets: [
         {
           sliceRef: '1',
-          title: 'Updated child issue',
-          whatToBuild: 'Update the native Child Issue.',
-          acceptanceCriteria: ['The child is force-updated.'],
+          title: 'Updated ticket',
+          whatToBuild: 'Update the native Ticket.',
+          acceptanceCriteria: ['The ticket is force-updated.'],
           coveredUserStories: [2],
         },
       ],
     };
-    const requestPath = join(cwd, 'children.json');
+    const requestPath = join(cwd, 'tickets.json');
     await writeFile(requestPath, `${JSON.stringify(request)}\n`);
 
     const cli = new PullOpsCli({
@@ -3652,23 +3655,17 @@ test('issues publish-children accepts parent from flag or JSON and rejects confl
       issueStoreFactory: () => inMemory.store,
     });
 
-    const exitCode = await cli.run([
-      'issues',
-      'publish-children',
-      '--file',
-      requestPath,
-      '--force',
-    ]);
+    const exitCode = await cli.run(['issues', 'publish-tickets', '--file', requestPath, '--force']);
 
     assert.equal(exitCode, 0);
-    const updatedChild = inMemory.readIssue(201);
-    assert.equal(updatedChild.title, request.children[0].title);
-    assert.match(updatedChild.body, /Update the native Child Issue\./);
+    const updatedTicket = inMemory.readIssue(201);
+    assert.equal(updatedTicket.title, request.tickets[0].title);
+    assert.match(updatedTicket.body, /Update the native Ticket\./);
 
     const output = JSON.parse(stdout.text);
     assert.equal(output.status, 'accepted');
     assert.equal(output.action, 'updated');
-    assert.equal(output.children[0].action, 'updated');
+    assert.equal(output.tickets[0].action, 'updated');
   });
 });
 
@@ -3708,8 +3705,8 @@ test('issues publish-issue rejects malformed JSON input with stable failure outp
   );
 });
 
-test('issues publish-prd rejects malformed JSON input with stable failure output', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-prd-malformed-'));
+test('issues publish-spec rejects malformed JSON input with stable failure output', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'pullops-publish-spec-malformed-'));
   const stdout = createWritableBuffer();
   const inMemory = createInMemoryIssueStore({ cwd });
   const cli = new PullOpsCli({
@@ -3719,17 +3716,17 @@ test('issues publish-prd rejects malformed JSON input with stable failure output
     issueStoreFactory: () => inMemory.store,
   });
 
-  const exitCode = await cli.run(['issues', 'publish-prd']);
+  const exitCode = await cli.run(['issues', 'publish-spec']);
 
   assert.equal(exitCode, 1);
 
   const output = JSON.parse(stdout.text);
   assert.equal(output.status, 'failed');
-  assert.equal(output.summary, 'Publish PRD request failed.');
+  assert.equal(output.summary, 'Publish Spec request failed.');
   assert.match(output.failureReason, /Publish request must be valid JSON/);
   assert.deepEqual(output.warnings, []);
   assert.equal(output.localRunRecord.startsWith(join(cwd, '.pullops', 'runs')), true);
-  assert.match(output.localRunRecord, /issues-publish-prd-invalid$/);
+  assert.match(output.localRunRecord, /issues-publish-spec-invalid$/);
   assert.equal(
     await readFile(join(output.localRunRecord, 'request.raw.txt'), 'utf8'),
     '{ "title": "broken"\n',
@@ -3816,9 +3813,9 @@ test('setup github-labels reports label reconciliation results from the GitHub c
   assert.deepEqual(
     ensuredLabels.map(label => label.name),
     [
-      'pullops:prd:prepare',
-      'pullops:prd:auto-advance',
-      'pullops:prd:auto-complete',
+      'pullops:spec:prepare',
+      'pullops:spec:auto-advance',
+      'pullops:spec:auto-complete',
       'pullops:issue:implement',
       'pullops:pr:review',
       'pullops:pr:address-review',
@@ -4178,19 +4175,19 @@ function createFakeStepSpawn({
       calls.push({ command, args, options });
       onSpawn();
 
-      const child = /** @type {any} */ (new EventEmitter());
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
+      const ticket = /** @type {any} */ (new EventEmitter());
+      ticket.stdout = new PassThrough();
+      ticket.stderr = new PassThrough();
 
       setTimeout(() => {
-        child.stdout?.write(stdout);
-        child.stdout?.end();
-        child.stderr?.write(stderr);
-        child.stderr?.end();
-        child.emit('close', exitCode, null);
+        ticket.stdout?.write(stdout);
+        ticket.stdout?.end();
+        ticket.stderr?.write(stderr);
+        ticket.stderr?.end();
+        ticket.emit('close', exitCode, null);
       }, closeAfterMs);
 
-      return /** @type {import('node:child_process').ChildProcess} */ (child);
+      return /** @type {import('node:child_process').ChildProcess} */ (ticket);
     },
   };
 }
@@ -4391,13 +4388,13 @@ async function bindProgressEventWriter(context) {
  * @param {'accepted' | 'blocked' | 'refused' | 'failed'} fixtureName
  * @returns {Promise<void>}
  */
-async function assertPrdAutoCompleteEventStreamFixture(stdoutText, fixtureName) {
+async function assertSpecAutoCompleteEventStreamFixture(stdoutText, fixtureName) {
   assertStdoutIsPureJsonl(stdoutText);
   const fixture = await readFile(
-    new URL(`./__fixtures__/prd-auto-complete-events/${fixtureName}.jsonl`, import.meta.url),
+    new URL(`./__fixtures__/spec-auto-complete-events/${fixtureName}.jsonl`, import.meta.url),
     'utf8',
   );
-  assert.equal(normalizePrdAutoCompleteEventStream(stdoutText), fixture);
+  assert.equal(normalizeSpecAutoCompleteEventStream(stdoutText), fixture);
 }
 
 /**
@@ -4416,7 +4413,7 @@ function assertStdoutIsPureJsonl(stdoutText) {
  * @param {string} stdoutText
  * @returns {string}
  */
-function normalizePrdAutoCompleteEventStream(stdoutText) {
+function normalizeSpecAutoCompleteEventStream(stdoutText) {
   const normalizedLines = stdoutText
     .trimEnd()
     .split('\n')
@@ -4438,7 +4435,7 @@ function normalizeDynamicEventValues(value) {
   }
 
   const record = /** @type {Record<string, unknown>} */ (value);
-  for (const [key, childValue] of Object.entries(record)) {
+  for (const [key, ticketValue] of Object.entries(record)) {
     if (key === 'runId') {
       record[key] = '<RUN_ID>';
       continue;
@@ -4459,7 +4456,7 @@ function normalizeDynamicEventValues(value) {
       continue;
     }
 
-    record[key] = normalizeDynamicEventValues(childValue);
+    record[key] = normalizeDynamicEventValues(ticketValue);
   }
 
   return record;

@@ -80,18 +80,18 @@ export function createInMemoryIssueStore({ cwd = process.cwd(), issues = [] } = 
       },
 
       /** @param {import('../github/types.js').AddSubIssueOptions} options */
-      async addSubIssue({ parentIssueNumber, childIssueNumber }) {
+      async addSubIssue({ parentIssueNumber, ticketNumber }) {
         const parent = requireIssue(parentIssueNumber);
-        const child = requireIssue(childIssueNumber);
-        child.parent = {
+        const ticket = requireIssue(ticketNumber);
+        ticket.parent = {
           number: parent.number,
           title: parent.title,
           relationshipSource: 'native',
         };
-        if (!parent.subIssues.some(subIssue => subIssue.number === child.number)) {
+        if (!parent.subIssues.some(subIssue => subIssue.number === ticket.number)) {
           parent.subIssues.push({
-            number: child.number,
-            title: child.title,
+            number: ticket.number,
+            title: ticket.title,
             relationshipSource: 'native',
           });
         }

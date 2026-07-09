@@ -1,7 +1,7 @@
 import type { PlannedRewriteCommit } from '../../git/types.js';
 import type { GitHubIssue, GitHubIssueReference, GitHubPullRequest } from '../../github/types.js';
 
-export type PrFinalizeSourceKind = 'standalone' | 'childIssue' | 'parentIssue';
+export type PrFinalizeSourceKind = 'standalone' | 'ticket' | 'parentIssue';
 
 export type PrFinalizeSource =
   | {
@@ -16,7 +16,7 @@ export type PrFinalizeSource =
     }
   | {
       ready: true;
-      sourceKind: 'childIssue';
+      sourceKind: 'ticket';
       sourceIssueNumber: number;
       parentIssueNumber: number;
       baseBranch: string;
@@ -27,8 +27,8 @@ export type PrFinalizeSource =
       sourceIssueNumber: number;
       baseBranch: string;
       parentIssue: GitHubIssue;
-      childIssues: GitHubIssueReference[];
-      closedChildIssues: GitHubIssueReference[];
+      tickets: GitHubIssueReference[];
+      closedTickets: GitHubIssueReference[];
     };
 
 export type PrFinalizePreparation =
@@ -40,7 +40,7 @@ export type PrFinalizePreparation =
       sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
-      childIssues?: GitHubIssueReference[];
+      tickets?: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
@@ -55,7 +55,7 @@ export type PrFinalizePreparation =
       sourceKind: 'parentIssue';
       sourceIssueNumber: number;
       parentIssueNumber?: number;
-      childIssues: GitHubIssueReference[];
+      tickets: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
@@ -70,7 +70,7 @@ export type PrFinalizePreparation =
       pullRequest: GitHubPullRequest;
       sourceKind: 'parentIssue';
       sourceIssueNumber: number;
-      childIssues: GitHubIssueReference[];
+      tickets: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       reviewedTreeHash: string;
@@ -85,7 +85,7 @@ export type PrFinalizePreparation =
       sourceKind: PrFinalizeSourceKind;
       sourceIssueNumber: number;
       parentIssueNumber?: number;
-      childIssues?: GitHubIssueReference[];
+      tickets?: GitHubIssueReference[];
       baseBranch: string;
       currentTreeHash: string;
       finalizedTreeHash: string;

@@ -231,8 +231,8 @@ ${pullRequestDispatchMappings}
 /**
  * @returns {string}
  */
-function renderPrdPrepareWorkflow() {
-  return renderWorkflow(`name: PullOps PRD Prepare
+function renderSpecPrepareWorkflow() {
+  return renderWorkflow(`name: PullOps Spec Prepare
 
 on:
   workflow_dispatch:
@@ -252,11 +252,11 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pullops-prd-prepare-@@{{ inputs.issue }}
+  group: pullops-spec-prepare-@@{{ inputs.issue }}
   cancel-in-progress: false
 
 jobs:
-  prd-prepare:
+  spec-prepare:
     runs-on: ubuntu-latest
 
     steps:
@@ -276,10 +276,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run PullOps prepare PRD
+      - name: Run PullOps prepare Spec
         run: |
           git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          npm exec pullops -- run prd-prepare --issue @@{{ inputs.issue }}
+          npm exec pullops -- run spec-prepare --issue @@{{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -419,8 +419,8 @@ ${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner
 /**
  * @returns {string}
  */
-function renderPrdAutoAdvanceWorkflow() {
-  return renderWorkflow(`name: PullOps PRD Auto Advance
+function renderSpecAutoAdvanceWorkflow() {
+  return renderWorkflow(`name: PullOps Spec Auto Advance
 
 on:
   workflow_dispatch:
@@ -440,11 +440,11 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: pullops-prd-auto-advance-@@{{ inputs.issue }}
+  group: pullops-spec-auto-advance-@@{{ inputs.issue }}
   cancel-in-progress: false
 
 jobs:
-  prd-auto-advance:
+  spec-auto-advance:
     runs-on: ubuntu-latest
 
     steps:
@@ -463,10 +463,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run PullOps PRD auto-advance
+      - name: Run PullOps Spec auto-advance
         run: |
           git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          npm exec pullops -- run prd-auto-advance --issue @@{{ inputs.issue }}
+          npm exec pullops -- run spec-auto-advance --issue @@{{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -480,8 +480,8 @@ jobs:
 /**
  * @returns {string}
  */
-function renderPrdAutoCompleteWorkflow() {
-  return renderWorkflow(`name: PullOps PRD Auto Complete
+function renderSpecAutoCompleteWorkflow() {
+  return renderWorkflow(`name: PullOps Spec Auto Complete
 
 on:
   workflow_dispatch:
@@ -499,11 +499,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: pullops-prd-auto-complete-@@{{ inputs.issue }}
+  group: pullops-spec-auto-complete-@@{{ inputs.issue }}
   cancel-in-progress: false
 
 jobs:
-  prd-auto-complete:
+  spec-auto-complete:
     runs-on: ubuntu-latest
 
     steps:
@@ -523,10 +523,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run PullOps PRD auto-complete
+      - name: Run PullOps Spec auto-complete
         run: |
           git remote set-url origin "https://x-access-token:@@{PULLOPS_GITHUB_TOKEN}@github.com/@@{GITHUB_REPOSITORY}.git"
-          npm exec pullops -- run prd-auto-complete --issue @@{{ inputs.issue }}
+          npm exec pullops -- run spec-auto-complete --issue @@{{ inputs.issue }}
         env:
           # PULLOPS_GITHUB_TOKEN is the install-facing secret; expose it under
           # the standard token name used by GitHub-aware tools.
@@ -1683,8 +1683,8 @@ ${renderExternalRunnerSteps(options, { gateIf: "steps.prepare.outputs.run_runner
 /**
  * @returns {string}
  */
-function renderPrCloseChildIssueWorkflow() {
-  return renderWorkflow(`name: PullOps PR Close Child Issue
+function renderPrCloseTicketWorkflow() {
+  return renderWorkflow(`name: PullOps PR Close Ticket
 
 on:
   pull_request:
@@ -1696,73 +1696,73 @@ permissions:
   issues: write
 
 concurrency:
-  group: pullops-pr-close-child-issue-@@{{ github.event.pull_request.number }}
+  group: pullops-pr-close-ticket-@@{{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
-  pr-close-child-issue:
+  pr-close-ticket:
     if: >-
       github.event.pull_request.merged == true &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate merged child PR shape
-        id: child_pr
+      - name: Validate merged ticket PR shape
+        id: ticket_pr
         env:
           BASE_REF: @@{{ github.event.pull_request.base.ref }}
           HEAD_REF: @@{{ github.event.pull_request.head.ref }}
         run: |
-          base_pattern='^pullops/prd-([0-9]+)$'
-          head_pattern='^pullops/prd-([0-9]+)-issue-([0-9]+)$'
+          base_pattern='^pullops/spec-([0-9]+)$'
+          head_pattern='^pullops/spec-([0-9]+)-issue-([0-9]+)$'
 
           if [[ "$BASE_REF" =~ $base_pattern ]]; then
-            base_prd="@@{BASH_REMATCH[1]}"
+            base_spec="@@{BASH_REMATCH[1]}"
           else
-            echo "PullOps pr-close-child-issue skipped: base branch '$BASE_REF' is not a PRD branch."
+            echo "PullOps pr-close-ticket skipped: base branch '$BASE_REF' is not a Spec branch."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [[ "$HEAD_REF" =~ $head_pattern ]]; then
-            head_prd="@@{BASH_REMATCH[1]}"
-            child_issue="@@{BASH_REMATCH[2]}"
+            head_spec="@@{BASH_REMATCH[1]}"
+            ticket="@@{BASH_REMATCH[2]}"
           else
-            echo "PullOps pr-close-child-issue skipped: head branch '$HEAD_REF' is not a child issue branch."
+            echo "PullOps pr-close-ticket skipped: head branch '$HEAD_REF' is not a ticket branch."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$base_prd" != "$head_prd" ]; then
-            echo "PullOps pr-close-child-issue skipped: head PRD '$head_prd' does not match base PRD '$base_prd'."
+          if [ "$base_spec" != "$head_spec" ]; then
+            echo "PullOps pr-close-ticket skipped: head Spec '$head_spec' does not match base Spec '$base_spec'."
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "PullOps pr-close-child-issue accepted for child issue #$child_issue in PRD #$base_prd."
+          echo "PullOps pr-close-ticket accepted for ticket #$ticket in Spec #$base_spec."
           echo "should_run=true" >> "$GITHUB_OUTPUT"
 
       - name: Check out repository
-        if: steps.child_pr.outputs.should_run == 'true'
+        if: steps.ticket_pr.outputs.should_run == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node
-        if: steps.child_pr.outputs.should_run == 'true'
+        if: steps.ticket_pr.outputs.should_run == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
-        if: steps.child_pr.outputs.should_run == 'true'
+        if: steps.ticket_pr.outputs.should_run == 'true'
         run: npm ci
 
-      - name: Run PullOps close child issue
-        if: steps.child_pr.outputs.should_run == 'true'
-        run: npm exec pullops -- run pr-close-child-issue --pr "@@{{ github.event.pull_request.number }}"
+      - name: Run PullOps close ticket
+        if: steps.ticket_pr.outputs.should_run == 'true'
+        run: npm exec pullops -- run pr-close-ticket --pr "@@{{ github.event.pull_request.number }}"
         env:
           GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
           PULLOPS_GITHUB_TOKEN: @@{{ secrets.PULLOPS_GITHUB_TOKEN }}
@@ -1779,15 +1779,15 @@ function renderWorkflow(template) {
 
 /** @type {Record<WorkflowOperation['name'], (options: WorkflowRenderOptions) => string>} */
 const WORKFLOW_RENDERERS = {
-  'prd-prepare': renderPrdPrepareWorkflow,
+  'spec-prepare': renderSpecPrepareWorkflow,
   'issue-implement': renderIssueImplementWorkflow,
-  'prd-auto-advance': renderPrdAutoAdvanceWorkflow,
-  'prd-auto-complete': renderPrdAutoCompleteWorkflow,
+  'spec-auto-advance': renderSpecAutoAdvanceWorkflow,
+  'spec-auto-complete': renderSpecAutoCompleteWorkflow,
   'pr-review': renderPrReviewWorkflow,
   'pr-address-review': renderPrAddressReviewWorkflow,
   'pr-fix-ci': renderPrFixCiWorkflow,
   'pr-update-branch': renderPrUpdateBranchWorkflow,
   'pr-resolve-conflicts': renderPrResolveConflictsWorkflow,
   'pr-finalize': renderPrFinalizeWorkflow,
-  'pr-close-child-issue': renderPrCloseChildIssueWorkflow,
+  'pr-close-ticket': renderPrCloseTicketWorkflow,
 };

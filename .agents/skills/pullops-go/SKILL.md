@@ -1,6 +1,6 @@
 ---
 name: pullops-go
-description: Drive a PullOps PRD, issue, or PR operation to the next real finish line.
+description: Drive a PullOps Spec, issue, or PR operation to the next real finish line.
 disable-model-invocation: true
 ---
 
@@ -15,23 +15,23 @@ Before running any PullOps CLI command, read and follow
 
 ## Choose
 
-1. If the user named a PRD, issue, PR, or command, classify it before asking
+1. If the user named a Spec, issue, PR, or command, classify it before asking
    anything:
-   - Parent PRD: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run prd:auto-complete <issue> --runner external --events jsonl --publish pr`.
-   - Concrete issue or manually selected child issue: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run issue:implement <issue> --publish pr`.
+   - Parent Spec: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run spec:auto-complete <issue> --runner external --events jsonl --publish pr`.
+   - Concrete issue or manually selected ticket: run `npm_config_cache=/tmp/pullops-npm-cache npm exec -- pullops run issue:implement <issue> --publish pr`.
    - Explicit PullOps PR operation: run the matching `pr:*` command the user named.
    Completion criterion: exactly one target and one command are selected, or
    there is no target.
-2. If no target was supplied, discover open PRDs and implementable issues using
+2. If no target was supplied, discover open specs and implementable issues using
    GitHub issue metadata, labels, and PullOps conventions. Start with
    `gh issue list --state open --json number,title,labels,url,updatedAt` in the
    Target Repository and inspect bodies only for plausible candidates. Present a short numbered
-   list grouped as PRDs first, then issues. Include enough context to choose:
+   list grouped as specs first, then issues. Include enough context to choose:
    number, title, current PullOps label/status, blocked/waiting signal, and
    likely command. Completion criterion: the user can pick one item without
    another lookup.
-3. If there are no PRDs or implementable issues, ask what topic the user wants
-   to turn into a PRD or issue. When they answer, ask them to invoke
+3. If there are no specs or implementable issues, ask what topic the user wants
+   to turn into a Spec or issue. When they answer, ask them to invoke
    `grill-with-docs` with that topic. Completion criterion: the user has a
    concrete next prompt for the planning session, not idle waiting.
 
@@ -40,7 +40,7 @@ Before running any PullOps CLI command, read and follow
 1. Before running the CLI, record the current branch and `git status --short`.
    Avoid overwriting unrelated user changes.
 2. Run the selected command locally. Add `--runner external --events jsonl` for
-   `prd:auto-complete`; events are currently supported only for that operation.
+   `spec:auto-complete`; events are currently supported only for that operation.
    For other operations, supervise stdout and run records.
 3. If a local command exits zero with `status: "waiting"` and a `runnerJob`,
    treat it as an executable handoff. If live stdout was interrupted, recover
@@ -80,14 +80,14 @@ Before running any PullOps CLI command, read and follow
      `suggestedActions[]`, run those `argv` next instead of reconstructing
      commands from prose.
    PullOps Heartbeats remain worker-owned liveness; the manager must not fake worker heartbeats.
-5. When supervising `prd:auto-complete --runner external --events jsonl`, read
+5. When supervising `spec:auto-complete --runner external --events jsonl`, read
    [`references/event-supervision.md`](references/event-supervision.md) before
    acting on events. Apply its event, liveness, and recovery rules. Completion
    criterion: every `run.summary` status, blocker, suggested action, and local
    next step has been completed, rerun, or reported as an external wait.
 6. Keep the operator loop moving until it reaches one finish line:
 
-- PRD accepted with a finalized or waiting umbrella/child PR state and clear
+- Spec accepted with a finalized or waiting umbrella/ticket PR state and clear
   local next steps.
 - Issue implementation published or finalized with a created/updated PR.
 - PR operation accepted and no immediate routed PullOps operation remains.

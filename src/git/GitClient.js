@@ -622,7 +622,7 @@ export function createGitClient({
           await runGit(
             execFile,
             ['rev-list', '--right-only', '--count', `${baseRef}...${branchRef}`],
-            `count child-side commits from ${branchName} since ${baseBranch}`,
+            `count ticket-side commits from ${branchName} since ${baseBranch}`,
           )
         ).stdout
           .toString()

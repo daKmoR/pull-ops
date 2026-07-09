@@ -228,15 +228,15 @@ async function preparePrReview(context) {
 
   const issue = await context.githubClient.getIssue(state.sourceIssueNumber);
   if (state.sourceKind === 'parentIssue') {
-    const openChildIssues = issue.subIssues.filter(childIssue => !isClosedIssue(childIssue));
-    if (openChildIssues.length > 0) {
+    const openTickets = issue.subIssues.filter(ticket => !isClosedIssue(ticket));
+    if (openTickets.length > 0) {
       return {
         ready: false,
         output: await refusePullRequest(context, pullRequest, {
           reason: [
-            `Umbrella PRD PR #${pullRequest.number} is incomplete because native Child Issues`,
-            `${formatIssueList(openChildIssues)} remain open.`,
-            'Incomplete PRDs cannot be approved.',
+            `Umbrella Spec PR #${pullRequest.number} is incomplete because native Tickets`,
+            `${formatIssueList(openTickets)} remain open.`,
+            'Incomplete specs cannot be approved.',
           ].join(' '),
         }),
       };

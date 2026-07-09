@@ -79,16 +79,16 @@ describe('Test issueSnapshot', () => {
     assert.equal(published.kind, 'concrete-issue');
     assert.equal(published.publishedByPullOps, true);
 
-    const childIssue = createIssueSnapshot(
+    const ticket = createIssueSnapshot(
       createIssue({
-        body: '<!-- PullOps publication marker: {"schemaVersion":1,"provider":"github","kind":"child-issue","parentIssueNumber":12,"sliceRef":"slice-1"} -->',
+        body: '<!-- PullOps publication marker: {"schemaVersion":1,"provider":"github","kind":"ticket","parentIssueNumber":12,"sliceRef":"slice-1"} -->',
       }),
     );
-    assert.equal(childIssue.kind, 'child-issue');
-    assert.deepEqual(childIssue.marker, {
+    assert.equal(ticket.kind, 'ticket');
+    assert.deepEqual(ticket.marker, {
       schemaVersion: 1,
       provider: 'github',
-      kind: 'child-issue',
+      kind: 'ticket',
       parentIssueNumber: 12,
       sliceRef: 'slice-1',
     });
@@ -98,7 +98,7 @@ describe('Test issueSnapshot', () => {
     assert.equal(unpublished.publishedByPullOps, false);
   });
 
-  it('06: lists native sub-issue numbers as child issue numbers', () => {
+  it('06: lists native sub-issue numbers as ticket numbers', () => {
     const snapshot = createIssueSnapshot(
       createIssue({
         subIssues: [
@@ -108,7 +108,7 @@ describe('Test issueSnapshot', () => {
       }),
     );
 
-    assert.deepEqual(snapshot.childIssueNumbers, [41, 42]);
+    assert.deepEqual(snapshot.ticketNumbers, [41, 42]);
   });
 });
 

@@ -4,11 +4,11 @@ export type OperationProgressEventName =
   | 'run.started'
   | 'phase.started'
   | 'phase.completed'
-  | 'child.started'
-  | 'child.progress'
+  | 'ticket.started'
+  | 'ticket.progress'
   | 'child.heartbeat'
-  | 'child.completed'
-  | 'child.blocked'
+  | 'ticket.completed'
+  | 'ticket.blocked'
   | 'waiting'
   | 'run.summary';
 

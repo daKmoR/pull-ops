@@ -103,7 +103,7 @@ const conflictContext = {
 };
 
 /** @type {GitHubIssueReference[]} */
-const closedChildIssues = [
+const closedTickets = [
   {
     number: 42,
     title: 'Implement parser',
@@ -170,7 +170,7 @@ const examples = [
     prompt: buildPrFinalizePrompt({
       pullRequest,
       parentIssue: issue,
-      closedChildIssues,
+      closedTickets,
       ambiguousReason: 'Files cannot be grouped deterministically.',
       commits,
       reviewContext,
@@ -196,7 +196,7 @@ describe('PullOps skill contracts', () => {
     });
   }
 
-  it('keeps PR Finalize Child Issue commit examples traceable to the parent PRD', async () => {
+  it('keeps PR Finalize Ticket commit examples traceable to the parent Spec', async () => {
     const [skillCompleted] = await readSkillExamples('pullops-pr-finalize');
     const finalizeExample = examples.find(example => example.skillName === 'pullops-pr-finalize');
     assert.ok(finalizeExample);
@@ -205,8 +205,8 @@ describe('PullOps skill contracts', () => {
       'Final response must be only JSON',
     );
 
-    assert.ok(hasPrdFooter(skillCompleted.commitPlan.commits[0].footers));
-    assert.ok(hasPrdFooter(promptCompleted.commitPlan.commits[0].footers));
+    assert.ok(hasSpecFooter(skillCompleted.commitPlan.commits[0].footers));
+    assert.ok(hasSpecFooter(promptCompleted.commitPlan.commits[0].footers));
   });
 
   it('keeps worker operation skills responsible for PullOps liveness', async () => {
@@ -270,9 +270,12 @@ describe('PullOps skill contracts', () => {
   it('keeps the repo-local issue tracker instructions routed through PullOps publish commands', async () => {
     const issueTrackerText = await readRepoFile('docs/agents/issue-tracker.md');
 
-    assert.doesNotMatch(issueTrackerText, /gh issue create/);
-    assert.match(issueTrackerText, /to-prd/);
-    assert.match(issueTrackerText, /to-issues/);
+    // Wayfinder maps and their planning tickets are not PullOps-published
+    // issues, so the wayfinding section may create issues with `gh` directly.
+    const [publicationText] = issueTrackerText.split('## Wayfinding operations');
+    assert.doesNotMatch(publicationText, /gh issue create/);
+    assert.match(issueTrackerText, /to-spec/);
+    assert.match(issueTrackerText, /to-tickets/);
     assert.match(issueTrackerText, /structured JSON/i);
     assert.match(issueTrackerText, /auditability/i);
     assert.match(issueTrackerText, /context recovery/i);
@@ -280,11 +283,11 @@ describe('PullOps skill contracts', () => {
     assert.match(issueTrackerText, /stdin is supported/i);
     assert.match(
       issueTrackerText,
-      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-prd --file <path>/,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-spec --file <path>/,
     );
     assert.match(
       issueTrackerText,
-      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-children --file <path>/,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops issues publish-tickets --file <path>/,
     );
     assert.match(
       issueTrackerText,
@@ -302,7 +305,7 @@ describe('PullOps skill contracts', () => {
     assert.match(contractText, /parent\s+`child\.heartbeat` events/);
     assert.match(contractText, /default nested-run PullOps Liveness Signal/);
     assert.match(contractText, /Child Heartbeat Events/);
-    assert.match(contractText, /child\.progress[\s\S]*semantic/);
+    assert.match(contractText, /ticket\.progress[\s\S]*semantic/);
     assert.match(contractText, /must not report liveness as implementation progress/i);
     assert.match(contractText, /throttle or coalesce/);
     assert.match(contractText, /without dropping machine-readable `child\.heartbeat` JSONL events/);
@@ -317,7 +320,7 @@ describe('PullOps skill contracts', () => {
     assert.match(contractText, /PullOps Stall Classification/);
     assert.match(
       contractText,
-      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops run prd:auto-complete/,
+      /npm_config_cache=\/tmp\/pullops-npm-cache npm exec -- pullops run spec:auto-complete/,
     );
     assert.match(contractText, /Avoid artifact, process, git, CI, or GitHub probing/i);
     assert.match(contractText, /Do not use logs, git diff, CI, or GitHub state/);
@@ -452,6 +455,6 @@ function exampleShape(value) {
  * @param {string[]} footers
  * @returns {boolean}
  */
-function hasPrdFooter(footers) {
-  return footers.some(footer => footer.startsWith('PRD: #'));
+function hasSpecFooter(footers) {
+  return footers.some(footer => footer.startsWith('Spec: #'));
 }

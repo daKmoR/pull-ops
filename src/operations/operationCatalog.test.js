@@ -33,59 +33,59 @@ const packageJson = JSON.parse(
 );
 
 describe('operationCatalog', () => {
-  it('01: returns the prd:prepare operation facts from purpose-specific lookups', () => {
-    assert.deepEqual(getOperationCatalogWorkflowOperation('prd-prepare'), {
-      name: 'prd-prepare',
+  it('01: returns the spec:prepare operation facts from purpose-specific lookups', () => {
+    assert.deepEqual(getOperationCatalogWorkflowOperation('spec-prepare'), {
+      name: 'spec-prepare',
       target: 'issue',
       option: 'issue',
-      configKey: 'prdPrepare',
+      configKey: 'specPrepare',
     });
-    assert.deepEqual(getOperationCatalogOperationLabelReference('prd:prepare'), {
-      reference: 'prd:prepare',
-      workflowOperationName: 'prd-prepare',
+    assert.deepEqual(getOperationCatalogOperationLabelReference('spec:prepare'), {
+      reference: 'spec:prepare',
+      workflowOperationName: 'spec-prepare',
       target: 'issue',
-      label: 'pullops:prd:prepare',
+      label: 'pullops:spec:prepare',
     });
     assert.deepEqual(
-      getOperationCatalogOperationLabelReferenceForWorkflowOperation('prd-prepare'),
+      getOperationCatalogOperationLabelReferenceForWorkflowOperation('spec-prepare'),
       {
-        reference: 'prd:prepare',
-        workflowOperationName: 'prd-prepare',
+        reference: 'spec:prepare',
+        workflowOperationName: 'spec-prepare',
         target: 'issue',
-        label: 'pullops:prd:prepare',
+        label: 'pullops:spec:prepare',
       },
     );
-    assert.deepEqual(getOperationCatalogDefaultOperationSettings('prd-prepare'), {
+    assert.deepEqual(getOperationCatalogDefaultOperationSettings('spec-prepare'), {
       modelTier: 'low',
     });
-    assert.deepEqual(getOperationCatalogLabelDefinition('prd-prepare'), {
-      name: 'pullops:prd:prepare',
+    assert.deepEqual(getOperationCatalogLabelDefinition('spec-prepare'), {
+      name: 'pullops:spec:prepare',
       color: '5319E7',
-      description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
+      description: 'Prepare an umbrella branch and draft PR for a Spec issue.',
     });
-    assert.equal(getOperationCatalogWorkflowFileName('prd-prepare'), 'pullops-prd-prepare.yml');
-    assert.equal(getOperationCatalogPackageScriptName('prd-prepare'), 'pullops:prd-prepare');
-    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('prd-prepare'), [
+    assert.equal(getOperationCatalogWorkflowFileName('spec-prepare'), 'pullops-spec-prepare.yml');
+    assert.equal(getOperationCatalogPackageScriptName('spec-prepare'), 'pullops:spec-prepare');
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('spec-prepare'), [
       ['codex-cli', 'run'],
     ]);
-    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('prd-prepare'), ['codex-cli']);
-    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('prd-prepare'), ['run']);
+    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('spec-prepare'), ['codex-cli']);
+    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('spec-prepare'), ['run']);
     assert.equal(
-      supportsOperationCatalogRunnerLifecycle('prd-prepare', {
+      supportsOperationCatalogRunnerLifecycle('spec-prepare', {
         phase: 'run',
         runnerAdapter: 'codex-cli',
       }),
       true,
     );
     assert.equal(
-      supportsOperationCatalogRunnerLifecycle('prd-prepare', {
+      supportsOperationCatalogRunnerLifecycle('spec-prepare', {
         phase: 'prepare',
         runnerAdapter: 'external',
       }),
       false,
     );
-    assert.equal(typeof getOperationCatalogHandler('prd-prepare'), 'function');
-    assert.equal(getOperationCatalogHandler('prd-prepare', 'prepare'), undefined);
+    assert.equal(typeof getOperationCatalogHandler('spec-prepare'), 'function');
+    assert.equal(getOperationCatalogHandler('spec-prepare', 'prepare'), undefined);
   });
 
   it('02: returns the issue:implement operation facts from purpose-specific lookups', () => {
@@ -108,7 +108,7 @@ describe('operationCatalog', () => {
       name: 'pullops:issue:implement',
       color: '5319E7',
       description:
-        'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+        'Implement one concrete issue through review and finalization. Does not coordinate tickets.',
     });
     assert.equal(
       getOperationCatalogWorkflowFileName('issue-implement'),
@@ -274,26 +274,26 @@ describe('operationCatalog', () => {
     }
   });
 
-  it('04: returns the prd:auto-advance and prd:auto-complete operation facts from purpose-specific lookups', () => {
+  it('04: returns the spec:auto-advance and spec:auto-complete operation facts from purpose-specific lookups', () => {
     for (const [operationName, labelReference, labelName, description] of [
       [
-        'prd-auto-advance',
-        'prd:auto-advance',
-        'pullops:prd:auto-advance',
-        'Prepare a PRD and drain the current unblocked child frontier.',
+        'spec-auto-advance',
+        'spec:auto-advance',
+        'pullops:spec:auto-advance',
+        'Prepare a Spec and drain the current unblocked ticket frontier.',
       ],
       [
-        'prd-auto-complete',
-        'prd:auto-complete',
-        'pullops:prd:auto-complete',
-        'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
+        'spec-auto-complete',
+        'spec:auto-complete',
+        'pullops:spec:auto-complete',
+        'Complete a Spec through ticket PRs and umbrella finalization; humans merge the umbrella PR.',
       ],
     ]) {
       assert.deepEqual(getOperationCatalogWorkflowOperation(operationName), {
         name: operationName,
         target: 'issue',
         option: 'issue',
-        configKey: operationName === 'prd-auto-advance' ? 'prdAutoAdvance' : 'prdAutoComplete',
+        configKey: operationName === 'spec-auto-advance' ? 'specAutoAdvance' : 'specAutoComplete',
       });
       assert.deepEqual(getOperationCatalogOperationLabelReference(labelReference), {
         reference: labelReference,
@@ -323,7 +323,7 @@ describe('operationCatalog', () => {
         `pullops-${operationName}.yml`,
       );
       assert.equal(getOperationCatalogPackageScriptName(operationName), `pullops:${operationName}`);
-      const supportsExternalRun = operationName === 'prd-auto-complete';
+      const supportsExternalRun = operationName === 'spec-auto-complete';
       assert.deepEqual(
         getOperationCatalogSupportedRunnerLifecycles(operationName),
         supportsExternalRun
@@ -532,14 +532,14 @@ describe('operationCatalog', () => {
     /** @type {Array<[string, string | undefined]>} */
     const cases = [
       ['pr-finalizex', 'pr:finalizex'],
-      ['pr-close-child-issuex', undefined],
+      ['pr-close-ticketx', undefined],
     ];
 
     for (const [operationName, labelReference] of cases) {
       assert.equal(getOperationCatalogWorkflowOperation(operationName), undefined);
       assert.equal(
         getOperationCatalogOperationLabelReference(
-          labelReference === undefined ? 'pr-close-child-issue' : labelReference,
+          labelReference === undefined ? 'pr-close-ticket' : labelReference,
         ),
         undefined,
       );
@@ -562,7 +562,7 @@ describe('operationCatalog', () => {
     }
   });
 
-  it('07: returns pr-finalize and pr-close-child-issue catalog facts without dispatching child closure', () => {
+  it('07: returns pr-finalize and pr-close-ticket catalog facts without dispatching ticket closure', () => {
     assert.deepEqual(getOperationCatalogWorkflowOperation('pr-finalize'), {
       name: 'pr-finalize',
       target: 'pr',
@@ -604,46 +604,44 @@ describe('operationCatalog', () => {
     assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'prepare'), 'function');
     assert.equal(typeof getOperationCatalogHandler('pr-finalize', 'complete'), 'function');
 
-    assert.deepEqual(getOperationCatalogWorkflowOperation('pr-close-child-issue'), {
-      name: 'pr-close-child-issue',
+    assert.deepEqual(getOperationCatalogWorkflowOperation('pr-close-ticket'), {
+      name: 'pr-close-ticket',
       target: 'pr',
       option: 'pr',
-      configKey: 'prCloseChildIssue',
+      configKey: 'prCloseTicket',
     });
-    assert.equal(getOperationCatalogOperationLabelReference('pr-close-child-issue'), undefined);
+    assert.equal(getOperationCatalogOperationLabelReference('pr-close-ticket'), undefined);
     assert.equal(
-      getOperationCatalogOperationLabelReferenceForWorkflowOperation('pr-close-child-issue'),
+      getOperationCatalogOperationLabelReferenceForWorkflowOperation('pr-close-ticket'),
       undefined,
     );
-    assert.deepEqual(getOperationCatalogDefaultOperationSettings('pr-close-child-issue'), {
+    assert.deepEqual(getOperationCatalogDefaultOperationSettings('pr-close-ticket'), {
       modelTier: 'low',
     });
-    assert.equal(getOperationCatalogLabelDefinition('pr-close-child-issue'), undefined);
+    assert.equal(getOperationCatalogLabelDefinition('pr-close-ticket'), undefined);
     assert.equal(
-      getOperationCatalogWorkflowFileName('pr-close-child-issue'),
-      'pullops-pr-close-child-issue.yml',
+      getOperationCatalogWorkflowFileName('pr-close-ticket'),
+      'pullops-pr-close-ticket.yml',
     );
     assert.equal(
-      getOperationCatalogPackageScriptName('pr-close-child-issue'),
-      'pullops:pr-close-child-issue',
+      getOperationCatalogPackageScriptName('pr-close-ticket'),
+      'pullops:pr-close-ticket',
     );
-    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('pr-close-child-issue'), [
+    assert.deepEqual(getOperationCatalogSupportedRunnerLifecycles('pr-close-ticket'), [
       ['codex-cli', 'run'],
     ]);
-    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('pr-close-child-issue'), [
-      'codex-cli',
-    ]);
-    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-close-child-issue'), ['run']);
-    assert.equal(typeof getOperationCatalogHandler('pr-close-child-issue'), 'function');
-    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'prepare'), undefined);
-    assert.equal(getOperationCatalogHandler('pr-close-child-issue', 'complete'), undefined);
+    assert.deepEqual(getOperationCatalogSupportedRunnerAdapters('pr-close-ticket'), ['codex-cli']);
+    assert.deepEqual(getOperationCatalogSupportedRunnerPhases('pr-close-ticket'), ['run']);
+    assert.equal(typeof getOperationCatalogHandler('pr-close-ticket'), 'function');
+    assert.equal(getOperationCatalogHandler('pr-close-ticket', 'prepare'), undefined);
+    assert.equal(getOperationCatalogHandler('pr-close-ticket', 'complete'), undefined);
 
     assert.ok(
       getOperationCatalogWorkflowOperations().some(operation => operation.name === 'pr-finalize'),
     );
     assert.ok(
       getOperationCatalogWorkflowOperations().some(
-        operation => operation.name === 'pr-close-child-issue',
+        operation => operation.name === 'pr-close-ticket',
       ),
     );
     assert.ok(
@@ -653,7 +651,7 @@ describe('operationCatalog', () => {
     );
     assert.ok(
       !getOperationCatalogOperationLabelReferences().some(
-        operation => operation.reference === 'pr-close-child-issue',
+        operation => operation.reference === 'pr-close-ticket',
       ),
     );
   });
@@ -711,11 +709,11 @@ describe('operationCatalog', () => {
         .map(operation => operation.label),
     );
     assert.equal(getOperationCatalogOperationLabelName('pr-review'), 'pullops:pr:review');
-    assert.equal(getOperationCatalogOperationLabelName('pr-close-child-issue'), undefined);
+    assert.equal(getOperationCatalogOperationLabelName('pr-close-ticket'), undefined);
     assert.equal(requireOperationCatalogOperationLabelName('pr-review'), 'pullops:pr:review');
     assert.throws(
-      () => requireOperationCatalogOperationLabelName('pr-close-child-issue'),
-      /pr-close-child-issue label definition is missing from the operation catalog/,
+      () => requireOperationCatalogOperationLabelName('pr-close-ticket'),
+      /pr-close-ticket label definition is missing from the operation catalog/,
     );
   });
 });

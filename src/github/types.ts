@@ -109,7 +109,7 @@ export interface UpdateIssueOptions extends CreateIssueOptions {
 
 export interface AddSubIssueOptions {
   parentIssueNumber: number;
-  childIssueNumber: number;
+  ticketNumber: number;
 }
 
 export interface ClosePullRequestOptions {

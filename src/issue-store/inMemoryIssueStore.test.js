@@ -28,14 +28,14 @@ describe('Test inMemoryIssueStore', () => {
     assert.equal(snapshot.publishedByPullOps, true);
   });
 
-  it('02: publishes Child Issues related to their Parent Issue', async () => {
+  it('02: publishes Tickets related to their Parent Issue', async () => {
     const { store } = await createTempStore([
-      { number: 9, title: 'PRD', body: 'Parent PRD issue.' },
+      { number: 9, title: 'Spec', body: 'Parent Spec issue.' },
     ]);
 
-    const output = await store.publishChildIssues(
+    const output = await store.publishTickets(
       {
-        children: [
+        tickets: [
           {
             sliceRef: 'slice-1',
             title: 'First slice',
@@ -51,24 +51,24 @@ describe('Test inMemoryIssueStore', () => {
     );
 
     assert.equal(output.status, 'accepted');
-    const children = await store.readChildIssueSnapshots(9);
-    assert.equal(children.length, 1);
-    assert.equal(children[0].kind, 'child-issue');
-    assert.equal(children[0].parentIssueNumber, 9);
+    const tickets = await store.readTicketSnapshots(9);
+    assert.equal(tickets.length, 1);
+    assert.equal(tickets[0].kind, 'ticket');
+    assert.equal(tickets[0].parentIssueNumber, 9);
   });
 
   it('03: relates and reads issues without any GitHub client stubbing', async () => {
     const { store } = await createTempStore([
       { number: 9, title: 'Parent' },
-      { number: 12, title: 'Child', body: 'Blocked by: #3' },
+      { number: 12, title: 'Ticket', body: 'Blocked by: #3' },
       { number: 3, title: 'Dependency', state: 'CLOSED' },
     ]);
 
-    await store.relateChildIssue({ parentIssueNumber: 9, childIssueNumber: 12 });
+    await store.relateTicket({ parentIssueNumber: 9, ticketNumber: 12 });
 
-    const child = await store.readIssueSnapshot(12);
-    assert.equal(child.parentIssueNumber, 9);
-    assert.deepEqual(child.blockedBy, [3]);
+    const ticket = await store.readIssueSnapshot(12);
+    assert.equal(ticket.parentIssueNumber, 9);
+    assert.deepEqual(ticket.blockedBy, [3]);
     const dependency = await store.readIssueSnapshot(3);
     assert.equal(dependency.isDone, true);
   });

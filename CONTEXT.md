@@ -49,11 +49,11 @@ The PullOps Setup Command that creates or reconciles PullOps Operation Labels an
 _Avoid_: Triage label setup, issue taxonomy setup
 
 **Authoring Workflow**:
-The planning path for turning a maintainer idea into PullOps-published PRD Issues and Child Issues, usually through authoring skills such as `grill-with-docs`, `to-prd`, and `to-issues`.
+The planning path for turning a maintainer idea into PullOps-published Spec Issues and Tickets: grilling → spec → tickets, usually through authoring skills such as `grill-with-docs` (or `wayfinder` for ideas too big for one agent session), `to-spec`, and `to-tickets`.
 _Avoid_: PullOps operation, manual issue entry
 
 **Authoring Skill Availability**:
-Whether optional repo-local planning and authoring skills such as `grill-with-docs`, `to-prd`, and `to-issues` are present under `.agents/skills/` in a Target Repository.
+Whether optional repo-local planning and authoring skills such as `grill-with-docs`, `to-spec`, and `to-tickets` are present under `.agents/skills/` in a Target Repository.
 _Avoid_: Agent capability detection, model invocation availability
 
 **Workflow-Facing Command**:
@@ -65,7 +65,7 @@ A PullOps CLI command intended to be typed directly by a maintainer to run an Op
 _Avoid_: Workflow-facing command, lifecycle command
 
 **Operation Label Reference**:
-The command-line spelling of an Operation Label, using only the short `target-kind:operation` form such as `issue:implement` or `prd:auto-advance`.
+The command-line spelling of an Operation Label, using only the short `target-kind:operation` form such as `issue:implement` or `spec:auto-advance`.
 _Avoid_: Operation name, full label
 
 **Operation Module**:
@@ -141,8 +141,8 @@ A durable machine-only liveness update reported by the active PullOps worker, se
 _Avoid_: Progress event, human status update, milestone
 
 **Child Heartbeat Event**:
-A parent PullOps Progress Event emitted from a PullOps Parent Event Sink payload that proxies selected PullOps Heartbeat and PullOps Lease facts for an active Child Issue run, so PullOps Event Supervision can keep waiting or classify a stall from the parent event stream without treating liveness as semantic progress.
-_Avoid_: Child progress event, log ping, human status update
+A parent PullOps Progress Event emitted from a PullOps Parent Event Sink payload that proxies selected PullOps Heartbeat and PullOps Lease facts for an active Ticket run, so PullOps Event Supervision can keep waiting or classify a stall from the parent event stream without treating liveness as semantic progress.
+_Avoid_: Ticket progress event, log ping, human status update
 
 **PullOps Parent Event Sink**:
 A parent-owned loopback HTTP live channel with bearer-token authentication that nested PullOps commands can publish narrow live events to while a parent Human-Facing Command is running.
@@ -209,15 +209,15 @@ A named runner capability tier, such as high, mid, or low, that operations selec
 _Avoid_: Model override, model preset
 
 **PullOps Operation**:
-A label-requested unit of issue or pull request work, such as preparing a PRD Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or finalizing a PR before merge.
+A label-requested unit of issue or pull request work, such as preparing a Spec Issue, implementing a Concrete Issue, reviewing a PR, updating a branch, resolving conflicts, or finalizing a PR before merge.
 _Avoid_: Job, workflow, task
 
 **Operation Name**:
-The canonical target-prefixed identifier for a PullOps Operation, using the same target kind and action as its Operation Label without the `pullops:` prefix, such as `prd-prepare`, `issue-implement`, or `pr-review`.
-_Avoid_: Legacy object/action names like `prd-prepare`, `issue-implement`, `pr-review`
+The canonical target-prefixed identifier for a PullOps Operation, using the same target kind and action as its Operation Label without the `pullops:` prefix, such as `spec-prepare`, `issue-implement`, or `pr-review`.
+_Avoid_: Legacy object/action names like `spec-prepare`, `issue-implement`, `pr-review`
 
 **Operation Label**:
-A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, where the target kind identifies PRD Issue, Concrete Issue, or pull request operations.
+A repository label that requests one PullOps Operation on the issue or pull request it is applied to. Operation Labels use the `pullops:<target-kind>:<operation>` grammar, where the target kind identifies Spec Issue, Concrete Issue, or pull request operations.
 _Avoid_: Trigger label, command label, flat label
 
 **Status Label**:
@@ -225,55 +225,59 @@ A repository label that records that a PullOps target needs maintainer attention
 _Avoid_: Progress label, completion label, operation label
 
 **Human-Required Label**:
-The PullOps Status Label applied when automation cannot safely continue without maintainer action. Normal dependency waits, prepared PRDs, completed issues, merged pull requests, and ready-for-merge pull requests do not use this label.
+The PullOps Status Label applied when automation cannot safely continue without maintainer action. Normal dependency waits, prepared specs, completed issues, merged pull requests, and ready-for-merge pull requests do not use this label.
 _Avoid_: Blocked-by dependency, failed state label, done label
 
 **Parent Issue**:
-An issue that represents a larger product requirement or PRD and owns implementation work through Child Issues.
+An issue that represents a larger product requirement or Spec and owns implementation work through Tickets.
 _Avoid_: Epic, project
 
-**PRD Issue**:
-A Parent Issue handled through the `prd` Operation Label target kind. It represents a PRD-shaped work item, not a separate GitHub issue type.
-_Avoid_: Epic, parent label target
+**Spec**:
+The published specification for a feature or change — the destination the authoring workflow writes down before tickets are cut. You may know this document as a PRD; spec is the single through-line term.
+_Avoid_: PRD, requirements doc
 
-**Prepared PRD Issue**:
-A PRD Issue whose umbrella branch and draft PullOps-Managed PR have been created or refreshed. Prepared does not mean the PRD's product work is complete.
-_Avoid_: Done PRD, completed PRD
+**Spec Issue**:
+A Parent Issue handled through the `spec` Operation Label target kind. It represents a spec-shaped work item, not a separate GitHub issue type.
+_Avoid_: PRD Issue, epic, parent label target
 
-**PRD Auto-Advance**:
-A PRD automation mode that prepares a PRD Issue and drains the currently unblocked Child Issue frontier while Child Issue PR merges remain human-controlled.
+**Prepared Spec Issue**:
+A Spec Issue whose umbrella branch and draft PullOps-Managed PR have been created or refreshed. Prepared does not mean the Spec's product work is complete.
+_Avoid_: Done Spec, completed Spec
+
+**Spec Auto-Advance**:
+A Spec automation mode that prepares a Spec Issue and drains the currently unblocked Ticket frontier while Ticket PR merges remain human-controlled.
 _Avoid_: Parent auto-run, auto-coordinate
 
-**PRD Auto-Complete**:
-A PRD automation mode that drives a PRD Issue hands-off until all runnable Child Issues are implemented, reviewed, finalized, integrated into the Umbrella Branch, and the Umbrella PR is reviewed and finalized. The Umbrella PR still remains human-controlled for the default-branch merge.
-_Avoid_: PRD auto-merge, full auto-merge
+**Spec Auto-Complete**:
+A Spec automation mode that drives a Spec Issue hands-off until all runnable Tickets are implemented, reviewed, finalized, integrated into the Umbrella Branch, and the Umbrella PR is reviewed and finalized. The Umbrella PR still remains human-controlled for the default-branch merge.
+_Avoid_: Spec auto-merge, full auto-merge
 
-**PRD Child Coordination**:
-The deterministic PullOps behavior that moves a Parent Issue's Child Issues and Child Issue PRs toward an Umbrella PR through PRD automation.
-_Avoid_: PRD child orchestration, parent orchestration
+**Spec Ticket Coordination**:
+The deterministic PullOps behavior that moves a Parent Issue's Tickets and Ticket PRs toward an Umbrella PR through Spec automation.
+_Avoid_: Spec ticket orchestration, parent orchestration
 
 **Umbrella Branch**:
-The branch for a PRD Issue that receives merged Child Issue PRs before the PRD's Umbrella PR merges to the Target Repository's default branch.
-_Avoid_: Parent branch, PRD work branch
+The branch for a Spec Issue that receives merged Ticket PRs before the Spec's Umbrella PR merges to the Target Repository's default branch.
+_Avoid_: Parent branch, Spec work branch
 
 **Umbrella PR**:
-The PullOps-Managed PR from a PRD Issue's Umbrella Branch to the Target Repository's default branch.
-_Avoid_: Parent PR, PRD implementation PR
+The PullOps-Managed PR from a Spec Issue's Umbrella Branch to the Target Repository's default branch.
+_Avoid_: Parent PR, Spec implementation PR
 
-**Child Issue**:
-A Concrete Issue that belongs to a Parent Issue through GitHub's native sub-issue relationship.
-_Avoid_: Subtask, body-linked child issue
+**Ticket**:
+A Concrete Issue that belongs to a Parent Issue through GitHub's native sub-issue relationship — one tracer-bullet vertical slice of its Spec.
+_Avoid_: Child Issue, subtask, body-linked issue
 
-**Child Issue PR**:
-A PullOps-Managed PR for one Child Issue whose branch targets the Parent Issue's Umbrella Branch.
-_Avoid_: Child issue commit, direct child commit
+**Ticket PR**:
+A PullOps-Managed PR for one Ticket whose branch targets the Parent Issue's Umbrella Branch.
+_Avoid_: Child Issue PR, ticket commit, direct ticket commit
 
 **Concrete Issue**:
-An issue that is directly implementable by `pullops:issue:implement` and does not own Child Issues.
+An issue that is directly implementable by `pullops:issue:implement` and does not own Tickets.
 _Avoid_: Normal issue, task
 
 **Issue Store**:
-The PullOps-owned interface for creating, force-updating, reading, listing, and relating PRD Issues, Child Issues, Concrete Issues, and Issue Dependencies in the configured Issue Tracker. Ordinary tracker-specific mutations that are not PRDs, sub-issues, issues, or issue relationships, such as applying GitHub labels or posting comments, stay with their direct client.
+The PullOps-owned interface for creating, force-updating, reading, listing, and relating Spec Issues, Tickets, Concrete Issues, and Issue Dependencies in the configured Issue Tracker. Ordinary tracker-specific mutations that are not specs, sub-issues, issues, or issue relationships, such as applying GitHub labels or posting comments, stay with their direct client.
 _Avoid_: Issue tracker wrapper, work store
 
 **Issue Snapshot**:
@@ -281,7 +285,7 @@ A PullOps-shaped point-in-time read of one issue from the Issue Store, carrying 
 _Avoid_: Raw issue, tracker payload, issue facts
 
 **PullOps-Published Issue**:
-A PRD Issue, Child Issue, or Concrete Issue whose generated issue content is marked as owned by PullOps Issue Store publication and can therefore be force-updated by PullOps.
+A Spec Issue, Ticket, or Concrete Issue whose generated issue content is marked as owned by PullOps Issue Store publication and can therefore be force-updated by PullOps.
 _Avoid_: Managed issue, generated issue
 
 **Issue Dependency**:
@@ -334,7 +338,7 @@ _Avoid_: Fourth retry, lenient review, budget bump
 
 **Review Follow-up Issue**:
 A GitHub issue created from an approving Escalation Review Cycle to track non-blocking work that is worth preserving outside the current pull request. It is linked back to the PullOps-Managed PR and source issue, and starts in triage rather than as agent-ready work.
-_Avoid_: Review comment, deferred blocker, automatic child issue
+_Avoid_: Review comment, deferred blocker, automatic ticket
 
 **Human Feedback Response Cycle**:
 A separate high-tier automated loop granted by each distinct trusted human `CHANGES_REQUESTED` pull request review on a Same-Repository PullOps-Managed PR. It lets PullOps address the human feedback and run one validating review without changing the recorded Review Cycle count.
@@ -361,12 +365,12 @@ The PullOps Operation that prepares a PullOps-Managed PR for human rebase merge.
 _Avoid_: Auto-merge, merge preflight
 
 **Logical Commit Stack**:
-The final commit history shape for a PullOps-Managed PR, such as one traceable commit for an issue PR or one Child Issue Commit per merged Child Issue PR in an Umbrella Branch.
+The final commit history shape for a PullOps-Managed PR, such as one traceable commit for an issue PR or one Ticket Commit per merged Ticket PR in an Umbrella Branch.
 _Avoid_: Squash, cleanup commits
 
-**Child Issue Commit**:
-A logical commit in an Umbrella Branch history that corresponds to one merged Child Issue PR.
-_Avoid_: Direct child commit, PRD commit, task commit
+**Ticket Commit**:
+A logical commit in an Umbrella Branch history that corresponds to one merged Ticket PR.
+_Avoid_: Direct ticket commit, Spec commit, task commit
 
 **Trigger Context**:
 The record of who or what requested a PullOps Operation, which runner task executed it, and which model was selected.
@@ -385,7 +389,7 @@ The collapsed pull request body block where PullOps records diagnostic and resum
 _Avoid_: PR state marker, audit comment, visible summary
 
 **PullOps Link Summary**:
-A human-facing issue or pull request body section that summarizes the authoritative GitHub relationships around a PullOps target. Pull request bodies emphasize related pull requests first, such as Child Issue PRs and Umbrella PRs, while issue relationships are shown only when they help orientation; the section omits base/head branch data already visible in GitHub's PR UI.
+A human-facing issue or pull request body section that summarizes the authoritative GitHub relationships around a PullOps target. Pull request bodies emphasize related pull requests first, such as Ticket PRs and Umbrella PRs, while issue relationships are shown only when they help orientation; the section omits base/head branch data already visible in GitHub's PR UI.
 _Avoid_: Relationship database, dependency source of truth
 
 **PullOps-Managed PR Transition**:

@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues and PRDs are published through PullOps issue commands and tracked in GitHub Issues for `daKmoR/pull-ops`. See `docs/agents/issue-tracker.md`.
+Issues and specs are published through PullOps issue commands and tracked in GitHub Issues for `daKmoR/pull-ops`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

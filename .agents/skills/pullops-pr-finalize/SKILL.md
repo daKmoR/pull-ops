@@ -41,19 +41,19 @@ the parent PullOps CLI.
 
 ## Plan
 
-1. Inventory the supplied context: Parent Issue, closed native Child Issues, PR
+1. Inventory the supplied context: Parent Issue, closed native Tickets, PR
    body, changed-file list, changed-file summary, and current commit history.
    Completion criterion: every supplied changed file has been copied into a
-   local file ledger exactly as written, and the parent and eligible child issue
+   local file ledger exactly as written, and the parent and eligible ticket
    numbers are known.
 2. Assign the file ledger. Use the issue context, file summary, PR body, and
-   commit history to infer whether each file belongs to a closed native Child
-   Issue or to explicit PRD-level work. Completion criterion: every changed file
+   commit history to infer whether each file belongs to a closed native Ticket or
+   to explicit Spec-level work. Completion criterion: every changed file
    has exactly one tentative owner, or the result is `blocked` because a safe
    owner cannot be inferred from the supplied information.
-3. Group commits from the ledger. Prefer one Child Issue Commit per closed
-   native Child Issue represented by the files. Include parent-level commits
-   only for explicit PRD-level files. Completion criterion: every commit has at
+3. Group commits from the ledger. Prefer one Ticket Commit per closed
+   native Ticket represented by the files. Include parent-level commits
+   only for explicit Spec-level files. Completion criterion: every commit has at
    least one file, and every represented owner has the narrowest safe commit.
 4. Write commit messages. Completion criterion: every planned commit passes the
    footer rules below and uses a conventional commit header.
@@ -69,16 +69,16 @@ If any completion criterion cannot be met safely, return the blocked JSON shape.
 - Each commit's `body`, `footers`, and `files` arrays must contain only
   non-empty strings.
 - Include `commitPlan.justification` only when grouping is not one commit per
-  closed Child Issue, and make it a non-empty explanation when included.
+  closed Ticket, and make it a non-empty explanation when included.
 - Put non-blocking notes in `followUps`; do not add unsupported top-level
   fields.
 
 ## Commit Message Rules
 
 - Use conventional commit headers.
-- Use `Refs: #<child>` and `PRD: #<parent>` footers for Child Issue work.
-- Use `Refs: #<parent>` footers for explicit parent-level PRD work.
-- Reference only the supplied parent issue and closed native Child Issues.
+- Use `Refs: #<ticket>` and `Spec: #<parent>` footers for Ticket work.
+- Use `Refs: #<parent>` footers for explicit parent-level Spec work.
+- Reference only the supplied parent issue and closed native Tickets.
 - Do not use GitHub closing keywords in commit footers.
 
 Final response must be only JSON:
@@ -92,7 +92,7 @@ Final response must be only JSON:
       {
         "header": "feat(issue): implement #42",
         "body": ["Explain the logical change in this commit."],
-        "footers": ["Refs: #42", "PRD: #7"],
+        "footers": ["Refs: #42", "Spec: #7"],
         "files": ["src/example.js", "src/example.test.js"]
       }
     ]

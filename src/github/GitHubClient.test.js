@@ -14,24 +14,24 @@ describe('createGitHubClient', () => {
       PULL_OPS_LABELS.map(label => [label.name, label.color, label.description]),
       [
         [
-          'pullops:prd:prepare',
+          'pullops:spec:prepare',
           '5319E7',
-          'Prepare an umbrella branch and draft PR for a PRD issue.',
+          'Prepare an umbrella branch and draft PR for a Spec issue.',
         ],
         [
-          'pullops:prd:auto-advance',
+          'pullops:spec:auto-advance',
           '5319E7',
-          'Prepare a PRD and drain the current unblocked child frontier.',
+          'Prepare a Spec and drain the current unblocked ticket frontier.',
         ],
         [
-          'pullops:prd:auto-complete',
+          'pullops:spec:auto-complete',
           '5319E7',
-          'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
+          'Complete a Spec through ticket PRs and umbrella finalization; humans merge the umbrella PR.',
         ],
         [
           'pullops:issue:implement',
           '5319E7',
-          'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+          'Implement one concrete issue through review and finalization. Does not coordinate tickets.',
         ],
         ['pullops:pr:review', '5319E7', 'Run PullOps automated PR review.'],
         ['pullops:pr:address-review', '5319E7', 'Address actionable PullOps PR review feedback.'],
@@ -63,7 +63,7 @@ describe('createGitHubClient', () => {
         name: 'pullops:issue:implement',
         color: '5319E7',
         description:
-          'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+          'Implement one concrete issue through review and finalization. Does not coordinate tickets.',
       },
     ];
     const { calls, octokit } = createFakeOctokit({ labels });
@@ -106,9 +106,9 @@ describe('createGitHubClient', () => {
       name: 'issues.createLabel',
       params: {
         ...TEST_REPOSITORY,
-        name: 'pullops:prd:prepare',
+        name: 'pullops:spec:prepare',
         color: '5319E7',
-        description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
+        description: 'Prepare an umbrella branch and draft PR for a Spec issue.',
       },
     });
   });
@@ -225,7 +225,7 @@ describe('createGitHubClient', () => {
     const { calls, octokit } = createFakeOctokit({
       issue: createIssue({
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         body: '## What to build\n\nShip the workflow kit.',
         subIssues: {
           totalCount: 1,
@@ -281,7 +281,7 @@ describe('createGitHubClient', () => {
     const { calls, octokit } = createFakeOctokit({
       issueNodeIds: new Map([
         [126, 'ISSUE_parent'],
-        [201, 'ISSUE_child'],
+        [201, 'ISSUE_ticket'],
       ]),
     });
     const client = createGitHubClient({ octokit, repository: TEST_REPOSITORY });
@@ -289,7 +289,7 @@ describe('createGitHubClient', () => {
     if (client.addSubIssue === undefined) {
       throw new Error('Expected addSubIssue to be available.');
     }
-    await client.addSubIssue({ parentIssueNumber: 126, childIssueNumber: 201 });
+    await client.addSubIssue({ parentIssueNumber: 126, ticketNumber: 201 });
 
     assert.deepEqual(
       calls.map(call => call.name),
@@ -300,7 +300,7 @@ describe('createGitHubClient', () => {
     assert.match(calls[2].query ?? '', /addSubIssue/);
     assert.deepEqual(calls[2].params, {
       parentIssueId: 'ISSUE_parent',
-      childIssueId: 'ISSUE_child',
+      ticketId: 'ISSUE_ticket',
     });
   });
 
@@ -436,7 +436,7 @@ describe('createGitHubClient', () => {
     await client.markPullRequestReadyForReview(100);
     await client.closeIssue({
       number: 42,
-      comment: 'Child PR merged into the PRD branch.',
+      comment: 'Ticket PR merged into the Spec branch.',
     });
     await client.closePullRequest?.({
       number: 100,
@@ -1246,7 +1246,7 @@ function createFakeOctokit({
  */
 function createIssue({
   number = 1,
-  title = 'PRD',
+  title = 'Spec',
   body = '## What to build\n\nShip the workflow kit.',
   labels = [],
   parent = null,

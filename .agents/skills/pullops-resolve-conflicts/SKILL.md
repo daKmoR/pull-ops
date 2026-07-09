@@ -16,12 +16,12 @@ before its final staging and rebase-continuation step. PullOps owns staging,
 
 ## Resolve
 
-1. Inventory the supplied conflict context: linked issue or PRD, PR body, branch
+1. Inventory the supplied conflict context: linked issue or Spec, PR body, branch
    name, base branch, conflict pass, conflicted file list, working tree content,
    and stage 1/2/3 contents. Completion criterion: every supplied conflicted
    path has been copied into a local resolved-file ledger exactly as written.
 2. Find the intent for each side of each conflict. Use the conflict context,
-   issue or PRD, PR body, file history, and the stage contents to identify what
+   issue or Spec, PR body, file history, and the stage contents to identify what
    base, ours, and theirs were trying to preserve. Completion criterion: every
    conflicted file has enough intent to resolve safely, or the result is
    `blocked` with the specific missing context or irreconcilable trade-off.

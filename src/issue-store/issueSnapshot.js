@@ -25,7 +25,7 @@ export function createIssueSnapshot(issue) {
     publishedByPullOps: marker !== undefined,
     marker,
     parentIssueNumber: issue.parent?.number,
-    childIssueNumbers: issue.subIssues.map(subIssue => subIssue.number),
+    ticketNumbers: issue.subIssues.map(subIssue => subIssue.number),
     blockedBy: parseBlockingIssueReferences(issue.body),
     isDone: issue.state === 'CLOSED',
   };

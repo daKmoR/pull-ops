@@ -328,13 +328,13 @@ describe('runIssueImplement', () => {
     assert.deepEqual(github.pullRequestLabels, []);
   });
 
-  it('04: implements a manually selected child issue against the parent branch', async () => {
+  it('04: implements a manually selected ticket against the parent branch', async () => {
     const issue = createIssue({
       number: 42,
-      title: 'Do one child task',
+      title: 'Do one ticket task',
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -343,7 +343,7 @@ describe('runIssueImplement', () => {
     const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
-        summary: 'Implemented the selected child issue.',
+        summary: 'Implemented the selected ticket.',
         changes: ['Added the selected behavior.'],
         testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
       }),
@@ -359,12 +359,12 @@ describe('runIssueImplement', () => {
 
     assert.equal(result.status, 'accepted');
     assert.equal(fakeRunner.calls.length, 1);
-    assert.match(fakeRunner.calls[0].prompt, /Parent Issue #1: PRD/);
-    assert.match(fakeRunner.calls[0].prompt, /Implement only the selected Child Issue/);
+    assert.match(fakeRunner.calls[0].prompt, /Parent Issue #1: Spec/);
+    assert.match(fakeRunner.calls[0].prompt, /Implement only the selected Ticket/);
     assert.deepEqual(git.branches, [
       {
-        branchName: 'pullops/prd-1-issue-42',
-        baseBranch: 'pullops/prd-1',
+        branchName: 'pullops/spec-1-issue-42',
+        baseBranch: 'pullops/spec-1',
       },
     ]);
     assert.deepEqual(git.commits, [
@@ -372,18 +372,18 @@ describe('runIssueImplement', () => {
         message: [
           'feat(issue): implement #42',
           '',
-          'Implement Do one child task.',
+          'Implement Do one ticket task.',
           '',
           'Refs: #42',
-          'PRD: #1',
+          'Spec: #1',
         ].join('\n'),
         author: GITHUB_ACTIONS_BOT_AUTHOR,
       },
     ]);
     assert.equal(github.createdPullRequests.length, 1);
-    assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/prd-1');
-    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/prd-1-issue-42');
-    assert.match(github.createdPullRequests[0].body, /^Kind: Child Issue PR$/m);
+    assert.equal(github.createdPullRequests[0].baseBranch, 'pullops/spec-1');
+    assert.equal(github.createdPullRequests[0].headBranch, 'pullops/spec-1-issue-42');
+    assert.match(github.createdPullRequests[0].body, /^Kind: Ticket PR$/m);
     assert.match(github.createdPullRequests[0].body, /^Source Issue: #42$/m);
     assert.match(github.createdPullRequests[0].body, /^Umbrella PR: pending$/m);
     assert.doesNotMatch(github.createdPullRequests[0].body, /Closes #42/);
@@ -391,13 +391,13 @@ describe('runIssueImplement', () => {
     assert.doesNotMatch(github.createdPullRequests[0].body, /Part of #1/);
   });
 
-  it('05: links an existing umbrella PR from a child issue PR body', async () => {
+  it('05: links an existing umbrella PR from a ticket PR body', async () => {
     const issue = createIssue({
       number: 42,
-      title: 'Do one child task',
+      title: 'Do one ticket task',
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -407,7 +407,7 @@ describe('runIssueImplement', () => {
         number: 7,
         title: 'Umbrella PR',
         url: 'https://github.com/acme/widgets/pull/7',
-        headRefName: 'pullops/prd-1',
+        headRefName: 'pullops/spec-1',
         body: '',
         isDraft: true,
       },
@@ -416,7 +416,7 @@ describe('runIssueImplement', () => {
     const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
-        summary: 'Implemented the selected child issue.',
+        summary: 'Implemented the selected ticket.',
         changes: ['Added the selected behavior.'],
         testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
       }),
@@ -434,10 +434,10 @@ describe('runIssueImplement', () => {
     assert.match(github.createdPullRequests[0].body, /^Umbrella PR: #7$/m);
   });
 
-  it('06: blocks a PRD-looking issue without native GitHub child issues', async () => {
+  it('06: blocks a Spec-looking issue without native GitHub tickets', async () => {
     const issue = createIssue({
       number: 1,
-      title: 'PRD: Dogfood PullOps workflow kit',
+      title: 'Spec: Dogfood PullOps workflow kit',
       body: [
         '## Problem Statement',
         '',
@@ -465,20 +465,20 @@ describe('runIssueImplement', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(String(result.summary), /Use pullops:prd:prepare/);
+    assert.match(String(result.summary), /Use pullops:spec:prepare/);
     assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
-    assert.match(github.comments[0].body, /Use pullops:prd:prepare/);
+    assert.match(github.comments[0].body, /Use pullops:spec:prepare/);
   });
 
-  it('07: blocks a parent issue with children without implementing child issues', async () => {
+  it('07: blocks a parent issue with tickets without implementing tickets', async () => {
     const issue = createIssue({
       number: 1,
-      title: 'PRD: Dogfood PullOps workflow kit',
+      title: 'Spec: Dogfood PullOps workflow kit',
       subIssues: [
         {
           number: 4,
-          title: 'Implement a Child Issue',
+          title: 'Implement a Ticket',
           relationshipSource: 'native',
         },
       ],
@@ -500,8 +500,8 @@ describe('runIssueImplement', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(String(result.summary), /child issues/);
-    assert.match(String(result.summary), /Use pullops:prd:prepare/);
+    assert.match(String(result.summary), /tickets/);
+    assert.match(String(result.summary), /Use pullops:spec:prepare/);
     assert.equal(fakeRunner.calls.length, 0);
     assert.equal(git.branches.length, 0);
   });
@@ -726,7 +726,7 @@ describe('runIssueImplement', () => {
         parentNumber: 10,
         issueNumber: 123,
       }),
-      'automation/pullops/prd-10-issue-123',
+      'automation/pullops/spec-10-issue-123',
     );
   });
 
@@ -988,15 +988,15 @@ describe('runIssueImplement', () => {
     );
   });
 
-  it('19: local dry-run child issue fetches the repository base and uses the local PRD branch as the branch base', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-child-dry-run-'));
+  it('19: local dry-run ticket fetches the repository base and uses the local Spec branch as the branch base', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-ticket-dry-run-'));
     const issue = createIssue({
       number: 42,
-      title: 'Implement a PRD child issue locally',
+      title: 'Implement a Spec ticket locally',
       labels: [],
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -1008,8 +1008,8 @@ describe('runIssueImplement', () => {
     const fakeRunner = createFakeRunner({
       output: JSON.stringify({
         status: 'implemented',
-        summary: 'Implemented a PRD child locally.',
-        changes: ['Changed child issue code.'],
+        summary: 'Implemented a Spec ticket locally.',
+        changes: ['Changed ticket code.'],
         testPlan: ['npm test -- src/operations/issue-implement/run.test.js'],
       }),
     });
@@ -1028,13 +1028,13 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.fetches, [
       {
         requiredBranchNames: ['main'],
-        optionalBranchNames: ['pullops/prd-1', 'pullops/prd-1-issue-42'],
+        optionalBranchNames: ['pullops/spec-1', 'pullops/spec-1-issue-42'],
       },
     ]);
     assert.deepEqual(git.checkouts, [
       {
-        branchName: 'pullops/prd-1-issue-42',
-        baseBranch: 'pullops/prd-1',
+        branchName: 'pullops/spec-1-issue-42',
+        baseBranch: 'pullops/spec-1',
       },
     ]);
   });
@@ -1105,12 +1105,12 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-42', baseBranch: 'main' }]);
   });
 
-  it('22: local dry-run checks out the PullOps branch before blocking a PRD-looking issue', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-prd-'));
+  it('22: local dry-run checks out the PullOps branch before blocking a Spec-looking issue', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-spec-'));
     const github = createFakeGitHub({
       issue: createIssue({
         number: 1,
-        title: 'PRD: Dogfood PullOps workflow kit',
+        title: 'Spec: Dogfood PullOps workflow kit',
         body: [
           '## Problem Statement',
           '',
@@ -1152,16 +1152,16 @@ describe('runIssueImplement', () => {
     assert.deepEqual(git.checkouts, [{ branchName: 'pullops/issue-1', baseBranch: 'main' }]);
   });
 
-  it('23: local dry-run checks out the PullOps branch before blocking a parent issue with children', async () => {
+  it('23: local dry-run checks out the PullOps branch before blocking a parent issue with tickets', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-parent-'));
     const github = createFakeGitHub({
       issue: createIssue({
         number: 1,
-        title: 'PRD: Dogfood PullOps workflow kit',
+        title: 'Spec: Dogfood PullOps workflow kit',
         subIssues: [
           {
             number: 4,
-            title: 'Implement a Child Issue',
+            title: 'Implement a Ticket',
             relationshipSource: 'native',
           },
         ],
@@ -1498,7 +1498,7 @@ describe('runIssueImplement', () => {
       labels: [],
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -1509,7 +1509,7 @@ describe('runIssueImplement', () => {
           number: 7,
           title: 'Umbrella PR',
           url: 'https://github.com/acme/widgets/pull/7',
-          headRefName: 'pullops/prd-1',
+          headRefName: 'pullops/spec-1',
           body: '',
           isDraft: true,
         },
@@ -1665,7 +1665,7 @@ describe('runIssueImplement', () => {
       operation: 'pr:fix-ci',
       finalizedHeadSha: 'head-finalized',
       finalizedTreeHash: 'tree-finalized',
-      branch: 'pullops/prd-1-issue-42',
+      branch: 'pullops/spec-1-issue-42',
       publicationMode: 'dry-run',
       reason:
         'Local finalized runs cannot observe hosted checks for the finalized head before publication.',
@@ -1766,7 +1766,7 @@ describe('runIssueImplement', () => {
       labels: [],
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -1777,7 +1777,7 @@ describe('runIssueImplement', () => {
           number: 7,
           title: 'Umbrella PR',
           url: 'https://github.com/acme/widgets/pull/7',
-          headRefName: 'pullops/prd-1',
+          headRefName: 'pullops/spec-1',
           body: '',
           isDraft: true,
         },
@@ -1844,7 +1844,7 @@ describe('runIssueImplement', () => {
     assert.deepEqual(github.readyPullRequests, [100]);
     assert.deepEqual(github.pullRequestLabels, []);
     assert.deepEqual(git.pushes, []);
-    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/prd-1-issue-42' }]);
+    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/spec-1-issue-42' }]);
     assert.equal(git.rewrites.length, 1);
     assert.equal(git.rewrites[0].push, false);
     assert.equal(fakeRunner.calls.length, 3);
@@ -1858,7 +1858,7 @@ describe('runIssueImplement', () => {
       labels: [],
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -1869,7 +1869,7 @@ describe('runIssueImplement', () => {
           number: 7,
           title: 'Umbrella PR',
           url: 'https://github.com/acme/widgets/pull/7',
-          headRefName: 'pullops/prd-1',
+          headRefName: 'pullops/spec-1',
           body: '',
           isDraft: true,
         },
@@ -2626,14 +2626,14 @@ describe('runIssueImplement', () => {
     assert.equal(github.createdPullRequests.length, 0);
   });
 
-  it('40: local finalized child dry-runs prefer the local PRD base branch', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-child-base-'));
+  it('40: local finalized ticket dry-runs prefer the local Spec base branch', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'pullops-local-finalized-ticket-base-'));
     const issue = createIssue({
       number: 42,
-      title: 'Finalize child locally',
+      title: 'Finalize ticket locally',
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -2648,8 +2648,8 @@ describe('runIssueImplement', () => {
       output: [
         JSON.stringify({
           status: 'implemented',
-          summary: 'Implemented local finalized child dry-run.',
-          changes: ['Added child behavior.'],
+          summary: 'Implemented local finalized ticket dry-run.',
+          changes: ['Added ticket behavior.'],
           testPlan: ['node --test src/operations/issue-implement/run.test.js'],
           followUps: [],
         }),
@@ -2668,8 +2668,8 @@ describe('runIssueImplement', () => {
             commits: [
               {
                 header: 'feat(issue): implement #42',
-                body: ['Finalize local child implementation.'],
-                footers: ['Refs: #42', 'PRD: #1'],
+                body: ['Finalize local ticket implementation.'],
+                footers: ['Refs: #42', 'Spec: #1'],
                 files: ['smoking.md'],
               },
             ],
@@ -2692,27 +2692,27 @@ describe('runIssueImplement', () => {
     );
 
     assert.equal(result.status, 'accepted');
-    assert.equal(result.baseBranch, 'pullops/prd-1');
+    assert.equal(result.baseBranch, 'pullops/spec-1');
     assert.deepEqual(git.rebases, [
       {
-        branchName: 'pullops/prd-1-issue-42',
-        baseBranch: 'pullops/prd-1',
+        branchName: 'pullops/spec-1-issue-42',
+        baseBranch: 'pullops/spec-1',
         committer: GITHUB_ACTIONS_BOT_AUTHOR,
         preferLocalBase: true,
       },
     ]);
     assert.deepEqual(git.changedFileRequests, [
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
     ]);
     assert.deepEqual(git.commitListRequests, [
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
-      { baseBranch: 'pullops/prd-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
+      { baseBranch: 'pullops/spec-1', preferLocalBase: true },
     ]);
     assert.equal(git.rewrites.length, 1);
-    assert.equal(git.rewrites[0].baseBranch, 'pullops/prd-1');
+    assert.equal(git.rewrites[0].baseBranch, 'pullops/spec-1');
     assert.equal(git.rewrites[0].preferLocalBase, true);
     assert.equal(git.rewrites[0].push, false);
     assert.deepEqual(git.pushes, []);
@@ -2727,7 +2727,7 @@ describe('runIssueImplement', () => {
       labels: [],
       parent: {
         number: 1,
-        title: 'PRD',
+        title: 'Spec',
         relationshipSource: 'native',
       },
     });
@@ -2738,7 +2738,7 @@ describe('runIssueImplement', () => {
           number: 7,
           title: 'Umbrella PR',
           url: 'https://github.com/acme/widgets/pull/7',
-          headRefName: 'pullops/prd-1',
+          headRefName: 'pullops/spec-1',
           body: '',
           isDraft: true,
         },
@@ -2775,7 +2775,7 @@ describe('runIssueImplement', () => {
               {
                 header: 'feat(issue): implement #42',
                 body: ['Finalize local issue implementation.'],
-                footers: ['Refs: #42', 'PRD: #1'],
+                footers: ['Refs: #42', 'Spec: #1'],
                 files: ['src/file.js'],
               },
             ],
@@ -2798,17 +2798,17 @@ describe('runIssueImplement', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.equal(result.branch, 'pullops/prd-1-issue-42');
-    assert.equal(result.baseBranch, 'pullops/prd-1');
+    assert.equal(result.branch, 'pullops/spec-1-issue-42');
+    assert.equal(result.baseBranch, 'pullops/spec-1');
     assert.equal(result.blockedPhase, 'publication');
     assert.equal(result.blockedOperation, 'issue:implement');
-    assert.match(String(result.summary), /Remote branch pullops\/prd-1-issue-42 changed/);
+    assert.match(String(result.summary), /Remote branch pullops\/spec-1-issue-42 changed/);
     assert.equal(github.createdPullRequests.length, 0);
     assert.deepEqual(github.readyPullRequests, []);
-    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/prd-1-issue-42' }]);
+    assert.deepEqual(git.forcePushes, [{ branchName: 'pullops/spec-1-issue-42' }]);
     assert.match(
       await readFile(join(String(result.localRunRecord), 'failure-reason.txt'), 'utf8'),
-      /Remote branch pullops\/prd-1-issue-42 changed/,
+      /Remote branch pullops\/spec-1-issue-42 changed/,
     );
   });
 });

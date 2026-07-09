@@ -10,13 +10,13 @@ PullOps also persists the same JSONL event stream in the Local Run Record as `ev
 
 The event stream `runId` is the Local Run Record directory name. Events may also include the Local Run Record path, but PullOps does not introduce a second correlation identifier for the same run.
 
-For PRD Auto-Complete, the parent event stream summarizes Child Issue progress and links to child Local Run Records instead of embedding each child operation's full event stream inline. The parent stream is also the default supervision surface for nested Child Issue work: it must expose bounded child liveness facts needed for observe/wait decisions, while each child operation keeps its own compact event stream and artifacts for debugging and post-run inspection. The parent `run.summary` includes child summaries and child run record paths.
+For Spec Auto-Complete, the parent event stream summarizes Ticket progress and links to child Local Run Records instead of embedding each ticket operation's full event stream inline. The parent stream is also the default supervision surface for nested Ticket work: it must expose bounded ticket liveness facts needed for observe/wait decisions, while each ticket operation keeps its own compact event stream and artifacts for debugging and post-run inspection. The parent `run.summary` includes ticket summaries and child run record paths.
 
 Progress events may include a short human display `message`, but message text is not parseable state. Consumers must rely on structured fields for behavior and can show the message directly for concise progress updates.
 
 Every progress event includes an `at` timestamp. The terminal summary still carries `startedAt`, `finishedAt`, and `durationMs`; per-event timestamps let observing agents detect stalls and compute phase durations without inspecting process state.
 
-Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `child.started`, `child.progress`, `child.heartbeat`, `child.completed`, `child.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `childIssue`, and `pullRequest`, not in bespoke event names.
+Event names use a small fixed `noun.verb` vocabulary such as `run.started`, `phase.started`, `phase.completed`, `ticket.started`, `ticket.progress`, `child.heartbeat`, `ticket.completed`, `ticket.blocked`, `waiting`, and `run.summary`. Operation-specific details belong in structured fields such as `phase`, `operation`, `ticket`, and `pullRequest`, not in bespoke event names.
 
 `waiting` is a nonterminal event for valid in-run waits such as pending checks or retry delays. A run that cannot continue reports that terminal boundary through `run.summary.status = "blocked"` with structured blockers and next steps.
 
@@ -26,7 +26,7 @@ Terminal summaries include both display-oriented `nextSteps` strings and structu
 
 Suggested actions are advisory. Each action declares whether it requires approval and why, leaving the observing agent or human operator to apply its own autonomy policy instead of making the PullOps CLI responsible for deciding which follow-up actions may run automatically.
 
-Routine progress events may include compact aggregate counters, such as completed, total, and blocked Child Issue counts for PRD automation. These counters let observing agents report useful heartbeats from a single event without expanding the full child result list on every line.
+Routine progress events may include compact aggregate counters, such as completed, total, and blocked Ticket counts for Spec automation. These counters let observing agents report useful heartbeats from a single event without expanding the full ticket result list on every line.
 
 ## JSONL Contract
 
@@ -39,12 +39,12 @@ Every event repeats these top-level identity fields:
 - `schemaVersion`: currently `1`
 - `event`: stable event name such as `run.started`
 - `runId`: the Local Run Record directory name
-- `operation`: canonical Operation Name such as `prd-auto-complete`
-- `operationLabelReference`: short Operation Label Reference such as `prd:auto-complete`
+- `operation`: canonical Operation Name such as `spec-auto-complete`
+- `operationLabelReference`: short Operation Label Reference such as `spec:auto-complete`
 - `target`: `{ "type": "issue" | "pr", "number": <number> }`
 - `at`: emission timestamp captured when PullOps writes the line
 
-Optional identity-adjacent fields such as `mode`, `publicationMode`, `localRunRecord`, `message`, `childIssue`, and `pullRequest` may appear where relevant.
+Optional identity-adjacent fields such as `mode`, `publicationMode`, `localRunRecord`, `message`, `ticket`, and `pullRequest` may appear where relevant.
 
 ### Event names
 
@@ -53,17 +53,17 @@ The initial fixed vocabulary is:
 - `run.started`: the Human-Facing Command began
 - `phase.started`: PullOps entered a meaningful domain phase
 - `phase.completed`: PullOps completed a meaningful domain phase
-- `child.started`: PRD Child Coordination started a Child Issue unit of work
-- `child.progress`: PullOps observed a bounded nested Child Issue milestone while the Child Issue operation is still running
-- `child.heartbeat`: PullOps observed liveness for an active Child Issue operation without claiming semantic progress
-- `child.completed`: a Child Issue unit of work reached a non-blocked result
-- `child.blocked`: a Child Issue hit a terminal blocker for this run
+- `ticket.started`: Spec Ticket Coordination started a Ticket unit of work
+- `ticket.progress`: PullOps observed a bounded nested Ticket milestone while the Ticket operation is still running
+- `child.heartbeat`: PullOps observed liveness for an active Ticket operation without claiming semantic progress
+- `ticket.completed`: a Ticket unit of work reached a non-blocked result
+- `ticket.blocked`: a Ticket hit a terminal blocker for this run
 - `waiting`: PullOps is still validly running but is waiting on checks, review, or another nonterminal boundary
 - `run.summary`: the terminal PullOps Run Summary
 
-Operation-specific facts stay in structured fields such as `phase`, `status`, `childIssue`, `pullRequest`, `childCounts`, `blockers`, and `suggestedActions`.
+Operation-specific facts stay in structured fields such as `phase`, `status`, `ticket`, `pullRequest`, `ticketCounts`, `blockers`, and `suggestedActions`.
 
-`child.heartbeat` events include the active child run identity and bounded liveness fields such as `localRunRecord`, `heartbeatAt`, `leaseExpiresAt`, `heartbeatCount`, `heartbeatSummary`, and `completedNonHeartbeatStepsSinceHeartbeat`. PullOps emits one `child.heartbeat` event for each distinct child heartbeat count received through the parent event sink. Consumers may use these events to keep waiting while the child lease is fresh or to decide when liveness reconciliation is needed. Consumers must not report `child.heartbeat` as semantic progress; human-facing supervisors may throttle or coalesce heartbeat display.
+`child.heartbeat` events include the active child run identity and bounded liveness fields such as `localRunRecord`, `heartbeatAt`, `leaseExpiresAt`, `heartbeatCount`, `heartbeatSummary`, and `completedNonHeartbeatStepsSinceHeartbeat`. PullOps emits one `child.heartbeat` event for each distinct child heartbeat count received through the parent event sink. Consumers may use these events to keep waiting while the ticket lease is fresh or to decide when liveness reconciliation is needed. Consumers must not report `child.heartbeat` as semantic progress; human-facing supervisors may throttle or coalesce heartbeat display.
 
 ### Terminal summary fields
 
@@ -80,7 +80,7 @@ The terminal `run.summary` event carries the PullOps Run Summary. Common fields 
 - `suggestedActions`: optional structured advisory actions
 - `blockers`: required for blocked terminal boundaries
 
-PRD Auto-Complete summaries may also include `children`, `parentPullRequest`, `virtualCompletedChildren`, `remainingBlockedChildren`, and `localRunRecord`.
+Spec Auto-Complete summaries may also include `tickets`, `parentPullRequest`, `virtualCompletedTickets`, `remainingBlockedTickets`, and `localRunRecord`.
 
 ### Blockers
 
@@ -93,7 +93,7 @@ Each PullOps Run Blocker uses this shape:
   "phase": "review",
   "operationLabelReference": "pr:review",
   "reason": "review-wait",
-  "message": "Child PR #101 is waiting for human review or merge gates.",
+  "message": "Ticket PR #101 is waiting for human review or merge gates.",
   "retryable": true
 }
 ```
@@ -105,8 +105,8 @@ The initial structured action shape is:
 ```json
 {
   "kind": "command",
-  "description": "Rerun PRD auto-complete after the waiting boundary clears.",
-  "argv": ["pullops", "run", "prd:auto-complete", "123", "--publish", "pr"],
+  "description": "Rerun Spec auto-complete after the waiting boundary clears.",
+  "argv": ["pullops", "run", "spec:auto-complete", "123", "--publish", "pr"],
   "approvalRequired": false
 }
 ```
@@ -115,36 +115,36 @@ The initial structured action shape is:
 
 ## Representative Streams
 
-Accepted local PRD Auto-Complete:
+Accepted local Spec Auto-Complete:
 
 ```jsonl
-{"schemaVersion":1,"event":"run.started","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"run","message":"Starting local PRD auto-complete for issue #123.","at":"2026-06-20T10:15:00.000Z"}
-{"schemaVersion":1,"event":"phase.started","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","message":"Coordinating child issues for issue #123.","at":"2026-06-20T10:15:00.050Z"}
-{"schemaVersion":1,"event":"child.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":34,"url":"https://github.test/issues/34"},"status":"merged","message":"Merged finalized child PR #101 locally into PRD issue #123.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-34"},"at":"2026-06-20T10:15:02.000Z"}
-{"schemaVersion":1,"event":"child.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":36,"url":"https://github.test/issues/36"},"status":"merged","message":"Merged finalized child PR #102 locally into PRD issue #123.","pullRequest":{"number":102,"url":"https://github.test/pull/102","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-36"},"at":"2026-06-20T10:16:00.000Z"}
-{"schemaVersion":1,"event":"phase.completed","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childCounts":{"total":2,"completed":2,"blocked":0},"message":"Coordinated 2 child issue(s) for issue #123: 2 completed, 0 blocked.","at":"2026-06-20T10:16:30.000Z"}
-{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"accepted","summary":"local PRD auto-complete accepted","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:16:30.500Z","durationMs":90500,"at":"2026-06-20T10:16:30.500Z"}
+{"schemaVersion":1,"event":"run.started","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"run","message":"Starting local Spec auto-complete for issue #123.","at":"2026-06-20T10:15:00.000Z"}
+{"schemaVersion":1,"event":"phase.started","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"ticket-coordination","message":"Coordinating tickets for issue #123.","at":"2026-06-20T10:15:00.050Z"}
+{"schemaVersion":1,"event":"ticket.completed","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"ticket-coordination","ticket":{"number":34,"url":"https://github.test/issues/34"},"status":"merged","message":"Merged finalized ticket PR #101 locally into Spec issue #123.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/spec-123","headBranch":"pullops/spec-123-issue-34"},"at":"2026-06-20T10:15:02.000Z"}
+{"schemaVersion":1,"event":"ticket.completed","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"ticket-coordination","ticket":{"number":36,"url":"https://github.test/issues/36"},"status":"merged","message":"Merged finalized ticket PR #102 locally into Spec issue #123.","pullRequest":{"number":102,"url":"https://github.test/pull/102","baseBranch":"pullops/spec-123","headBranch":"pullops/spec-123-issue-36"},"at":"2026-06-20T10:16:00.000Z"}
+{"schemaVersion":1,"event":"phase.completed","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"ticket-coordination","ticketCounts":{"total":2,"completed":2,"blocked":0},"message":"Coordinated 2 ticket(s) for issue #123: 2 completed, 0 blocked.","at":"2026-06-20T10:16:30.000Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"status":"accepted","summary":"local Spec auto-complete accepted","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:16:30.500Z","durationMs":90500,"at":"2026-06-20T10:16:30.500Z"}
 ```
 
-Blocked local PRD Auto-Complete:
+Blocked local Spec Auto-Complete:
 
 ```jsonl
-{"schemaVersion":1,"event":"waiting","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"phase":"child-coordination","childIssue":{"number":34,"url":"https://github.test/issues/34"},"status":"waiting","message":"Child PR #101 is waiting for human review or merge gates.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/prd-123","headBranch":"pullops/prd-123-issue-34"},"blockedPhase":"review","blockedOperation":"pr:review","at":"2026-06-20T10:18:10.000Z"}
-{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"blocked","summary":"local PRD auto-complete reached a waiting boundary","blockers":[{"targetKind":"pull-request","targetNumber":101,"phase":"review","operationLabelReference":"pr:review","reason":"review-wait","message":"Child PR #101 is waiting for human review or merge gates.","retryable":true}],"nextSteps":["Wait for child issue #34 to finish review or checks, then rerun PRD auto-complete."],"suggestedActions":[{"kind":"command","description":"Rerun PRD auto-complete after the waiting boundary clears.","argv":["pullops","run","prd:auto-complete","123","--publish","pr"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:18:10.500Z","durationMs":190500,"at":"2026-06-20T10:18:10.500Z"}
+{"schemaVersion":1,"event":"waiting","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"phase":"ticket-coordination","ticket":{"number":34,"url":"https://github.test/issues/34"},"status":"waiting","message":"Ticket PR #101 is waiting for human review or merge gates.","pullRequest":{"number":101,"url":"https://github.test/pull/101","baseBranch":"pullops/spec-123","headBranch":"pullops/spec-123-issue-34"},"blockedPhase":"review","blockedOperation":"pr:review","at":"2026-06-20T10:18:10.000Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"status":"blocked","summary":"local Spec auto-complete reached a waiting boundary","blockers":[{"targetKind":"pull-request","targetNumber":101,"phase":"review","operationLabelReference":"pr:review","reason":"review-wait","message":"Ticket PR #101 is waiting for human review or merge gates.","retryable":true}],"nextSteps":["Wait for ticket #34 to finish review or checks, then rerun Spec auto-complete."],"suggestedActions":[{"kind":"command","description":"Rerun Spec auto-complete after the waiting boundary clears.","argv":["pullops","run","spec:auto-complete","123","--publish","pr"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:18:10.500Z","durationMs":190500,"at":"2026-06-20T10:18:10.500Z"}
 ```
 
-Refused local PRD Auto-Complete:
+Refused local Spec Auto-Complete:
 
 <!-- prettier-ignore -->
 ```jsonl
-{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-34","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":34},"status":"refused","summary":"Issue #34 is already part of parent issue #12. PRD automation can only run on a Parent Issue.","displayMessage":"Issue #34 is already part of parent issue #12. PRD automation can only run on a Parent Issue.","reason":"wrong-target","nextSteps":["Run PRD auto-complete on Parent Issue #12 instead."],"suggestedActions":[{"kind":"command","description":"Run PRD auto-complete on Parent Issue #12 instead.","argv":["pullops","run","prd:auto-complete","12"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:01.000Z","durationMs":1000,"at":"2026-06-20T10:15:01.000Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-spec-auto-complete-34","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":34},"status":"refused","summary":"Issue #34 is already part of parent issue #12. Spec automation can only run on a Parent Issue.","displayMessage":"Issue #34 is already part of parent issue #12. Spec automation can only run on a Parent Issue.","reason":"wrong-target","nextSteps":["Run Spec auto-complete on Parent Issue #12 instead."],"suggestedActions":[{"kind":"command","description":"Run Spec auto-complete on Parent Issue #12 instead.","argv":["pullops","run","spec:auto-complete","12"],"approvalRequired":false}],"contextUsage":null,"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:01.000Z","durationMs":1000,"at":"2026-06-20T10:15:01.000Z"}
 ```
 
-Failed local PRD Auto-Complete:
+Failed local Spec Auto-Complete:
 
 <!-- prettier-ignore -->
 ```jsonl
-{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-prd-auto-complete-123","operation":"prd-auto-complete","operationLabelReference":"prd:auto-complete","target":{"type":"issue","number":123},"status":"failed","summary":"Local PRD auto-complete for issue #123 failed unexpectedly.","displayMessage":"Local PRD auto-complete for issue #123 failed unexpectedly.","failureReason":"git exploded","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:00.250Z","durationMs":250,"at":"2026-06-20T10:15:00.250Z"}
+{"schemaVersion":1,"event":"run.summary","runId":"2026-06-20T101500000Z-spec-auto-complete-123","operation":"spec-auto-complete","operationLabelReference":"spec:auto-complete","target":{"type":"issue","number":123},"status":"failed","summary":"Local Spec auto-complete for issue #123 failed unexpectedly.","displayMessage":"Local Spec auto-complete for issue #123 failed unexpectedly.","failureReason":"git exploded","contextUsage":{"used":1200,"limit":200000},"startedAt":"2026-06-20T10:15:00.000Z","finishedAt":"2026-06-20T10:15:00.250Z","durationMs":250,"at":"2026-06-20T10:15:00.250Z"}
 ```
 
 Event-stream mode suppresses the existing final pretty-printed JSON on stdout. Its terminal result is the `run.summary` JSONL line; callers that want only the final JSON object should use a separate final-result JSON mode instead of mixing output formats.

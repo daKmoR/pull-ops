@@ -36,7 +36,7 @@ export interface OperationRunnerContext {
   executionBackend?: ExecutionBackend;
   publicationMode?: PublicationMode;
   runGoal?: OperationRunGoal;
-  resumeParentPrdAutomationAfterPrFinalize?: boolean;
+  resumeParentSpecAutomationAfterPrFinalize?: boolean;
   allowAbsentReviewedHeadChecks?: boolean;
   suppressFollowUpOperationLabels?: boolean;
   target: OperationTarget;

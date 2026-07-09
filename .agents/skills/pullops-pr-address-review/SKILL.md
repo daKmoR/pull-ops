@@ -7,12 +7,12 @@ disable-model-invocation: true
 # PullOps Address Review
 
 Address all supplied Actionable PR Feedback on the PullOps-managed pull
-request. The feedback list is the operation boundary; the linked issue or PRD
+request. The feedback list is the operation boundary; the linked issue or Spec
 is context for deciding whether each request belongs in this PR.
 
 ## Address
 
-1. Inspect the linked issue or PRD context, PR body, diff, changed files, and
+1. Inspect the linked issue or Spec context, PR body, diff, changed files, and
    supplied Actionable PR Feedback before editing. Completion criterion: every
    supplied `feedbackId` has a planned disposition: `addressed`, `declined`, or
    `deferred`.

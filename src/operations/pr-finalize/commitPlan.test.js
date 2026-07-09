@@ -4,52 +4,52 @@ import { describe, it } from 'node:test';
 import { validatePlannerCommitPlan } from './commitPlan.js';
 
 describe('validatePlannerCommitPlan', () => {
-  it('01: accepts child issue and parent PRD traceability', () => {
+  it('01: accepts ticket and parent Spec traceability', () => {
     const result = validatePlannerCommitPlan({
       plannedCommits: [
         createCommit({
-          footers: ['Refs: #42', 'PRD: #7'],
-          files: ['src/child.js'],
+          footers: ['Refs: #42', 'Spec: #7'],
+          files: ['src/ticket.js'],
         }),
         createCommit({
           footers: ['Refs: #7'],
-          files: ['docs/prd.md'],
+          files: ['docs/spec.md'],
         }),
       ],
-      changedFiles: ['src/child.js', 'docs/prd.md'],
+      changedFiles: ['src/ticket.js', 'docs/spec.md'],
       parentIssueNumber: 7,
-      childIssueNumbers: [42],
+      ticketNumbers: [42],
     });
 
     assert.equal(result.valid, true);
     if (result.valid) {
       assert.deepEqual(
         result.commits.map(commit => commit.files),
-        [['src/child.js'], ['docs/prd.md']],
+        [['src/ticket.js'], ['docs/spec.md']],
       );
     }
   });
 
-  it('02: rejects child issue work without the PRD footer', () => {
+  it('02: rejects ticket work without the Spec footer', () => {
     const result = validatePlannerCommitPlan({
       plannedCommits: [createCommit({ footers: ['Refs: #42'] })],
       changedFiles: ['src/example.js'],
       parentIssueNumber: 7,
-      childIssueNumbers: [42],
+      ticketNumbers: [42],
     });
 
     assert.equal(result.valid, false);
     if (!result.valid) {
-      assert.match(result.reason, /PRD: #7/);
+      assert.match(result.reason, /Spec: #7/);
     }
   });
 
-  it('03: rejects GitHub closing footers for parent PRD plans', () => {
+  it('03: rejects GitHub closing footers for parent Spec plans', () => {
     const result = validatePlannerCommitPlan({
       plannedCommits: [createCommit({ footers: ['Closes #42'] })],
       changedFiles: ['src/example.js'],
       parentIssueNumber: 7,
-      childIssueNumbers: [42],
+      ticketNumbers: [42],
     });
 
     assert.equal(result.valid, false);

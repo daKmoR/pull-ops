@@ -6,14 +6,14 @@ disable-model-invocation: true
 
 # PullOps Review PR
 
-Review the supplied PullOps-managed PR. The linked issue or PRD, PR body,
+Review the supplied PullOps-managed PR. The linked issue or Spec, PR body,
 changed files, diff, comments, reviews, and unresolved review threads are the
 operation boundary.
 
 ## Review
 
 1. Inventory the review context before judging the diff. Completion criterion:
-   the linked issue or PRD intent, PR body claims, changed-file list, diff
+   the linked issue or Spec intent, PR body claims, changed-file list, diff
    hunks, prior comments, review summaries, and unresolved review threads have
    all been considered.
 2. Run the Standards pass. Use `coding-standards` and report only actionable
@@ -21,7 +21,7 @@ operation boundary.
    finding is either represented as an inline `comments` item on a changed diff
    line, fixed as a review-owned `directChanges` entry, or omitted because it is
    non-actionable in this PR.
-3. Run the Spec pass. Compare the current diff to the linked issue or PRD
+3. Run the Spec pass. Compare the current diff to the linked issue or Spec
    context and PR body. Completion criterion: every missing, wrong, or
    out-of-scope behavior you find is represented as an inline `comments` item
    on a changed diff line, a `replies` item on a matching unresolved thread, or

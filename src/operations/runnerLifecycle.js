@@ -68,7 +68,7 @@ export async function executeOperationPhase(descriptor, phase, context) {
             descriptor.createFinalizeOperation ?? requireCreateOperation(descriptor, phase),
             descriptor.finalize ?? { order: 'prepare-first' },
           );
-    return await appendParentPrdContinuation(context, output);
+    return await appendParentSpecContinuation(context, output);
   }
 
   throw new Error(
@@ -76,10 +76,10 @@ export async function executeOperationPhase(descriptor, phase, context) {
   );
 }
 
-const PARENT_PRD_OPERATION_REFERENCES = new Set(['prd:auto-advance', 'prd:auto-complete']);
+const PARENT_SPEC_OPERATION_REFERENCES = new Set(['spec:auto-advance', 'spec:auto-complete']);
 
 /**
- * Completing a child operation under a PRD run points the operator back at the
+ * Completing a ticket operation under a Spec run points the operator back at the
  * parent command, so the continuation is machine-readable output instead of
  * operator-skill prose.
  *
@@ -87,7 +87,7 @@ const PARENT_PRD_OPERATION_REFERENCES = new Set(['prd:auto-advance', 'prd:auto-c
  * @param {Record<string, unknown>} output
  * @returns {Promise<Record<string, unknown>>}
  */
-async function appendParentPrdContinuation(context, output) {
+async function appendParentSpecContinuation(context, output) {
   if (output.status !== 'accepted') {
     return output;
   }
@@ -97,7 +97,7 @@ async function appendParentPrdContinuation(context, output) {
   if (
     state === undefined ||
     parentRun === undefined ||
-    !PARENT_PRD_OPERATION_REFERENCES.has(parentRun.operationReference)
+    !PARENT_SPEC_OPERATION_REFERENCES.has(parentRun.operationReference)
   ) {
     return output;
   }
@@ -118,7 +118,7 @@ async function appendParentPrdContinuation(context, output) {
           String(parentRun.target.number),
           '--runner',
           'external',
-          ...(parentRun.operationReference === 'prd:auto-complete' ? ['--events', 'jsonl'] : []),
+          ...(parentRun.operationReference === 'spec:auto-complete' ? ['--events', 'jsonl'] : []),
           ...(state.publicationMode === 'publish' ? ['--publish', 'pr'] : []),
         ],
         approvalRequired: false,

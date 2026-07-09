@@ -54,17 +54,17 @@ export type ConcreteIssuePublishOutput =
   | ConcreteIssuePublishSuccessOutput
   | ConcreteIssuePublishFailureOutput;
 
-export interface NormalizedPrdIssueUserStory {
+export interface NormalizedSpecIssueUserStory {
   number: number;
   story: string;
 }
 
-export interface NormalizedPrdIssueRequest {
+export interface NormalizedSpecIssueRequest {
   issueNumber?: number;
   title: string;
   problemStatement: string;
   solution: string;
-  userStories: NormalizedPrdIssueUserStory[];
+  userStories: NormalizedSpecIssueUserStory[];
   implementationDecisions: string[];
   testingDecisions: string[];
   outOfScope: string[];
@@ -73,41 +73,41 @@ export interface NormalizedPrdIssueRequest {
   triageRole?: TriageRole;
 }
 
-export interface PrdIssuePublicationMarker {
+export interface SpecIssuePublicationMarker {
   schemaVersion: 1;
   provider: 'github';
-  kind: 'prd-issue';
+  kind: 'spec-issue';
 }
 
-export interface PrdIssuePublishIssue {
+export interface SpecIssuePublishIssue {
   number: number;
   url: string;
 }
 
-export interface PrdIssuePublishSuccessOutput {
+export interface SpecIssuePublishSuccessOutput {
   status: 'accepted';
   summary: string;
   action: 'created' | 'updated';
-  issue: PrdIssuePublishIssue;
+  issue: SpecIssuePublishIssue;
   warnings: string[];
   localRunRecord: string;
   triageRole?: TriageRole;
 }
 
-export interface PrdIssuePublishFailureOutput {
+export interface SpecIssuePublishFailureOutput {
   status: 'failed';
   summary: string;
   failureReason: string;
   warnings: string[];
   localRunRecord: string;
-  issue?: PrdIssuePublishIssue;
+  issue?: SpecIssuePublishIssue;
   action?: 'created' | 'updated';
   triageRole?: TriageRole;
 }
 
-export type PrdIssuePublishOutput = PrdIssuePublishSuccessOutput | PrdIssuePublishFailureOutput;
+export type SpecIssuePublishOutput = SpecIssuePublishSuccessOutput | SpecIssuePublishFailureOutput;
 
-export interface NormalizedChildIssueRequest {
+export interface NormalizedTicketRequest {
   issueNumber?: number;
   sliceRef: string;
   title: string;
@@ -120,23 +120,23 @@ export interface NormalizedChildIssueRequest {
   triageRole?: TriageRole;
 }
 
-export interface NormalizedChildIssueBatchRequest {
+export interface NormalizedTicketBatchRequest {
   parentIssueNumber: number;
-  children: NormalizedChildIssueRequest[];
+  tickets: NormalizedTicketRequest[];
   forceUpdate: boolean;
 }
 
-export interface ChildIssuePublicationMarker {
+export interface TicketPublicationMarker {
   schemaVersion: 1;
   provider: 'github';
-  kind: 'child-issue';
+  kind: 'ticket';
   parentIssueNumber: number;
   sliceRef: string;
 }
 
 export type PublicationMarker =
-  | PrdIssuePublicationMarker
-  | ChildIssuePublicationMarker
+  | SpecIssuePublicationMarker
+  | TicketPublicationMarker
   | ConcreteIssuePublicationMarker;
 
 export type IssueSnapshotKind = PublicationMarker['kind'];
@@ -152,7 +152,7 @@ export interface IssueSnapshot {
   publishedByPullOps: boolean;
   marker: PublicationMarker | undefined;
   parentIssueNumber: number | undefined;
-  childIssueNumbers: number[];
+  ticketNumbers: number[];
   blockedBy: number[];
   isDone: boolean;
 }
@@ -162,58 +162,56 @@ export interface IssueStorePublishWarning {
   message: string;
 }
 
-export interface ChildIssuePublishIssue {
+export interface TicketPublishIssue {
   number: number;
   url: string;
 }
 
-export interface ChildIssuePublishChild {
+export interface TicketPublishTicket {
   sliceRef: string;
   action: 'created' | 'updated' | 'reused';
-  issue: ChildIssuePublishIssue;
+  issue: TicketPublishIssue;
   blockedBy: number[];
   triageRole?: TriageRole;
 }
 
-export interface ChildIssuePublishMapping {
+export interface TicketPublishMapping {
   sliceRef: string;
   issueNumber: number;
   issueUrl: string;
 }
 
-export interface ChildIssuePublishFailure {
+export interface TicketPublishFailure {
   sliceRef: string;
   failureReason: string;
   action?: 'created' | 'updated';
-  issue?: ChildIssuePublishIssue;
+  issue?: TicketPublishIssue;
 }
 
-export interface ChildIssuePublishSuccessOutput {
+export interface TicketPublishSuccessOutput {
   status: 'accepted';
   summary: string;
   action: 'created' | 'updated' | 'reused' | 'mixed';
-  parent: ChildIssuePublishIssue;
-  children: ChildIssuePublishChild[];
-  mappings: ChildIssuePublishMapping[];
+  parent: TicketPublishIssue;
+  tickets: TicketPublishTicket[];
+  mappings: TicketPublishMapping[];
   warnings: IssueStorePublishWarning[];
   localRunRecord: string;
 }
 
-export interface ChildIssuePublishFailureOutput {
+export interface TicketPublishFailureOutput {
   status: 'failed';
   summary: string;
   failureReason: string;
   warnings: IssueStorePublishWarning[];
   localRunRecord: string;
-  parent?: ChildIssuePublishIssue;
-  children?: ChildIssuePublishChild[];
-  mappings?: ChildIssuePublishMapping[];
-  failedChildren?: ChildIssuePublishFailure[];
+  parent?: TicketPublishIssue;
+  tickets?: TicketPublishTicket[];
+  mappings?: TicketPublishMapping[];
+  failedTickets?: TicketPublishFailure[];
 }
 
-export type ChildIssuePublishOutput =
-  | ChildIssuePublishSuccessOutput
-  | ChildIssuePublishFailureOutput;
+export type TicketPublishOutput = TicketPublishSuccessOutput | TicketPublishFailureOutput;
 
 export interface IssueStorePublishOptions {
   createdAt?: Date;
@@ -226,22 +224,22 @@ export interface IssueStoreContext {
 }
 
 export interface IssueStore {
-  publishPrdIssue(
+  publishSpecIssue(
     rawRequest: unknown,
     options?: IssueStorePublishOptions,
-  ): Promise<PrdIssuePublishOutput>;
-  publishChildIssues(
+  ): Promise<SpecIssuePublishOutput>;
+  publishTickets(
     rawRequest: unknown,
     options?: IssueStorePublishOptions & {
       parentIssueNumber?: number;
       forceUpdate?: boolean;
     },
-  ): Promise<ChildIssuePublishOutput>;
+  ): Promise<TicketPublishOutput>;
   publishConcreteIssue(
     rawRequest: unknown,
     options?: IssueStorePublishOptions,
   ): Promise<ConcreteIssuePublishOutput>;
   readIssueSnapshot(issueNumber: number): Promise<IssueSnapshot>;
-  readChildIssueSnapshots(parentIssueNumber: number): Promise<IssueSnapshot[]>;
-  relateChildIssue(options: { parentIssueNumber: number; childIssueNumber: number }): Promise<void>;
+  readTicketSnapshots(parentIssueNumber: number): Promise<IssueSnapshot[]>;
+  relateTicket(options: { parentIssueNumber: number; ticketNumber: number }): Promise<void>;
 }

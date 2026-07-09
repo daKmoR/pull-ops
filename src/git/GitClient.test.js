@@ -229,8 +229,8 @@ describe('createGitClient', () => {
 
     await gitClient.rewriteBranchWithExistingCommits({
       baseBranch: 'main',
-      branchName: 'pullops/prd-7',
-      commitShas: ['child-21', 'child-22'],
+      branchName: 'pullops/spec-7',
+      commitShas: ['ticket-21', 'ticket-22'],
       committer: {
         name: 'github-actions[bot]',
         email: '41898282+github-actions[bot]@users.noreply.github.com',
@@ -249,7 +249,7 @@ describe('createGitClient', () => {
           '-c',
           'user.email=41898282+github-actions[bot]@users.noreply.github.com',
           'cherry-pick',
-          'child-21',
+          'ticket-21',
         ]),
       ),
       true,
@@ -262,7 +262,7 @@ describe('createGitClient', () => {
           '-c',
           'user.email=41898282+github-actions[bot]@users.noreply.github.com',
           'cherry-pick',
-          'child-22',
+          'ticket-22',
         ]),
       ),
       true,
@@ -277,7 +277,7 @@ describe('createGitClient', () => {
       ]),
     );
     const pushIndex = calls.findIndex(call =>
-      isGitCall(call, ['push', '--force-with-lease', 'origin', 'HEAD:pullops/prd-7']),
+      isGitCall(call, ['push', '--force-with-lease', 'origin', 'HEAD:pullops/spec-7']),
     );
 
     assert.notEqual(setOriginIndex, -1);
@@ -354,10 +354,10 @@ describe('createGitClient', () => {
     );
   });
 
-  it('09: creates a child PullOps branch from an existing local base branch', async () => {
+  it('09: creates a ticket PullOps branch from an existing local base branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set(['refs/heads/pullops/prd-12']);
+    const refs = new Set(['refs/heads/pullops/spec-12']);
     const gitClient = createGitClient({
       env: {},
       execFile: async (file, args) => {
@@ -378,13 +378,13 @@ describe('createGitClient', () => {
     });
 
     await gitClient.checkoutPullOpsBranch?.({
-      branchName: 'pullops/prd-12-issue-35',
-      baseBranch: 'pullops/prd-12',
+      branchName: 'pullops/spec-12-issue-35',
+      baseBranch: 'pullops/spec-12',
     });
 
     assert.equal(
       calls.some(call =>
-        isGitCall(call, ['checkout', '-B', 'pullops/prd-12-issue-35', 'pullops/prd-12']),
+        isGitCall(call, ['checkout', '-B', 'pullops/spec-12-issue-35', 'pullops/spec-12']),
       ),
       true,
     );
@@ -557,10 +557,10 @@ describe('createGitClient', () => {
     assert.equal(await gitClient.getCurrentBranch?.(), 'pullops/issue-15');
   });
 
-  it('16: cherry-picks finalized child commits onto a local PullOps branch', async () => {
+  it('16: cherry-picks finalized ticket commits onto a local PullOps branch', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set(['refs/heads/pullops/prd-7']);
+    const refs = new Set(['refs/heads/pullops/spec-7']);
     const gitClient = createGitClient({
       env: {},
       execFile: async (file, args) => {
@@ -581,7 +581,7 @@ describe('createGitClient', () => {
     });
 
     const result = await gitClient.cherryPickCommitOntoBranch?.({
-      branchName: 'pullops/prd-7',
+      branchName: 'pullops/spec-7',
       baseBranch: 'main',
       commitSha: 'finalized-head',
       committer: {
@@ -592,7 +592,7 @@ describe('createGitClient', () => {
 
     assert.equal(result?.status, 'cherry-picked');
     assert.equal(
-      calls.some(call => isGitCall(call, ['checkout', 'pullops/prd-7'])),
+      calls.some(call => isGitCall(call, ['checkout', 'pullops/spec-7'])),
       true,
     );
     assert.equal(
@@ -641,7 +641,7 @@ describe('createGitClient', () => {
     });
 
     const result = await gitClient.cherryPickCommitOntoBranch?.({
-      branchName: 'pullops/prd-7',
+      branchName: 'pullops/spec-7',
       baseBranch: 'main',
       commitSha: 'finalized-head',
       committer: {
@@ -655,7 +655,7 @@ describe('createGitClient', () => {
       conflictedFiles: ['src/conflicted.js'],
     });
     assert.equal(
-      calls.some(call => isGitCall(call, ['checkout', '-B', 'pullops/prd-7', 'origin/main'])),
+      calls.some(call => isGitCall(call, ['checkout', '-B', 'pullops/spec-7', 'origin/main'])),
       true,
     );
     assert.equal(
@@ -754,7 +754,7 @@ describe('createGitClient', () => {
   it('21: reads and rewrites against a preferred local base without fetching it from origin', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set(['refs/heads/pullops/prd-7']);
+    const refs = new Set(['refs/heads/pullops/spec-7']);
     const gitClient = createGitClient({
       env: {},
       execFile: async (file, args) => {
@@ -770,15 +770,15 @@ describe('createGitClient', () => {
           throw error;
         }
 
-        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/prd-7'])) {
+        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/spec-7'])) {
           const error = new Error('missing remote ref');
           Object.assign(error, {
-            stderr: "fatal: couldn't find remote ref pullops/prd-7",
+            stderr: "fatal: couldn't find remote ref pullops/spec-7",
           });
           throw error;
         }
 
-        if (isGitCall({ file, args }, ['diff', '--name-only', '-z', 'pullops/prd-7...HEAD'])) {
+        if (isGitCall({ file, args }, ['diff', '--name-only', '-z', 'pullops/spec-7...HEAD'])) {
           return { stdout: 'src/file.js\u0000', stderr: '' };
         }
 
@@ -787,16 +787,16 @@ describe('createGitClient', () => {
     });
 
     const changedFiles = await gitClient.getChangedFilesSinceBase({
-      baseBranch: 'pullops/prd-7',
+      baseBranch: 'pullops/spec-7',
       preferLocalBase: true,
     });
     const commits = await gitClient.getCommitsSinceBase?.({
-      baseBranch: 'pullops/prd-7',
+      baseBranch: 'pullops/spec-7',
       preferLocalBase: true,
     });
     await gitClient.rewriteBranchWithCommitPlan({
-      baseBranch: 'pullops/prd-7',
-      branchName: 'pullops/prd-7-issue-42',
+      baseBranch: 'pullops/spec-7',
+      branchName: 'pullops/spec-7-issue-42',
       commits: [],
       author: {
         name: 'github-actions[bot]',
@@ -808,19 +808,19 @@ describe('createGitClient', () => {
 
     assert.deepEqual(changedFiles, ['src/file.js']);
     assert.equal(commits?.length, 1);
-    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
-    assert.equal(countGitCalls(calls, ['diff', '--name-only', '-z', 'pullops/prd-7...HEAD']), 1);
-    assert.equal(countGitCalls(calls, ['rev-list', '--reverse', 'pullops/prd-7..HEAD']), 1);
-    assert.equal(countGitCalls(calls, ['reset', '--hard', 'pullops/prd-7']), 1);
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/spec-7']), 0);
+    assert.equal(countGitCalls(calls, ['diff', '--name-only', '-z', 'pullops/spec-7...HEAD']), 1);
+    assert.equal(countGitCalls(calls, ['rev-list', '--reverse', 'pullops/spec-7..HEAD']), 1);
+    assert.equal(countGitCalls(calls, ['reset', '--hard', 'pullops/spec-7']), 1);
   });
 
-  it('22: detects whether child branch commits are already applied to a preferred local base', async () => {
+  it('22: detects whether ticket branch commits are already applied to a preferred local base', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
     const refs = new Set([
-      'refs/heads/pullops/prd-7',
-      'refs/remotes/origin/pullops/prd-7-issue-42',
-      'refs/remotes/origin/pullops/prd-7-issue-43',
+      'refs/heads/pullops/spec-7',
+      'refs/remotes/origin/pullops/spec-7-issue-42',
+      'refs/remotes/origin/pullops/spec-7-issue-43',
     ]);
     const gitClient = createGitClient({
       env: {},
@@ -842,7 +842,7 @@ describe('createGitClient', () => {
             'rev-list',
             '--right-only',
             '--count',
-            'pullops/prd-7...origin/pullops/prd-7-issue-42',
+            'pullops/spec-7...origin/pullops/spec-7-issue-42',
           ])
         ) {
           return { stdout: '2\n', stderr: '' };
@@ -855,7 +855,7 @@ describe('createGitClient', () => {
             '--right-only',
             '--no-merges',
             '--format=%H',
-            'pullops/prd-7...origin/pullops/prd-7-issue-42',
+            'pullops/spec-7...origin/pullops/spec-7-issue-42',
           ])
         ) {
           return { stdout: 'empty-commit\n', stderr: '' };
@@ -866,7 +866,7 @@ describe('createGitClient', () => {
             'rev-list',
             '--right-only',
             '--count',
-            'pullops/prd-7...origin/pullops/prd-7-issue-43',
+            'pullops/spec-7...origin/pullops/spec-7-issue-43',
           ])
         ) {
           return { stdout: '1\n', stderr: '' };
@@ -879,7 +879,7 @@ describe('createGitClient', () => {
             '--right-only',
             '--no-merges',
             '--format=%H',
-            'pullops/prd-7...origin/pullops/prd-7-issue-43',
+            'pullops/spec-7...origin/pullops/spec-7-issue-43',
           ])
         ) {
           return { stdout: 'commit-one\n', stderr: '' };
@@ -904,35 +904,35 @@ describe('createGitClient', () => {
 
     assert.equal(
       await gitClient.hasUnappliedCommitsSinceBase?.({
-        branchName: 'pullops/prd-7-issue-42',
-        baseBranch: 'pullops/prd-7',
+        branchName: 'pullops/spec-7-issue-42',
+        baseBranch: 'pullops/spec-7',
         preferLocalBase: true,
       }),
       false,
     );
     assert.equal(
       await gitClient.hasUnappliedCommitsSinceBase?.({
-        branchName: 'pullops/prd-7-issue-43',
-        baseBranch: 'pullops/prd-7',
+        branchName: 'pullops/spec-7-issue-43',
+        baseBranch: 'pullops/spec-7',
         preferLocalBase: true,
       }),
       true,
     );
-    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/spec-7']), 0);
     assert.equal(
       countGitCalls(calls, [
         'fetch',
         'origin',
-        '+refs/heads/pullops/prd-7-issue-42:refs/remotes/origin/pullops/prd-7-issue-42',
+        '+refs/heads/pullops/spec-7-issue-42:refs/remotes/origin/pullops/spec-7-issue-42',
       ]),
       1,
     );
   });
 
-  it('23: rebases an existing child branch onto a preferred local base without fetching the base', async () => {
+  it('23: rebases an existing ticket branch onto a preferred local base without fetching the base', async () => {
     /** @type {Array<{ file: string, args: string[] }>} */
     const calls = [];
-    const refs = new Set(['refs/heads/pullops/prd-7', 'refs/heads/pullops/prd-7-issue-42']);
+    const refs = new Set(['refs/heads/pullops/spec-7', 'refs/heads/pullops/spec-7-issue-42']);
     const gitClient = createGitClient({
       env: {
         GITHUB_REPOSITORY: 'acme/widgets',
@@ -950,10 +950,10 @@ describe('createGitClient', () => {
           throw error;
         }
 
-        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/prd-7'])) {
+        if (isGitCall({ file, args }, ['fetch', 'origin', 'pullops/spec-7'])) {
           const error = new Error('missing remote ref');
           Object.assign(error, {
-            stderr: "fatal: couldn't find remote ref pullops/prd-7",
+            stderr: "fatal: couldn't find remote ref pullops/spec-7",
           });
           throw error;
         }
@@ -963,8 +963,8 @@ describe('createGitClient', () => {
     });
 
     const result = await gitClient.rebaseExistingBranchOntoBase?.({
-      branchName: 'pullops/prd-7-issue-42',
-      baseBranch: 'pullops/prd-7',
+      branchName: 'pullops/spec-7-issue-42',
+      baseBranch: 'pullops/spec-7',
       committer: {
         name: 'github-actions[bot]',
         email: '41898282+github-actions[bot]@users.noreply.github.com',
@@ -973,16 +973,16 @@ describe('createGitClient', () => {
     });
 
     assert.equal(result?.status, 'rebased');
-    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/prd-7']), 0);
+    assert.equal(countGitCalls(calls, ['fetch', 'origin', 'pullops/spec-7']), 0);
     assert.equal(
       countGitCalls(calls, [
         'fetch',
         'origin',
-        '+refs/heads/pullops/prd-7-issue-42:refs/remotes/origin/pullops/prd-7-issue-42',
+        '+refs/heads/pullops/spec-7-issue-42:refs/remotes/origin/pullops/spec-7-issue-42',
       ]),
       1,
     );
-    assert.equal(countGitCalls(calls, ['checkout', 'pullops/prd-7-issue-42']), 1);
+    assert.equal(countGitCalls(calls, ['checkout', 'pullops/spec-7-issue-42']), 1);
     assert.equal(
       countGitCalls(calls, [
         '-c',
@@ -990,7 +990,7 @@ describe('createGitClient', () => {
         '-c',
         'user.email=41898282+github-actions[bot]@users.noreply.github.com',
         'rebase',
-        'pullops/prd-7',
+        'pullops/spec-7',
       ]),
       1,
     );

@@ -74,7 +74,7 @@ describe('setup doctor', () => {
     assert.ok(neededFiles(result).includes('docs/agents/domain.md'));
     assert.match(
       joinMessages(result.warnings),
-      /Missing optional authoring skills: to-prd, to-issues\./,
+      /Missing optional authoring skills: to-spec, to-tickets\./,
     );
     assert.doesNotMatch(joinMessages(result.warnings), /npx skills@latest add mattpocock\/skills/);
     assert.ok(result.suggestions.includes('npx skills@latest add mattpocock/skills'));
@@ -453,16 +453,16 @@ describe('setup github-actions', () => {
       join(cwd, '.github', 'workflows', 'pullops-dispatch.yml'),
       'utf8',
     );
-    const prdPrepareWorkflowText = await readFile(
-      join(cwd, '.github', 'workflows', 'pullops-prd-prepare.yml'),
+    const specPrepareWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-spec-prepare.yml'),
       'utf8',
     );
     const issueImplementWorkflowText = await readFile(
       join(cwd, '.github', 'workflows', 'pullops-issue-implement.yml'),
       'utf8',
     );
-    const prCloseChildIssueWorkflowText = await readFile(
-      join(cwd, '.github', 'workflows', 'pullops-pr-close-child-issue.yml'),
+    const prCloseTicketWorkflowText = await readFile(
+      join(cwd, '.github', 'workflows', 'pullops-pr-close-ticket.yml'),
       'utf8',
     );
     const customWorkflowText = await readFile(customWorkflowPath, 'utf8');
@@ -489,15 +489,15 @@ describe('setup github-actions', () => {
     assert.deepEqual(actualDispatchRoutes, expectedDispatchRoutes);
     assert.ok(
       !actualDispatchRoutes.some(
-        ([, workflowPath]) => workflowPath === 'pullops-pr-close-child-issue.yml',
+        ([, workflowPath]) => workflowPath === 'pullops-pr-close-ticket.yml',
       ),
     );
-    assert.match(prdPrepareWorkflowText, /node-version: 22/);
-    assert.match(prdPrepareWorkflowText, /npm exec pullops -- run prd-prepare/);
+    assert.match(specPrepareWorkflowText, /node-version: 22/);
+    assert.match(specPrepareWorkflowText, /npm exec pullops -- run spec-prepare/);
     assert.match(issueImplementWorkflowText, /node-version: 22/);
     assert.match(issueImplementWorkflowText, /npm exec pullops -- run issue-implement/);
-    assert.match(prCloseChildIssueWorkflowText, /node-version: 22/);
-    assert.match(prCloseChildIssueWorkflowText, /npm exec pullops -- run pr-close-child-issue/);
+    assert.match(prCloseTicketWorkflowText, /node-version: 22/);
+    assert.match(prCloseTicketWorkflowText, /npm exec pullops -- run pr-close-ticket/);
     assert.equal(customWorkflowText, 'name: Custom Workflow\n');
     assert.match(customWorkflowText, /Custom Workflow/);
 
@@ -507,9 +507,7 @@ describe('setup github-actions', () => {
       manifest.files.some(entry => entry.path === '.github/workflows/pullops-dispatch.yml'),
     );
     assert.ok(
-      manifest.files.some(
-        entry => entry.path === '.github/workflows/pullops-pr-close-child-issue.yml',
-      ),
+      manifest.files.some(entry => entry.path === '.github/workflows/pullops-pr-close-ticket.yml'),
     );
     assert.ok(!manifest.files.some(entry => entry.path === '.github/workflows/custom.yml'));
   });

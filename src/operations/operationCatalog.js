@@ -19,68 +19,68 @@ const INLINE_AND_EXTERNAL_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
   ['external', 'prepare'],
   ['external', 'complete'],
 ]);
-const PRD_AUTO_COMPLETE_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
+const SPEC_AUTO_COMPLETE_RUNNER_LIFECYCLES = freezeRunnerLifecycles([
   ['codex-cli', 'run'],
   ['external', 'run'],
 ]);
 
 const OPERATION_CATALOG_ENTRIES = Object.freeze([
   createOperationCatalogEntry({
-    name: 'prd-prepare',
+    name: 'spec-prepare',
     target: 'issue',
-    configKey: 'prdPrepare',
+    configKey: 'specPrepare',
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
     supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
-    workflowFileName: 'pullops-prd-prepare.yml',
-    packageScriptName: 'pullops:prd-prepare',
+    workflowFileName: 'pullops-spec-prepare.yml',
+    packageScriptName: 'pullops:spec-prepare',
     label: createOperationCatalogLabel({
-      reference: 'prd:prepare',
-      name: 'pullops:prd:prepare',
-      description: 'Prepare an umbrella branch and draft PR for a PRD issue.',
+      reference: 'spec:prepare',
+      name: 'pullops:spec:prepare',
+      description: 'Prepare an umbrella branch and draft PR for a Spec issue.',
     }),
     handlers: {
-      run: createImportedOperationHandler('./prd-prepare/run.js', 'runPrdPrepare'),
+      run: createImportedOperationHandler('./spec-prepare/run.js', 'runSpecPrepare'),
     },
   }),
   createOperationCatalogEntry({
-    name: 'prd-auto-advance',
+    name: 'spec-auto-advance',
     target: 'issue',
-    configKey: 'prdAutoAdvance',
+    configKey: 'specAutoAdvance',
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
     supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
-    workflowFileName: 'pullops-prd-auto-advance.yml',
-    packageScriptName: 'pullops:prd-auto-advance',
+    workflowFileName: 'pullops-spec-auto-advance.yml',
+    packageScriptName: 'pullops:spec-auto-advance',
     label: createOperationCatalogLabel({
-      reference: 'prd:auto-advance',
-      name: 'pullops:prd:auto-advance',
-      description: 'Prepare a PRD and drain the current unblocked child frontier.',
+      reference: 'spec:auto-advance',
+      name: 'pullops:spec:auto-advance',
+      description: 'Prepare a Spec and drain the current unblocked ticket frontier.',
     }),
     handlers: {
-      run: createImportedOperationHandler('./prd-automation/run.js', 'runPrdAutoAdvance'),
+      run: createImportedOperationHandler('./spec-automation/run.js', 'runSpecAutoAdvance'),
     },
   }),
   createOperationCatalogEntry({
-    name: 'prd-auto-complete',
+    name: 'spec-auto-complete',
     target: 'issue',
-    configKey: 'prdAutoComplete',
+    configKey: 'specAutoComplete',
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
-    supportedRunnerLifecycles: PRD_AUTO_COMPLETE_RUNNER_LIFECYCLES,
-    workflowFileName: 'pullops-prd-auto-complete.yml',
-    packageScriptName: 'pullops:prd-auto-complete',
+    supportedRunnerLifecycles: SPEC_AUTO_COMPLETE_RUNNER_LIFECYCLES,
+    workflowFileName: 'pullops-spec-auto-complete.yml',
+    packageScriptName: 'pullops:spec-auto-complete',
     label: createOperationCatalogLabel({
-      reference: 'prd:auto-complete',
-      name: 'pullops:prd:auto-complete',
+      reference: 'spec:auto-complete',
+      name: 'pullops:spec:auto-complete',
       description:
-        'Complete a PRD through child PRs, umbrella integration, and finalization; humans merge umbrella PR.',
+        'Complete a Spec through ticket PRs and umbrella finalization; humans merge the umbrella PR.',
     }),
     handlers: {
-      run: createImportedOperationHandler('./prd-automation/run.js', 'runPrdAutoComplete'),
+      run: createImportedOperationHandler('./spec-automation/run.js', 'runSpecAutoComplete'),
     },
   }),
   createOperationCatalogEntry({
@@ -97,7 +97,7 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
       reference: 'issue:implement',
       name: 'pullops:issue:implement',
       description:
-        'Implement one concrete issue through review and finalization. Does not coordinate child issues.',
+        'Implement one concrete issue through review and finalization. Does not coordinate tickets.',
     }),
     handlers: {
       run: createImportedOperationHandler('./issue-implement/run.js', 'runIssueImplement'),
@@ -272,17 +272,17 @@ const OPERATION_CATALOG_ENTRIES = Object.freeze([
     },
   }),
   createOperationCatalogEntry({
-    name: 'pr-close-child-issue',
+    name: 'pr-close-ticket',
     target: 'pr',
-    configKey: 'prCloseChildIssue',
+    configKey: 'prCloseTicket',
     defaultOperationSettings: Object.freeze({
       modelTier: 'low',
     }),
     supportedRunnerLifecycles: INLINE_RUN_RUNNER_LIFECYCLES,
-    workflowFileName: 'pullops-pr-close-child-issue.yml',
-    packageScriptName: 'pullops:pr-close-child-issue',
+    workflowFileName: 'pullops-pr-close-ticket.yml',
+    packageScriptName: 'pullops:pr-close-ticket',
     handlers: {
-      run: createImportedOperationHandler('./pr-close-child-issue/run.js', 'runPrCloseChildIssue'),
+      run: createImportedOperationHandler('./pr-close-ticket/run.js', 'runPrCloseTicket'),
     },
   }),
 ]);

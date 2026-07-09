@@ -53,7 +53,7 @@ export async function startPullOpsParentEventSink({ parentRun, progressEventWrit
         PULLOPS_PARENT_EVENT_SINK_TOKEN: token,
         PULLOPS_PARENT_RUN_ID: parentRun.runId,
         PULLOPS_CHILD_RUN_ID: route.childRunLink.runId,
-        PULLOPS_CHILD_ISSUE_NUMBER: String(route.childIssueNumber),
+        PULLOPS_TICKET_NUMBER: String(route.ticketNumber),
         PULLOPS_CHILD_LOCAL_RUN_RECORD: route.localRunRecord,
         PULLOPS_CHILD_RUN_STATE_PATH: route.childRunLink.statePath,
       };
@@ -84,14 +84,14 @@ export async function publishHeartbeatToParentEventSink({ env, localRunRecord, r
   const token = readOptionalEnv(env.PULLOPS_PARENT_EVENT_SINK_TOKEN);
   const parentRunId = readOptionalEnv(env.PULLOPS_PARENT_RUN_ID);
   const childRunId = readOptionalEnv(env.PULLOPS_CHILD_RUN_ID);
-  const childIssueNumber = readOptionalIntegerEnv(env.PULLOPS_CHILD_ISSUE_NUMBER);
+  const ticketNumber = readOptionalIntegerEnv(env.PULLOPS_TICKET_NUMBER);
   const childLocalRunRecord = readOptionalEnv(env.PULLOPS_CHILD_LOCAL_RUN_RECORD) ?? localRunRecord;
   const childRunStatePath = readOptionalEnv(env.PULLOPS_CHILD_RUN_STATE_PATH);
   if (
     token === undefined ||
     parentRunId === undefined ||
     childRunId === undefined ||
-    childIssueNumber === undefined ||
+    ticketNumber === undefined ||
     childRunStatePath === undefined
   ) {
     return {
@@ -111,7 +111,7 @@ export async function publishHeartbeatToParentEventSink({ env, localRunRecord, r
         type: 'heartbeat',
         parentRunId,
         childRunId,
-        childIssueNumber,
+        ticketNumber,
         localRunRecord: childLocalRunRecord,
         childRunStatePath,
         heartbeatAt: runState.heartbeatAt,
@@ -177,9 +177,9 @@ export async function handleParentEventSinkRequest({
       route.lastHeartbeatCount = heartbeat.heartbeatCount;
     }
     await progressEventWriter.emit('child.heartbeat', {
-      phase: 'child-coordination',
-      childIssue: {
-        number: heartbeat.childIssueNumber,
+      phase: 'ticket-coordination',
+      ticket: {
+        number: heartbeat.ticketNumber,
       },
       childRunId: heartbeat.childRunId,
       localRunRecord: heartbeat.localRunRecord,
@@ -235,7 +235,7 @@ async function readJsonRequestBody(request) {
  * }} options
  * @returns {{
  *   childRunId: string,
- *   childIssueNumber: number,
+ *   ticketNumber: number,
  *   localRunRecord: string,
  *   childRunStatePath: string,
  *   heartbeatAt: string,
@@ -262,9 +262,9 @@ export function readAcceptedHeartbeatPayload(payload, { parentRun, routes }) {
     throw createSinkError('Heartbeat child run id is not active for this parent run.', 403);
   }
 
-  const childIssueNumber = readRequiredInteger(payload.childIssueNumber, 'childIssueNumber');
-  if (childIssueNumber !== route.childIssueNumber) {
-    throw createSinkError('Heartbeat child issue did not match the active child route.', 403);
+  const ticketNumber = readRequiredInteger(payload.ticketNumber, 'ticketNumber');
+  if (ticketNumber !== route.ticketNumber) {
+    throw createSinkError('Heartbeat ticket did not match the active child route.', 403);
   }
 
   const heartbeatCount = readRequiredInteger(payload.heartbeatCount, 'heartbeatCount');
@@ -287,7 +287,7 @@ export function readAcceptedHeartbeatPayload(payload, { parentRun, routes }) {
 
   return {
     childRunId,
-    childIssueNumber,
+    ticketNumber,
     localRunRecord,
     childRunStatePath,
     heartbeatAt: readRequiredString(payload.heartbeatAt, 'heartbeatAt'),

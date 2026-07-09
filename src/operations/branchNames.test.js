@@ -5,18 +5,18 @@ import {
   createIssueBranchName,
   createParentBranchName,
   hasPullOpsBranchPrefix,
-  parseChildIssueBranchName,
+  parseTicketBranchName,
   parseParentBranchName,
 } from './branchNames.js';
 
 describe('branchNames', () => {
-  it('01: creates parent, child, and standalone issue branch names', () => {
+  it('01: creates parent, ticket, and standalone issue branch names', () => {
     assert.equal(
       createParentBranchName({
         branchPrefix: 'pullops',
         parentNumber: 12,
       }),
-      'pullops/prd-12',
+      'pullops/spec-12',
     );
     assert.equal(
       createIssueBranchName({
@@ -24,7 +24,7 @@ describe('branchNames', () => {
         parentNumber: 12,
         issueNumber: 34,
       }),
-      'pullops/prd-12-issue-34',
+      'pullops/spec-12-issue-34',
     );
     assert.equal(
       createIssueBranchName({
@@ -42,15 +42,15 @@ describe('branchNames', () => {
         parentNumber: 1,
         issueNumber: 2,
       }),
-      'automation/pullops/prd-1-issue-2',
+      'automation/pullops/spec-1-issue-2',
     );
   });
 
-  it('03: parses only configured child issue branch names', () => {
+  it('03: parses only configured ticket branch names', () => {
     assert.deepEqual(
       parseParentBranchName({
         branchPrefix: 'pullops',
-        branchName: 'pullops/prd-12',
+        branchName: 'pullops/spec-12',
       }),
       {
         parentNumber: 12,
@@ -64,9 +64,9 @@ describe('branchNames', () => {
       undefined,
     );
     assert.deepEqual(
-      parseChildIssueBranchName({
+      parseTicketBranchName({
         branchPrefix: 'pullops',
-        branchName: 'pullops/prd-12-issue-34',
+        branchName: 'pullops/spec-12-issue-34',
       }),
       {
         parentNumber: 12,
@@ -74,9 +74,9 @@ describe('branchNames', () => {
       },
     );
     assert.deepEqual(
-      parseChildIssueBranchName({
+      parseTicketBranchName({
         branchPrefix: ' automation/pullops/ ',
-        branchName: 'automation/pullops/prd-1-issue-2',
+        branchName: 'automation/pullops/spec-1-issue-2',
       }),
       {
         parentNumber: 1,
@@ -84,7 +84,7 @@ describe('branchNames', () => {
       },
     );
     assert.equal(
-      parseChildIssueBranchName({
+      parseTicketBranchName({
         branchPrefix: 'pullops',
         branchName: 'pullops/issue-34',
       }),

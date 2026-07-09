@@ -44,7 +44,7 @@ import {
   getOperationCatalogWorkflowOperations,
   supportsOperationCatalogRunnerLifecycle,
 } from '../operations/operationCatalog.js';
-import { createLocalPrdAutoCompleteSummary } from '../operations/prd-automation/eventStream.js';
+import { createLocalSpecAutoCompleteSummary } from '../operations/spec-automation/eventStream.js';
 import { SUPPRESS_FOLLOW_UP_OPERATION_LABELS_ENV } from '../operations/externalRunner.js';
 import { readRunScorecard, renderRunScorecard } from '../run-scorecard/runScorecard.js';
 import { createRunner } from '../runner/Runner.js';
@@ -64,9 +64,9 @@ import {
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
  * @typedef {import('../git/types.js').GitClient} GitClient
  * @typedef {import('../runner/types.js').Runner} Runner
- * @typedef {import('../issue-store/types.js').ChildIssuePublishFailureOutput} ChildIssuePublishFailureOutput
+ * @typedef {import('../issue-store/types.js').TicketPublishFailureOutput} TicketPublishFailureOutput
  * @typedef {import('../issue-store/types.js').ConcreteIssuePublishFailureOutput} ConcreteIssuePublishFailureOutput
- * @typedef {import('../issue-store/types.js').PrdIssuePublishFailureOutput} PrdIssuePublishFailureOutput
+ * @typedef {import('../issue-store/types.js').SpecIssuePublishFailureOutput} SpecIssuePublishFailureOutput
  * @typedef {(command: string, args: string[], options: import('node:child_process').SpawnOptions) => import('node:child_process').ChildProcess} StepCommandSpawner
  */
 
@@ -117,7 +117,7 @@ function readLocalOperationLabelReferenceNames() {
   return [
     'issue:implement',
     ...operationLabelReferenceNames.filter(
-      reference => reference !== 'prd:prepare' && reference !== 'issue:implement',
+      reference => reference !== 'spec:prepare' && reference !== 'issue:implement',
     ),
   ];
 }
@@ -446,22 +446,22 @@ export class PullOpsCli {
       throw new CliUsageError(STEP_USAGE);
     }
 
-    const child = this.spawnCommand(executable, args, {
+    const ticket = this.spawnCommand(executable, args, {
       cwd: this.cwd,
       env: this.env,
       stdio: ['inherit', 'pipe', 'pipe'],
     });
 
-    child.stdout?.on('data', chunk => {
+    ticket.stdout?.on('data', chunk => {
       this.stdout.write(chunk);
     });
-    child.stderr?.on('data', chunk => {
+    ticket.stderr?.on('data', chunk => {
       this.stderr.write(chunk);
     });
 
     return await new Promise((resolvePromise, reject) => {
-      child.once('error', reject);
-      child.once('close', (code, signal) => {
+      ticket.once('error', reject);
+      ticket.once('close', (code, signal) => {
         resolvePromise(readWrappedCommandExitCode(code, signal));
       });
     });
@@ -562,16 +562,16 @@ export class PullOpsCli {
 
     if (subcommand === undefined) {
       throw new CliUsageError(
-        'Missing issues subcommand. Expected one of: publish-prd, publish-children, publish-issue.',
+        'Missing issues subcommand. Expected one of: publish-spec, publish-tickets, publish-issue.',
       );
     }
 
-    if (subcommand === 'publish-prd') {
-      return await this.runPublishPrd(rest);
+    if (subcommand === 'publish-spec') {
+      return await this.runPublishSpec(rest);
     }
 
-    if (subcommand === 'publish-children') {
-      return await this.runPublishChildren(rest);
+    if (subcommand === 'publish-tickets') {
+      return await this.runPublishTickets(rest);
     }
 
     if (subcommand === 'publish-issue') {
@@ -579,7 +579,7 @@ export class PullOpsCli {
     }
 
     throw new CliUsageError(
-      `Unknown issues subcommand "${subcommand}". Expected one of: publish-prd, publish-children, publish-issue.`,
+      `Unknown issues subcommand "${subcommand}". Expected one of: publish-spec, publish-tickets, publish-issue.`,
     );
   }
 
@@ -587,12 +587,12 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runPublishPrd(args) {
+  async runPublishSpec(args) {
     const createdAt = new Date();
     let rawRequest = '';
 
     try {
-      const parsedArgs = parsePublishFileArgs(args, 'publish-prd');
+      const parsedArgs = parsePublishFileArgs(args, 'publish-spec');
       rawRequest = await readPublishInput({
         cwd: this.cwd,
         filePath: parsedArgs.filePath,
@@ -604,12 +604,12 @@ export class PullOpsCli {
         config,
         githubClient: this.githubClient,
       });
-      const output = await issueStore.publishPrdIssue(rawRequest, { createdAt });
+      const output = await issueStore.publishSpecIssue(rawRequest, { createdAt });
 
       this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
       return output.status === 'accepted' ? 0 : 1;
     } catch (error) {
-      const output = await writePublishPrdFailure({
+      const output = await writePublishSpecFailure({
         cwd: this.cwd,
         createdAt,
         rawRequest,
@@ -661,12 +661,12 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runPublishChildren(args) {
+  async runPublishTickets(args) {
     const createdAt = new Date();
     let rawRequest = '';
 
     try {
-      const parsedArgs = parsePublishChildrenArgs(args);
+      const parsedArgs = parsePublishTicketsArgs(args);
       rawRequest = await readPublishInput({
         cwd: this.cwd,
         filePath: parsedArgs.filePath,
@@ -678,7 +678,7 @@ export class PullOpsCli {
         config,
         githubClient: this.githubClient,
       });
-      const output = await issueStore.publishChildIssues(rawRequest, {
+      const output = await issueStore.publishTickets(rawRequest, {
         parentIssueNumber: parsedArgs.parentIssueNumber,
         forceUpdate: parsedArgs.forceUpdate,
         createdAt,
@@ -687,7 +687,7 @@ export class PullOpsCli {
       this.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
       return output.status === 'accepted' ? 0 : 1;
     } catch (error) {
-      const output = await writePublishChildrenFailure({
+      const output = await writePublishTicketsFailure({
         cwd: this.cwd,
         createdAt,
         rawRequest,
@@ -816,12 +816,12 @@ export class PullOpsCli {
       return await this.runLocalIssueImplementReference(args);
     }
 
-    if (reference === 'prd:auto-advance') {
-      return await this.runLocalPrdAutoAdvanceReference(args);
+    if (reference === 'spec:auto-advance') {
+      return await this.runLocalSpecAutoAdvanceReference(args);
     }
 
-    if (reference === 'prd:auto-complete') {
-      return await this.runLocalPrdAutoCompleteReference(args);
+    if (reference === 'spec:auto-complete') {
+      return await this.runLocalSpecAutoCompleteReference(args);
     }
 
     if (operation.target === 'pr') {
@@ -1206,11 +1206,11 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runLocalPrdAutoAdvanceReference(args) {
-    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-advance');
-    const operation = getWorkflowOperation('prd-auto-advance');
+  async runLocalSpecAutoAdvanceReference(args) {
+    const parsedArgs = parseLocalSpecAutomationReferenceArgs(args, 'spec:auto-advance');
+    const operation = getWorkflowOperation('spec-auto-advance');
     if (operation === undefined) {
-      throw new Error('prd-auto-advance operation is not registered.');
+      throw new Error('spec-auto-advance operation is not registered.');
     }
 
     const config = await loadPullOpsConfig({ cwd: this.cwd });
@@ -1255,11 +1255,11 @@ export class PullOpsCli {
    * @param {string[]} args
    * @returns {Promise<number>}
    */
-  async runLocalPrdAutoCompleteReference(args) {
-    const parsedArgs = parseLocalPrdAutomationReferenceArgs(args, 'prd:auto-complete');
-    const operation = getWorkflowOperation('prd-auto-complete');
+  async runLocalSpecAutoCompleteReference(args) {
+    const parsedArgs = parseLocalSpecAutomationReferenceArgs(args, 'spec:auto-complete');
+    const operation = getWorkflowOperation('spec-auto-complete');
     if (operation === undefined) {
-      throw new Error('prd-auto-complete operation is not registered.');
+      throw new Error('spec-auto-complete operation is not registered.');
     }
 
     const config = await loadPullOpsConfig({ cwd: this.cwd });
@@ -1272,7 +1272,7 @@ export class PullOpsCli {
       parsedArgs.eventsFormat === 'jsonl'
         ? createRunRecordLocation({
             cwd: this.cwd,
-            operationReference: 'prd:auto-complete',
+            operationReference: 'spec:auto-complete',
             targetReference: parsedArgs.targetNumber,
             createdAt: startedAt,
           })
@@ -1283,7 +1283,7 @@ export class PullOpsCli {
         : createOperationProgressEventWriter({
             stdout: this.stdout,
             operation: operation.name,
-            operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+            operationLabelReference: readRequiredOperationLabelReference('spec:auto-complete'),
             runId: localRunRecordLocation.runId,
             target: {
               type: 'issue',
@@ -1326,11 +1326,11 @@ export class PullOpsCli {
       });
 
       if (parsedArgs.eventsFormat === 'jsonl') {
-        await this.emitLocalPrdAutoCompleteSummary(progressEventWriter, output, {
+        await this.emitLocalSpecAutoCompleteSummary(progressEventWriter, output, {
           startedAt,
           finishedAt: new Date(),
           contextUsage,
-          operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+          operationLabelReference: readRequiredOperationLabelReference('spec:auto-complete'),
           target: {
             type: 'issue',
             number: parsedArgs.targetNumber,
@@ -1355,18 +1355,18 @@ export class PullOpsCli {
       await mkdir(localRunRecord, { recursive: true });
       await progressEventWriter?.bindLocalRunRecord(localRunRecord);
       const errorOutput =
-        readKnownLocalPrdRunBoundaryOutput(error, { localRunRecord }) ??
-        createLocalPrdAutoCompleteFailureOutput({
+        readKnownLocalSpecRunBoundaryOutput(error, { localRunRecord }) ??
+        createLocalSpecAutoCompleteFailureOutput({
           error,
           localRunRecord,
           targetNumber: parsedArgs.targetNumber,
           publicationMode: parsedArgs.publicationMode,
         });
-      await this.emitLocalPrdAutoCompleteSummary(progressEventWriter, errorOutput, {
+      await this.emitLocalSpecAutoCompleteSummary(progressEventWriter, errorOutput, {
         startedAt,
         finishedAt: new Date(),
         contextUsage,
-        operationLabelReference: readRequiredOperationLabelReference('prd:auto-complete'),
+        operationLabelReference: readRequiredOperationLabelReference('spec:auto-complete'),
         target: {
           type: 'issue',
           number: parsedArgs.targetNumber,
@@ -1573,7 +1573,7 @@ export class PullOpsCli {
    * }} options
    * @returns {Promise<void>}
    */
-  async emitLocalPrdAutoCompleteSummary(
+  async emitLocalSpecAutoCompleteSummary(
     progressEventWriter,
     output,
     { startedAt, finishedAt, contextUsage, operationLabelReference, target },
@@ -1587,8 +1587,8 @@ export class PullOpsCli {
       throw new Error('Progress event writer is required for JSONL event streams.');
     }
 
-    const summary = createLocalPrdAutoCompleteSummary(
-      /** @type {import('../prd-automation/childCoordination.types.js').PrdAutomationResult} */ (
+    const summary = createLocalSpecAutoCompleteSummary(
+      /** @type {import('../spec-automation/ticketCoordination.types.js').SpecAutomationResult} */ (
         result.value
       ),
       {
@@ -2107,7 +2107,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
 
 /**
  * @param {string[]} args
- * @param {'prd:auto-advance' | 'prd:auto-complete'} reference
+ * @param {'spec:auto-advance' | 'spec:auto-complete'} reference
  * @returns {{
  *   targetNumber: number,
  *   publicationMode: 'dry-run' | 'publish',
@@ -2116,7 +2116,7 @@ function parseLocalIssueImplementReferenceArgs(args) {
  *   eventsFormat?: 'jsonl',
  * }}
  */
-function parseLocalPrdAutomationReferenceArgs(args, reference) {
+function parseLocalSpecAutomationReferenceArgs(args, reference) {
   const consumed = new Set();
   const rawBackend = parseOptionalStringOption(args, '--backend', consumed);
   if (rawBackend !== undefined && rawBackend !== 'local') {
@@ -2126,14 +2126,14 @@ function parseLocalPrdAutomationReferenceArgs(args, reference) {
   }
 
   const runnerAdapter = parseOptionalRunnerAdapter(args, consumed);
-  if (runnerAdapter !== undefined && reference !== 'prd:auto-complete') {
-    throw new CliUsageError('--runner is only supported for local prd:auto-complete.');
+  if (runnerAdapter !== undefined && reference !== 'spec:auto-complete') {
+    throw new CliUsageError('--runner is only supported for local spec:auto-complete.');
   }
 
   const eventsFormat = parseOptionalStringOption(args, '--events', consumed);
   if (eventsFormat !== undefined) {
-    if (reference !== 'prd:auto-complete') {
-      throw new CliUsageError(`--events jsonl is only supported for local prd:auto-complete.`);
+    if (reference !== 'spec:auto-complete') {
+      throw new CliUsageError(`--events jsonl is only supported for local spec:auto-complete.`);
     }
 
     if (eventsFormat !== 'jsonl') {
@@ -2308,7 +2308,7 @@ function parseRequiredGitHubActionsBackend(args, reference, consumed) {
 
 /**
  * @param {string[]} args
- * @param {'publish-issue' | 'publish-prd'} subcommand
+ * @param {'publish-issue' | 'publish-spec'} subcommand
  * @returns {{ filePath?: string }}
  */
 function parsePublishFileArgs(args, subcommand) {
@@ -2355,7 +2355,7 @@ function parseRunsScorecardArgs(args) {
  * @param {string[]} args
  * @returns {{ filePath?: string, parentIssueNumber?: number, forceUpdate: boolean }}
  */
-function parsePublishChildrenArgs(args) {
+function parsePublishTicketsArgs(args) {
   const consumed = new Set();
   const filePath = parseOptionalStringOption(args, '--file', consumed);
   const rawParentIssueNumber = parseOptionalStringOption(args, '--parent', consumed);
@@ -2368,7 +2368,7 @@ function parsePublishChildrenArgs(args) {
 
   if (remaining.length > 0) {
     throw new CliUsageError(
-      `Unknown arguments for issues publish-children: ${remaining.join(' ')}.`,
+      `Unknown arguments for issues publish-tickets: ${remaining.join(' ')}.`,
     );
   }
 
@@ -2912,8 +2912,8 @@ function usage() {
     '  pullops setup github-actions [--check] [--json] [--force]',
     '  pullops setup github-labels [--check] [--json] [--force] [--repo <owner/repo>]',
     '  pullops run issue:implement <issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
-    '  pullops run prd:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
-    '  pullops run prd:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run spec:auto-advance <parent-issue-number> [--backend local] [--publish dry-run|pr] [--until operation|finalized]',
+    '  pullops run spec:auto-complete <parent-issue-number> [--backend local] [--events jsonl] [--publish dry-run|pr] [--until operation|finalized]',
     '  pullops run pr:review|pr:address-review|pr:fix-ci|pr:update-branch|pr:resolve-conflicts|pr:finalize <pull-request-number> [--backend local]',
     '  pullops run <operation-label-reference> <target-number> --backend github-actions',
     '  pullops run <operation> [--runner codex-cli] --issue <number>',
@@ -2922,8 +2922,8 @@ function usage() {
     '  pullops run <operation> --runner external --phase complete --issue <number>',
     '  pullops run <operation> --runner external --phase prepare --pr <number>',
     '  pullops run <operation> --runner external --phase complete --pr <number>',
-    '  pullops issues publish-prd [--file <path>]',
-    '  pullops issues publish-children [--parent <parent-issue-number>] [--file <path>] [--force]',
+    '  pullops issues publish-spec [--file <path>]',
+    '  pullops issues publish-tickets [--parent <parent-issue-number>] [--file <path>] [--force]',
     '  pullops issues publish-issue [--file <path>]',
     '  pullops runs scorecard [--dir <path>] [--json]',
     '  pullops heartbeat [--state <path>] [--token <token>] [--summary <text>]',
@@ -2975,12 +2975,12 @@ function readLocalRunRecordFromError(error) {
  * @param {{ localRunRecord: string }} options
  * @returns {Record<string, unknown> | undefined}
  */
-function readKnownLocalPrdRunBoundaryOutput(error, { localRunRecord }) {
-  if (!isRecord(error) || !isRecord(error.localPrdRunBoundary)) {
+function readKnownLocalSpecRunBoundaryOutput(error, { localRunRecord }) {
+  if (!isRecord(error) || !isRecord(error.localSpecRunBoundary)) {
     return undefined;
   }
 
-  const boundary = /** @type {Record<string, unknown>} */ (error.localPrdRunBoundary);
+  const boundary = /** @type {Record<string, unknown>} */ (error.localSpecRunBoundary);
   /** @type {Record<string, unknown>} */
   const output = {
     ...boundary,
@@ -3002,14 +3002,14 @@ function readKnownLocalPrdRunBoundaryOutput(error, { localRunRecord }) {
  * }} options
  * @returns {Record<string, unknown>}
  */
-function createLocalPrdAutoCompleteFailureOutput({
+function createLocalSpecAutoCompleteFailureOutput({
   error,
   localRunRecord,
   targetNumber,
   publicationMode,
 }) {
   const failureReason = getErrorMessage(error).trim() || 'Unexpected runtime or tool failure.';
-  const summary = `Local PRD auto-complete for issue #${targetNumber} failed unexpectedly.`;
+  const summary = `Local Spec auto-complete for issue #${targetNumber} failed unexpectedly.`;
 
   return {
     status: 'failed',
@@ -3028,22 +3028,22 @@ function createLocalPrdAutoCompleteFailureOutput({
  * @param {Date} options.createdAt
  * @param {string} options.rawRequest
  * @param {string} options.failureReason
- * @returns {Promise<ChildIssuePublishFailureOutput>}
+ * @returns {Promise<TicketPublishFailureOutput>}
  */
-async function writePublishChildrenFailure({ cwd, createdAt, rawRequest, failureReason }) {
+async function writePublishTicketsFailure({ cwd, createdAt, rawRequest, failureReason }) {
   const runRecord = createRunRecordLocation({
     cwd,
-    operationReference: 'issues:publish-children',
+    operationReference: 'issues:publish-tickets',
     targetReference: 'invalid',
     createdAt,
   });
 
   await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
 
-  /** @type {ChildIssuePublishFailureOutput} */
+  /** @type {TicketPublishFailureOutput} */
   const output = {
     status: 'failed',
-    summary: 'Publish Child Issue batch failed.',
+    summary: 'Publish Ticket batch failed.',
     failureReason,
     warnings: [],
     localRunRecord: runRecord.directory,
@@ -3090,22 +3090,22 @@ async function writePublishIssueFailure({ cwd, createdAt, rawRequest, failureRea
  * @param {Date} options.createdAt
  * @param {string} options.rawRequest
  * @param {string} options.failureReason
- * @returns {Promise<PrdIssuePublishFailureOutput>}
+ * @returns {Promise<SpecIssuePublishFailureOutput>}
  */
-async function writePublishPrdFailure({ cwd, createdAt, rawRequest, failureReason }) {
+async function writePublishSpecFailure({ cwd, createdAt, rawRequest, failureReason }) {
   const runRecord = createRunRecordLocation({
     cwd,
-    operationReference: 'issues:publish-prd',
+    operationReference: 'issues:publish-spec',
     targetReference: 'invalid',
     createdAt,
   });
 
   await writeRunArtifact(runRecord, 'request.raw.txt', `${rawRequest}\n`);
 
-  /** @type {PrdIssuePublishFailureOutput} */
+  /** @type {SpecIssuePublishFailureOutput} */
   const output = {
     status: 'failed',
-    summary: 'Publish PRD request failed.',
+    summary: 'Publish Spec request failed.',
     failureReason,
     warnings: [],
     localRunRecord: runRecord.directory,

@@ -5,21 +5,21 @@
 
 const GITHUB_CLOSING_FOOTER_PATTERN = /^(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#\d+\s*$/i;
 const REFS_FOOTER_PATTERN = /^Refs:\s+#(\d+)\s*$/i;
-const PRD_FOOTER_PATTERN = /^PRD:\s+#(\d+)\s*$/i;
+const SPEC_FOOTER_PATTERN = /^Spec:\s+#(\d+)\s*$/i;
 
 /**
  * @param {object} options
  * @param {PlannedCommit[]} options.plannedCommits
  * @param {string[]} options.changedFiles
  * @param {number} [options.parentIssueNumber]
- * @param {number[]} [options.childIssueNumbers]
+ * @param {number[]} [options.ticketNumbers]
  * @returns {{ valid: true, commits: PlannedRewriteCommit[] } | { valid: false, reason: string }}
  */
 export function validatePlannerCommitPlan({
   plannedCommits,
   changedFiles,
   parentIssueNumber,
-  childIssueNumbers = [],
+  ticketNumbers = [],
 }) {
   const expectedFiles = new Set(changedFiles);
   const assignedFiles = new Set();
@@ -48,7 +48,7 @@ export function validatePlannerCommitPlan({
         plannedCommit,
         commitIndex,
         parentIssueNumber,
-        childIssueNumbers,
+        ticketNumbers,
       });
       if (!traceability.valid) {
         return traceability;
@@ -93,14 +93,14 @@ function createPlannerCommitMessage(commit) {
  * @param {PlannedCommit} options.plannedCommit
  * @param {number} options.commitIndex
  * @param {number} options.parentIssueNumber
- * @param {number[]} options.childIssueNumbers
+ * @param {number[]} options.ticketNumbers
  * @returns {{ valid: true } | { valid: false, reason: string }}
  */
 function validatePlannerCommitTraceability({
   plannedCommit,
   commitIndex,
   parentIssueNumber,
-  childIssueNumbers,
+  ticketNumbers,
 }) {
   const closingFooter = plannedCommit.footers.find(isGitHubClosingFooter);
   if (closingFooter !== undefined) {
@@ -110,23 +110,23 @@ function validatePlannerCommitTraceability({
   }
 
   const refs = readFooterNumbers(plannedCommit.footers, REFS_FOOTER_PATTERN);
-  const prds = readFooterNumbers(plannedCommit.footers, PRD_FOOTER_PATTERN);
-  const childIssueNumberSet = new Set(childIssueNumbers);
-  const childRefs = refs.filter(issueNumber => childIssueNumberSet.has(issueNumber));
+  const specs = readFooterNumbers(plannedCommit.footers, SPEC_FOOTER_PATTERN);
+  const ticketNumberSet = new Set(ticketNumbers);
+  const ticketRefs = refs.filter(issueNumber => ticketNumberSet.has(issueNumber));
   const unknownRefs = refs.filter(
-    issueNumber => issueNumber !== parentIssueNumber && !childIssueNumberSet.has(issueNumber),
+    issueNumber => issueNumber !== parentIssueNumber && !ticketNumberSet.has(issueNumber),
   );
 
   if (unknownRefs.length > 0) {
     return invalidPlannerCommitPlan(
-      `commitPlan.commits[${commitIndex}].footers references issue #${unknownRefs[0]}, which is neither PRD #${parentIssueNumber} nor a closed native Child Issue.`,
+      `commitPlan.commits[${commitIndex}].footers references issue #${unknownRefs[0]}, which is neither Spec #${parentIssueNumber} nor a closed native Ticket.`,
     );
   }
 
-  if (childRefs.length > 0) {
-    if (!prds.includes(parentIssueNumber)) {
+  if (ticketRefs.length > 0) {
+    if (!specs.includes(parentIssueNumber)) {
       return invalidPlannerCommitPlan(
-        `commitPlan.commits[${commitIndex}].footers must include PRD: #${parentIssueNumber} for Child Issue work.`,
+        `commitPlan.commits[${commitIndex}].footers must include Spec: #${parentIssueNumber} for Ticket work.`,
       );
     }
 
@@ -135,7 +135,7 @@ function validatePlannerCommitTraceability({
 
   if (!refs.includes(parentIssueNumber)) {
     return invalidPlannerCommitPlan(
-      `commitPlan.commits[${commitIndex}].footers must include Refs: #${parentIssueNumber} for PRD-level work or Refs: #<child> plus PRD: #${parentIssueNumber} for Child Issue work.`,
+      `commitPlan.commits[${commitIndex}].footers must include Refs: #${parentIssueNumber} for Spec-level work or Refs: #<ticket> plus Spec: #${parentIssueNumber} for Ticket work.`,
     );
   }
 

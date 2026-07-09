@@ -27,7 +27,7 @@ export function buildAddressPrReviewompt({
     '',
     `Goal: resolve every item of Actionable PR Feedback on PullOps-managed PR #${pullRequest.number} — with code, test, documentation, or explanation changes — while preserving the intent of the linked issue: ${pullRequest.title}`,
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     `Issue #${issue.number}: ${issue.title}`,
     issue.body.trim() || '(empty)',
     '',

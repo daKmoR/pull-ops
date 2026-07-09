@@ -6,13 +6,13 @@ import {
 } from '../../managed-pr/ManagedPrState.js';
 import { requireOperationCatalogOperationLabelName } from '../operationCatalog.js';
 import {
-  readChildIssuePrFacts,
+  readTicketPrFacts,
   readParentIssueFacts,
-} from '../../prd-automation/childCoordination.js';
+} from '../../spec-automation/ticketCoordination.js';
 import {
   createParentBranchName,
   hasPullOpsBranchPrefix,
-  parseChildIssueBranchName,
+  parseTicketBranchName,
   parseParentBranchName,
 } from '../branchNames.js';
 import { executeOperationPhase } from '../runnerLifecycle.js';
@@ -29,7 +29,7 @@ import { validatePlannerCommitPlan } from './commitPlan.js';
 import { validatePrFinalizeOutput } from './output.js';
 import { updatePullRequestBodyForPrFinalize } from './prBody.js';
 import { buildPrFinalizePrompt } from './prompt.js';
-import { resumePrdAutomationForParentIssue } from '../prd-automation/run.js';
+import { resumeSpecAutomationForParentIssue } from '../spec-automation/run.js';
 import { readLocalRunStateRecordFromDirectory } from '../../local-run-state/localRunState.js';
 
 /**
@@ -155,7 +155,7 @@ function buildLocalPrFinalizePrompt({ pullRequest, issue, reviewContext, changed
     '- You are a planner: propose commit grouping and commit messages only. Do not edit files, run commands, create commits, reset, stage, push, edit labels, update PR bodies, change review state, change checks, change draft state, post GitHub comments, or merge the pull request.',
     '- PullOps will validate the output and keep the result in the Local Run Record.',
     '',
-    'Linked issue or PRD context:',
+    'Linked issue or Spec context:',
     [`Issue #${issue.number}: ${issue.title}`, issue.body.trim() || '(empty)'].join('\n'),
     '',
     'Pull request body:',
@@ -427,10 +427,8 @@ async function preparePrFinalize(context) {
       pullRequest,
       sourceKind: source.sourceKind,
       sourceIssueNumber: source.sourceIssueNumber,
-      ...(source.sourceKind === 'childIssue'
-        ? { parentIssueNumber: source.parentIssueNumber }
-        : {}),
-      ...(source.sourceKind === 'parentIssue' ? { childIssues: source.childIssues } : {}),
+      ...(source.sourceKind === 'ticket' ? { parentIssueNumber: source.parentIssueNumber } : {}),
+      ...(source.sourceKind === 'parentIssue' ? { tickets: source.tickets } : {}),
       baseBranch: source.baseBranch,
       currentTreeHash,
       finalizedTreeHash: state.finalizedTreeHash,
@@ -530,7 +528,7 @@ async function preparePrFinalize(context) {
       pullRequest,
       sourceKind: 'parentIssue',
       sourceIssueNumber: source.sourceIssueNumber,
-      childIssues: source.childIssues,
+      tickets: source.tickets,
       baseBranch: source.baseBranch,
       currentTreeHash,
       reviewedTreeHash: state.reviewedTreeHash,
@@ -551,7 +549,7 @@ async function preparePrFinalize(context) {
       pullRequest,
       sourceKind: 'parentIssue',
       sourceIssueNumber: source.sourceIssueNumber,
-      childIssues: source.childIssues,
+      tickets: source.tickets,
       baseBranch: source.baseBranch,
       currentTreeHash,
       reviewedTreeHash: state.reviewedTreeHash,
@@ -568,8 +566,8 @@ async function preparePrFinalize(context) {
     pullRequest,
     sourceKind: source.sourceKind,
     sourceIssueNumber: source.sourceIssueNumber,
-    ...(source.sourceKind === 'childIssue' ? { parentIssueNumber: source.parentIssueNumber } : {}),
-    ...(source.sourceKind === 'parentIssue' ? { childIssues: source.childIssues } : {}),
+    ...(source.sourceKind === 'ticket' ? { parentIssueNumber: source.parentIssueNumber } : {}),
+    ...(source.sourceKind === 'parentIssue' ? { tickets: source.tickets } : {}),
     baseBranch: source.baseBranch,
     currentTreeHash,
     reviewedTreeHash: state.reviewedTreeHash,
@@ -615,51 +613,51 @@ async function preparePrFinalizeSource(
     };
   }
 
-  const childFacts = await readChildIssuePrFacts(context, {
+  const ticketFacts = await readTicketPrFacts(context, {
     sourceIssueNumber,
   });
   const sourceIssue =
-    childFacts?.sourceIssue ?? (await context.githubClient.getIssue(sourceIssueNumber));
-  const childBranch = parseChildIssueBranchName({
+    ticketFacts?.sourceIssue ?? (await context.githubClient.getIssue(sourceIssueNumber));
+  const ticketBranch = parseTicketBranchName({
     branchPrefix: context.config.branchPrefix,
     branchName: pullRequest.headRefName,
   });
-  const targetPrdBranch = parseParentBranchName({
+  const targetSpecBranch = parseParentBranchName({
     branchPrefix: context.config.branchPrefix,
     branchName: baseBranch,
   });
 
-  if (childFacts !== undefined) {
-    return await prepareChildIssueSource(context, pullRequest, {
+  if (ticketFacts !== undefined) {
+    return await prepareTicketSource(context, pullRequest, {
       baseBranch,
-      childBranch,
-      childFacts,
+      ticketBranch,
+      ticketFacts,
     });
   }
 
-  if (targetPrdBranch !== undefined) {
+  if (targetSpecBranch !== undefined) {
     return {
       ready: false,
       output: await blockPullRequest(
         context,
         pullRequest,
         [
-          `PR #${pullRequest.number} targets PRD branch "${baseBranch}",`,
-          `but source issue #${sourceIssue.number} is not a native child of`,
-          `PRD issue #${targetPrdBranch.parentNumber}.`,
+          `PR #${pullRequest.number} targets Spec branch "${baseBranch}",`,
+          `but source issue #${sourceIssue.number} is not a native ticket of`,
+          `Spec issue #${targetSpecBranch.parentNumber}.`,
         ].join(' '),
       ),
     };
   }
 
-  if (childBranch !== undefined) {
+  if (ticketBranch !== undefined) {
     return {
       ready: false,
       output: await blockPullRequest(
         context,
         pullRequest,
         [
-          `PR #${pullRequest.number} uses Child Issue branch "${pullRequest.headRefName}",`,
+          `PR #${pullRequest.number} uses Ticket branch "${pullRequest.headRefName}",`,
           `but source issue #${sourceIssue.number} has no native parent issue.`,
         ].join(' '),
       ),
@@ -716,7 +714,7 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
         pullRequest,
         [
           `PR #${pullRequest.number} uses Parent Issue source #${sourceIssue.number},`,
-          `but that issue is a native child of issue #${sourceIssue.parent.number}.`,
+          `but that issue is a native ticket of issue #${sourceIssue.parent.number}.`,
         ].join(' '),
       ),
     };
@@ -733,7 +731,7 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
         context,
         pullRequest,
         [
-          `Umbrella PRD PR #${pullRequest.number} uses head branch`,
+          `Umbrella Spec PR #${pullRequest.number} uses head branch`,
           `"${pullRequest.headRefName}", but Parent Issue #${sourceIssue.number}`,
           `must use "${expectedBranch}".`,
         ].join(' '),
@@ -748,7 +746,7 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
         context,
         pullRequest,
         [
-          `Umbrella PRD PR #${pullRequest.number} targets "${baseBranch}",`,
+          `Umbrella Spec PR #${pullRequest.number} targets "${baseBranch}",`,
           `but Parent Issue #${sourceIssue.number} must target default branch`,
           `"${context.config.baseBranch}".`,
         ].join(' '),
@@ -756,17 +754,17 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
     };
   }
 
-  const openChildIssues = parentFacts.openChildIssues;
-  if (openChildIssues.length > 0) {
+  const openTickets = parentFacts.openTickets;
+  if (openTickets.length > 0) {
     return {
       ready: false,
       output: await blockPullRequest(
         context,
         pullRequest,
         [
-          `Umbrella PRD PR #${pullRequest.number} is incomplete because native Child Issues`,
-          `${formatIssueList(openChildIssues)} remain open.`,
-          'Incomplete PRDs cannot become merge-ready.',
+          `Umbrella Spec PR #${pullRequest.number} is incomplete because native Tickets`,
+          `${formatIssueList(openTickets)} remain open.`,
+          'Incomplete specs cannot become merge-ready.',
         ].join(' '),
       ),
     };
@@ -778,8 +776,8 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
     sourceIssueNumber: sourceIssue.number,
     baseBranch,
     parentIssue: sourceIssue,
-    childIssues: parentFacts.childIssues,
-    closedChildIssues: parentFacts.closedChildIssues,
+    tickets: parentFacts.tickets,
+    closedTickets: parentFacts.closedTickets,
   };
 }
 
@@ -788,16 +786,16 @@ async function prepareParentIssueSource(context, pullRequest, { baseBranch, sour
  * @param {GitHubPullRequest} pullRequest
  * @param {object} options
  * @param {string} options.baseBranch
- * @param {{ parentNumber: number, issueNumber: number } | undefined} options.childBranch
- * @param {import('../../prd-automation/childCoordination.types.js').ChildIssuePrFacts} options.childFacts
+ * @param {{ parentNumber: number, issueNumber: number } | undefined} options.ticketBranch
+ * @param {import('../../spec-automation/ticketCoordination.types.js').TicketPrFacts} options.ticketFacts
  * @returns {Promise<PrFinalizeSource>}
  */
-async function prepareChildIssueSource(
+async function prepareTicketSource(
   context,
   pullRequest,
-  { baseBranch, childBranch, childFacts },
+  { baseBranch, ticketBranch, ticketFacts },
 ) {
-  const { expectedBaseBranch, expectedChildBranch, parentIssueNumber, sourceIssue } = childFacts;
+  const { expectedBaseBranch, expectedTicketBranch, parentIssueNumber, sourceIssue } = ticketFacts;
 
   if (baseBranch === context.config.baseBranch) {
     return {
@@ -806,32 +804,32 @@ async function prepareChildIssueSource(
         context,
         pullRequest,
         [
-          `Child Issue #${sourceIssue.number} belongs to PRD issue #${parentIssueNumber},`,
+          `Ticket #${sourceIssue.number} belongs to Spec issue #${parentIssueNumber},`,
           `but PR #${pullRequest.number} targets default branch "${context.config.baseBranch}".`,
-          `It must target PRD branch "${expectedBaseBranch}".`,
+          `It must target Spec branch "${expectedBaseBranch}".`,
         ].join(' '),
       ),
     };
   }
 
-  if (childBranch === undefined) {
+  if (ticketBranch === undefined) {
     return {
       ready: false,
       output: await blockPullRequest(
         context,
         pullRequest,
         [
-          `Child Issue PR #${pullRequest.number} uses head branch "${pullRequest.headRefName}",`,
-          `but native Child Issue #${sourceIssue.number} in PRD issue #${parentIssueNumber}`,
-          `must use "${expectedChildBranch}".`,
+          `Ticket PR #${pullRequest.number} uses head branch "${pullRequest.headRefName}",`,
+          `but native Ticket #${sourceIssue.number} in Spec issue #${parentIssueNumber}`,
+          `must use "${expectedTicketBranch}".`,
         ].join(' '),
       ),
     };
   }
 
   if (
-    childBranch.issueNumber !== sourceIssue.number ||
-    childBranch.parentNumber !== parentIssueNumber
+    ticketBranch.issueNumber !== sourceIssue.number ||
+    ticketBranch.parentNumber !== parentIssueNumber
   ) {
     return {
       ready: false,
@@ -839,9 +837,9 @@ async function prepareChildIssueSource(
         context,
         pullRequest,
         [
-          `Child Issue PR #${pullRequest.number} head branch "${pullRequest.headRefName}"`,
-          `does not match native Child Issue #${sourceIssue.number} in`,
-          `PRD issue #${parentIssueNumber}.`,
+          `Ticket PR #${pullRequest.number} head branch "${pullRequest.headRefName}"`,
+          `does not match native Ticket #${sourceIssue.number} in`,
+          `Spec issue #${parentIssueNumber}.`,
         ].join(' '),
       ),
     };
@@ -854,9 +852,9 @@ async function prepareChildIssueSource(
         context,
         pullRequest,
         [
-          `Child Issue PR #${pullRequest.number} targets "${baseBranch}",`,
-          `but native Child Issue #${sourceIssue.number} must target`,
-          `PRD branch "${expectedBaseBranch}".`,
+          `Ticket PR #${pullRequest.number} targets "${baseBranch}",`,
+          `but native Ticket #${sourceIssue.number} must target`,
+          `Spec branch "${expectedBaseBranch}".`,
         ].join(' '),
       ),
     };
@@ -864,7 +862,7 @@ async function prepareChildIssueSource(
 
   return {
     ready: true,
-    sourceKind: 'childIssue',
+    sourceKind: 'ticket',
     sourceIssueNumber: sourceIssue.number,
     parentIssueNumber,
     baseBranch,
@@ -910,7 +908,7 @@ async function createPrFinalizeCommitPlan(context, pullRequest, source) {
       {
         message: createPrFinalizeCommitMessage(
           source.sourceIssueNumber,
-          source.sourceKind === 'childIssue' ? source.parentIssueNumber : undefined,
+          source.sourceKind === 'ticket' ? source.parentIssueNumber : undefined,
         ),
         files: changedFiles,
       },
@@ -944,7 +942,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
   const analysis = analyzeParentIssueHistory({
     commits: history,
     parentIssueNumber: source.sourceIssueNumber,
-    closedChildIssues: source.closedChildIssues,
+    closedTickets: source.closedTickets,
   });
 
   if (!analysis.valid) {
@@ -972,7 +970,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
           output: await refusePullRequest(
             context,
             pullRequest,
-            `Umbrella PRD PR #${pullRequest.number} has no changed files to finalize.`,
+            `Umbrella Spec PR #${pullRequest.number} has no changed files to finalize.`,
             { updateBody: true },
           ),
         };
@@ -989,7 +987,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
         prompt: buildPrFinalizePrompt({
           pullRequest,
           parentIssue: source.parentIssue,
-          closedChildIssues: source.closedChildIssues,
+          closedTickets: source.closedTickets,
           ambiguousReason: analysis.reason,
           commits: history,
           reviewContext,
@@ -1020,7 +1018,7 @@ async function createParentIssueCommitPlan(context, pullRequest, source) {
       output: await refusePullRequest(
         context,
         pullRequest,
-        `Umbrella PRD PR #${pullRequest.number} has no child issue work to finalize.`,
+        `Umbrella Spec PR #${pullRequest.number} has no ticket work to finalize.`,
         { updateBody: true },
       ),
     };
@@ -1062,32 +1060,32 @@ function readUniqueFiles(commits) {
  * @param {object} options
  * @param {GitCommit[]} options.commits
  * @param {number} options.parentIssueNumber
- * @param {GitHubIssueReference[]} options.closedChildIssues
+ * @param {GitHubIssueReference[]} options.closedTickets
  * @returns {{ valid: true, commits: PlannedRewriteCommit[], existingCommitShas?: string[] } | { valid: false, reason: string, fallbackAllowed?: boolean }}
  */
-function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssues }) {
-  const closedChildNumbers = new Set(closedChildIssues.map(childIssue => childIssue.number));
+function analyzeParentIssueHistory({ commits, parentIssueNumber, closedTickets }) {
+  const closedTicketNumbers = new Set(closedTickets.map(ticket => ticket.number));
   /** @type {Map<number, Set<string>>} */
-  const filesByChildIssue = new Map();
-  /** @type {Array<{ childIssueNumber: number, commit: GitCommit }>} */
-  const childCommitEntries = [];
+  const filesByTicket = new Map();
+  /** @type {Array<{ ticketNumber: number, commit: GitCommit }>} */
+  const ticketCommitEntries = [];
   /** @type {PlannedRewriteCommit[]} */
   const parentLevelCommits = [];
 
   for (const commit of commits) {
-    const childIssueNumber = readChildIssueNumberFromCommit({
+    const ticketNumber = readTicketNumberFromCommit({
       commit,
       parentIssueNumber,
-      closedChildNumbers,
+      closedTicketNumbers,
     });
 
-    if (childIssueNumber !== undefined) {
-      const files = filesByChildIssue.get(childIssueNumber) ?? new Set();
+    if (ticketNumber !== undefined) {
+      const files = filesByTicket.get(ticketNumber) ?? new Set();
       for (const file of commit.files) {
         files.add(file);
       }
-      filesByChildIssue.set(childIssueNumber, files);
-      childCommitEntries.push({ childIssueNumber, commit });
+      filesByTicket.set(ticketNumber, files);
+      ticketCommitEntries.push({ ticketNumber, commit });
       continue;
     }
 
@@ -1104,34 +1102,32 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
     return {
       valid: false,
       reason: [
-        `Umbrella PRD history contains commit ${commit.sha} that is not traceable to`,
-        `a closed native Child Issue of PRD #${parentIssueNumber} or explicit PRD-level work.`,
+        `Umbrella Spec history contains commit ${commit.sha} that is not traceable to`,
+        `a closed native Ticket of Spec #${parentIssueNumber} or explicit Spec-level work.`,
       ].join(' '),
       fallbackAllowed: true,
     };
   }
 
-  const missingChildIssues = closedChildIssues.filter(
-    childIssue => !filesByChildIssue.has(childIssue.number),
-  );
-  if (missingChildIssues.length > 0) {
+  const missingTickets = closedTickets.filter(ticket => !filesByTicket.has(ticket.number));
+  if (missingTickets.length > 0) {
     return {
       valid: false,
       reason: [
-        `Umbrella PRD history is missing closed native Child Issues`,
-        `${formatIssueList(missingChildIssues)}.`,
-        'Closed child work cannot be omitted from the finalized PRD branch.',
+        `Umbrella Spec history is missing closed native Tickets`,
+        `${formatIssueList(missingTickets)}.`,
+        'Closed ticket work cannot be omitted from the finalized Spec branch.',
       ].join(' '),
     };
   }
 
-  const overlappingChildFiles = findOverlappingChildFiles(filesByChildIssue);
-  if (overlappingChildFiles.length > 0) {
-    const reusableHistory = findReusableExistingChildHistory({
-      childCommitEntries,
+  const overlappingTicketFiles = findOverlappingTicketFiles(filesByTicket);
+  if (overlappingTicketFiles.length > 0) {
+    const reusableHistory = findReusableExistingTicketHistory({
+      ticketCommitEntries,
       parentLevelCommits,
       parentIssueNumber,
-      closedChildIssues,
+      closedTickets,
     });
 
     if (reusableHistory.valid) {
@@ -1145,11 +1141,11 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
     return {
       valid: false,
       reason: [
-        'Umbrella PRD history contains overlapping Child Issue file edits:',
-        `${formatOverlappingChildFiles(overlappingChildFiles)}.`,
-        'PullOps can finalize overlapping child edits only when the existing history',
-        'already contains one deterministic Child Issue Commit per closed native Child Issue',
-        `in native Child Issue order. ${reusableHistory.reason}`,
+        'Umbrella Spec history contains overlapping Ticket file edits:',
+        `${formatOverlappingTicketFiles(overlappingTicketFiles)}.`,
+        'PullOps can finalize overlapping ticket edits only when the existing history',
+        'already contains one deterministic Ticket Commit per closed native Ticket',
+        `in native Ticket order. ${reusableHistory.reason}`,
       ].join(' '),
     };
   }
@@ -1158,84 +1154,84 @@ function analyzeParentIssueHistory({ commits, parentIssueNumber, closedChildIssu
     valid: true,
     commits: [
       ...parentLevelCommits,
-      ...closedChildIssues.map(childIssue => ({
-        message: createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue),
-        files: [...(filesByChildIssue.get(childIssue.number) ?? [])],
+      ...closedTickets.map(ticket => ({
+        message: createPrFinalizeParentTicketCommitMessage(parentIssueNumber, ticket),
+        files: [...(filesByTicket.get(ticket.number) ?? [])],
       })),
     ],
   };
 }
 
 /**
- * @param {Map<number, Set<string>>} filesByChildIssue
- * @returns {Array<{ file: string, childIssueNumbers: number[] }>}
+ * @param {Map<number, Set<string>>} filesByTicket
+ * @returns {Array<{ file: string, ticketNumbers: number[] }>}
  */
-function findOverlappingChildFiles(filesByChildIssue) {
+function findOverlappingTicketFiles(filesByTicket) {
   /** @type {Map<string, number[]>} */
-  const childIssueNumbersByFile = new Map();
+  const ticketNumbersByFile = new Map();
 
-  for (const [childIssueNumber, files] of filesByChildIssue.entries()) {
+  for (const [ticketNumber, files] of filesByTicket.entries()) {
     for (const file of files) {
-      const childIssueNumbers = childIssueNumbersByFile.get(file) ?? [];
-      childIssueNumbers.push(childIssueNumber);
-      childIssueNumbersByFile.set(file, childIssueNumbers);
+      const ticketNumbers = ticketNumbersByFile.get(file) ?? [];
+      ticketNumbers.push(ticketNumber);
+      ticketNumbersByFile.set(file, ticketNumbers);
     }
   }
 
-  return [...childIssueNumbersByFile.entries()]
-    .filter(([, childIssueNumbers]) => childIssueNumbers.length > 1)
-    .map(([file, childIssueNumbers]) => ({ file, childIssueNumbers }));
+  return [...ticketNumbersByFile.entries()]
+    .filter(([, ticketNumbers]) => ticketNumbers.length > 1)
+    .map(([file, ticketNumbers]) => ({ file, ticketNumbers }));
 }
 
 /**
  * @param {object} options
- * @param {Array<{ childIssueNumber: number, commit: GitCommit }>} options.childCommitEntries
+ * @param {Array<{ ticketNumber: number, commit: GitCommit }>} options.ticketCommitEntries
  * @param {PlannedRewriteCommit[]} options.parentLevelCommits
  * @param {number} options.parentIssueNumber
- * @param {GitHubIssueReference[]} options.closedChildIssues
+ * @param {GitHubIssueReference[]} options.closedTickets
  * @returns {{ valid: true, commitShas: string[] } | { valid: false, reason: string }}
  */
-function findReusableExistingChildHistory({
-  childCommitEntries,
+function findReusableExistingTicketHistory({
+  ticketCommitEntries,
   parentLevelCommits,
   parentIssueNumber,
-  closedChildIssues,
+  closedTickets,
 }) {
   if (parentLevelCommits.length > 0) {
     return {
       valid: false,
-      reason: 'The existing history also contains explicit PRD-level file changes.',
+      reason: 'The existing history also contains explicit Spec-level file changes.',
     };
   }
 
-  if (childCommitEntries.length !== closedChildIssues.length) {
+  if (ticketCommitEntries.length !== closedTickets.length) {
     return {
       valid: false,
       reason: [
-        `The existing history has ${childCommitEntries.length} Child Issue commits,`,
-        `but PRD #${parentIssueNumber} has ${closedChildIssues.length} closed native Child Issues.`,
+        `The existing history has ${ticketCommitEntries.length} Ticket commits,`,
+        `but Spec #${parentIssueNumber} has ${closedTickets.length} closed native Tickets.`,
       ].join(' '),
     };
   }
 
-  for (const [index, childIssue] of closedChildIssues.entries()) {
-    const entry = childCommitEntries[index];
-    if (entry === undefined || entry.childIssueNumber !== childIssue.number) {
+  for (const [index, ticket] of closedTickets.entries()) {
+    const entry = ticketCommitEntries[index];
+    if (entry === undefined || entry.ticketNumber !== ticket.number) {
       return {
         valid: false,
         reason: [
-          `The existing Child Issue commit order is ${formatChildCommitOrder(childCommitEntries)},`,
-          `but native Child Issue order is ${formatIssueList(closedChildIssues)}.`,
+          `The existing Ticket commit order is ${formatTicketCommitOrder(ticketCommitEntries)},`,
+          `but native Ticket order is ${formatIssueList(closedTickets)}.`,
         ].join(' '),
       };
     }
 
-    const expectedMessage = createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue);
+    const expectedMessage = createPrFinalizeParentTicketCommitMessage(parentIssueNumber, ticket);
     if (entry.commit.body !== expectedMessage) {
       return {
         valid: false,
         reason: [
-          `Commit ${entry.commit.sha} for Child Issue #${childIssue.number}`,
+          `Commit ${entry.commit.sha} for Ticket #${ticket.number}`,
           'does not match the deterministic PR Finalize commit message.',
         ].join(' '),
       };
@@ -1244,33 +1240,33 @@ function findReusableExistingChildHistory({
 
   return {
     valid: true,
-    commitShas: childCommitEntries.map(entry => entry.commit.sha),
+    commitShas: ticketCommitEntries.map(entry => entry.commit.sha),
   };
 }
 
 /**
- * @param {Array<{ file: string, childIssueNumbers: number[] }>} overlappingChildFiles
+ * @param {Array<{ file: string, ticketNumbers: number[] }>} overlappingTicketFiles
  * @returns {string}
  */
-function formatOverlappingChildFiles(overlappingChildFiles) {
-  return overlappingChildFiles
+function formatOverlappingTicketFiles(overlappingTicketFiles) {
+  return overlappingTicketFiles
     .map(
-      ({ file, childIssueNumbers }) =>
-        `${file} (${childIssueNumbers.map(issueNumber => `#${issueNumber}`).join(', ')})`,
+      ({ file, ticketNumbers }) =>
+        `${file} (${ticketNumbers.map(issueNumber => `#${issueNumber}`).join(', ')})`,
     )
     .join('; ');
 }
 
 /**
- * @param {Array<{ childIssueNumber: number }>} childCommitEntries
+ * @param {Array<{ ticketNumber: number }>} ticketCommitEntries
  * @returns {string}
  */
-function formatChildCommitOrder(childCommitEntries) {
-  if (childCommitEntries.length === 0) {
+function formatTicketCommitOrder(ticketCommitEntries) {
+  if (ticketCommitEntries.length === 0) {
     return 'none';
   }
 
-  return childCommitEntries.map(entry => `#${entry.childIssueNumber}`).join(', ');
+  return ticketCommitEntries.map(entry => `#${entry.ticketNumber}`).join(', ');
 }
 
 /**
@@ -1314,7 +1310,7 @@ async function completePrFinalizePlannerFallback(context, preparation, rawOutput
     plannedCommits: validatedOutput.value.commitPlan.commits,
     changedFiles: preparation.changedFiles,
     parentIssueNumber: preparation.sourceIssueNumber,
-    childIssueNumbers: preparation.childIssues.map(childIssue => childIssue.number),
+    ticketNumbers: preparation.tickets.map(ticket => ticket.number),
   });
   if (!commitPlan.valid) {
     const reason = `Invalid PR Finalize Planner Output: ${commitPlan.reason}`;
@@ -1330,7 +1326,7 @@ async function completePrFinalizePlannerFallback(context, preparation, rawOutput
       pullRequest: preparation.pullRequest,
       sourceKind: preparation.sourceKind,
       sourceIssueNumber: preparation.sourceIssueNumber,
-      childIssues: preparation.childIssues,
+      tickets: preparation.tickets,
       baseBranch: preparation.baseBranch,
       currentTreeHash: preparation.currentTreeHash,
       reviewedTreeHash: preparation.reviewedTreeHash,
@@ -1357,7 +1353,7 @@ async function completePrFinalize(context, preparation, { operationAuditRecorded
     return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
       sourceIssueNumber: preparation.sourceIssueNumber,
       parentIssueNumber: preparation.parentIssueNumber,
-      childIssues: preparation.childIssues,
+      tickets: preparation.tickets,
       finalizedTreeHash: preparation.finalizedTreeHash,
       finalizedHeadSha: preparation.finalizedHeadSha,
       body: preparation.pullRequest.body,
@@ -1406,7 +1402,7 @@ async function completePrFinalize(context, preparation, { operationAuditRecorded
     body: preparation.pullRequest.body,
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
-    childIssues: preparation.childIssues,
+    tickets: preparation.tickets,
     finalizedTreeHash: rewriteResult.treeHash,
     finalizedHeadSha: rewriteResult.headSha,
   });
@@ -1418,7 +1414,7 @@ async function completePrFinalize(context, preparation, { operationAuditRecorded
   return await completeFinalizedHeadChecks(context, preparation.pullRequest, {
     sourceIssueNumber: preparation.sourceIssueNumber,
     parentIssueNumber: preparation.parentIssueNumber,
-    childIssues: preparation.childIssues,
+    tickets: preparation.tickets,
     finalizedTreeHash: rewriteResult.treeHash,
     finalizedHeadSha: rewriteResult.headSha,
     body: finalizedBody,
@@ -1467,10 +1463,10 @@ export function createPrFinalizeCommitMessage(sourceIssueNumber, parentIssueNumb
     return [
       `feat(issue): implement #${sourceIssueNumber}`,
       '',
-      `Finalize Child Issue #${sourceIssueNumber} for rebase merge into PRD #${parentIssueNumber}.`,
+      `Finalize Ticket #${sourceIssueNumber} for rebase merge into Spec #${parentIssueNumber}.`,
       '',
       `Refs: #${sourceIssueNumber}`,
-      `PRD: #${parentIssueNumber}`,
+      `Spec: #${parentIssueNumber}`,
     ].join('\n');
   }
 
@@ -1485,17 +1481,17 @@ export function createPrFinalizeCommitMessage(sourceIssueNumber, parentIssueNumb
 
 /**
  * @param {number} parentIssueNumber
- * @param {GitHubIssueReference} childIssue
+ * @param {GitHubIssueReference} ticket
  * @returns {string}
  */
-export function createPrFinalizeParentChildCommitMessage(parentIssueNumber, childIssue) {
+export function createPrFinalizeParentTicketCommitMessage(parentIssueNumber, ticket) {
   return [
-    `feat(issue): implement #${childIssue.number}`,
+    `feat(issue): implement #${ticket.number}`,
     '',
-    `Finalize Child Issue #${childIssue.number} for rebase merge into PRD #${parentIssueNumber}.`,
+    `Finalize Ticket #${ticket.number} for rebase merge into Spec #${parentIssueNumber}.`,
     '',
-    `Refs: #${childIssue.number}`,
-    `PRD: #${parentIssueNumber}`,
+    `Refs: #${ticket.number}`,
+    `Spec: #${parentIssueNumber}`,
   ].join('\n');
 }
 
@@ -1505,7 +1501,7 @@ export function createPrFinalizeParentChildCommitMessage(parentIssueNumber, chil
  */
 function countExpectedFinalizedCommits(source) {
   if (source.sourceKind === 'parentIssue') {
-    return source.closedChildIssues.length;
+    return source.closedTickets.length;
   }
 
   return 1;
@@ -1531,16 +1527,16 @@ async function readCommitsSinceBase(context, pullRequest, { baseBranch }) {
  * @param {object} options
  * @param {GitCommit} options.commit
  * @param {number} options.parentIssueNumber
- * @param {Set<number>} options.closedChildNumbers
+ * @param {Set<number>} options.closedTicketNumbers
  * @returns {number | undefined}
  */
-function readChildIssueNumberFromCommit({ commit, parentIssueNumber, closedChildNumbers }) {
-  if (!commitReferencesPrd(commit, parentIssueNumber)) {
+function readTicketNumberFromCommit({ commit, parentIssueNumber, closedTicketNumbers }) {
+  if (!commitReferencesSpec(commit, parentIssueNumber)) {
     return undefined;
   }
 
   const refs = readReferencedIssueNumbers(commit.body);
-  return refs.find(issueNumber => closedChildNumbers.has(issueNumber));
+  return refs.find(issueNumber => closedTicketNumbers.has(issueNumber));
 }
 
 /**
@@ -1550,7 +1546,7 @@ function readChildIssueNumberFromCommit({ commit, parentIssueNumber, closedChild
  */
 function isParentLevelCommit(commit, parentIssueNumber) {
   const refs = readReferencedIssueNumbers(commit.body);
-  return refs.includes(parentIssueNumber) && !commit.body.includes(`PRD: #${parentIssueNumber}`);
+  return refs.includes(parentIssueNumber) && !commit.body.includes(`Spec: #${parentIssueNumber}`);
 }
 
 /**
@@ -1558,8 +1554,8 @@ function isParentLevelCommit(commit, parentIssueNumber) {
  * @param {number} parentIssueNumber
  * @returns {boolean}
  */
-function commitReferencesPrd(commit, parentIssueNumber) {
-  return new RegExp(`^PRD:\\s+#${parentIssueNumber}\\s*$`, 'im').test(commit.body);
+function commitReferencesSpec(commit, parentIssueNumber) {
+  return new RegExp(`^Spec:\\s+#${parentIssueNumber}\\s*$`, 'im').test(commit.body);
 }
 
 /**
@@ -1595,7 +1591,7 @@ function formatIssueList(issues) {
  * @param {object} options
  * @param {number} options.sourceIssueNumber
  * @param {number | undefined} options.parentIssueNumber
- * @param {GitHubIssueReference[] | undefined} options.childIssues
+ * @param {GitHubIssueReference[] | undefined} options.tickets
  * @param {string} options.finalizedTreeHash
  * @param {string} options.finalizedHeadSha
  * @param {string} options.body
@@ -1609,7 +1605,7 @@ async function completeFinalizedHeadChecks(
   {
     sourceIssueNumber,
     parentIssueNumber,
-    childIssues,
+    tickets,
     finalizedTreeHash,
     finalizedHeadSha,
     body,
@@ -1640,7 +1636,7 @@ async function completeFinalizedHeadChecks(
     body,
     sourceIssueNumber,
     parentIssueNumber,
-    childIssues,
+    tickets,
     finalizedTreeHash,
     finalizedHeadSha,
     status: 'ready',
@@ -1677,12 +1673,12 @@ async function completeFinalizedHeadChecks(
     });
   }
 
-  const prdAutomation =
+  const specAutomation =
     parentIssueNumber === undefined
       ? undefined
-      : context.resumeParentPrdAutomationAfterPrFinalize === false
+      : context.resumeParentSpecAutomationAfterPrFinalize === false
         ? undefined
-        : await resumePrdAutomationForParentIssue(context, parentIssueNumber);
+        : await resumeSpecAutomationForParentIssue(context, parentIssueNumber);
 
   return {
     status: 'accepted',
@@ -1698,7 +1694,7 @@ async function completeFinalizedHeadChecks(
       mergeMethod: 'rebase',
       readyForReview: true,
     },
-    ...(prdAutomation === undefined ? {} : { prdAutomation }),
+    ...(specAutomation === undefined ? {} : { specAutomation }),
   };
 }
 

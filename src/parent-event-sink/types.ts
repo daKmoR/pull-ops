@@ -5,14 +5,14 @@ export interface PullOpsParentEventSinkChildEnvironment extends NodeJS.ProcessEn
   PULLOPS_PARENT_EVENT_SINK_TOKEN: string;
   PULLOPS_PARENT_RUN_ID: string;
   PULLOPS_CHILD_RUN_ID: string;
-  PULLOPS_CHILD_ISSUE_NUMBER: string;
+  PULLOPS_TICKET_NUMBER: string;
   PULLOPS_CHILD_LOCAL_RUN_RECORD: string;
   PULLOPS_CHILD_RUN_STATE_PATH: string;
 }
 
 export interface PullOpsParentEventSinkChildRoute {
   childRunLink: LocalRunRunLink;
-  childIssueNumber: number;
+  ticketNumber: number;
   localRunRecord: string;
 }
 

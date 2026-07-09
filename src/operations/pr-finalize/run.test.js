@@ -198,21 +198,21 @@ describe('runPrFinalize', () => {
     assert.equal(github.comments.length, 1);
   });
 
-  it('03: rewrites a Child Issue PR against its PRD branch with non-closing traceability', async () => {
-    const repository = await createTemporaryChildRepository();
+  it('03: rewrites a Ticket PR against its Spec branch with non-closing traceability', async () => {
+    const repository = await createTemporaryTicketRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
-    const childIssue = createIssue({
-      parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
-      body: '## Parent\n\nPart of: #999\n\n## What to build\n\nDo child work.',
+    const ticket = createIssue({
+      parent: createIssueReference({ number: 7, title: 'Spec: Parent workflow' }),
+      body: '## Parent\n\nPart of: #999\n\n## What to build\n\nDo ticket work.',
     });
     const github = createFakeGitHub({
-      issue: childIssue,
+      issue: ticket,
       pullRequest: createPullRequest({
-        headRefName: 'pullops/prd-7-issue-42',
+        headRefName: 'pullops/spec-7-issue-42',
         headSha: reviewedHead,
-        baseRefName: 'pullops/prd-7',
+        baseRefName: 'pullops/spec-7',
         body: createPullRequestBody({
           reviewedTree,
           parentIssueNumber: 7,
@@ -232,16 +232,16 @@ describe('runPrFinalize', () => {
 
     assert.equal(firstResult.status, 'accepted');
     assert.equal(codex.calls.length, 0);
-    assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/prd-7'), 1);
+    assert.equal(await countCommitsSinceBase(repository.workDir, 'origin/pullops/spec-7'), 1);
     assert.equal(await readTreeHash(repository.workDir), reviewedTree);
-    assert.deepEqual(await readCommitMessages(repository.workDir, 'origin/pullops/prd-7'), [
+    assert.deepEqual(await readCommitMessages(repository.workDir, 'origin/pullops/spec-7'), [
       [
         'feat(issue): implement #42',
         '',
-        'Finalize Child Issue #42 for rebase merge into PRD #7.',
+        'Finalize Ticket #42 for rebase merge into Spec #7.',
         '',
         'Refs: #42',
-        'PRD: #7',
+        'Spec: #7',
       ].join('\n'),
     ]);
 
@@ -272,13 +272,13 @@ describe('runPrFinalize', () => {
     assert.match(readyBody, /Status: Ready for human merge/);
   });
 
-  it('04: blocks child PRs targeting default and non-child PRs targeting PRD branches', async () => {
-    const childDefault = createFakeGitHub({
+  it('04: blocks ticket PRs targeting default and non-ticket PRs targeting Spec branches', async () => {
+    const ticketDefault = createFakeGitHub({
       issue: createIssue({
-        parent: createIssueReference({ number: 7, title: 'PRD: Parent workflow' }),
+        parent: createIssueReference({ number: 7, title: 'Spec: Parent workflow' }),
       }),
       pullRequest: createPullRequest({
-        headRefName: 'pullops/prd-7-issue-42',
+        headRefName: 'pullops/spec-7-issue-42',
         baseRefName: 'main',
         body: createPullRequestBody({
           parentIssueNumber: 7,
@@ -286,38 +286,38 @@ describe('runPrFinalize', () => {
       }),
     });
 
-    const childDefaultResult = await runPrFinalize(
+    const ticketDefaultResult = await runPrFinalize(
       createContext({
-        githubClient: childDefault.client,
+        githubClient: ticketDefault.client,
       }),
     );
 
-    assert.equal(childDefaultResult.status, 'blocked');
-    assert.match(childDefault.comments[0].body, /targets default branch/);
-    assert.match(childDefault.comments[0].body, /pullops\/prd-7/);
+    assert.equal(ticketDefaultResult.status, 'blocked');
+    assert.match(ticketDefault.comments[0].body, /targets default branch/);
+    assert.match(ticketDefault.comments[0].body, /pullops\/spec-7/);
 
-    const nonChildPrd = createFakeGitHub({
+    const nonTicketSpec = createFakeGitHub({
       issue: createIssue({
-        body: '## Parent\n\nPart of: #7\n\n## What to build\n\nPretend to be a child.',
+        body: '## Parent\n\nPart of: #7\n\n## What to build\n\nPretend to be a ticket.',
       }),
       pullRequest: createPullRequest({
-        headRefName: 'pullops/prd-7-issue-42',
-        baseRefName: 'pullops/prd-7',
+        headRefName: 'pullops/spec-7-issue-42',
+        baseRefName: 'pullops/spec-7',
         body: createPullRequestBody({
           parentIssueNumber: 7,
         }),
       }),
     });
 
-    const nonChildPrdResult = await runPrFinalize(
+    const nonTicketSpecResult = await runPrFinalize(
       createContext({
-        githubClient: nonChildPrd.client,
+        githubClient: nonTicketSpec.client,
       }),
     );
 
-    assert.equal(nonChildPrdResult.status, 'blocked');
-    assert.match(nonChildPrd.comments[0].body, /not a native child/);
-    assert.match(nonChildPrd.comments[0].body, /PRD issue #7/);
+    assert.equal(nonTicketSpecResult.status, 'blocked');
+    assert.match(nonTicketSpec.comments[0].body, /not a native ticket/);
+    assert.match(nonTicketSpec.comments[0].body, /Spec issue #7/);
   });
 
   it('05: waits, routes, or blocks from reviewed-head check state before rewriting', async () => {
@@ -489,22 +489,22 @@ describe('runPrFinalize', () => {
     assert.match(missingReviewedTree.github.comments[0].body, /Reviewed tree marker/);
   });
 
-  it('09: blocks incomplete Umbrella PRD PRs while native child issues remain open', async () => {
+  it('09: blocks incomplete Umbrella Spec PRs while native tickets remain open', async () => {
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
-        title: 'PRD: Parent workflow',
+        title: 'Spec: Parent workflow',
         subIssues: [
           createIssueReference({
             number: 21,
-            title: 'First child',
+            title: 'First ticket',
             state: 'OPEN',
           }),
         ],
       }),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         baseRefName: 'main',
         body: createParentPullRequestBody(),
       }),
@@ -517,34 +517,34 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(github.comments[0].body, /native Child Issues #21 remain open/);
-    assert.match(github.comments[0].body, /Incomplete PRDs cannot become merge-ready/);
+    assert.match(github.comments[0].body, /native Tickets #21 remain open/);
+    assert.match(github.comments[0].body, /Incomplete specs cannot become merge-ready/);
   });
 
-  it('10: blocks Umbrella PRD PRs when closed native child issues are missing from history', async () => {
-    const repository = await createTemporaryParentRepository({ childOrder: [21] });
+  it('10: blocks Umbrella Spec PRs when closed native tickets are missing from history', async () => {
+    const repository = await createTemporaryParentRepository({ ticketOrder: [21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
-        title: 'PRD: Parent workflow',
+        title: 'Spec: Parent workflow',
         subIssues: [
           createIssueReference({
             number: 21,
-            title: 'First child',
+            title: 'First ticket',
             state: 'CLOSED',
           }),
           createIssueReference({
             number: 22,
-            title: 'Second child',
+            title: 'Second ticket',
             state: 'CLOSED',
           }),
         ],
       }),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -561,35 +561,35 @@ describe('runPrFinalize', () => {
     );
 
     assert.equal(result.status, 'blocked');
-    assert.match(github.comments[0].body, /missing closed native Child Issues #22/);
+    assert.match(github.comments[0].body, /missing closed native Tickets #22/);
     assert.equal(await countCommitsSinceBase(repository.workDir), 2);
   });
 
-  it('11: finalizes Umbrella PRD PR commits in native child issue order and marks ready when finalized-head checks are absent', async () => {
-    const repository = await createTemporaryParentRepository({ childOrder: [22, 21] });
+  it('11: finalizes Umbrella Spec PR commits in native ticket order and marks ready when finalized-head checks are absent', async () => {
+    const repository = await createTemporaryParentRepository({ ticketOrder: [22, 21] });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
     const github = createFakeGitHub({
       issue: createIssue({
         number: 7,
-        title: 'PRD: Parent workflow',
+        title: 'Spec: Parent workflow',
         subIssues: [
           createIssueReference({
             number: 21,
-            title: 'First child',
+            title: 'First ticket',
             state: 'CLOSED',
           }),
           createIssueReference({
             number: 22,
-            title: 'Second child',
+            title: 'Second ticket',
             state: 'CLOSED',
           }),
         ],
       }),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -626,11 +626,11 @@ describe('runPrFinalize', () => {
     assert.equal(readMarker(readyBody, 'Merge method:'), 'rebase');
     assert.match(readyBody, /Status: Ready for human merge/);
     assert.match(readyBody, /Closes #7/);
-    assert.doesNotMatch(readyBody, /#999 stale child/);
-    assert.match(readyBody, /#21 First child \(closed\)/);
-    assert.match(readyBody, /#22 Second child \(closed\)/);
+    assert.doesNotMatch(readyBody, /#999 stale ticket/);
+    assert.match(readyBody, /#21 First ticket \(closed\)/);
+    assert.match(readyBody, /#22 Second ticket \(closed\)/);
     assert.equal(
-      readyBody.indexOf('#21 First child') < readyBody.indexOf('#22 Second child'),
+      readyBody.indexOf('#21 First ticket') < readyBody.indexOf('#22 Second ticket'),
       true,
     );
     const prFinalize = /** @type {{ commits: number }} */ (firstResult.prFinalize);
@@ -648,19 +648,19 @@ describe('runPrFinalize', () => {
     });
   });
 
-  it('12: finalizes already-ordered Umbrella PRD child commits that edit the same file', async () => {
+  it('12: finalizes already-ordered Umbrella Spec ticket commits that edit the same file', async () => {
     const repository = await createTemporaryParentRepository({
-      childOrder: [21, 22],
-      sharedChildFile: 'src/shared-child-work.js',
+      ticketOrder: [21, 22],
+      sharedTicketFile: 'src/shared-ticket-work.js',
     });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -688,19 +688,19 @@ describe('runPrFinalize', () => {
     assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
   });
 
-  it('13: blocks overlapping Umbrella PRD child file edits that are not in native child issue order', async () => {
+  it('13: blocks overlapping Umbrella Spec ticket file edits that are not in native ticket order', async () => {
     const repository = await createTemporaryParentRepository({
-      childOrder: [22, 21],
-      sharedChildFile: 'src/shared-child-work.js',
+      ticketOrder: [22, 21],
+      sharedTicketFile: 'src/shared-ticket-work.js',
     });
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -719,16 +719,16 @@ describe('runPrFinalize', () => {
 
     assert.equal(result.status, 'blocked');
     assert.equal(codex.calls.length, 0);
-    assert.match(github.comments[0].body, /overlapping Child Issue file edits/);
-    assert.match(github.comments[0].body, /src\/shared-child-work\.js/);
+    assert.match(github.comments[0].body, /overlapping Ticket file edits/);
+    assert.match(github.comments[0].body, /src\/shared-ticket-work\.js/);
     assert.match(github.comments[0].body, /#21/);
     assert.match(github.comments[0].body, /#22/);
-    assert.match(github.comments[0].body, /native Child Issue order/);
+    assert.match(github.comments[0].body, /native Ticket order/);
     assert.doesNotMatch(github.comments[0].body, /Commit Plan commit/);
     assert.equal(await countCommitsSinceBase(repository.workDir), 3);
   });
 
-  it('14: invokes the fallback planner for ambiguous Umbrella PRD history by default', async () => {
+  it('14: invokes the fallback planner for ambiguous Umbrella Spec history by default', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
@@ -736,10 +736,10 @@ describe('runPrFinalize', () => {
       output: createPlannerOutput({ justification: '' }),
     });
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -772,17 +772,17 @@ describe('runPrFinalize', () => {
     assert.equal(readMarker(github.updatedBodies[0].body, 'Finalized tree:'), reviewedTree);
   });
 
-  it('14b: prepares a waiting external runner handoff for ambiguous Umbrella PRD history', async () => {
+  it('14b: prepares a waiting external runner handoff for ambiguous Umbrella Spec history', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-finalize-external-'));
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -809,20 +809,20 @@ describe('runPrFinalize', () => {
     assert.equal(runnerJob.outputFile, join(outputDirectory, 'runner_output.json'));
     assert.equal(runnerJob.resultFile, join(outputDirectory, 'runner_result.json'));
     assert.equal(runnerJob.model, 'gpt-5.5');
-    assert.equal(runnerJob.branch, 'pullops/prd-7');
+    assert.equal(runnerJob.branch, 'pullops/spec-7');
     assert.equal(runnerJob.workerPrompt, prompt);
   });
 
-  it('15: blocks ambiguous Umbrella PRD history when the fallback planner is disabled', async () => {
+  it('15: blocks ambiguous Umbrella Spec history when the fallback planner is disabled', async () => {
     const repository = await createTemporaryAmbiguousParentRepository();
     const reviewedTree = await readTreeHash(repository.workDir);
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner();
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -857,16 +857,16 @@ describe('runPrFinalize', () => {
     const codex = createFakeRunner({
       output: createPlannerOutput({
         commits: [
-          createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
-          createPlannerCommit({ issueNumber: 22, files: ['src/child-21.js'] }),
+          createPlannerCommit({ issueNumber: 21, files: ['src/ticket-21.js'] }),
+          createPlannerCommit({ issueNumber: 22, files: ['src/ticket-21.js'] }),
         ],
       }),
     });
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -883,7 +883,7 @@ describe('runPrFinalize', () => {
           runner: codex.runner,
         }),
       ),
-      /assigns "src\/child-21\.js" more than once/,
+      /assigns "src\/ticket-21\.js" more than once/,
     );
 
     assert.equal(codex.calls.length, 1);
@@ -898,10 +898,10 @@ describe('runPrFinalize', () => {
     const reviewedHead = await readHeadSha(repository.workDir);
     const codex = createFakeRunner({ output: createPlannerOutput() });
     const github = createFakeGitHub({
-      issue: createParentIssueWithClosedChildren(),
+      issue: createParentIssueWithClosedTickets(),
       pullRequest: createPullRequest({
-        title: 'Prepare #7: PRD: Parent workflow',
-        headRefName: 'pullops/prd-7',
+        title: 'Prepare #7: Spec: Parent workflow',
+        headRefName: 'pullops/spec-7',
         headSha: reviewedHead,
         baseRefName: 'main',
         body: createParentPullRequestBody({ reviewedTree }),
@@ -919,8 +919,8 @@ describe('runPrFinalize', () => {
             ...realGitClient,
             async rewriteBranchWithCommitPlan(options) {
               await realGitClient.rewriteBranchWithCommitPlan(options);
-              await writeFile(join(repository.workDir, 'src/child-21.js'), 'tampered();\n');
-              await git(repository.workDir, ['add', 'src/child-21.js']);
+              await writeFile(join(repository.workDir, 'src/ticket-21.js'), 'tampered();\n');
+              await git(repository.workDir, ['add', 'src/ticket-21.js']);
               await git(repository.workDir, [
                 'commit',
                 '-m',
@@ -1089,14 +1089,14 @@ function createConfig({ prFinalize } = {}) {
  */
 function createPlannerOutput({
   commits = [
-    createPlannerCommit({ issueNumber: 21, files: ['src/child-21.js'] }),
-    createPlannerCommit({ issueNumber: 22, files: ['src/child-22.js'] }),
+    createPlannerCommit({ issueNumber: 21, files: ['src/ticket-21.js'] }),
+    createPlannerCommit({ issueNumber: 22, files: ['src/ticket-22.js'] }),
   ],
   justification,
 } = {}) {
   return JSON.stringify({
     status: 'planned',
-    summary: 'Group ambiguous PRD history by closed Child Issue.',
+    summary: 'Group ambiguous Spec history by closed Ticket.',
     commitPlan: {
       ...(justification === undefined ? {} : { justification }),
       commits,
@@ -1112,8 +1112,8 @@ function createPlannerOutput({
 function createPlannerCommit({ issueNumber, files }) {
   return {
     header: `feat(issue): implement #${issueNumber}`,
-    body: [`Finalize Child Issue #${issueNumber} for rebase merge into PRD #7.`],
-    footers: [`Refs: #${issueNumber}`, 'PRD: #7'],
+    body: [`Finalize Ticket #${issueNumber} for rebase merge into Spec #7.`],
+    footers: [`Refs: #${issueNumber}`, 'Spec: #7'],
     files,
   };
 }
@@ -1256,9 +1256,9 @@ function createParentPullRequestBody({
     '',
     'Prepared an umbrella branch and draft PR for parent issue #7.',
     '',
-    '## Child Issues',
+    '## Tickets',
     '',
-    '- #999 stale child from a previous body (open)',
+    '- #999 stale ticket from a previous body (open)',
     '',
     '## Traceability',
     '',
@@ -1304,20 +1304,20 @@ function createIssue(overrides = {}) {
 /**
  * @returns {GitHubIssue}
  */
-function createParentIssueWithClosedChildren() {
+function createParentIssueWithClosedTickets() {
   return createIssue({
     number: 7,
-    title: 'PRD: Parent workflow',
-    body: '## Problem Statement\n\nGroup the child issue work.',
+    title: 'Spec: Parent workflow',
+    body: '## Problem Statement\n\nGroup the ticket work.',
     subIssues: [
       createIssueReference({
         number: 21,
-        title: 'First child',
+        title: 'First ticket',
         state: 'CLOSED',
       }),
       createIssueReference({
         number: 22,
-        title: 'Second child',
+        title: 'Second ticket',
         state: 'CLOSED',
       }),
     ],
@@ -1331,7 +1331,7 @@ function createParentIssueWithClosedChildren() {
 function createIssueReference(overrides = {}) {
   return {
     number: 7,
-    title: 'PRD: Parent workflow',
+    title: 'Spec: Parent workflow',
     url: 'https://github.com/acme/widgets/issues/7',
     state: 'OPEN',
     relationshipSource: 'native',
@@ -1575,8 +1575,8 @@ async function createTemporaryRepository() {
 /**
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
-async function createTemporaryChildRepository() {
-  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-child-'));
+async function createTemporaryTicketRepository() {
+  const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-ticket-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
 
@@ -1594,29 +1594,29 @@ async function createTemporaryChildRepository() {
   await git(workDir, ['commit', '-m', 'chore: initial commit']);
   await git(workDir, ['remote', 'add', 'origin', originDir]);
   await git(workDir, ['push', '-u', 'origin', 'main']);
-  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
-  await writeFile(join(workDir, 'PRD.md'), '# Parent workflow\n');
+  await git(workDir, ['checkout', '-b', 'pullops/spec-7']);
+  await writeFile(join(workDir, 'Spec.md'), '# Parent workflow\n');
   await git(workDir, ['add', '--all']);
-  await git(workDir, ['commit', '-m', 'chore(prd): prepare #7']);
-  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
-  await git(workDir, ['checkout', '-b', 'pullops/prd-7-issue-42']);
+  await git(workDir, ['commit', '-m', 'chore(spec): prepare #7']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/spec-7']);
+  await git(workDir, ['checkout', '-b', 'pullops/spec-7-issue-42']);
   await writeFile(join(workDir, 'src/feature.js'), 'export const value = 42;\n');
   await git(workDir, ['add', '--all']);
-  await git(workDir, ['commit', '-m', 'wip: update child feature']);
+  await git(workDir, ['commit', '-m', 'wip: update ticket feature']);
   await writeFile(join(workDir, 'src/feature.test.js'), 'assert.equal(value, 42);\n');
   await git(workDir, ['rm', 'src/old.js']);
   await git(workDir, ['add', '--all']);
-  await git(workDir, ['commit', '-m', 'wip: add child coverage']);
-  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7-issue-42']);
+  await git(workDir, ['commit', '-m', 'wip: add ticket coverage']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/spec-7-issue-42']);
 
   return { root, originDir, workDir };
 }
 
 /**
- * @param {{ childOrder: number[], sharedChildFile?: string }} options
+ * @param {{ ticketOrder: number[], sharedTicketFile?: string }} options
  * @returns {Promise<{ root: string, originDir: string, workDir: string }>}
  */
-async function createTemporaryParentRepository({ childOrder, sharedChildFile }) {
+async function createTemporaryParentRepository({ ticketOrder, sharedTicketFile }) {
   const root = await mkdtemp(join(tmpdir(), 'pullops-pr-finalize-parent-'));
   const originDir = join(root, 'origin.git');
   const workDir = join(root, 'work');
@@ -1633,31 +1633,31 @@ async function createTemporaryParentRepository({ childOrder, sharedChildFile }) 
   await git(workDir, ['commit', '-m', 'chore: initial commit']);
   await git(workDir, ['remote', 'add', 'origin', originDir]);
   await git(workDir, ['push', '-u', 'origin', 'main']);
-  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
+  await git(workDir, ['checkout', '-b', 'pullops/spec-7']);
   await git(workDir, [
     'commit',
     '--allow-empty',
     '-m',
-    ['chore(prd): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
+    ['chore(spec): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
   ]);
 
-  for (const [index, childIssueNumber] of childOrder.entries()) {
-    if (sharedChildFile === undefined) {
+  for (const [index, ticketNumber] of ticketOrder.entries()) {
+    if (sharedTicketFile === undefined) {
       await writeFile(
-        join(workDir, 'src', `child-${childIssueNumber}.js`),
-        `export const child${childIssueNumber} = true;\n`,
+        join(workDir, 'src', `ticket-${ticketNumber}.js`),
+        `export const ticket${ticketNumber} = true;\n`,
       );
     } else {
       await writeFile(
-        join(workDir, sharedChildFile),
-        `export const completedChildren = [${childOrder.slice(0, index + 1).join(', ')}];\n`,
+        join(workDir, sharedTicketFile),
+        `export const completedTickets = [${ticketOrder.slice(0, index + 1).join(', ')}];\n`,
       );
     }
     await git(workDir, ['add', '--all']);
-    await git(workDir, ['commit', '-m', createPrFinalizeCommitMessage(childIssueNumber, 7)]);
+    await git(workDir, ['commit', '-m', createPrFinalizeCommitMessage(ticketNumber, 7)]);
   }
 
-  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/spec-7']);
 
   return { root, originDir, workDir };
 }
@@ -1682,22 +1682,22 @@ async function createTemporaryAmbiguousParentRepository() {
   await git(workDir, ['commit', '-m', 'chore: initial commit']);
   await git(workDir, ['remote', 'add', 'origin', originDir]);
   await git(workDir, ['push', '-u', 'origin', 'main']);
-  await git(workDir, ['checkout', '-b', 'pullops/prd-7']);
+  await git(workDir, ['checkout', '-b', 'pullops/spec-7']);
   await git(workDir, [
     'commit',
     '--allow-empty',
     '-m',
-    ['chore(prd): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
+    ['chore(spec): prepare #7', '', 'Prepare umbrella branch.', '', 'Refs: #7'].join('\n'),
   ]);
-  await writeFile(join(workDir, 'src', 'child-21.js'), 'export const child21 = true;\n');
-  await writeFile(join(workDir, 'src', 'child-22.js'), 'export const child22 = true;\n');
+  await writeFile(join(workDir, 'src', 'ticket-21.js'), 'export const ticket21 = true;\n');
+  await writeFile(join(workDir, 'src', 'ticket-22.js'), 'export const ticket22 = true;\n');
   await git(workDir, ['add', '--all']);
   await git(workDir, [
     'commit',
     '-m',
-    ['feat: implement child work', '', 'This commit is missing PullOps traceability.'].join('\n'),
+    ['feat: implement ticket work', '', 'This commit is missing PullOps traceability.'].join('\n'),
   ]);
-  await git(workDir, ['push', '-u', 'origin', 'pullops/prd-7']);
+  await git(workDir, ['push', '-u', 'origin', 'pullops/spec-7']);
 
   return { root, originDir, workDir };
 }

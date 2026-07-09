@@ -17,7 +17,7 @@ describe('readAcceptedHeartbeatPayload', () => {
           type: 'heartbeat',
           parentRunId: parentRun.runId,
           childRunId: childRoute.childRunLink.runId,
-          childIssueNumber: childRoute.childIssueNumber,
+          ticketNumber: childRoute.ticketNumber,
           localRunRecord: childRoute.localRunRecord,
           childRunStatePath: childRoute.childRunLink.statePath,
           heartbeatAt: '',
@@ -36,7 +36,7 @@ describe('readAcceptedHeartbeatPayload', () => {
         type: 'heartbeat',
         parentRunId: parentRun.runId,
         childRunId: childRoute.childRunLink.runId,
-        childIssueNumber: childRoute.childIssueNumber,
+        ticketNumber: childRoute.ticketNumber,
         localRunRecord: childRoute.localRunRecord,
         childRunStatePath: childRoute.childRunLink.statePath,
         heartbeatAt: '2026-06-20T01:02:04.000Z',
@@ -58,7 +58,7 @@ describe('readAcceptedHeartbeatPayload', () => {
           type: 'heartbeat',
           parentRunId: parentRun.runId,
           childRunId: childRoute.childRunLink.runId,
-          childIssueNumber: childRoute.childIssueNumber,
+          ticketNumber: childRoute.ticketNumber,
           localRunRecord: childRoute.localRunRecord,
           childRunStatePath: childRoute.childRunLink.statePath,
           heartbeatAt: '2026-06-20T01:03:04.000Z',
@@ -119,7 +119,7 @@ describe('handleParentEventSinkRequest', () => {
     );
     assert.equal(
       await sendSinkRequest({
-        body: { ...acceptedBody, childIssueNumber: 35 },
+        body: { ...acceptedBody, ticketNumber: 35 },
         token,
         expectedToken: token,
         parentRun,
@@ -235,9 +235,9 @@ describe('handleParentEventSinkRequest', () => {
  */
 function createParentRun() {
   return {
-    runId: '2026-06-20T010203000Z-prd-auto-complete-12',
-    operationReference: 'prd:auto-complete',
-    normalizedOperationReference: 'prd-auto-complete',
+    runId: '2026-06-20T010203000Z-spec-auto-complete-12',
+    operationReference: 'spec:auto-complete',
+    normalizedOperationReference: 'spec-auto-complete',
     target: {
       type: 'issue',
       number: 12,
@@ -261,7 +261,7 @@ function createChildRoute() {
       },
       statePath: '/tmp/child/state.json',
     },
-    childIssueNumber: 34,
+    ticketNumber: 34,
     localRunRecord: '/tmp/child-run-record',
     lastHeartbeatCount: 0,
   };
@@ -303,7 +303,7 @@ function createHeartbeatBody({ parentRun, route, heartbeatCount }) {
     type: 'heartbeat',
     parentRunId: parentRun.runId,
     childRunId: route.childRunLink.runId,
-    childIssueNumber: route.childIssueNumber,
+    ticketNumber: route.ticketNumber,
     localRunRecord: route.localRunRecord,
     childRunStatePath: route.childRunLink.statePath,
     heartbeatAt: '2026-06-20T01:02:04.000Z',

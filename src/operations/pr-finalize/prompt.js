@@ -10,7 +10,7 @@
  * @param {object} options
  * @param {GitHubPullRequest} options.pullRequest
  * @param {GitHubIssue} options.parentIssue
- * @param {GitHubIssueReference[]} options.closedChildIssues
+ * @param {GitHubIssueReference[]} options.closedTickets
  * @param {string} options.ambiguousReason
  * @param {GitCommit[]} options.commits
  * @param {GitHubPullRequestReviewContext} options.reviewContext
@@ -20,7 +20,7 @@
 export function buildPrFinalizePrompt({
   pullRequest,
   parentIssue,
-  closedChildIssues,
+  closedTickets,
   ambiguousReason,
   commits,
   reviewContext,
@@ -41,8 +41,8 @@ export function buildPrFinalizePrompt({
     'Parent Issue context:',
     formatIssue(parentIssue),
     '',
-    'Closed native Child Issues eligible for Child Issue commits:',
-    formatIssueReferences(closedChildIssues),
+    'Closed native Tickets eligible for Ticket commits:',
+    formatIssueReferences(closedTickets),
     '',
     'Pull request body:',
     pullRequest.body.trim() || '(empty)',
@@ -57,8 +57,8 @@ export function buildPrFinalizePrompt({
     formatCommits(commits),
     '',
     'Boundaries:',
-    '- Prefer one commit per closed native Child Issue, with parent-level commits only for explicit PRD-level files; include commitPlan.justification when the grouping deviates from that shape.',
-    `- Commit headers are conventional commit headers; Child Issue commit footers carry Refs: #<child> and PRD: #${parentIssue.number}, and parent-level commit footers carry Refs: #${parentIssue.number}.`,
+    '- Prefer one commit per closed native Ticket, with parent-level commits only for explicit Spec-level files; include commitPlan.justification when the grouping deviates from that shape.',
+    `- Commit headers are conventional commit headers; Ticket commit footers carry Refs: #<ticket> and Spec: #${parentIssue.number}, and parent-level commit footers carry Refs: #${parentIssue.number}.`,
     '- Return blocked if you cannot propose a safe grouping from the supplied information.',
     '',
     'Final response must be only JSON in this shape:',
@@ -71,7 +71,7 @@ export function buildPrFinalizePrompt({
             {
               header: 'feat(issue): implement #42',
               body: ['Explain the logical change in this commit.'],
-              footers: ['Refs: #42', `PRD: #${parentIssue.number}`],
+              footers: ['Refs: #42', `Spec: #${parentIssue.number}`],
               files: ['src/example.js', 'src/example.test.js'],
             },
           ],

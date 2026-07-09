@@ -1,7 +1,7 @@
 /**
- * @typedef {import('./types.js').ChildIssuePublicationMarker} ChildIssuePublicationMarker
+ * @typedef {import('./types.js').TicketPublicationMarker} TicketPublicationMarker
  * @typedef {import('./types.js').ConcreteIssuePublicationMarker} ConcreteIssuePublicationMarker
- * @typedef {import('./types.js').PrdIssuePublicationMarker} PrdIssuePublicationMarker
+ * @typedef {import('./types.js').SpecIssuePublicationMarker} SpecIssuePublicationMarker
  * @typedef {import('./types.js').PublicationMarker} PublicationMarker
  */
 
@@ -80,11 +80,11 @@ function isPublicationMarker(value) {
     return false;
   }
 
-  if (value.kind === 'prd-issue' || value.kind === 'concrete-issue') {
+  if (value.kind === 'spec-issue' || value.kind === 'concrete-issue') {
     return true;
   }
 
-  if (value.kind === 'child-issue') {
+  if (value.kind === 'ticket') {
     return (
       typeof value.parentIssueNumber === 'number' &&
       Number.isInteger(value.parentIssueNumber) &&

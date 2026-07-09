@@ -176,9 +176,9 @@ describe('local pull request operations', () => {
       }),
     });
     const parentRun = /** @type {import('../local-run-state/types.js').LocalRunRunLink} */ ({
-      runId: '2024-01-01T000000000Z-prd-auto-complete-12',
-      operationReference: 'prd:auto-complete',
-      normalizedOperationReference: 'prd-auto-complete',
+      runId: '2024-01-01T000000000Z-spec-auto-complete-12',
+      operationReference: 'spec:auto-complete',
+      normalizedOperationReference: 'spec-auto-complete',
       target: {
         type: 'issue',
         number: 12,
@@ -187,7 +187,7 @@ describe('local pull request operations', () => {
         cwd,
         '.pullops',
         'runs',
-        '2024-01-01T000000000Z-prd-auto-complete-12',
+        '2024-01-01T000000000Z-spec-auto-complete-12',
         'state.json',
       ),
     });

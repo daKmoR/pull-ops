@@ -40,16 +40,16 @@ export interface PullOpsConfig {
   runner?: RunnerConfig;
   runBudget?: RunBudgetConfig;
   operations?: Partial<{
-    prdPrepare: OperationConfig;
+    specPrepare: OperationConfig;
     issueImplement: OperationConfig;
-    prdAutoAdvance: OperationConfig;
-    prdAutoComplete: OperationConfig;
+    specAutoAdvance: OperationConfig;
+    specAutoComplete: OperationConfig;
     prReview: ReviewOperationConfig;
     prAddressReview: ReviewOperationConfig;
     prFixCi: OperationConfig;
     prUpdateBranch: OperationConfig;
     prResolveConflicts: PrResolveConflictsOperationConfig;
     prFinalize: PrFinalizeOperationConfig;
-    prCloseChildIssue: OperationConfig;
+    prCloseTicket: OperationConfig;
   }>;
 }

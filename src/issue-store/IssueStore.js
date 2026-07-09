@@ -1,7 +1,7 @@
 import { createIssueSnapshot } from './issueSnapshot.js';
-import { publishChildIssues } from './publishChildIssues.js';
+import { publishTickets } from './publishTickets.js';
 import { publishConcreteIssue } from './publishConcreteIssue.js';
-import { publishPrdIssue } from './publishPrdIssue.js';
+import { publishSpecIssue } from './publishSpecIssue.js';
 
 /**
  * @typedef {import('../github/types.js').GitHubClient} GitHubClient
@@ -11,7 +11,7 @@ import { publishPrdIssue } from './publishPrdIssue.js';
 
 /**
  * Creates the Issue Store: the PullOps-owned interface for creating,
- * force-updating, reading, listing, and relating PRD Issues, Child Issues,
+ * force-updating, reading, listing, and relating Spec Issues, Tickets,
  * Concrete Issues, and Issue Dependencies in the configured Issue Tracker.
  *
  * @param {IssueStoreContext} context
@@ -19,12 +19,12 @@ import { publishPrdIssue } from './publishPrdIssue.js';
  */
 export function createIssueStore({ cwd, config, githubClient }) {
   return {
-    async publishPrdIssue(rawRequest, { createdAt } = {}) {
-      return await publishPrdIssue({ cwd, config, githubClient, rawRequest, createdAt });
+    async publishSpecIssue(rawRequest, { createdAt } = {}) {
+      return await publishSpecIssue({ cwd, config, githubClient, rawRequest, createdAt });
     },
 
-    async publishChildIssues(rawRequest, { parentIssueNumber, forceUpdate, createdAt } = {}) {
-      return await publishChildIssues({
+    async publishTickets(rawRequest, { parentIssueNumber, forceUpdate, createdAt } = {}) {
+      return await publishTickets({
         cwd,
         config,
         githubClient,
@@ -44,24 +44,24 @@ export function createIssueStore({ cwd, config, githubClient }) {
       return createIssueSnapshot(issue);
     },
 
-    async readChildIssueSnapshots(parentIssueNumber) {
+    async readTicketSnapshots(parentIssueNumber) {
       const parent = await githubClient.getIssue(parentIssueNumber);
-      const children = [];
+      const tickets = [];
       for (const subIssue of parent.subIssues) {
-        const child = await githubClient.getIssue(subIssue.number);
-        children.push(createIssueSnapshot(child));
+        const ticket = await githubClient.getIssue(subIssue.number);
+        tickets.push(createIssueSnapshot(ticket));
       }
 
-      return children;
+      return tickets;
     },
 
-    async relateChildIssue({ parentIssueNumber, childIssueNumber }) {
+    async relateTicket({ parentIssueNumber, ticketNumber }) {
       const addSubIssue = githubClient.addSubIssue;
       if (typeof addSubIssue !== 'function') {
         throw new Error('GitHub client does not support sub-issue relationships.');
       }
 
-      await addSubIssue.call(githubClient, { parentIssueNumber, childIssueNumber });
+      await addSubIssue.call(githubClient, { parentIssueNumber, ticketNumber });
     },
   };
 }

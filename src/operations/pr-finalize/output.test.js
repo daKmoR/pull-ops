@@ -7,7 +7,7 @@ describe('validatePrFinalizeOutput', () => {
   it('01: treats blank optional commit plan justification as omitted', () => {
     const result = validatePrFinalizeOutput({
       status: 'planned',
-      summary: 'Plan one child issue commit.',
+      summary: 'Plan one ticket commit.',
       commitPlan: {
         justification: '',
         commits: [createCommit()],
@@ -19,7 +19,7 @@ describe('validatePrFinalizeOutput', () => {
       valid: true,
       value: {
         status: 'planned',
-        summary: 'Plan one child issue commit.',
+        summary: 'Plan one ticket commit.',
         commitPlan: {
           commits: [createCommit()],
         },
@@ -36,7 +36,7 @@ function createCommit() {
   return {
     header: 'feat(issue): implement #42',
     body: ['Finalize the logical change.'],
-    footers: ['Refs: #42', 'PRD: #7'],
+    footers: ['Refs: #42', 'Spec: #7'],
     files: ['src/example.js'],
   };
 }

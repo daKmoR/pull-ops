@@ -12,9 +12,9 @@ describe('Operation progress event streams', () => {
     const stdout = createWritableBuffer();
     const writer = createOperationProgressEventWriter({
       stdout,
-      operation: 'prd-auto-complete',
-      operationLabelReference: 'prd:auto-complete',
-      runId: '2026-06-20T010203000Z-prd-auto-complete-123',
+      operation: 'spec-auto-complete',
+      operationLabelReference: 'spec:auto-complete',
+      runId: '2026-06-20T010203000Z-spec-auto-complete-123',
       target: {
         type: 'issue',
         number: 123,
@@ -36,33 +36,33 @@ describe('Operation progress event streams', () => {
     const stdout = createWritableBuffer();
     const writer = createOperationProgressEventWriter({
       stdout,
-      operation: 'prd-auto-complete',
-      operationLabelReference: 'prd:auto-complete',
-      runId: '2026-06-20T010203000Z-prd-auto-complete-123',
+      operation: 'spec-auto-complete',
+      operationLabelReference: 'spec:auto-complete',
+      runId: '2026-06-20T010203000Z-spec-auto-complete-123',
       target: {
         type: 'issue',
         number: 123,
       },
     });
     const unsupportedEvent = /** @type {import('./types.js').OperationProgressEventName} */ (
-      'child.custom-completed'
+      'ticket.custom-completed'
     );
 
     await assert.rejects(
       writer.emit(unsupportedEvent, {
-        phase: 'child-coordination',
+        phase: 'ticket-coordination',
       }),
-      /Unsupported PullOps progress event "child.custom-completed"/,
+      /Unsupported PullOps progress event "ticket.custom-completed"/,
     );
     assert.equal(stdout.text, '');
   });
 
-  it('03: mirrors semantic child progress into the bound Local Run State last event', async () => {
+  it('03: mirrors semantic ticket progress into the bound Local Run State last event', async () => {
     const stdout = createWritableBuffer();
     const runRecordDirectory = await mkdtemp(join(tmpdir(), 'pullops-progress-events-'));
     const stateRecord = await initializeLocalRunState({
       runRecordDirectory,
-      operationReference: 'prd:auto-complete',
+      operationReference: 'spec:auto-complete',
       target: {
         type: 'issue',
         number: 123,
@@ -72,8 +72,8 @@ describe('Operation progress event streams', () => {
     });
     const writer = createOperationProgressEventWriter({
       stdout,
-      operation: 'prd-auto-complete',
-      operationLabelReference: 'prd:auto-complete',
+      operation: 'spec-auto-complete',
+      operationLabelReference: 'spec:auto-complete',
       runId: stateRecord.state.runId,
       target: {
         type: 'issue',
@@ -82,9 +82,9 @@ describe('Operation progress event streams', () => {
     });
 
     await writer.bindLocalRunRecord(runRecordDirectory);
-    await writer.emit('child.progress', {
-      phase: 'child-coordination',
-      childIssue: {
+    await writer.emit('ticket.progress', {
+      phase: 'ticket-coordination',
+      ticket: {
         number: 34,
         url: 'https://github.test/issues/34',
       },
@@ -95,12 +95,12 @@ describe('Operation progress event streams', () => {
     const state = JSON.parse(await readFile(stateRecord.statePath, 'utf8'));
     assert.equal(state.status, 'running');
     assert.equal(state.heartbeatAt, '2024-01-01T00:00:00.000Z');
-    assert.equal(state.lastEvent.event, 'child.progress');
-    assert.equal(state.lastEvent.operationReference, 'prd:auto-complete');
-    assert.equal(state.lastEvent.normalizedOperationReference, 'prd-auto-complete');
+    assert.equal(state.lastEvent.event, 'ticket.progress');
+    assert.equal(state.lastEvent.operationReference, 'spec:auto-complete');
+    assert.equal(state.lastEvent.normalizedOperationReference, 'spec-auto-complete');
     assert.deepEqual(state.lastEvent.target, { type: 'issue', number: 123 });
-    assert.equal(state.lastEvent.phase, 'child-coordination');
-    assert.deepEqual(state.lastEvent.childIssue, {
+    assert.equal(state.lastEvent.phase, 'ticket-coordination');
+    assert.deepEqual(state.lastEvent.ticket, {
       number: 34,
       url: 'https://github.test/issues/34',
     });

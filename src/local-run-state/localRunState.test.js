@@ -374,7 +374,7 @@ describe('localRunState', () => {
 
     const parent = await initializeLocalRunState({
       runRecordDirectory: parentRunRecordDirectory,
-      operationReference: 'prd:auto-complete',
+      operationReference: 'spec:auto-complete',
       target: {
         type: 'issue',
         number: 12,
@@ -406,7 +406,7 @@ describe('localRunState', () => {
         status: 'running',
         startedAt: startedAt.toISOString(),
         updatedAt: startedAt.toISOString(),
-        summary: 'Started child issue #34.',
+        summary: 'Started ticket #34.',
       },
     });
 
@@ -417,7 +417,7 @@ describe('localRunState', () => {
         status: 'running',
         startedAt: startedAt.toISOString(),
         updatedAt: startedAt.toISOString(),
-        summary: 'Started child issue #34.',
+        summary: 'Started ticket #34.',
       },
     ]);
 
@@ -429,7 +429,7 @@ describe('localRunState', () => {
         status: 'merged',
         startedAt: startedAt.toISOString(),
         updatedAt: finishedAt.toISOString(),
-        summary: 'Merged child issue #34.',
+        summary: 'Merged ticket #34.',
       },
     });
 
@@ -440,7 +440,7 @@ describe('localRunState', () => {
         status: 'merged',
         startedAt: startedAt.toISOString(),
         updatedAt: finishedAt.toISOString(),
-        summary: 'Merged child issue #34.',
+        summary: 'Merged ticket #34.',
       },
     ]);
   });

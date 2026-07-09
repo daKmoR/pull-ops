@@ -6,9 +6,9 @@ disable-model-invocation: true
 
 # PullOps Implement Issue
 
-Implement the supplied Concrete Issue or manually selected Child Issue as
-written. For a Child Issue, use the Parent Issue as context only; the selected
-Child Issue is the implementation boundary.
+Implement the supplied Concrete Issue or manually selected Ticket as
+written. For a Ticket, use the Parent Issue as context only; the selected
+Ticket is the implementation boundary.
 
 ## Implement
 
