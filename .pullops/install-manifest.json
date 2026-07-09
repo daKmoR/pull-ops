@@ -17,11 +17,11 @@
     },
     {
       "path": ".agents/skills/pullops-issue-implement/SKILL.md",
-      "hash": "a3e4d558f1dcb57c81d4bcdf77340f01a6f6bbf5fdb3b5aa0ac5842b9667b212"
+      "hash": "bfab008b9c596d1811537a29b465ce46ed8fd62b6612790c3ed8b446e775f05b"
     },
     {
       "path": ".agents/skills/pullops-pr-address-review/SKILL.md",
-      "hash": "d52c881ca3af6244b9d29af1b0c6d99e1a4935caa3141189ad2407d5aa2452d3"
+      "hash": "e2f34e16127f5924c9e5a6b539f0613590ed2c7014998b4cc6aaea943a7a7128"
     },
     {
       "path": ".agents/skills/pullops-pr-finalize/SKILL.md",
@@ -29,11 +29,11 @@
     },
     {
       "path": ".agents/skills/pullops-pr-fix-ci/SKILL.md",
-      "hash": "1b9ef2a0eb4c537ff74a0a7926ca37ed9ccbfba5753661f7bb60dad2d0c671bb"
+      "hash": "cb227ff57a21302b0a019b49c295ad0d169724290d33e63f3904050ed95c7e77"
     },
     {
       "path": ".agents/skills/pullops-pr-review/SKILL.md",
-      "hash": "44024088b8eebf3e8bda2cb351a22bfa4f1990ac2ba0960f369e046cbd463974"
+      "hash": "db5f1dba0a244233228daba22b9a41b157b6a1de5365f9bfb2ef96f40f93c0b8"
     },
     {
       "path": ".agents/skills/pullops-resolve-conflicts/SKILL.md",

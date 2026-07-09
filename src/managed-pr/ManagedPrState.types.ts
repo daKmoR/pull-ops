@@ -94,6 +94,8 @@ export type ManagedPrTransitionOutcome =
       reviewCycle: number;
       maxReviewCycles: number;
       reviewMode?: ManagedPrReviewMode;
+      /** Runner-proposed next operation; applied only when the transition graph allows it. */
+      proposedNextOperation?: string;
     }
   | {
       kind: 'addressed';

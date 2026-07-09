@@ -3,7 +3,7 @@
  * @typedef {import('../../github/types.js').GitHubPullRequest} GitHubPullRequest
  * @typedef {import('../../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('../../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
- * @typedef {import('./classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ * @typedef {import('./failedChecks.types.js').FailedCheck} FailedCheck
  */
 
 /**
@@ -12,7 +12,7 @@
  * @param {GitHubIssue | undefined} options.issue
  * @param {GitHubPullRequestReviewContext} options.reviewContext
  * @param {GitHubPullRequestDiff} options.diff
- * @param {ClassifiedCheckFailure[]} options.checkFailures
+ * @param {FailedCheck[]} options.checkFailures
  * @returns {string}
  */
 export function buildPrFixCiPrompt({ pullRequest, issue, reviewContext, diff, checkFailures }) {
@@ -37,7 +37,7 @@ export function buildPrFixCiPrompt({ pullRequest, issue, reviewContext, diff, ch
     diff.patch.trim() || '(empty)',
     '',
     'Boundaries:',
-    '- Classify every failed checkId yourself as formatting, lint, type, test, build, environment, flaky, or secret, based on the check evidence. The keyword prior shown with each check is a non-binding hint you may overrule.',
+    '- Classify every failed checkId yourself as formatting, lint, type, test, build, environment, flaky, or secret. Read the check evidence — logs, details URLs, the diff — before deciding.',
     '- Only formatting, lint, type, test, and build failures are yours to repair. Return blocked when the failures are environment, flaky, or secret, or when no safe repair exists.',
     '- Never weaken tests, delete assertions, skip checks, or work around missing secrets or infrastructure. PullOps verifies the resulting diff and will not commit unsafe repairs.',
     '- Do not create commits, push, edit labels, update the PR body, or post GitHub comments; PullOps will do those after validating your output.',
@@ -101,7 +101,7 @@ function formatIssue(issue) {
 }
 
 /**
- * @param {ClassifiedCheckFailure[]} checkFailures
+ * @param {FailedCheck[]} checkFailures
  * @returns {string}
  */
 function formatCheckFailures(checkFailures) {
@@ -119,7 +119,6 @@ function formatCheckFailures(checkFailures) {
         failure.conclusion === undefined ? undefined : `  Conclusion: ${failure.conclusion}`,
         failure.bucket === undefined ? undefined : `  Bucket: ${failure.bucket}`,
         failure.detailsUrl === undefined ? undefined : `  Details: ${failure.detailsUrl}`,
-        `  Keyword prior (non-binding): ${failure.classification} — ${failure.reason}`,
       ]
         .filter(line => line !== undefined)
         .join('\n'),

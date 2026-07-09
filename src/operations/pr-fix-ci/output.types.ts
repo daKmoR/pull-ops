@@ -1,4 +1,12 @@
-import type { CheckFailureClassification } from './classification.types.js';
+export type CheckFailureClassification =
+  | 'formatting'
+  | 'lint'
+  | 'type'
+  | 'test'
+  | 'build'
+  | 'environment'
+  | 'flaky'
+  | 'secret';
 
 export interface PrFixCiOutputClassification {
   checkId: string;

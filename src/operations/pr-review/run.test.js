@@ -205,6 +205,40 @@ describe('runPrReview', () => {
     assert.equal(review.directChangesCommitted, true);
   });
 
+  it('02b: routes an allowed pr-fix-ci proposal from a changes-requested review', async () => {
+    const github = createFakeGitHub({
+      pullRequest: createPullRequest(),
+      reviewContext: createReviewContext(),
+      diff: createDiff(),
+    });
+    const git = createFakeGit({ hasChanges: false });
+    const codex = createFakeRunner({
+      output: JSON.stringify({
+        status: 'changes_requested',
+        summary: 'The tree is failing its checks; repair CI before addressing feedback.',
+        nextOperation: 'pr-fix-ci',
+        comments: [],
+      }),
+    });
+
+    const result = await runPrReview(
+      createContext({
+        githubClient: github.client,
+        gitClient: git.client,
+        runner: codex.runner,
+      }),
+    );
+
+    assert.equal(result.reviewResult, 'changes_requested');
+    assert.match(github.updatedBodies[0].body, /Status: Changes requested/);
+    assert.deepEqual(github.pullRequestLabelsAdded, [
+      {
+        number: 100,
+        labels: ['pullops:pr:fix-ci'],
+      },
+    ]);
+  });
+
   it('03: prepares an external runner prompt without invoking the runner', async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), 'pullops-external-runner-'));
     const github = createFakeGitHub({

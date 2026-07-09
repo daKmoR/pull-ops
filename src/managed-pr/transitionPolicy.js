@@ -6,6 +6,8 @@ import { requireOperationCatalogOperationLabelName } from '../operations/operati
  * @typedef {import('./transitionPolicy.types.js').ManagedPrOperationName} ManagedPrOperationName
  * @typedef {import('./transitionPolicy.types.js').ManagedPrRoutingState} ManagedPrRoutingState
  * @typedef {import('./transitionPolicy.types.js').ManagedPrTransitionGraphRow} ManagedPrTransitionGraphRow
+ * @typedef {import('./transitionPolicy.types.js').ResolveNextManagedPrOperationOptions} ResolveNextManagedPrOperationOptions
+ * @typedef {import('./transitionPolicy.types.js').ResolvedNextManagedPrOperation} ResolvedNextManagedPrOperation
  */
 
 /**
@@ -115,6 +117,76 @@ export function getNextManagedPrOperation({ operation, outcomeKind, state }) {
  */
 export function getBlockedManagedPrFollowUpOperations(operation) {
   return BLOCKED_FOLLOW_UP_OPERATIONS[operation] ?? Object.freeze([]);
+}
+
+/**
+ * Detour edges a runner may propose instead of the default continuation.
+ * Every detour still funnels back through pr-review, so proposals can widen
+ * the route but never skip verification or the human merge boundary.
+ *
+ * @type {Readonly<Partial<Record<ManagedPrOperationName, Readonly<Record<string, readonly ManagedPrOperationName[]>>>>>}
+ */
+const PROPOSABLE_MANAGED_PR_DETOURS = Object.freeze({
+  'pr-review': Object.freeze({
+    // A review that finds the tree failing its checks can route the repair
+    // to pr-fix-ci first instead of bouncing pr-address-review off red CI.
+    'changes-requested': Object.freeze(/** @type {ManagedPrOperationName[]} */ (['pr-fix-ci'])),
+  }),
+});
+
+/**
+ * The operations a proposal may name after this outcome: the graph's default
+ * continuation plus its declared detours.
+ *
+ * @param {GetNextManagedPrOperationOptions} options
+ * @returns {readonly ManagedPrOperationName[]}
+ */
+export function getAllowedNextManagedPrOperations({ operation, outcomeKind, state }) {
+  const defaultOperation = getNextManagedPrOperation({ operation, outcomeKind, state });
+  const detours = PROPOSABLE_MANAGED_PR_DETOURS[operation]?.[outcomeKind] ?? [];
+  return Object.freeze([...(defaultOperation === undefined ? [] : [defaultOperation]), ...detours]);
+}
+
+/**
+ * The graph as validator: may this proposed operation follow this outcome?
+ *
+ * @param {ResolveNextManagedPrOperationOptions & { proposedOperation: string }} options
+ * @returns {boolean}
+ */
+export function isManagedPrTransitionAllowed({ operation, outcomeKind, proposedOperation, state }) {
+  return getAllowedNextManagedPrOperations({ operation, outcomeKind, state }).includes(
+    /** @type {ManagedPrOperationName} */ (proposedOperation),
+  );
+}
+
+/**
+ * Route one outcome with an optional runner proposal: an allowed proposal is
+ * applied, anything else falls back to the graph's default continuation. The
+ * runner plans the route; the graph stays the routing trust boundary.
+ *
+ * @param {ResolveNextManagedPrOperationOptions} options
+ * @returns {ResolvedNextManagedPrOperation}
+ */
+export function resolveNextManagedPrOperation({
+  operation,
+  outcomeKind,
+  state,
+  proposedOperation,
+}) {
+  if (
+    proposedOperation !== undefined &&
+    isManagedPrTransitionAllowed({ operation, outcomeKind, proposedOperation, state })
+  ) {
+    return {
+      nextOperation: /** @type {ManagedPrOperationName} */ (proposedOperation),
+      proposalApplied: true,
+    };
+  }
+
+  return {
+    nextOperation: getNextManagedPrOperation({ operation, outcomeKind, state }),
+    proposalApplied: false,
+  };
 }
 
 /**

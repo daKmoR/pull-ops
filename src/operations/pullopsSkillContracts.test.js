@@ -18,7 +18,7 @@ import { buildPrReviewPrompt } from './pr-review/prompt.js';
  * @typedef {import('../github/types.js').GitHubPullRequestDiff} GitHubPullRequestDiff
  * @typedef {import('../github/types.js').GitHubPullRequestReviewContext} GitHubPullRequestReviewContext
  * @typedef {import('./pr-address-review/feedback.types.js').PrAddressReviewFeedbackItem} PrAddressReviewFeedbackItem
- * @typedef {import('./pr-fix-ci/classification.types.js').ClassifiedCheckFailure} ClassifiedCheckFailure
+ * @typedef {import('./pr-fix-ci/failedChecks.types.js').FailedCheck} FailedCheck
  */
 
 /** @type {GitHubIssue} */
@@ -74,14 +74,11 @@ const feedbackItems = [
   },
 ];
 
-/** @type {ClassifiedCheckFailure[]} */
+/** @type {FailedCheck[]} */
 const checkFailures = [
   {
     id: 'check-1',
     checkName: 'lint',
-    classification: 'lint',
-    actionable: true,
-    reason: 'ESLint reported an unused variable.',
   },
 ];
 

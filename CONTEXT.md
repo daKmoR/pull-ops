@@ -349,8 +349,8 @@ One automated loop where PullOps responds to failing checks on a PullOps-Managed
 _Avoid_: Build retry, CI retry
 
 **Check Failure Classification**:
-The runner's judgment, within the `pr-fix-ci` operation, classifying each failed check as formatting, lint, type, test, build, environment, flaky, or secret before changing code. PullOps supplies a non-binding keyword prior with each failed check, records disagreement between the prior and the runner's classification in the Local Run Record, and only accepts repairs for actionable classifications.
-_Avoid_: CI error type, failure reason, keyword classification
+The runner's judgment, within the `pr-fix-ci` operation, classifying each failed check as formatting, lint, type, test, build, environment, flaky, or secret before changing code. PullOps supplies check facts only and deterministically verifies the result: every failed check classified exactly once, and repairs accepted only for actionable classifications.
+_Avoid_: CI error type, failure reason, keyword prior
 
 **Branch Update**:
 The PullOps Operation that cleanly brings a PR branch up to date with its base branch without AI conflict resolution.
@@ -397,8 +397,12 @@ A single PullOps-owned change to a PullOps-Managed PR's automated workflow state
 _Avoid_: PR body update, label cleanup
 
 **PullOps-Managed PR Transition Graph**:
-The declarative managed-pr-owned graph that answers every routing question of the pre-human review workflow: which PullOps Operation follows which outcome, the allowed outcome kinds per operation, blocked follow-up operations, and state-based continuation routing. It is the routing trust boundary — verified harness structure, never runner judgment.
+The declarative managed-pr-owned graph that answers every routing question of the pre-human review workflow: which PullOps Operation follows which outcome, the allowed outcome kinds per operation, blocked follow-up operations, state-based continuation routing, and which Proposed Next Operations are allowed continuations. It is the routing trust boundary — the runner may plan the route, but the graph verifies every step.
 _Avoid_: State machine, routing table, workflow engine
+
+**Proposed Next Operation**:
+A runner-suggested next PullOps Operation carried in an Operation Output, applied only when the PullOps-Managed PR Transition Graph allows it as a continuation of the reported outcome and otherwise replaced by the graph's default edge. The first proposal surface is a changes-requested review routing repair to `pr-fix-ci` instead of `pr-address-review`.
+_Avoid_: Routing override, freeform next step
 
 **PR Operation Refusal**:
 A PullOps Operation outcome where PullOps declines a pull request target before treating it as an active PullOps-Managed PR workflow participant. Refusals cover guardrail failures such as unsupported pull request shape or missing PullOps-managed state.

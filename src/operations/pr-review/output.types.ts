@@ -19,6 +19,11 @@ export interface ReviewFollowUpIssueProposal {
 export interface CompletedPrReviewOutput {
   status: 'approved' | 'changes_requested';
   summary: string;
+  /**
+   * Runner-proposed next operation after changes_requested; the
+   * PullOps-Managed PR Transition Graph applies it only when allowed.
+   */
+  nextOperation?: string;
   comments: ReviewInlineComment[];
   replies: ReviewReply[];
   directChanges: string[];

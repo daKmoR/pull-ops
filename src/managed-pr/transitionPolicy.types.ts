@@ -46,3 +46,15 @@ export interface ChooseNextManagedPrOperationFromStateOptions {
   status?: string;
   profile?: ManagedPrRoutingProfile;
 }
+
+export interface ResolveNextManagedPrOperationOptions {
+  operation: ManagedPrOperationName;
+  outcomeKind: string;
+  state?: ManagedPrRoutingState;
+  /** A runner-proposed next operation; applied only when the graph allows it. */
+  proposedOperation?: string;
+}
+
+export type ResolvedNextManagedPrOperation =
+  | { nextOperation: ManagedPrOperationName | undefined; proposalApplied: false }
+  | { nextOperation: ManagedPrOperationName; proposalApplied: true };

@@ -51,6 +51,7 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
       {
         status: 'changes_requested',
         summary: 'One sentence review summary.',
+        nextOperation: 'pr-address-review',
         comments: [
           {
             path: 'src/example.js',
@@ -77,7 +78,9 @@ export function buildPrReviewPrompt({ pullRequest, issue, reviewContext, diff })
       2,
     ),
     '',
-    'Use "approved" when the PR is ready for the next PullOps automation step, "changes_requested" when pr-address-review should run, or "blocked" when review cannot complete.',
+    'Use "approved" when the PR is ready for the next PullOps automation step, "changes_requested" when the tree needs another automation pass, or "blocked" when review cannot complete.',
+    '',
+    'With "changes_requested" you may propose the next operation via nextOperation: "pr-address-review" (default) when the problems are review feedback to address, or "pr-fix-ci" when the real blocker is failing checks that should be repaired before feedback makes sense. PullOps validates the proposal against its transition graph and falls back to the default when it is not an allowed continuation.',
     '',
     'If you are approving the final Escalation Review Cycle, use reviewFollowUpIssues for standalone needs-triage issue proposals. Keep plain followUps as audit-only notes that must not create issues.',
     '',

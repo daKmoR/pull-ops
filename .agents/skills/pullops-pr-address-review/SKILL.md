@@ -21,12 +21,10 @@ is context for deciding whether each request belongs in this PR.
    be made, and use `deferred` only when the feedback is stale, irrelevant, or
    outside this PR. Completion criterion: every declined or deferred item has a
    substantive reason tied to the linked issue, current diff, or PR scope.
-3. Use the appropriate discipline:
-   - Use `coding-standards` before editing source files, tests, public APIs, or types.
-   - Use `tdd` where feedback requires new behavior coverage at a clear seam.
-   - Use `diagnosing-bugs` when feedback reports broken, failing, throwing, flaky, or slow behavior and no tight reproduction exists yet.
-   Completion criterion: every referenced discipline needed for the feedback
-   has been applied before the relevant edits.
+3. Let the shared engineering skills carry the how: `/coding-standards` before
+   editing source, tests, public APIs, or types; `/tdd` where feedback needs
+   new behavior coverage at a clear seam; `/diagnosing-bugs` for bug-shaped
+   feedback without a tight reproduction.
 4. Keep changes focused on the linked issue and supplied feedback. Record
    unrelated defects, broad refactors, and larger design problems as `followUps`
    instead of folding them into this operation. Completion criterion: the

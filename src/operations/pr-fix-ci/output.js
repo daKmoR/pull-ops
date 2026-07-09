@@ -1,7 +1,7 @@
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
- * @typedef {import('./classification.types.js').CheckFailureClassification} CheckFailureClassification
+ * @typedef {import('./output.types.js').CheckFailureClassification} CheckFailureClassification
  * @typedef {import('./output.types.js').PrFixCiOutputClassification} PrFixCiOutputClassification
  * @typedef {import('./output.types.js').PrFixCiSafetyChecks} PrFixCiSafetyChecks
  * @typedef {import('./output.types.js').CompletedPrFixCiOutput} CompletedPrFixCiOutput
@@ -10,13 +10,23 @@ import { validateOperationOutput } from '../../operation-output/OperationOutput.
  * @typedef {import('./output.types.js').PrFixCiOutputValidationResult} PrFixCiOutputValidationResult
  */
 
-/** @type {CheckFailureClassification[]} */
-const CHECK_FAILURE_CLASSIFICATIONS = [
+/**
+ * The classifications PullOps accepts repairs for. Everything else blocks:
+ * environment, flaky, and secret failures are not code-actionable.
+ *
+ * @type {CheckFailureClassification[]}
+ */
+export const ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS = [
   'formatting',
   'lint',
   'type',
   'test',
   'build',
+];
+
+/** @type {CheckFailureClassification[]} */
+const CHECK_FAILURE_CLASSIFICATIONS = [
+  ...ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS,
   'environment',
   'flaky',
   'secret',

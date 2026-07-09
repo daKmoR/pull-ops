@@ -9,8 +9,8 @@ import {
 import {
   MANAGED_PR_OPERATION_NAMES,
   chooseNextManagedPrOperationFromState,
+  resolveNextManagedPrOperation,
   getBlockedManagedPrFollowUpOperations,
-  getNextManagedPrOperation,
   validateManagedPrOutcome,
 } from './transitionPolicy.js';
 
@@ -1257,7 +1257,9 @@ function requirePrOperationName(operation) {
 
 /**
  * Resolve the next Operation Label for one transition through the
- * PullOps-Managed PR Transition graph.
+ * PullOps-Managed PR Transition graph. An outcome may carry a
+ * runner-proposed next operation; the graph applies it only when it is an
+ * allowed continuation and falls back to the default edge otherwise.
  *
  * @param {ManagedPrOperationName} operation
  * @param {ManagedPrTransitionOutcome} outcome
@@ -1265,10 +1267,13 @@ function requirePrOperationName(operation) {
  * @returns {string | undefined}
  */
 function readNextOperationLabel(operation, outcome, state) {
-  const nextOperation = getNextManagedPrOperation({
+  const { nextOperation } = resolveNextManagedPrOperation({
     operation,
     outcomeKind: outcome.kind,
     state,
+    ...('proposedNextOperation' in outcome && outcome.proposedNextOperation !== undefined
+      ? { proposedOperation: outcome.proposedNextOperation }
+      : {}),
   });
   return nextOperation === undefined
     ? undefined

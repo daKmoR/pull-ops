@@ -67,4 +67,37 @@ describe('validatePrReviewOutput', () => {
       'Operation Output.reviewFollowUpIssues[0].body must be a non-empty string.',
     );
   });
+  it('03: accepts a managed-pr nextOperation proposal with changes_requested only', () => {
+    const accepted = validatePrReviewOutput({
+      status: 'changes_requested',
+      summary: 'CI is failing.',
+      nextOperation: 'pr-fix-ci',
+    });
+    assert.ok(accepted.valid);
+    const completed = /** @type {import('./output.types.js').CompletedPrReviewOutput} */ (
+      accepted.valid ? accepted.value : {}
+    );
+    assert.equal(completed.nextOperation, 'pr-fix-ci');
+
+    const withApproved = validatePrReviewOutput({
+      status: 'approved',
+      summary: 'Looks good.',
+      nextOperation: 'pr-fix-ci',
+    });
+    assert.equal(withApproved.valid, false);
+    assert.match(
+      withApproved.valid ? '' : withApproved.reason,
+      /only accepted with status "changes_requested"/,
+    );
+  });
+
+  it('04: rejects a nextOperation outside the managed PR workflow vocabulary', () => {
+    const result = validatePrReviewOutput({
+      status: 'changes_requested',
+      summary: 'Needs work.',
+      nextOperation: 'issue-implement',
+    });
+    assert.equal(result.valid, false);
+    assert.match(result.valid ? '' : result.reason, /must be one of/);
+  });
 });

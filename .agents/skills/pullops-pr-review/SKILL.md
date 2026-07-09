@@ -12,33 +12,36 @@ operation boundary.
 
 ## Review
 
-1. Inventory the review context before judging the diff. Completion criterion:
-   the linked issue or Spec intent, PR body claims, changed-file list, diff
-   hunks, prior comments, review summaries, and unresolved review threads have
-   all been considered.
-2. Run the Standards pass. Use `coding-standards` and report only actionable
-   repository-standard violations. Completion criterion: every Standards
-   finding is either represented as an inline `comments` item on a changed diff
-   line, fixed as a review-owned `directChanges` entry, or omitted because it is
-   non-actionable in this PR.
-3. Run the Spec pass. Compare the current diff to the linked issue or Spec
-   context and PR body. Completion criterion: every missing, wrong, or
-   out-of-scope behavior you find is represented as an inline `comments` item
-   on a changed diff line, a `replies` item on a matching unresolved thread, or
-   the reason for `blocked` when review cannot complete.
-4. Reconcile unresolved review threads. Reply only when the supplied thread is
-   still unresolved and the response should attach to an existing `commentId`.
-   Completion criterion: every `replies[].commentId` is a positive integer from
-   the supplied unresolved review threads.
-5. Make direct review improvements only when they are small, clearly
-   review-owned, and do not change PR scope. Completion criterion: every
-   working-tree edit is named in `directChanges`; otherwise `directChanges` is
-   empty.
-6. Decide the result. Use `changes_requested` when actionable feedback should
+Review along the two `/code-review` axes — that skill carries the review
+discipline, including the Fowler smell baseline for the Standards axis:
+
+- **Standards**: does the diff follow this repo's documented coding standards
+  (`/coding-standards`)? Report only actionable violations; skip anything
+  tooling already enforces.
+- **Spec**: does the diff faithfully implement the linked issue or Spec and
+  the PR body claims — nothing missing, wrong, or out of scope?
+
+Then map every finding into the output contract:
+
+1. Every finding lands as an inline `comments` item on a changed diff line, a
+   review-owned `directChanges` entry, a `replies` item on a matching
+   unresolved thread, or the reason for `blocked` — never as loose prose.
+2. Reply only when the supplied thread is still unresolved; every
+   `replies[].commentId` is a positive integer from the supplied unresolved
+   review threads.
+3. Make direct review improvements only when they are small, clearly
+   review-owned, and do not change PR scope; name every working-tree edit in
+   `directChanges`.
+4. Decide the result. Use `changes_requested` when actionable feedback should
    be handled by `pullops-pr-address-review`. Use `approved` only when the PR is
    ready for the next PullOps automation step after any direct review changes.
    Use `blocked` only when the review cannot be completed safely from the
    supplied context.
+5. With `changes_requested`, propose the next operation via `nextOperation`:
+   `pr-address-review` (default) when the problems are review feedback, or
+   `pr-fix-ci` when the real blocker is failing checks that should be repaired
+   first. PullOps validates the proposal against its transition graph and
+   falls back to the default when it is not an allowed continuation.
 
 ## Output Rules
 
@@ -93,8 +96,9 @@ Final response must be only JSON:
 
 ```json
 {
-  "status": "approved",
+  "status": "changes_requested",
   "summary": "One sentence review summary.",
+  "nextOperation": "pr-address-review",
   "comments": [
     {
       "path": "src/example.js",

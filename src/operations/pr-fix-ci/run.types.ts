@@ -4,17 +4,7 @@ import type {
   GitHubPullRequestDiff,
   GitHubPullRequestReviewContext,
 } from '../../github/types.js';
-import type { CheckFailureClassification, ClassifiedCheckFailure } from './classification.types.js';
-
-export interface CheckClassificationComparison {
-  checkId: string;
-  checkName?: string;
-  runnerClassification: CheckFailureClassification;
-  runnerRationale: string;
-  keywordPrior?: CheckFailureClassification;
-  keywordPriorReason?: string;
-  agreesWithKeywordPrior?: boolean;
-}
+import type { FailedCheck } from './failedChecks.types.js';
 
 export type PrFixCiPreparation =
   | { ready: false; output: Record<string, unknown> }
@@ -24,7 +14,7 @@ export type PrFixCiPreparation =
       issue?: GitHubIssue;
       reviewContext: GitHubPullRequestReviewContext;
       diff: GitHubPullRequestDiff;
-      checkFailures: ClassifiedCheckFailure[];
+      checkFailures: FailedCheck[];
       managed: boolean;
       ciFixCycle: number;
       maxCiFixCycles: number;

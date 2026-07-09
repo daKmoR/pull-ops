@@ -6,8 +6,11 @@ import {
   MANAGED_PR_OPERATION_NAMES,
   chooseNextManagedPrOperationFromState,
   getAllowedManagedPrOutcomeKinds,
+  getAllowedNextManagedPrOperations,
   getBlockedManagedPrFollowUpOperations,
   getNextManagedPrOperation,
+  isManagedPrTransitionAllowed,
+  resolveNextManagedPrOperation,
   validateManagedPrOutcome,
 } from './transitionPolicy.js';
 
@@ -191,5 +194,85 @@ describe('chooseNextManagedPrOperationFromState', () => {
       }),
       'pr-address-review',
     );
+  });
+});
+
+describe('resolveNextManagedPrOperation', () => {
+  it('01: applies an allowed detour proposal', () => {
+    assert.deepEqual(
+      resolveNextManagedPrOperation({
+        operation: 'pr-review',
+        outcomeKind: 'changes-requested',
+        proposedOperation: 'pr-fix-ci',
+      }),
+      { nextOperation: 'pr-fix-ci', proposalApplied: true },
+    );
+  });
+
+  it('02: applies a proposal that names the default continuation', () => {
+    assert.deepEqual(
+      resolveNextManagedPrOperation({
+        operation: 'pr-review',
+        outcomeKind: 'changes-requested',
+        proposedOperation: 'pr-address-review',
+      }),
+      { nextOperation: 'pr-address-review', proposalApplied: true },
+    );
+  });
+
+  it('03: falls back to the default edge for a proposal the graph has no edge for', () => {
+    assert.deepEqual(
+      resolveNextManagedPrOperation({
+        operation: 'pr-review',
+        outcomeKind: 'changes-requested',
+        proposedOperation: 'pr-finalize',
+      }),
+      { nextOperation: 'pr-address-review', proposalApplied: false },
+    );
+  });
+
+  it('04: routes by the default edge when no proposal is supplied', () => {
+    assert.deepEqual(
+      resolveNextManagedPrOperation({
+        operation: 'pr-fix-ci',
+        outcomeKind: 'fixed',
+      }),
+      { nextOperation: 'pr-review', proposalApplied: false },
+    );
+  });
+
+  it('05: a proposal can never revive a terminal outcome', () => {
+    assert.deepEqual(
+      resolveNextManagedPrOperation({
+        operation: 'pr-review',
+        outcomeKind: 'blocked',
+        proposedOperation: 'pr-review',
+      }),
+      { nextOperation: undefined, proposalApplied: false },
+    );
+  });
+
+  it('06: every allowed continuation funnels back through pr-review before finalize', () => {
+    for (const operation of MANAGED_PR_OPERATION_NAMES) {
+      for (const outcomeKind of getAllowedManagedPrOutcomeKinds(operation)) {
+        for (const allowed of getAllowedNextManagedPrOperations({ operation, outcomeKind })) {
+          assert.ok(
+            isManagedPrTransitionAllowed({
+              operation,
+              outcomeKind,
+              proposedOperation: allowed,
+            }),
+            `${operation} + ${outcomeKind} must allow its own continuation ${allowed}`,
+          );
+          if (operation !== 'pr-review') {
+            assert.notEqual(
+              allowed,
+              'pr-finalize',
+              `${operation} + ${outcomeKind} must not offer pr-finalize without a fresh review`,
+            );
+          }
+        }
+      }
+    }
   });
 });

@@ -1,3 +1,4 @@
+import { MANAGED_PR_OPERATION_NAMES } from '../../managed-pr/transitionPolicy.js';
 import { validateOperationOutput } from '../../operation-output/OperationOutput.js';
 
 /**
@@ -85,11 +86,17 @@ export function validatePrReviewOutput(input) {
     return followUps;
   }
 
+  const nextOperation = readNextOperationProposal(result.value.nextOperation, status);
+  if (!nextOperation.valid) {
+    return nextOperation;
+  }
+
   return {
     valid: true,
     value: {
       status,
       summary: summary.value,
+      ...(nextOperation.value === undefined ? {} : { nextOperation: nextOperation.value }),
       comments: comments.value,
       replies: replies.value,
       directChanges: directChanges.value,
@@ -97,6 +104,40 @@ export function validatePrReviewOutput(input) {
       followUps: followUps.value,
     },
   };
+}
+
+/**
+ * A proposal is schema-valid when it names a managed PR workflow operation
+ * and rides on a changes_requested review; whether the proposal is an
+ * allowed continuation stays with the PullOps-Managed PR Transition Graph.
+ *
+ * @param {unknown} value
+ * @param {ReviewResultStatus} status
+ * @returns {{ valid: true, value: string | undefined } | { valid: false, reason: string }}
+ */
+function readNextOperationProposal(value, status) {
+  if (value === undefined) {
+    return { valid: true, value: undefined };
+  }
+
+  if (status !== 'changes_requested') {
+    return {
+      valid: false,
+      reason: 'Operation Output.nextOperation is only accepted with status "changes_requested".',
+    };
+  }
+
+  if (
+    typeof value !== 'string' ||
+    !MANAGED_PR_OPERATION_NAMES.includes(/** @type {never} */ (value))
+  ) {
+    return {
+      valid: false,
+      reason: `Operation Output.nextOperation must be one of: ${MANAGED_PR_OPERATION_NAMES.join(', ')}.`,
+    };
+  }
+
+  return { valid: true, value };
 }
 
 /**

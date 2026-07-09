@@ -1,0 +1,7 @@
+# Drop the CI keyword classification prior
+
+The `pr-fix-ci` operation no longer computes a keyword-based classification prior for failed checks. `src/operations/pr-fix-ci/failedChecks.js` collects check facts only — name, workflow, state, conclusion, details URL, and a stable checkId — and the prompt hands those facts to the runner, whose judgment is the Check Failure Classification. The 184-line regex classifier, its prior lines in the prompt, and the prior-vs-runner comparison artifact are deleted.
+
+The prior was already demoted to a non-binding hint whose only remaining job was to measure disagreement so its removal could be decided from scorecard data. The decision is now taken on Bitter Lesson grounds (the July 2026 audit and ADR-0066's split): a keyword table is knowledge-encoding that a competent runner obsoletes, it anchors the runner toward the hint it is supposed to overrule, and its fallback bucket ("no signal matched → build") planted a confidently wrong prior on exactly the checks that most need real judgment.
+
+What the harness keeps is verification, unchanged in kind: every failed checkId must be classified exactly once against the fixed eight-kind taxonomy, repairs are accepted only for the actionable classifications (`ACTIONABLE_CHECK_FAILURE_CLASSIFICATIONS`, now owned by the output contract in `output.js`), non-actionable classifications block the PR, and the deterministic working-tree safety verification still rejects weakened tests and workflow tampering regardless of what the runner claims.

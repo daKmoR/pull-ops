@@ -12,27 +12,19 @@ Ticket is the implementation boundary.
 
 ## Implement
 
-1. Read the supplied issue body and any parent context. Identify the requested
-   behavior, explicit constraints, and acceptance signals before editing.
-   Completion criterion: the issue boundary is clear enough to decide whether a
-   discovered change is in scope, Adjacent Work, follow-up, or blocked.
-2. Use the appropriate discipline:
-   - Use `coding-standards` before editing source files, tests, public APIs, or types.
-   - Use `tdd` where the issue has a clear behavior seam that can be covered incrementally.
-   - Use `diagnosing-bugs` when the issue is bug-shaped and no tight reproduction exists yet.
-   Completion criterion: every referenced discipline needed for this issue has
-   been applied before the relevant edits.
-3. Implement the smallest coherent change that satisfies the issue. Allow only
-   Adjacent Work required to complete it correctly. Record unrelated defects,
-   broad refactors, and larger design problems as `followUps` instead of
-   folding them into the implementation.
-   Completion criterion: the working tree contains only issue-focused work or
-   necessary Adjacent Work.
-4. Run focused verification appropriate for the change. If automated
-   verification is unavailable, perform the tightest manual check available and
-   say exactly what was checked in `testPlan`.
-   Completion criterion: `testPlan` names verification that was actually run,
-   or the focused manual check used when automated verification was unavailable.
+The how lives in the shared engineering skills; this skill adds only the
+PullOps boundary and output contract. Work the issue as `/implement`
+describes: use `/tdd` where the issue has a clear behavior seam, run
+typechecking and single test files regularly, and a focused verification pass
+at the end. Use `/coding-standards` before editing source, tests, public APIs,
+or types, and `/diagnosing-bugs` when the issue is bug-shaped and no tight
+reproduction exists yet.
+
+Scope: implement the smallest coherent change that satisfies the issue as
+written, plus only the Adjacent Work required to complete it correctly. Record
+unrelated defects, broad refactors, and larger design problems as `followUps`.
+When the issue boundary is not clear enough to decide whether a discovered
+change is in scope, that is a `blocked` reason, not a license to guess.
 
 ## Liveness and command execution
 

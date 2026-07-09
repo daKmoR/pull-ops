@@ -70,7 +70,7 @@ describe('runPrFixCi', () => {
     assert.equal(codex.calls.length, 1);
     assert.match(codex.calls[0].prompt, /Use the pullops-pr-fix-ci skill/);
     assert.match(codex.calls[0].prompt, /checkId `check-1`/);
-    assert.match(codex.calls[0].prompt, /Keyword prior \(non-binding\): lint/);
+    assert.doesNotMatch(codex.calls[0].prompt, /Keyword prior/);
     assert.match(codex.calls[0].prompt, /Classify every failed checkId yourself/);
     assert.deepEqual(git.commits, [
       {
@@ -110,7 +110,6 @@ describe('runPrFixCi', () => {
           lint: 1,
         },
       },
-      classificationDisagreements: 0,
       changesCommitted: true,
     });
   });
@@ -310,23 +309,6 @@ describe('runPrFixCi', () => {
       {
         number: 100,
         labels: ['pullops:human-required'],
-      },
-    ]);
-
-    const artifact = JSON.parse(
-      await readFile(join(localRunRecordDirectory, 'check-classification.json'), 'utf8'),
-    );
-    assert.equal(artifact.disagreements, 1);
-    assert.deepEqual(artifact.comparisons, [
-      {
-        checkId: 'check-1',
-        checkName: 'Deploy pipeline step',
-        runnerClassification: 'secret',
-        runnerRationale: 'The deploy step fails because a repository secret is missing.',
-        keywordPrior: 'build',
-        keywordPriorReason:
-          'No more specific signal matched, so PullOps treats this as a build failure requiring careful repair.',
-        agreesWithKeywordPrior: false,
       },
     ]);
   });

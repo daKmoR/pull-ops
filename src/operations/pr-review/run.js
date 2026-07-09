@@ -429,6 +429,10 @@ async function finalizePreparedPrReview(executionContext, context, preparation, 
               reviewCycle: nextReviewCycle,
               maxReviewCycles,
               reviewMode: preparation.reviewMode,
+              ...(reviewResult.status === 'changes_requested' &&
+              reviewResult.nextOperation !== undefined
+                ? { proposedNextOperation: reviewResult.nextOperation }
+                : {}),
             },
       usage: {
         ...readOperationBudgetUsage(context),
