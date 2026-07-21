@@ -52,7 +52,10 @@ describe('pullops-pr-fix-ci workflow', () => {
     );
     assert.doesNotMatch(workflow, /if \[ -f "\$OUTPUT_DIR\/runner_prompt\.md" \]/);
     assert.doesNotMatch(workflow, /runner_outcome=/);
-    assert.match(workflow, /openai\/codex-action@v1/);
+    assert.match(
+      workflow,
+      /uses: openai\/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1/,
+    );
     assert.match(workflow, /Verify OpenAI API key/);
     assert.match(workflow, /Run Codex/);
 

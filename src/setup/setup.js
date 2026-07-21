@@ -4,11 +4,7 @@ import { access, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/p
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import {
-  findPullOpsConfigFile,
-  loadPullOpsConfig,
-  PULL_OPS_CONFIG_FILES,
-} from '../config/PullOpsConfig.js';
+import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { readRunnerCommandCli } from '../runner/runnerCommand.js';
 import {
   createGitHubClient,
@@ -49,6 +45,7 @@ import {
  */
 
 const execFileAsync = promisify(nodeExecFile);
+const CONFIG_PATH = 'pullops.config.js';
 const PACKAGE_JSON_PATH = 'package.json';
 const PACKAGE_LOCK_PATH = 'package-lock.json';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
@@ -70,7 +67,7 @@ const GITHUB_ACTIONS_RUNNER_API_KEY_SECRETS = {
   codex: 'OPENAI_API_KEY',
   claude: 'ANTHROPIC_API_KEY',
 };
-const UNTRACKED_MANIFEST_PATHS = new Set([...PULL_OPS_CONFIG_FILES, ...AGENT_DOC_TARGETS]);
+const UNTRACKED_MANIFEST_PATHS = new Set([CONFIG_PATH, ...AGENT_DOC_TARGETS]);
 
 const SETUP_SKILLS_AREA = 'skills';
 const SETUP_AGENT_DOCS_AREA = 'agent-docs';
@@ -534,13 +531,11 @@ async function inspectSetupFiles({
     };
   }
 
-  const configFile = await findPullOpsConfigFile({ cwd: resolvedCwd });
-  if (configFile === undefined) {
+  const configPath = join(resolvedCwd, CONFIG_PATH);
+  if (!(await pathExists(configPath))) {
     return {
       changesNeeded: [],
-      blockers: [
-        `Missing required PullOps config ${PULL_OPS_CONFIG_FILES.join(' or ')}.`,
-      ],
+      blockers: [`Missing required PullOps config ${CONFIG_PATH}.`],
       warnings: [],
       suggestions: ['Run PullOps init before using PullOps setup commands.'],
       writes: [],
@@ -548,15 +543,13 @@ async function inspectSetupFiles({
   }
 
   try {
-    await loadPullOpsConfig({ cwd: resolvedCwd, configFile });
+    await loadPullOpsConfig({ cwd: resolvedCwd });
   } catch (error) {
     return {
       changesNeeded: [],
-      blockers: [
-        `Unable to load PullOps Config from ${configFile}: ${getErrorMessage(error)}`,
-      ],
+      blockers: [`Unable to load PullOps Config from ${CONFIG_PATH}: ${getErrorMessage(error)}`],
       warnings: [],
-      suggestions: [`Fix ${configFile} before rerunning PullOps setup.`],
+      suggestions: [`Fix ${CONFIG_PATH} before rerunning PullOps setup.`],
       writes: [],
     };
   }
@@ -792,20 +785,18 @@ async function readSetupPrereqs({ cwd, verifyRuntime = false }) {
     return { blockers, warnings, suggestions, manifestState: undefined };
   }
 
-  const configFile = await findPullOpsConfigFile({ cwd: resolvedCwd });
-  if (configFile === undefined) {
-    blockers.push(`Missing required PullOps config ${PULL_OPS_CONFIG_FILES.join(' or ')}.`);
+  const configPath = join(resolvedCwd, CONFIG_PATH);
+  if (!(await pathExists(configPath))) {
+    blockers.push(`Missing required PullOps config ${CONFIG_PATH}.`);
     suggestions.push('Run PullOps init before using PullOps setup commands.');
   }
 
-  if (configFile !== undefined) {
+  if (await pathExists(configPath)) {
     try {
-      await loadPullOpsConfig({ cwd: resolvedCwd, configFile });
+      await loadPullOpsConfig({ cwd: resolvedCwd });
     } catch (error) {
-      blockers.push(
-        `Unable to load PullOps Config from ${configFile}: ${getErrorMessage(error)}`,
-      );
-      suggestions.push(`Fix ${configFile} before rerunning PullOps setup.`);
+      blockers.push(`Unable to load PullOps Config from ${CONFIG_PATH}: ${getErrorMessage(error)}`);
+      suggestions.push(`Fix ${CONFIG_PATH} before rerunning PullOps setup.`);
     }
   }
 

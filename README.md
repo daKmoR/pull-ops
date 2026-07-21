@@ -26,13 +26,14 @@ PullOps supports two issue-to-PR workflows:
 Automated implementation, review, CI repair, branch update, conflict resolution,
 and finalization happen before the final human merge.
 
-PullOps currently targets npm-based GitHub repositories, Node.js 22 or newer,
-same-repository pull request branches, and Codex, Claude Code, or another
-configurable local agent CLI.
+PullOps currently targets npm-based ES module GitHub repositories whose root
+`package.json` declares `"type": "module"`, Node.js 22 or newer, same-repository
+pull request branches, and Codex, Claude Code, or another configurable local
+agent CLI.
 
 ## Setup
 
-Use PullOps in npm-based repositories with Node.js 22 or newer.
+Use PullOps in npm-based ES module repositories with Node.js 22 or newer.
 
 Add PullOps to the Target Repository and install the setup entrypoint:
 
@@ -44,9 +45,9 @@ npx pullops init
 Then ask your local agent to run `/pullops-setup`. This is a repo-local agent
 skill installed by `pullops init`, not a shell command.
 
-Init creates a module-safe `pullops.config.mjs` and ensures Local Run Records
-under `.pullops/runs/` are ignored by git. Existing `pullops.config.js` files
-remain supported for repositories that already use them.
+Init creates `pullops.config.js` and ensures Local Run Records under
+`.pullops/runs/` are ignored by git. Init blocks when the root `package.json`
+does not declare `"type": "module"`.
 
 `/pullops-setup` starts with setup doctor, installs repo-local PullOps skills and
 agent docs, and can continue into GitHub Actions setup when you want
@@ -65,7 +66,7 @@ Local PullOps work does not require repository Actions secrets.
 ### Choose the Runner
 
 PullOps runs the Codex CLI by default. To run the Claude Code CLI instead,
-point the Runner Command at `claude` in `pullops.config.mjs`:
+point the Runner Command at `claude` in `pullops.config.js`:
 
 ```js
 export default {

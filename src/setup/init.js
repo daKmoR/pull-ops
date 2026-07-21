@@ -4,11 +4,6 @@ import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import {
-  DEFAULT_PULL_OPS_CONFIG_FILE,
-  findPullOpsConfigFile,
-  PULL_OPS_CONFIG_FILES,
-} from '../config/PullOpsConfig.js';
 import { createFileSetupChangeSet } from './setupResult.js';
 
 /**
@@ -23,12 +18,13 @@ import { createFileSetupChangeSet } from './setupResult.js';
 
 const execFileAsync = promisify(nodeExecFile);
 const SETUP_AREA = 'init';
+const CONFIG_PATH = 'pullops.config.js';
 const GITIGNORE_PATH = '.gitignore';
 const LOCAL_RUNS_IGNORE_PATTERN = '.pullops/runs/';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
 const SKILL_PATH = '.agents/skills/pullops-setup/SKILL.md';
 const SETUP_SKILL_TEMPLATE_URL = new URL('./pullopsSetupSkill.txt', import.meta.url);
-const UNTRACKED_MANIFEST_PATHS = new Set(PULL_OPS_CONFIG_FILES);
+const UNTRACKED_MANIFEST_PATHS = new Set([CONFIG_PATH]);
 
 /**
  * @param {PullOpsInitOptions} [options]
@@ -65,9 +61,28 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
     });
   }
 
+  let packageJson;
+  try {
+    packageJson = parseRootPackageJson(await readFile(packageJsonPath, 'utf8'));
+  } catch (error) {
+    return createBlockedResult({
+      summary: 'PullOps init requires a valid root package.json manifest.',
+      blockers: [`Unable to load root package.json: ${getErrorMessage(error)}`],
+      suggestions: ['Fix the root package.json before rerunning PullOps init.'],
+    });
+  }
+
+  if (packageJson.type !== 'module') {
+    return createBlockedResult({
+      summary: 'PullOps init requires an ES module Target Repository.',
+      blockers: ['Root package.json must declare `"type": "module"`.'],
+      suggestions: [
+        'Use PullOps in a Target Repository whose root package.json declares `"type": "module"`.',
+      ],
+    });
+  }
+
   const configContent = buildPullOpsConfigContents();
-  const existingConfigPath = await findPullOpsConfigFile({ cwd: resolvedCwd });
-  const configPath = existingConfigPath ?? DEFAULT_PULL_OPS_CONFIG_FILE;
   const currentGitIgnoreContent = await readTextFileIfExists(join(resolvedCwd, GITIGNORE_PATH));
   const localRunsIgnored = await isGitIgnored({
     cwd: resolvedCwd,
@@ -86,7 +101,7 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
     areManifestEntriesEqual(manifestState.fileEntries, desiredManifestEntries)
       ? manifestState.raw
       : buildInstallManifestContents({ fileEntries: desiredManifestEntries });
-  const currentConfigContent = await readTextFileIfExists(join(resolvedCwd, configPath));
+  const currentConfigContent = await readTextFileIfExists(join(resolvedCwd, CONFIG_PATH));
   const desiredFileContents = new Map([
     ...desiredManagedFileContents,
     [MANIFEST_PATH, desiredManifestContent],
@@ -113,8 +128,8 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
   }
 
   if (currentConfigContent === undefined) {
-    addUnique(changesNeeded, configPath);
-    writes.push({ path: configPath, contents: configContent });
+    addUnique(changesNeeded, CONFIG_PATH);
+    writes.push({ path: CONFIG_PATH, contents: configContent });
   }
 
   for (const state of fileStates) {
@@ -352,6 +367,23 @@ function buildPullOpsConfigContents() {
 }
 
 /**
+ * @param {string} packageJsonText
+ * @returns {Record<string, unknown>}
+ */
+function parseRootPackageJson(packageJsonText) {
+  const parsedPackageJson = JSON.parse(packageJsonText);
+  if (
+    typeof parsedPackageJson !== 'object' ||
+    parsedPackageJson === null ||
+    Array.isArray(parsedPackageJson)
+  ) {
+    throw new Error('Root package.json must be a JSON object.');
+  }
+
+  return /** @type {Record<string, unknown>} */ (parsedPackageJson);
+}
+
+/**
  * @param {string | undefined} currentContent
  * @param {string} rule
  * @returns {string}
@@ -366,6 +398,14 @@ function appendGitIgnoreRule(currentContent, rule) {
     : `${currentContent}\n`;
   const separator = contentWithTrailingNewline.endsWith('\n\n') ? '' : '\n';
   return `${contentWithTrailingNewline}${separator}${rule}\n`;
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function getErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /**

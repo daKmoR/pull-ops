@@ -63,7 +63,10 @@ describe('pullops-pr-resolve-conflicts workflow', () => {
     );
     assert.doesNotMatch(workflow, /if \[ -f "\$OUTPUT_DIR\/runner_prompt\.md" \]/);
     assert.doesNotMatch(workflow, /runner_outcome=/);
-    assert.match(workflow, /openai\/codex-action@v1/);
+    assert.match(
+      workflow,
+      /uses: openai\/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1/,
+    );
     assert.match(workflow, /Run Codex conflict pass 1/);
     assert.match(workflow, /Run Codex conflict pass 2/);
     assert.match(workflow, /Run Codex conflict pass 3/);

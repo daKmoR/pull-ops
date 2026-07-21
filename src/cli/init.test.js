@@ -22,7 +22,7 @@ test('init prints human output by default and JSON output with --json', async ()
   assert.equal(humanExitCode, 0);
   assert.match(humanStdout.text, /PullOps Init: changed/);
   assert.match(humanStdout.text, /Area: init/);
-  assert.match(humanStdout.text, /pullops\.config\.mjs/);
+  assert.match(humanStdout.text, /pullops\.config\.js/);
   assert.match(humanStdout.text, /\.gitignore/);
   assert.match(humanStdout.text, /Changes:/);
 
@@ -59,7 +59,7 @@ test('init --check returns a nonzero exit code for incomplete setup', async () =
       '.agents/skills/pullops-setup/SKILL.md',
       '.gitignore',
       '.pullops/install-manifest.json',
-      'pullops.config.mjs',
+      'pullops.config.js',
     ].sort(),
   );
 });
@@ -125,7 +125,7 @@ function createWritableBuffer() {
 async function createGitRepository() {
   const cwd = await mkdtemp(join(tmpdir(), 'pullops-cli-init-'));
   await execFileAsync('git', ['init', '--initial-branch=main'], { cwd });
-  await writeFile(join(cwd, 'package.json'), '{"name":"demo","private":true}\n');
+  await writeFile(join(cwd, 'package.json'), '{"name":"demo","private":true,"type":"module"}\n');
   return cwd;
 }
 

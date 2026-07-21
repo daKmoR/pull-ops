@@ -529,9 +529,7 @@ describe('setup github-actions', () => {
       assert.match(actionReference, /^[^@]+@[0-9a-f]{40}$/);
     }
     assert.ok(
-      actionReferences.includes(
-        'openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56',
-      ),
+      actionReferences.includes('openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56'),
     );
     assert.ok(
       actionReferences.includes(
@@ -608,7 +606,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository({ includeGitHubRemote: true });
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.mjs'),
+      join(cwd, 'pullops.config.js'),
       ['export default {', '  runner: {', "    command: 'claude',", '  },', '};', ''].join('\n'),
     );
     await runPullOpsSetupGitHubActions({ cwd });
@@ -733,7 +731,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.mjs'),
+      join(cwd, 'pullops.config.js'),
       [
         'export default {',
         '  operations: {',
@@ -766,7 +764,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.mjs'),
+      join(cwd, 'pullops.config.js'),
       [
         'export default {',
         '  runner: {',
