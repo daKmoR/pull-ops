@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          - 22
+          - 24
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting and lint
+        run: npm run lint
+
+      - name: Check types
+        run: npm run types
+
+      - name: Run tests
+        run: npm test
+
+  package-smoke:
+    name: Packaged consumer smoke
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test the packed package in CommonJS and ESM repositories
+        run: npm run smoke:package
+
+  required:
+    name: Required checks
+    if: always()
+    needs:
+      - verify
+      - package-smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require every verification job to pass
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          PACKAGE_SMOKE_RESULT: ${{ needs.package-smoke.result }}
+        run: |
+          test "$VERIFY_RESULT" = success
+          test "$PACKAGE_SMOKE_RESULT" = success

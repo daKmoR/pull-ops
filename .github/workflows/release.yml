@@ -1,0 +1,64 @@
+name: Publish
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish npm package
+    if: github.repository == 'daKmoR/pull-ops'
+    environment: npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Node for trusted publishing
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const { version } = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const expectedTag = `v${version}`;
+            if (process.env.RELEASE_TAG !== expectedTag) {
+              throw new Error(`Release tag ${process.env.RELEASE_TAG} does not match ${expectedTag}.`);
+            }
+          '
+
+      - name: Check formatting and lint
+        run: npm run lint
+
+      - name: Check types
+        run: npm run types
+
+      - name: Run tests
+        run: npm test
+
+      - name: Test the packed package
+        run: npm run smoke:package
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Publish with npm trusted publishing
+        run: npm publish --access public

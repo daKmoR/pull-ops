@@ -2,6 +2,15 @@
   "name": "@pull-ops/cli",
   "version": "0.1.0",
   "description": "Turn GitHub issues into reviewed pull requests with AI while keeping human approval boundaries explicit.",
+  "keywords": [
+    "ai",
+    "automation",
+    "claude",
+    "codex",
+    "github",
+    "pull-request"
+  ],
+  "author": "Thomas Allmer",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -26,6 +35,8 @@
     "dist-types/**/*.d.ts.map",
     "docs/assets/",
     "docs/operation-reference.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
     "!src/**/*.test.js",
     "!dist-types/docs/**",
     "!dist-types/**/*.test.d.ts",
@@ -41,6 +52,11 @@
   "bugs": {
     "url": "https://github.com/daKmoR/pull-ops/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "lint": "eslint . --ignore-pattern .gitignore && prettier \"**/*.{ts,js,json,md}\" --check --ignore-path .gitignore --ignore-path .prettierignore",
     "format": "eslint . --ignore-pattern .gitignore --fix && prettier \"**/*.{ts,js,json,md}\" --write --ignore-path .gitignore --ignore-path .prettierignore",
@@ -55,6 +71,8 @@
     "pullops:pr-resolve-conflicts": "node src/cli/cli.js run pr-resolve-conflicts",
     "pullops:pr-finalize": "node src/cli/cli.js run pr-finalize",
     "pullops:pr-close-ticket": "node src/cli/cli.js run pr-close-ticket",
+    "presmoke:package": "npm run types",
+    "smoke:package": "node scripts/smokePackage.js",
     "types": "wireit",
     "test": "wireit",
     "changeset": "changeset",

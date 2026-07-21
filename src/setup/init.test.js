@@ -7,10 +7,13 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 
+import { loadPullOpsConfig } from '../config/PullOpsConfig.js';
 import { runPullOpsInit } from './init.js';
 
 const execFileAsync = promisify(execFile);
-const CONFIG_PATH = 'pullops.config.js';
+const CONFIG_PATH = 'pullops.config.mjs';
+const GITIGNORE_PATH = '.gitignore';
+const LEGACY_CONFIG_PATH = 'pullops.config.js';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
 const SKILL_PATH = '.agents/skills/pullops-setup/SKILL.md';
 
@@ -23,7 +26,7 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.equal(result.area, 'init');
   assert.deepEqual(
     [...changedFiles(result)].sort(),
-    [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
+    [CONFIG_PATH, GITIGNORE_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
   );
   assert.deepEqual(result.changesNeeded, {});
   assert.deepEqual(result.blockers, []);
@@ -31,11 +34,13 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.deepEqual(result.suggestions, []);
 
   const configText = await readFile(join(cwd, CONFIG_PATH), 'utf8');
+  const gitIgnoreText = await readFile(join(cwd, GITIGNORE_PATH), 'utf8');
   const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
   const skillText = await readFile(join(cwd, SKILL_PATH), 'utf8');
 
   assert.match(configText, /PullOpsConfig/);
   assert.match(configText, /provider: 'github'/);
+  assert.match(gitIgnoreText, /^\.pullops\/runs\/$/m);
   assert.doesNotMatch(configText, /escalationModelTier/);
   assert.doesNotMatch(configText, /humanFeedbackResponseModelTier/);
   assert.match(skillText, /^---\nname: pullops-setup\n/);
@@ -96,6 +101,42 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.equal(skillEntry.hash, hash(skillText));
 });
 
+test('init creates a loadable PullOps Config in a CommonJS Target Repository', async () => {
+  const cwd = await createGitRepository();
+  await writeFile(
+    join(cwd, 'package.json'),
+    '{"name":"demo","private":true,"type":"commonjs"}\n',
+  );
+
+  const result = await runPullOpsInit({ cwd });
+  const config = await loadPullOpsConfig({ cwd });
+
+  assert.equal(result.status, 'changed');
+  assert.equal(config.issueStore.provider, 'github');
+});
+
+test('init keeps Local Run Records ignored without replacing target-owned rules', async () => {
+  const cwd = await createGitRepository();
+  await writeFile(join(cwd, GITIGNORE_PATH), 'coverage/\n');
+
+  const first = await runPullOpsInit({ cwd });
+  const firstGitIgnore = await readFile(join(cwd, GITIGNORE_PATH), 'utf8');
+  const second = await runPullOpsInit({ cwd });
+  const secondGitIgnore = await readFile(join(cwd, GITIGNORE_PATH), 'utf8');
+  const ignored = await execFileAsync(
+    'git',
+    ['check-ignore', '--no-index', '.pullops/runs/release-smoke/state.json'],
+    { cwd },
+  );
+
+  assert.ok(changedFiles(first).includes(GITIGNORE_PATH));
+  assert.equal(firstGitIgnore.startsWith('coverage/\n'), true);
+  assert.equal(firstGitIgnore.match(/^\.pullops\/runs\/$/gm)?.length, 1);
+  assert.equal(second.status, 'ready');
+  assert.equal(secondGitIgnore, firstGitIgnore);
+  assert.equal(ignored.stdout.trim(), '.pullops/runs/release-smoke/state.json');
+});
+
 test('init --check reports missing starter artifacts without writing them', async () => {
   const cwd = await createGitRepository();
 
@@ -109,10 +150,11 @@ test('init --check reports missing starter artifacts without writing them', asyn
   assert.deepEqual(result.suggestions, ['Run PullOps init to create the missing files.']);
   assert.deepEqual(
     [...neededFiles(result)].sort(),
-    [CONFIG_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
+    [CONFIG_PATH, GITIGNORE_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
   );
 
   await assert.rejects(readFile(join(cwd, CONFIG_PATH), 'utf8'));
+  await assert.rejects(readFile(join(cwd, GITIGNORE_PATH), 'utf8'));
   await assert.rejects(readFile(join(cwd, MANIFEST_PATH), 'utf8'));
   await assert.rejects(readFile(join(cwd, SKILL_PATH), 'utf8'));
 });
@@ -120,23 +162,23 @@ test('init --check reports missing starter artifacts without writing them', asyn
 test('init preserves target-owned config and only force-overwrites manifest-owned files', async () => {
   const ownedRepo = await createGitRepository();
   const targetOwnedConfigText = 'export default { custom: true };\n';
-  await writeFile(join(ownedRepo, CONFIG_PATH), targetOwnedConfigText);
+  await writeFile(join(ownedRepo, LEGACY_CONFIG_PATH), targetOwnedConfigText);
 
   const initialized = await runPullOpsInit({ cwd: ownedRepo });
   assert.equal(initialized.status, 'changed');
-  assert.equal(await readFile(join(ownedRepo, CONFIG_PATH), 'utf8'), targetOwnedConfigText);
+  assert.equal(await readFile(join(ownedRepo, LEGACY_CONFIG_PATH), 'utf8'), targetOwnedConfigText);
 
   await writeFile(join(ownedRepo, SKILL_PATH), '# PullOps Setup Skill\n\nlocal edit\n');
 
   const blocked = await runPullOpsInit({ cwd: ownedRepo });
   assert.equal(blocked.status, 'blocked');
   assert.match(blocked.blockers[0], /pullops-setup\/SKILL\.md/);
-  assert.equal(await readFile(join(ownedRepo, CONFIG_PATH), 'utf8'), targetOwnedConfigText);
+  assert.equal(await readFile(join(ownedRepo, LEGACY_CONFIG_PATH), 'utf8'), targetOwnedConfigText);
 
   const forced = await runPullOpsInit({ cwd: ownedRepo, force: true });
   assert.equal(forced.status, 'changed');
   assert.deepEqual([...changedFiles(forced)].sort(), [SKILL_PATH].sort());
-  assert.equal(await readFile(join(ownedRepo, CONFIG_PATH), 'utf8'), targetOwnedConfigText);
+  assert.equal(await readFile(join(ownedRepo, LEGACY_CONFIG_PATH), 'utf8'), targetOwnedConfigText);
   assert.match(await readFile(join(ownedRepo, SKILL_PATH), 'utf8'), /# PullOps Setup Skill/);
 
   const unownedSkillRepo = await createGitRepository();
@@ -154,14 +196,14 @@ test('init refreshes unchanged manifest-owned starter files without force', asyn
   const generatedSkillText = '# PullOps Setup Skill\n\nLegacy starter.\n';
   const extraManifestEntry = { path: '.pullops/workflow-kit.txt', hash: 'preserved-hash' };
 
-  await writeFile(join(cwd, CONFIG_PATH), generatedConfigText);
+  await writeFile(join(cwd, LEGACY_CONFIG_PATH), generatedConfigText);
   await mkdir(join(cwd, '.agents', 'skills', 'pullops-setup'), { recursive: true });
   await writeFile(join(cwd, SKILL_PATH), generatedSkillText);
   await mkdir(join(cwd, '.pullops'), { recursive: true });
   await writeFile(
     join(cwd, MANIFEST_PATH),
     buildManifest([
-      { path: CONFIG_PATH, hash: hash(generatedConfigText) },
+      { path: LEGACY_CONFIG_PATH, hash: hash(generatedConfigText) },
       { path: SKILL_PATH, hash: hash(generatedSkillText) },
       extraManifestEntry,
     ]),
@@ -170,16 +212,19 @@ test('init refreshes unchanged manifest-owned starter files without force', asyn
   const result = await runPullOpsInit({ cwd });
 
   assert.equal(result.status, 'changed');
-  assert.deepEqual([...changedFiles(result)].sort(), [MANIFEST_PATH, SKILL_PATH].sort());
+  assert.deepEqual(
+    [...changedFiles(result)].sort(),
+    [GITIGNORE_PATH, MANIFEST_PATH, SKILL_PATH].sort(),
+  );
 
-  const configText = await readFile(join(cwd, CONFIG_PATH), 'utf8');
+  const configText = await readFile(join(cwd, LEGACY_CONFIG_PATH), 'utf8');
   const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
   assert.equal(configText, generatedConfigText);
 
   /** @type {import('./init.types.js').PullOpsInstallManifest} */
   const manifest = JSON.parse(manifestText);
   assert.equal(
-    manifest.files.some(file => file.path === CONFIG_PATH),
+    manifest.files.some(file => file.path === LEGACY_CONFIG_PATH),
     false,
   );
   assert.deepEqual(

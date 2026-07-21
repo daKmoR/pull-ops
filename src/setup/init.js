@@ -4,6 +4,11 @@ import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
+import {
+  DEFAULT_PULL_OPS_CONFIG_FILE,
+  findPullOpsConfigFile,
+  PULL_OPS_CONFIG_FILES,
+} from '../config/PullOpsConfig.js';
 import { createFileSetupChangeSet } from './setupResult.js';
 
 /**
@@ -18,11 +23,12 @@ import { createFileSetupChangeSet } from './setupResult.js';
 
 const execFileAsync = promisify(nodeExecFile);
 const SETUP_AREA = 'init';
-const CONFIG_PATH = 'pullops.config.js';
+const GITIGNORE_PATH = '.gitignore';
+const LOCAL_RUNS_IGNORE_PATTERN = '.pullops/runs/';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
 const SKILL_PATH = '.agents/skills/pullops-setup/SKILL.md';
 const SETUP_SKILL_TEMPLATE_URL = new URL('./pullopsSetupSkill.txt', import.meta.url);
-const UNTRACKED_MANIFEST_PATHS = new Set([CONFIG_PATH]);
+const UNTRACKED_MANIFEST_PATHS = new Set(PULL_OPS_CONFIG_FILES);
 
 /**
  * @param {PullOpsInitOptions} [options]
@@ -60,6 +66,13 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
   }
 
   const configContent = buildPullOpsConfigContents();
+  const existingConfigPath = await findPullOpsConfigFile({ cwd: resolvedCwd });
+  const configPath = existingConfigPath ?? DEFAULT_PULL_OPS_CONFIG_FILE;
+  const currentGitIgnoreContent = await readTextFileIfExists(join(resolvedCwd, GITIGNORE_PATH));
+  const localRunsIgnored = await isGitIgnored({
+    cwd: resolvedCwd,
+    path: '.pullops/runs/release-smoke/state.json',
+  });
   const skillContent = await readSetupSkillTemplate();
   const desiredManagedFileContents = new Map([[SKILL_PATH, skillContent]]);
   const manifestState = await readInstallManifestState(join(resolvedCwd, MANIFEST_PATH));
@@ -73,7 +86,7 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
     areManifestEntriesEqual(manifestState.fileEntries, desiredManifestEntries)
       ? manifestState.raw
       : buildInstallManifestContents({ fileEntries: desiredManifestEntries });
-  const currentConfigContent = await readTextFileIfExists(join(resolvedCwd, CONFIG_PATH));
+  const currentConfigContent = await readTextFileIfExists(join(resolvedCwd, configPath));
   const desiredFileContents = new Map([
     ...desiredManagedFileContents,
     [MANIFEST_PATH, desiredManifestContent],
@@ -91,9 +104,17 @@ export async function runPullOpsInit({ cwd = process.cwd(), check = false, force
   /** @type {SetupWrite[]} */
   const writes = [];
 
+  if (!localRunsIgnored) {
+    addUnique(changesNeeded, GITIGNORE_PATH);
+    writes.push({
+      path: GITIGNORE_PATH,
+      contents: appendGitIgnoreRule(currentGitIgnoreContent, LOCAL_RUNS_IGNORE_PATTERN),
+    });
+  }
+
   if (currentConfigContent === undefined) {
-    addUnique(changesNeeded, CONFIG_PATH);
-    writes.push({ path: CONFIG_PATH, contents: configContent });
+    addUnique(changesNeeded, configPath);
+    writes.push({ path: configPath, contents: configContent });
   }
 
   for (const state of fileStates) {
@@ -213,6 +234,19 @@ async function readGitRepositoryRoot(cwd) {
 }
 
 /**
+ * @param {{ cwd: string, path: string }} options
+ * @returns {Promise<boolean>}
+ */
+async function isGitIgnored({ cwd, path }) {
+  try {
+    await execFileAsync('git', ['check-ignore', '--quiet', '--no-index', path], { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {string} filePath
  * @returns {Promise<string>}
  */
@@ -315,6 +349,23 @@ function buildPullOpsConfigContents() {
     '};',
     '',
   ].join('\n');
+}
+
+/**
+ * @param {string | undefined} currentContent
+ * @param {string} rule
+ * @returns {string}
+ */
+function appendGitIgnoreRule(currentContent, rule) {
+  if (currentContent === undefined || currentContent === '') {
+    return `${rule}\n`;
+  }
+
+  const contentWithTrailingNewline = currentContent.endsWith('\n')
+    ? currentContent
+    : `${currentContent}\n`;
+  const separator = contentWithTrailingNewline.endsWith('\n\n') ? '' : '\n';
+  return `${contentWithTrailingNewline}${separator}${rule}\n`;
 }
 
 /**

@@ -37,7 +37,7 @@ Completion criterion: every blocker and warning is classified as one of:
 
 GitHub API authentication is contextual readiness. PullOps can use `GITHUB_TOKEN` or `GH_TOKEN`, but only when a credential is visible to the current process.
 
-If a sandboxed Codex agent reports missing GitHub authentication:
+If a sandboxed Codex agent reports missing GitHub authentication (Claude Code inherits the host environment by default, so these Codex sandbox steps do not apply there — go to step 4 or 5 when the token is missing):
 
 1. Check for a visible token without printing it:
 ```sh
@@ -108,4 +108,4 @@ For each setup area, use the same loop: run the check command, read `status`, `c
 - Do not invoke `setup-matt-pocock-skills` or any remote skill package installer.
 - `setup agent-docs` creates missing compatible issue tracker, triage label, and domain docs without editing global agent instruction files.
 - When a blocker mentions local changes in a manifest-owned file, inspect the file before deciding whether `--force` is appropriate.
-- Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.js`.
+- Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.mjs` or legacy `pullops.config.js`.

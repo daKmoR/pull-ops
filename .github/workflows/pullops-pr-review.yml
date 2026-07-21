@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Verify same-repository pull request
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR: ${{ inputs.pr }}
           HEAD_REF: ${{ inputs.head_ref }}
@@ -53,7 +53,7 @@ jobs:
             }
 
       - name: Check out pull request branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
           ref: ${{ inputs.head_ref }}
@@ -61,7 +61,7 @@ jobs:
           token: ${{ secrets.PULLOPS_GITHUB_TOKEN }}
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm
@@ -121,7 +121,7 @@ jobs:
       - name: Run Codex
         if: steps.prepare.outputs.run_runner == 'true' && steps.runner_key.outcome == 'success'
         id: runner
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
         continue-on-error: true
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -134,7 +134,7 @@ jobs:
 
       - name: Restore Node for PullOps complete
         if: always()
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm

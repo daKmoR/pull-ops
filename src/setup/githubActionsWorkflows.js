@@ -14,6 +14,18 @@ import {
 
 const WORKFLOW_ROOT = join('.github', 'workflows');
 const DEFAULT_PR_RESOLVE_CONFLICTS_MAX_PASSES = 3;
+const PINNED_GITHUB_ACTION_REFERENCES = Object.freeze({
+  'actions/checkout@v6':
+    'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6',
+  'actions/github-script@v8':
+    'actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8',
+  'actions/setup-node@v6':
+    'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6',
+  'anthropics/claude-code-action@v1':
+    'anthropics/claude-code-action@37b464ce72700f7b2c5ff8d2db7fa7b15df792f5 # v1',
+  'openai/codex-action@v1':
+    'openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1',
+});
 
 /** @type {RunnerCommandCli} */
 const DEFAULT_RUNNER_CLI = 'codex';
@@ -1774,7 +1786,14 @@ jobs:
  * @returns {string}
  */
 function renderWorkflow(template) {
-  return `${template.replaceAll('@@', '$').trim()}\n`;
+  let workflow = template.replaceAll('@@', '$');
+  for (const [floatingReference, pinnedReference] of Object.entries(
+    PINNED_GITHUB_ACTION_REFERENCES,
+  )) {
+    workflow = workflow.replaceAll(`uses: ${floatingReference}`, `uses: ${pinnedReference}`);
+  }
+
+  return `${workflow.trim()}\n`;
 }
 
 /** @type {Record<WorkflowOperation['name'], (options: WorkflowRenderOptions) => string>} */

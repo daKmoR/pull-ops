@@ -23,6 +23,12 @@ import { readRunnerCommandCli } from '../runner/runnerCommand.js';
 
 /** @type {ModelTier[]} */
 export const MODEL_TIERS = ['high', 'mid', 'low'];
+export const DEFAULT_PULL_OPS_CONFIG_FILE = 'pullops.config.mjs';
+export const LEGACY_PULL_OPS_CONFIG_FILE = 'pullops.config.js';
+export const PULL_OPS_CONFIG_FILES = Object.freeze([
+  DEFAULT_PULL_OPS_CONFIG_FILE,
+  LEGACY_PULL_OPS_CONFIG_FILE,
+]);
 
 /** @type {Record<ModelTier, string>} */
 export const CLAUDE_RUNNER_MODEL_DEFAULTS = {
@@ -99,11 +105,13 @@ export class PullOpsConfigError extends Error {
  */
 export async function loadPullOpsConfig({
   cwd = process.cwd(),
-  configFile = 'pullops.config.js',
+  configFile,
   env = process.env,
   readRemoteOriginUrl = () => readGitRemoteOriginUrl(cwd),
 } = {}) {
-  const configPath = resolve(cwd, configFile);
+  const resolvedConfigFile =
+    configFile ?? (await findPullOpsConfigFile({ cwd })) ?? DEFAULT_PULL_OPS_CONFIG_FILE;
+  const configPath = resolve(cwd, resolvedConfigFile);
   /** @type {UserPullOpsConfig} */
   let userConfig = {};
 
@@ -123,6 +131,20 @@ export async function loadPullOpsConfig({
   });
 
   return config;
+}
+
+/**
+ * @param {{ cwd?: string }} [options]
+ * @returns {Promise<string | undefined>}
+ */
+export async function findPullOpsConfigFile({ cwd = process.cwd() } = {}) {
+  for (const configFile of PULL_OPS_CONFIG_FILES) {
+    if (await fileExists(resolve(cwd, configFile))) {
+      return configFile;
+    }
+  }
+
+  return undefined;
 }
 
 /**

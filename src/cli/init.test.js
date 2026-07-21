@@ -22,7 +22,8 @@ test('init prints human output by default and JSON output with --json', async ()
   assert.equal(humanExitCode, 0);
   assert.match(humanStdout.text, /PullOps Init: changed/);
   assert.match(humanStdout.text, /Area: init/);
-  assert.match(humanStdout.text, /pullops\.config\.js/);
+  assert.match(humanStdout.text, /pullops\.config\.mjs/);
+  assert.match(humanStdout.text, /\.gitignore/);
   assert.match(humanStdout.text, /Changes:/);
 
   const jsonStdout = createWritableBuffer();
@@ -56,8 +57,9 @@ test('init --check returns a nonzero exit code for incomplete setup', async () =
     output.changesNeeded.files.sort(),
     [
       '.agents/skills/pullops-setup/SKILL.md',
+      '.gitignore',
       '.pullops/install-manifest.json',
-      'pullops.config.js',
+      'pullops.config.mjs',
     ].sort(),
   );
 });

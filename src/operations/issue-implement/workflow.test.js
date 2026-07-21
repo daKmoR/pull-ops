@@ -24,7 +24,10 @@ describe('pullops-issue-implement workflow', () => {
     assert.match(workflow, /prompt-file: \$\{\{ steps\.prepare\.outputs\.prompt_file \}\}/);
     assert.match(workflow, /output-file: \$\{\{ steps\.prepare\.outputs\.output_file \}\}/);
     assert.match(workflow, /model: \$\{\{ steps\.prepare\.outputs\.model \}\}/);
-    assert.match(workflow, /uses: openai\/codex-action@v1/);
+    assert.match(
+      workflow,
+      /uses: openai\/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1/,
+    );
     assert.doesNotMatch(workflow, /--runner codex-action/);
     assert.doesNotMatch(workflow, /--phase finalize/);
     assert.doesNotMatch(workflow, /codex_prompt\.md|codex_output\.json/);

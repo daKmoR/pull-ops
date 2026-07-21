@@ -19,6 +19,7 @@ import {
   SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION,
   SECURE_GITHUB_AUTHENTICATION_SUGGESTION,
 } from '../github/GitHubClient.js';
+import { renderPullOpsGitHubActionsWorkflowFiles } from './githubActionsWorkflows.js';
 import { runPullOpsInit } from './init.js';
 import {
   runPullOpsSetupAgentDocs,
@@ -37,7 +38,7 @@ const LOCAL_TRIAGE_DOC_SENTINEL = '# Local package triage labels sentinel\nneeds
 const LOCAL_DOMAIN_DOC_SENTINEL = '# Local package domain sentinel\nUse CONTEXT.md\n';
 
 describe('setup doctor', () => {
-  it('01: reports local setup work and .pullops/runs warnings for the local profile', async () => {
+  it('01: reports local setup work with Local Run Records already ignored', async () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
 
@@ -54,7 +55,7 @@ describe('setup doctor', () => {
     assert.ok(neededFiles(result).includes(MANIFEST_PATH));
     assert.ok(!neededFiles(result).includes('.agents/skills/pullops-pr-review/SKILL.md'));
     assert.ok(!neededFiles(result).includes('docs/agents/issue-tracker.md'));
-    assert.match(joinMessages(result.warnings), /Add \.pullops\/runs\/ to \.gitignore/);
+    assert.doesNotMatch(joinMessages(result.warnings), /Add \.pullops\/runs\/ to \.gitignore/);
     assert.doesNotMatch(joinMessages(result.warnings), /Missing optional authoring skills/);
     assert.deepEqual(result.blockers, []);
   });
@@ -78,7 +79,7 @@ describe('setup doctor', () => {
     );
     assert.doesNotMatch(joinMessages(result.warnings), /npx skills@latest add mattpocock\/skills/);
     assert.ok(result.suggestions.includes('npx skills@latest add mattpocock/skills'));
-    assert.match(joinMessages(result.warnings), /Add \.pullops\/runs\/ to \.gitignore/);
+    assert.doesNotMatch(joinMessages(result.warnings), /Add \.pullops\/runs\/ to \.gitignore/);
     assert.deepEqual(result.blockers, []);
   });
 
@@ -512,6 +513,33 @@ describe('setup github-actions', () => {
     assert.ok(!manifest.files.some(entry => entry.path === '.github/workflows/custom.yml'));
   });
 
+  it('01b: pins every generated GitHub Action to a full commit SHA', () => {
+    const renderedWorkflowSets = [
+      renderPullOpsGitHubActionsWorkflowFiles(),
+      renderPullOpsGitHubActionsWorkflowFiles({ runnerCli: 'claude' }),
+    ];
+    const actionReferences = renderedWorkflowSets.flatMap(workflows =>
+      [...workflows.values()].flatMap(workflow =>
+        [...workflow.matchAll(/^\s*uses:\s+([^\s#]+)(?:\s+#.*)?$/gm)].map(match => match[1]),
+      ),
+    );
+
+    assert.ok(actionReferences.length > 0);
+    for (const actionReference of actionReferences) {
+      assert.match(actionReference, /^[^@]+@[0-9a-f]{40}$/);
+    }
+    assert.ok(
+      actionReferences.includes(
+        'openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56',
+      ),
+    );
+    assert.ok(
+      actionReferences.includes(
+        'anthropics/claude-code-action@37b464ce72700f7b2c5ff8d2db7fa7b15df792f5',
+      ),
+    );
+  });
+
   it('02: blocks when repository context is unavailable for secret inspection', async () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
@@ -580,7 +608,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository({ includeGitHubRemote: true });
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.js'),
+      join(cwd, 'pullops.config.mjs'),
       ['export default {', '  runner: {', "    command: 'claude',", '  },', '};', ''].join('\n'),
     );
     await runPullOpsSetupGitHubActions({ cwd });
@@ -705,7 +733,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.js'),
+      join(cwd, 'pullops.config.mjs'),
       [
         'export default {',
         '  operations: {',
@@ -738,7 +766,7 @@ describe('setup github-actions', () => {
     const cwd = await createSetupRepository();
     await runPullOpsInit({ cwd });
     await writeFile(
-      join(cwd, 'pullops.config.js'),
+      join(cwd, 'pullops.config.mjs'),
       [
         'export default {',
         '  runner: {',
@@ -758,7 +786,10 @@ describe('setup github-actions', () => {
     );
     assert.match(workflow, /Verify Anthropic API key/);
     assert.match(workflow, /ANTHROPIC_API_KEY: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
-    assert.match(workflow, /uses: anthropics\/claude-code-action@v1/);
+    assert.match(
+      workflow,
+      /uses: anthropics\/claude-code-action@37b464ce72700f7b2c5ff8d2db7fa7b15df792f5 # v1/,
+    );
     assert.match(workflow, /--model \$\{\{ steps\.prepare\.outputs\.model \}\}/);
     assert.doesNotMatch(workflow, /openai\/codex-action/);
     assert.doesNotMatch(workflow, /OPENAI_API_KEY/);

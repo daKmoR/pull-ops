@@ -3,6 +3,9 @@
 PullOps helps repository maintainers turn GitHub issues into reviewed pull
 requests with AI while keeping human approval boundaries explicit.
 
+> PullOps is early-access software. The `0.1.x` line is intended for technical
+> maintainers who are comfortable reviewing generated workflows and agent output.
+
 It installs a repo-local Workflow Kit into a Target Repository. The kit includes
 PullOps skills, GitHub Actions workflows, configuration, and a manifest of
 generated files.
@@ -23,9 +26,13 @@ PullOps supports two issue-to-PR workflows:
 Automated implementation, review, CI repair, branch update, conflict resolution,
 and finalization happen before the final human merge.
 
+PullOps currently targets npm-based GitHub repositories, Node.js 22 or newer,
+same-repository pull request branches, and Codex, Claude Code, or another
+configurable local agent CLI.
+
 ## Setup
 
-Use PullOps v1 in npm-based repositories with Node.js 22 or newer.
+Use PullOps in npm-based repositories with Node.js 22 or newer.
 
 Add PullOps to the Target Repository and install the setup entrypoint:
 
@@ -36,6 +43,10 @@ npx pullops init
 
 Then ask your local agent to run `/pullops-setup`. This is a repo-local agent
 skill installed by `pullops init`, not a shell command.
+
+Init creates a module-safe `pullops.config.mjs` and ensures Local Run Records
+under `.pullops/runs/` are ignored by git. Existing `pullops.config.js` files
+remain supported for repositories that already use them.
 
 `/pullops-setup` starts with setup doctor, installs repo-local PullOps skills and
 agent docs, and can continue into GitHub Actions setup when you want
@@ -54,7 +65,7 @@ Local PullOps work does not require repository Actions secrets.
 ### Choose the Runner
 
 PullOps runs the Codex CLI by default. To run the Claude Code CLI instead,
-point the Runner Command at `claude` in `pullops.config.js`:
+point the Runner Command at `claude` in `pullops.config.mjs`:
 
 ```js
 export default {
@@ -259,3 +270,5 @@ PullOps keeps human control at the important edges:
   outcome metrics and capture baselines before behavior changes.
 - [CONTEXT.md](./CONTEXT.md): PullOps domain language.
 - [docs/adr](./docs/adr): architectural decisions behind the workflow.
+- [SECURITY.md](./SECURITY.md): security boundaries and private vulnerability reporting.
+- [Release Guide](./docs/releasing.md): release checks and npm trusted publishing.
