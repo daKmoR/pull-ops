@@ -108,4 +108,4 @@ For each setup area, use the same loop: run the check command, read `status`, `c
 - Do not invoke `setup-matt-pocock-skills` or any remote skill package installer.
 - `setup agent-docs` creates missing compatible issue tracker, triage label, and domain docs without editing global agent instruction files.
 - When a blocker mentions local changes in a manifest-owned file, inspect the file before deciding whether `--force` is appropriate.
-- Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.mjs` or legacy `pullops.config.js`.
+- Keep `.pullops/install-manifest.json` synchronized only with PullOps-owned generated files such as bundled skills and workflow files, not with the target-owned `pullops.config.js`.

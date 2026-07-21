@@ -24,29 +24,28 @@ try {
   assert.equal(packedPackages.length, 1);
   const tarballPath = join(packageDirectory, packedPackages[0].filename);
 
-  await verifyConsumer({ moduleType: 'commonjs', tarballPath });
-  await verifyConsumer({ moduleType: 'module', tarballPath });
+  await verifyConsumer({ tarballPath });
 
-  process.stdout.write('Packaged PullOps smoke test passed for CommonJS and ESM repositories.\n');
+  process.stdout.write('Packaged PullOps smoke test passed for an ES module repository.\n');
 } finally {
   await rm(tempRoot, { recursive: true, force: true });
 }
 
 /**
- * @param {{ moduleType: 'commonjs' | 'module', tarballPath: string }} options
+ * @param {{ tarballPath: string }} options
  * @returns {Promise<void>}
  */
-async function verifyConsumer({ moduleType, tarballPath }) {
-  const cwd = join(tempRoot, `consumer-${moduleType}`);
+async function verifyConsumer({ tarballPath }) {
+  const cwd = join(tempRoot, 'consumer-module');
   await mkdir(cwd, { recursive: true });
   await run({ command: 'git', args: ['init', '--initial-branch=main'], cwd });
   await writeFile(
     join(cwd, 'package.json'),
     `${JSON.stringify(
       {
-        name: `pullops-${moduleType}-smoke`,
+        name: 'pullops-module-smoke',
         private: true,
-        type: moduleType,
+        type: 'module',
       },
       null,
       2,
@@ -61,7 +60,7 @@ async function verifyConsumer({ moduleType, tarballPath }) {
   const executable = join(cwd, 'node_modules', '.bin', 'pullops');
   const initialized = await runJson({ executable, args: ['init', '--json'], cwd });
   assert.equal(initialized.status, 'changed');
-  assert.ok(initialized.changes.files.includes('pullops.config.mjs'));
+  assert.ok(initialized.changes.files.includes('pullops.config.js'));
   assert.ok(initialized.changes.files.includes('.gitignore'));
 
   const skills = await runJson({ executable, args: ['setup', 'skills', '--json'], cwd });
@@ -80,16 +79,11 @@ async function verifyConsumer({ moduleType, tarballPath }) {
   assert.equal(doctor.status, 'ready');
   assert.doesNotMatch(doctor.warnings.join('\n'), /\.pullops\/runs/);
 
-  const config = await readFile(join(cwd, 'pullops.config.mjs'), 'utf8');
+  const config = await readFile(join(cwd, 'pullops.config.js'), 'utf8');
   assert.match(config, /provider: 'github'/);
   await run({
     command: 'git',
-    args: [
-      'check-ignore',
-      '--quiet',
-      '--no-index',
-      '.pullops/runs/release-smoke/state.json',
-    ],
+    args: ['check-ignore', '--quiet', '--no-index', '.pullops/runs/release-smoke/state.json'],
     cwd,
   });
 
