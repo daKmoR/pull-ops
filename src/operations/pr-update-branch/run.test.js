@@ -355,6 +355,7 @@ function createManagedPullRequestBody() {
  */
 function createGitClientFor(cwd, { beforeForceWithLeasePush } = {}) {
   return createGitClient({
+    env: {},
     execFile: async (file, args) => {
       if (args[0] === 'push' && args[1] === '--force-with-lease') {
         await beforeForceWithLeasePush?.();

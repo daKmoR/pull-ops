@@ -1533,6 +1533,7 @@ function createFakeRunner({ output } = {}) {
  */
 function createGitClientFor(cwd) {
   return createGitClient({
+    env: {},
     execFile: async (file, args) => await execFile(file, args, { cwd }),
   });
 }

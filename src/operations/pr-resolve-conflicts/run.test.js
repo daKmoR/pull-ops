@@ -658,6 +658,7 @@ function createManagedPullRequestBody() {
  */
 function createGitClientFor(cwd) {
   return createGitClient({
+    env: {},
     execFile: async (file, args) => await execFile(file, args, { cwd }),
   });
 }
