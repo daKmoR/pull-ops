@@ -2893,6 +2893,7 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -2951,6 +2952,7 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -2994,6 +2996,7 @@ test('issues publish-issue accepts structured JSON from file and stdin', async t
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
       issueStoreFactory: () => inMemory.store,
@@ -3074,6 +3077,7 @@ test('issues publish-spec accepts structured JSON from file and stdin', async t 
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -3158,6 +3162,7 @@ test('issues publish-spec accepts structured JSON from file and stdin', async t 
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -3218,6 +3223,7 @@ test('issues publish-spec accepts structured JSON from file and stdin', async t 
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
       issueStoreFactory: () => inMemory.store,
@@ -3319,6 +3325,7 @@ test('issues publish-tickets accepts parent from flag or JSON and rejects confli
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -3400,6 +3407,7 @@ test('issues publish-tickets accepts parent from flag or JSON and rejects confli
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -3424,6 +3432,7 @@ test('issues publish-tickets accepts parent from flag or JSON and rejects confli
     const inMemory = createInMemoryIssueStore({ cwd });
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (
         Readable.from([
@@ -3532,6 +3541,7 @@ test('issues publish-tickets accepts parent from flag or JSON and rejects confli
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from([JSON.stringify(request)])),
       issueStoreFactory: () => inMemory.store,
@@ -3651,6 +3661,7 @@ test('issues publish-tickets accepts parent from flag or JSON and rejects confli
 
     const cli = new PullOpsCli({
       cwd,
+      githubClient: createFakeGitHubClient(),
       stdout,
       issueStoreFactory: () => inMemory.store,
     });
@@ -3675,6 +3686,7 @@ test('issues publish-issue rejects malformed JSON input with stable failure outp
   const inMemory = createInMemoryIssueStore({ cwd });
   const cli = new PullOpsCli({
     cwd,
+    githubClient: createFakeGitHubClient(),
     stdout,
     stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
     issueStoreFactory: () => inMemory.store,
@@ -3711,6 +3723,7 @@ test('issues publish-spec rejects malformed JSON input with stable failure outpu
   const inMemory = createInMemoryIssueStore({ cwd });
   const cli = new PullOpsCli({
     cwd,
+    githubClient: createFakeGitHubClient(),
     stdout,
     stdin: /** @type {NodeJS.ReadableStream} */ (Readable.from(['{ "title": "broken"'])),
     issueStoreFactory: () => inMemory.store,
