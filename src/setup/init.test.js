@@ -15,6 +15,7 @@ const CONFIG_PATH = 'pullops.config.js';
 const GITIGNORE_PATH = '.gitignore';
 const MANIFEST_PATH = '.pullops/install-manifest.json';
 const SKILL_PATH = '.agents/skills/pullops-setup/SKILL.md';
+const SOURCE_SKILL_URL = new URL('../../.agents/skills/pullops-setup/SKILL.md', import.meta.url);
 
 test('init creates the setup entry point and records manifest hashes', async () => {
   const cwd = await createGitRepository();
@@ -36,6 +37,7 @@ test('init creates the setup entry point and records manifest hashes', async () 
   const gitIgnoreText = await readFile(join(cwd, GITIGNORE_PATH), 'utf8');
   const manifestText = await readFile(join(cwd, MANIFEST_PATH), 'utf8');
   const skillText = await readFile(join(cwd, SKILL_PATH), 'utf8');
+  const sourceSkillText = await readFile(SOURCE_SKILL_URL, 'utf8');
 
   assert.match(configText, /PullOpsConfig/);
   assert.match(configText, /provider: 'github'/);
@@ -77,7 +79,13 @@ test('init creates the setup entry point and records manifest hashes', async () 
   assert.match(skillText, /## GitHub Authentication/);
   assert.match(skillText, /If a sandboxed Codex agent reports missing GitHub authentication/);
   assert.match(skillText, /HOME\/\.codex\/\.env/);
+  assert.match(skillText, /ignore_default_excludes = true/);
+  assert.match(
+    skillText,
+    /include_only = \["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"\]/,
+  );
   assert.match(skillText, /Do not print tokens with `echo`/);
+  assert.equal(skillText, sourceSkillText);
   assert.match(
     skillText,
     /Keep `\.pullops\/install-manifest\.json` synchronized only with PullOps-owned generated files[\s\S]*not with the target-owned `pullops\.config\.js`\./,

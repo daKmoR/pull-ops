@@ -46,7 +46,7 @@ export const MISSING_GITHUB_AUTHENTICATION_BLOCKER =
 export const MISSING_GITHUB_AUTHENTICATION_SUGGESTION =
   'Set PULLOPS_GITHUB_TOKEN or GITHUB_TOKEN, or run gh auth login and ensure gh is on PATH for this process before rerunning PullOps.';
 export const SANDBOXED_GITHUB_AUTHENTICATION_SUGGESTION =
-  'For Codex sandboxes, make GITHUB_TOKEN available to the host shell, add it to ~/.codex/.env, and allow it through ~/.codex/config.toml with [shell_environment_policy] include_only = ["GITHUB_TOKEN"]; add GITHUB_TOKEN to any existing include_only list instead of replacing unrelated entries.';
+  'For Codex sandboxes, make GITHUB_TOKEN available to the host shell, add it to ~/.codex/.env, and explicitly permit token-named variables in the trusted repository .codex/config.toml with [shell_environment_policy] ignore_default_excludes = true and include_only = ["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"]; merge these names into an existing include_only list without replacing unrelated entries.';
 export const SECURE_GITHUB_AUTHENTICATION_SUGGESTION =
   'Do not print GitHub tokens with echo, paste them into chat, or commit them; check presence with test -n "${GITHUB_TOKEN:-}" and keep token-bearing dotfiles private.';
 export const MISSING_GITHUB_AUTHENTICATION_SUGGESTIONS = [

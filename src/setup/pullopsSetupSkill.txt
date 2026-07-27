@@ -35,13 +35,13 @@ Completion criterion: every blocker and warning is classified as one of:
 
 ## GitHub Authentication
 
-GitHub API authentication is contextual readiness. PullOps can use `GITHUB_TOKEN` or `GH_TOKEN`, but only when a credential is visible to the current process.
+GitHub API authentication is contextual readiness. PullOps can use `PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN`, but only when a credential is visible to the current process.
 
 If a sandboxed Codex agent reports missing GitHub authentication (Claude Code inherits the host environment by default, so these Codex sandbox steps do not apply there — go to step 4 or 5 when the token is missing):
 
 1. Check for a visible token without printing it:
 ```sh
-test -n "${GITHUB_TOKEN:-}${GH_TOKEN:-}"
+test -n "${PULLOPS_GITHUB_TOKEN:-}${GITHUB_TOKEN:-}${GH_TOKEN:-}"
 ```
 
 2. If no token is visible, assume `gh auth token` may not work inside the sandbox. Ask the user to run this command outside the sandbox and confirm when done:
@@ -72,10 +72,13 @@ Then ask the user to rerun the token persistence command from step 2.
 # .codex/config.toml
 
 [shell_environment_policy]
-include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
+ignore_default_excludes = true
+include_only = ["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"]
 ```
 
-If an include_only list already exists, add GITHUB_TOKEN and GH_TOKEN to the existing list rather than replacing unrelated entries.
+Codex excludes token-named variables by default, so `ignore_default_excludes = true` is required. The narrow `include_only` list prevents unrelated secrets from being forwarded.
+
+If an include_only list already exists, add PULLOPS_GITHUB_TOKEN, GITHUB_TOKEN, and GH_TOKEN to the existing list rather than replacing unrelated entries.
 
 7. If using the Codex app or a long-running Codex process, restart it after changing `~/.codex/.env`.
 

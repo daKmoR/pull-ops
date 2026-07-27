@@ -170,6 +170,11 @@ describe('setup doctor', () => {
       joinMessages(result.suggestions),
       /For Codex sandboxes, make GITHUB_TOKEN available to the host shell/,
     );
+    assert.match(joinMessages(result.suggestions), /ignore_default_excludes = true/);
+    assert.match(
+      joinMessages(result.suggestions),
+      /include_only = \["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"\]/,
+    );
     assert.match(joinMessages(result.suggestions), /Do not print GitHub tokens with echo/);
   });
 

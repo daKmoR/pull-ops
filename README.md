@@ -27,9 +27,10 @@ Automated implementation, review, CI repair, branch update, conflict resolution,
 and finalization happen before the final human merge.
 
 PullOps currently targets npm-based ES module GitHub repositories whose root
-`package.json` declares `"type": "module"`, Node.js 22 or newer, same-repository
-pull request branches, and Codex, Claude Code, or another configurable local
-agent CLI.
+`package.json` declares `"type": "module"` and Node.js 22 or newer.
+
+It supports same-repository pull request branches and Codex, Claude Code, or
+another configurable local agent CLI.
 
 ## Setup
 
@@ -78,19 +79,28 @@ export default {
 
 When the Runner Command runs `claude` and `runner.models` is not overridden,
 the model tiers default to `claude-opus-4-8` (high), `claude-sonnet-5` (mid),
-and `claude-haiku-4-5` (low). Generated GitHub Actions workflows switch from
-the Codex Action to the Claude Code Action; rerun `pullops setup github-actions`
-after changing the Runner Command so the workflows match.
+and `claude-haiku-4-5` (low).
 
-To run any other agent CLI locally, set `runner.argsTemplate`. PullOps
-substitutes `{model}` and `{prompt}` placeholders, appends the prompt as the
-final argument when no `{prompt}` placeholder is used, and reads the final
-message from stdout:
+Generated GitHub Actions workflows switch from the Codex Action to the Claude
+Code Action. Rerun `pullops setup github-actions` after changing the Runner
+Command so the workflows match.
+
+To run another agent CLI locally, set `runner.argsTemplate` and map every model
+tier to an identifier that CLI accepts.
+
+PullOps substitutes `{model}` and `{prompt}` placeholders, appends the prompt as
+the final argument when no `{prompt}` placeholder is used, and treats stdout as
+the runner output:
 
 ```js
 export default {
   runner: {
     command: 'my-agent chat',
+    models: {
+      high: 'my-agent-large',
+      mid: 'my-agent-medium',
+      low: 'my-agent-small',
+    },
     argsTemplate: ['--model', '{model}', '--message', '{prompt}'],
   },
 };
@@ -178,10 +188,11 @@ Lower-level command variants live in
 
 Local setup and operation commands authenticate GitHub API calls from
 `PULLOPS_GITHUB_TOKEN`, `GITHUB_TOKEN`, or `gh auth token` in the current
-process. Sandboxed agents may not see the host machine's `gh` credentials; in
-that case, forward `GITHUB_TOKEN` into the sandbox through Codex config. The
-Claude Code CLI inherits the host environment by default, so it needs no
-equivalent step.
+process.
+
+Sandboxed agents may not see the host machine's `gh` credentials. In that case,
+forward `GITHUB_TOKEN` through Codex config. The Claude Code CLI inherits the
+host environment by default, so it needs no equivalent step.
 
 In a trusted host shell, check whether `GITHUB_TOKEN` is present without printing
 the token:
@@ -197,18 +208,25 @@ shell startup file instead of storing the raw token there:
 export GITHUB_TOKEN="$(gh auth token)"
 ```
 
-Add the same token to `~/.codex/.env` as `GITHUB_TOKEN=...`, keep that file
-private, and configure Codex to pass the variable into shell sessions:
+Add the same token to `~/.codex/.env` as `GITHUB_TOKEN=...` and keep that file
+private. In the Target Repository's `.codex/config.toml`, explicitly allow the
+GitHub token variables that PullOps and the GitHub CLI can use:
 
 ```toml
 [shell_environment_policy]
-include_only = ["GITHUB_TOKEN"]
+ignore_default_excludes = true
+include_only = ["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"]
 ```
 
-If `include_only` already exists, add `GITHUB_TOKEN` to the existing list rather
-than replacing unrelated entries. Restart Codex after changing host env or Codex
-config. Do not print GitHub tokens with `echo`, paste them into chat, commit
-them, or include them in logs.
+Codex excludes token-named variables by default, so the explicit override is
+required. The narrow `include_only` list prevents unrelated secrets from being
+forwarded.
+
+If `include_only` already exists, add the three GitHub token variables without
+replacing unrelated entries.
+
+Restart Codex after changing host env or Codex config. Do not print GitHub
+tokens with `echo`, paste them into chat, commit them, or include them in logs.
 
 ### GitHub Actions Credentials
 
@@ -231,7 +249,7 @@ because credential readiness depends on the execution path you intend to use.
 
 ### GitHub Labels
 
-Apply these labels when GitHub Actions should run PullOps:
+The main end-to-end issue labels for running PullOps through GitHub Actions are:
 
 - Use `pullops:spec:auto-advance` when you want PullOps to prepare a Spec and
   implement the currently unblocked Ticket frontier. Humans still approve
@@ -248,6 +266,10 @@ stay on the Spec Issue so later Ticket merges can resume the selected mode.
 
 `pullops:issue:implement` is a request for one issue implementation. PullOps
 removes one-shot request labels when the request is fulfilled.
+
+PullOps also provides one-step Spec preparation and pull request operation
+labels. See the [PullOps Operation Reference](./docs/operation-reference.md) for
+the complete list.
 
 PullOps uses `pullops:human-required` when automation needs maintainer
 attention. Ordinary progress lives in issue state, pull request state, PullOps

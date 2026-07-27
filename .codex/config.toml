@@ -1,7 +1,8 @@
 default_permissions = "pullops_github"
 
 [shell_environment_policy]
-include_only = ["PATH", "HOME", "GITHUB_TOKEN", "GH_TOKEN"]
+ignore_default_excludes = true
+include_only = ["PATH", "HOME", "PULLOPS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"]
 
 [permissions.pullops_github]
 description = "Workspace write with GitHub-only network access."

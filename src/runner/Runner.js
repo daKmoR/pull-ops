@@ -47,7 +47,8 @@ export function createRunner({ spawn = nodeSpawn, output, traceCommand } = {}) {
  * Run an arbitrary agent CLI through the configured runner.argsTemplate:
  * substitute {model} and {prompt} placeholders, append the prompt as the
  * final positional argument when no {prompt} placeholder is used, rely on
- * the spawn working directory, and read the final message from stdout.
+ * the spawn working directory, and treat the full stdout stream as runner
+ * output.
  *
  * @param {{ spawn: RunnerSpawn, output?: RunnerOutput, traceCommand?: (command: string) => void }} runner
  * @param {RunnerRunOptions} options
